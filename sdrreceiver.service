@@ -1,0 +1,27 @@
+#
+# Simple autossh reverse tunnel setup for ubuntu
+# replace USER, SERVER, and USERNAME
+# To install:
+# sudo cp sdrreceiver.service /etc/systemd/system/sdrreceiver.service
+# 
+# sudo systemctl daemon-reload
+# sudo systemctl start sdrreceiver.service
+# sudo systemctl enable sdrreceiver.service
+#
+[Unit]
+Description=PANSY SDR Receiver Service
+After=network.target
+
+[Service]
+# local username that will be used to execute autossh
+User=radar
+
+ExecStart=bash /home/radar/src/pansy_receiver/start_rx.sh
+
+# kill process
+ExecStop=bash /home/radar/src/pansy_receiver/stop_rx.sh
+
+
+[Install]
+WantedBy=multi-user.target
+
