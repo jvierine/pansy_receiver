@@ -1,6 +1,8 @@
+mkdir -p ~/.config/systemd/user/
 
-sudo cp sdrreceiver.service /etc/systemd/system/sdrreceiver.service
-sudo systemctl daemon-reload
-sudo systemctl start sdrreceiver.service
-sudo systemctl enable sdrreceiver.service
-sudo systemctl status sdrreceiver.service
+cp sdrreceiver.service ~/.config/systemd/user/sdrreceiver.service
+systemctl --user daemon-reload
+systemctl --user start sdrreceiver.service
+systemctl --user enable sdrreceiver.service
+systemctl --user status sdrreceiver.service
+
