@@ -1,3 +1,5 @@
+systemctl --user stop sdrreceiver.service
+
 mkdir -p ~/.config/systemd/user/
 
 cp sdrreceiver.service ~/.config/systemd/user/sdrreceiver.service
