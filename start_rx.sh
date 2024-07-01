@@ -22,8 +22,12 @@ mkdir -p $DDIR
 # add ntp?
 
 # setup ringbuffer
-echo "Ringbuffer"
-$ENVPYTHON $ENVDIR/drf ringbuffer -z 120000MB $DDIR -p 2 > $RUNDIR/logs/ringbuffer.log 2>&1 &
+echo "Ringbuffer on RAM disk"
+$ENVPYTHON $ENVDIR/drf ringbuffer -z 120000MB $DDIR -p 60 > $RUNDIR/logs/ringbuffer_ramdisk.log 2>&1 &
+echo "Mirror - RAM disk to archive"
+$ENVPYTHON $ENVDIR/drf mirror cp /media/buffer/rf/ /media/archive/rf/ > $RUNDIR/logs/mirror.log 2>&1 &
+echo "Ringbuffer on archive"
+$ENVPYTHON $ENVDIR/drf ringbuffer -z 15TB /media/archive/rf/ -p 60 > $RUNDIR/logs/ringbuffer_archive.log 2>&1 &
 
 FREQ=47.5e6
 RATE=1e6
