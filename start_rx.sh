@@ -23,7 +23,7 @@ mkdir -p $DDIR
 
 # setup ringbuffer
 echo "Ringbuffer on RAM disk"
-$ENVPYTHON $ENVDIR/drf ringbuffer -z 100000MB $DDIR -p 10 > $RUNDIR/logs/ringbuffer_ramdisk.log 2>&1 &
+$ENVPYTHON $ENVDIR/drf ringbuffer -z 120GB /media/buffer/rf -p 10 > $RUNDIR/logs/ringbuffer_ramdisk.log 2>&1 &
 echo "Mirror - RAM disk to archive"
 $ENVPYTHON $ENVDIR/drf mirror cp /media/buffer/rf/ /media/archive/rf/ > $RUNDIR/logs/mirror.log 2>&1 &
 echo "Ringbuffer on archive"
