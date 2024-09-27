@@ -1,0 +1,6 @@
+mode=st320nc3+r 20240927 06:32 - 06:43  1727418947000000   '2024-09-27 06:35:47.00' '2024-09-27 06:43:36.00' 1727419416
+mode=mm1600 06:57 07:07
+mixed mode 7:14-7:20
+st mesa 7:25 - 
+IPP varies in time in the beginning of every observation mode
+
