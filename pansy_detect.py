@@ -3,7 +3,7 @@ import digital_rf as drf
 import matplotlib.pyplot as plt
 import pansy_modes as pm
 
-def plot_overview(dirname="test_data/test_data/mixmode",mmode_start=n.array([],dtype=int)):
+def plot_overview(dirname="test_data/test_data/mixmode",mmode_start=n.array([],dtype=int),stmode_start=n.array([],dtype=int)):
     d=drf.DigitalRFReader(dirname)
 
     b=d.get_bounds("ch000")
@@ -30,6 +30,8 @@ def plot_overview(dirname="test_data/test_data/mixmode",mmode_start=n.array([],d
     cb.set_label("Power (dB)")
     # plot detected sequence starts
     plt.plot( (mmode_start-b[0])/1e6, n.mod(mmode_start,1600), "." ,color="red")
+    # plot detected sequence starts
+    plt.plot( (stmode_start-b[0])/1e6, n.mod(stmode_start,1600), "." ,color="green")
     plt.title(dirname)
     plt.xlabel("Time (s)")
     plt.ylabel("Time (us)")
@@ -39,27 +41,75 @@ def plot_overview(dirname="test_data/test_data/mixmode",mmode_start=n.array([],d
     plt.close()
 
 def find_stmode_start(d,i0=None,ch="ch000"):
+    """ 
+    use 10 first pulses to find the start of sequence 
+    it appears that the 10 first pulses does not repeat otherwise.
+    also detect the minima before the transmit pulse, which is due to the 
+    receiver protection. this seems to avoid strong airplanes echoes being detected
+    (not guaranteed)
+    """
     stm=pm.get_st_mode()
-    codes=pm.get_vector(stm,ncodes=2)
+    ncodes=10
+    codes=pm.get_vector(stm,ncodes=ncodes)
 
     # this one looks at nulls
-    rxp_window = n.concatenate((n.repeat(1,20),n.repeat(0,320),n.repeat(1,20),n.repeat(0,320)))
-    codes=n.roll(codes,-20)
-    plt.plot(codes.real)
-    plt.show()
+    rxp_window = n.tile(n.concatenate((n.repeat(1,16),n.repeat(0,304))),ncodes)
+    # add 20 samples of space in front of tx pulse to align with rxp protect window
+    codes=n.roll(codes,20)
+    tx_window = n.copy(codes)
+    tx_window[n.abs(tx_window)>0.1]=1.0  
     N=len(rxp_window)
 
     b=d.get_bounds(ch)
     if i0==None:
         i0=b[0]
+    if False:
+        plt.subplot(211)
+        plt.plot(rxp_window.real)
+        z=d.read_vector_c81d(i0+80,ncodes*320,ch)
+        plt.plot(codes.real)
+        plt.subplot(212)
+        plt.plot(z.real)
+        plt.plot(z.imag)
+        plt.plot(1/n.abs(z))
+        plt.show()
 
-    R=n.conj(n.fft.fft(rxp_window,2*N))
-    while (i0 < (b[1]-2*N)) and not_found:
-        z=d.read_vector_c81d(i0,2*N,ch)
+    R=n.conj(n.fft.fft(rxp_window,(160+1)*320))
+    C=n.conj(n.fft.fft(codes,(160+1)*320))
+    T=n.conj(n.fft.fft(tx_window,(160+1)*320))
+
+    st_idxs=[]
+    prev_idx=0
+    while (i0 < (b[1]-(160+1)*320)):
+        z=d.read_vector_c81d(i0,(160+1)*320,ch)
         pwr=z.real**2.0 + z.imag**2.0
-        cc=n.abs(n.fft.ifft(n.fft.fft(pwr)*R))
-        
-        i0+=N
+        pwr_cc=n.abs(n.fft.ifft(n.fft.fft(pwr)*R))
+        tx_pwr=n.abs(n.fft.ifft(n.fft.fft(pwr)*T))
+        code_ccc=n.fft.ifft(n.fft.fft(z)*C)
+        code_cc=(code_ccc.real**2.0+code_ccc.imag**2.0)/tx_pwr
+
+        peak_cc=n.max(code_cc)
+        rxp_normalized=peak_cc*pwr_cc/n.max(pwr_cc)
+        mf=code_cc - rxp_normalized
+        mi=n.argmax(mf)
+           
+        if n.max(mf) > 90:
+            print("%f %f %d"%( (i0-b[0])/1e6, mf[mi], mi+i0 - prev_idx))
+            st_idxs.append(mi+i0)
+            prev_idx=mi+i0
+            #z=d.read_vector_c81d(i0+mi,1600,"ch000")
+            #plt.plot(z[0:64].real)
+            #plt.plot(z[0:64].imag)
+            #plt.plot(n.abs(z[0:64]))
+            #plt.show()
+
+            if False:
+                plt.plot(peak_cc*pwr_cc/n.max(pwr_cc))
+                plt.plot(code_cc)
+                plt.plot(mf)
+                plt.show()
+        i0+=160*320
+    return(n.array(st_idxs,dtype=int))
 
 def find_mmode_start(d,i0=None,ch="ch000"):
     # look for AA, which happens at the end of the cycle!
@@ -129,10 +179,10 @@ def find_mmode_start(d,i0=None,ch="ch000"):
     return(n.array(start_idxs,dtype=int))
 
 
-
+plot_overview(dirname="test_data/stmode")
 d=drf.DigitalRFReader("test_data/stmode")
 start_idxs=find_stmode_start(d)
-#plot_overview(dirname="test_data/stmode",mmode_start=start_idxs)
+plot_overview(dirname="test_data/stmode",stmode_start=start_idxs)
 
 if False:
     d=drf.DigitalRFReader("test_data/stmode")
