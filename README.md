@@ -1,2 +1,3 @@
-# pansy_receiver
-# pansy_receiver
+# PANSY Meteor Extension
+
+Software and engineering documantation related to the PANSY meteor head echo receiver. 
