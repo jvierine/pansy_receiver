@@ -2,8 +2,16 @@ import numpy as n
 import digital_rf as drf
 import matplotlib.pyplot as plt
 import pansy_modes as pm
+import scipy.signal.windows as sw
+import scipy.constants as c
+import stuffr
+from mpi4py import MPI
 
-def plot_overview(dirname="test_data/test_data/mixmode",mmode_start=n.array([],dtype=int),stmode_start=n.array([],dtype=int)):
+comm = MPI.COMM_WORLD
+size = comm.Get_size()
+rank = comm.Get_rank()
+
+def plot_overview(dirname="test_data/test_data/mixmode",m_mode_start=n.array([],dtype=int),st_mode_start=n.array([],dtype=int)):
     d=drf.DigitalRFReader(dirname)
 
     b=d.get_bounds("ch000")
@@ -29,9 +37,9 @@ def plot_overview(dirname="test_data/test_data/mixmode",mmode_start=n.array([],d
     cb=plt.colorbar()
     cb.set_label("Power (dB)")
     # plot detected sequence starts
-    plt.plot( (mmode_start-b[0])/1e6, n.mod(mmode_start,1600), "." ,color="red")
+    plt.plot( (m_mode_start-b[0])/1e6, n.mod(m_mode_start,1600), "." ,color="red")
     # plot detected sequence starts
-    plt.plot( (stmode_start-b[0])/1e6, n.mod(stmode_start,1600), "." ,color="green")
+    plt.plot( (st_mode_start-b[0])/1e6, n.mod(st_mode_start,1600), "." ,color="white")
     plt.title(dirname)
     plt.xlabel("Time (s)")
     plt.ylabel("Time (us)")
@@ -40,7 +48,7 @@ def plot_overview(dirname="test_data/test_data/mixmode",mmode_start=n.array([],d
     plt.show()
     plt.close()
 
-def find_stmode_start(d,i0=None,ch="ch000"):
+def find_st_mode_start(d,i0=None,i1=None,ch="ch000", rxp_max=3e8):
     """ 
     use 10 first pulses to find the start of sequence 
     it appears that the 10 first pulses does not repeat otherwise.
@@ -63,6 +71,9 @@ def find_stmode_start(d,i0=None,ch="ch000"):
     b=d.get_bounds(ch)
     if i0==None:
         i0=b[0]
+    if i1==None:
+        i1=(b[1]-(160+1)*320)
+
     if False:
         plt.subplot(211)
         plt.plot(rxp_window.real)
@@ -80,7 +91,7 @@ def find_stmode_start(d,i0=None,ch="ch000"):
 
     st_idxs=[]
     prev_idx=0
-    while (i0 < (b[1]-(160+1)*320)):
+    while i0 < i1:
         z=d.read_vector_c81d(i0,(160+1)*320,ch)
         pwr=z.real**2.0 + z.imag**2.0
         pwr_cc=n.abs(n.fft.ifft(n.fft.fft(pwr)*R))
@@ -88,13 +99,18 @@ def find_stmode_start(d,i0=None,ch="ch000"):
         code_ccc=n.fft.ifft(n.fft.fft(z)*C)
         code_cc=(code_ccc.real**2.0+code_ccc.imag**2.0)/tx_pwr
 
-        peak_cc=n.max(code_cc)
-        rxp_normalized=peak_cc*pwr_cc/n.max(pwr_cc)
-        mf=code_cc - rxp_normalized
+        # are we in a region where the rx protect is low enough
+        mask=(pwr_cc < rxp_max)
+        #peak_cc=n.max(code_cc)
+        #plt.plot(pwr_cc)
+        #plt.show()    
+        #rxp_normalized=peak_cc*pwr_cc/n.max(pwr_cc)
+        mf=code_cc*mask# - rxp_normalized
         mi=n.argmax(mf)
            
-        if n.max(mf) > 90:
-            print("%f %f %d"%( (i0-b[0])/1e6, mf[mi], mi+i0 - prev_idx))
+        if n.max(mf) > 100:
+            if False:
+                print("%f %f %d"%( (i0-b[0])/1e6, mf[mi], mi+i0 - prev_idx))
             st_idxs.append(mi+i0)
             prev_idx=mi+i0
             #z=d.read_vector_c81d(i0+mi,1600,"ch000")
@@ -111,7 +127,7 @@ def find_stmode_start(d,i0=None,ch="ch000"):
         i0+=160*320
     return(n.array(st_idxs,dtype=int))
 
-def find_mmode_start(d,i0=None,ch="ch000"):
+def find_m_mode_start(d,i0=None,i1=None,ch="ch000",debug=False):
     # look for AA, which happens at the end of the cycle!
     # use the fact that the cross-correlation AB is zero
     # where AA maximizes
@@ -130,7 +146,9 @@ def find_mmode_start(d,i0=None,ch="ch000"):
     b=d.get_bounds(ch)
     if i0==None:
         i0=b[0]
-
+    if i1==None:
+        i1=(b[1]-12*N)
+        #        i1=(b[1]-(160+1)*320)
     CAA=n.conj(n.fft.fft(codeaa,11*N))
     CBB=n.conj(n.fft.fft(codebb,11*N))
     P=n.conj(n.fft.fft(power,11*N))
@@ -138,7 +156,7 @@ def find_mmode_start(d,i0=None,ch="ch000"):
     start_idxs=[]
     prev_idx=0
     plot=False
-    while (i0 < (b[1]-12*N)):
+    while i0 < i1:
         z=d.read_vector_c81d(i0,11*N,ch)
         Z=n.fft.fft(z)
         ccaaa=n.fft.ifft(Z*CAA)
@@ -156,7 +174,8 @@ def find_mmode_start(d,i0=None,ch="ch000"):
         #print(pfr[mi])        
         if pfr[mi]>150 and (i0+mi - prev_idx) != 0:
             # found new start
-            print("%f %d %f"%( (i0-b[0])/1e6, i0+mi - prev_idx, pfr[mi]))
+            if debug:
+                print("%f %d %f"%( (i0-b[0])/1e6, i0+mi - prev_idx, pfr[mi]))
             # the idx points to the start of last ipp in a sequence of 20 ipps
             start_idxs.append(i0+mi - 19*1600)
             if plot:
@@ -178,38 +197,268 @@ def find_mmode_start(d,i0=None,ch="ch000"):
         i0+=10*N
     return(n.array(start_idxs,dtype=int))
 
-
-plot_overview(dirname="test_data/stmode")
-d=drf.DigitalRFReader("test_data/stmode")
-start_idxs=find_stmode_start(d)
-plot_overview(dirname="test_data/stmode",stmode_start=start_idxs)
-
-if False:
-    d=drf.DigitalRFReader("test_data/stmode")
+def analyze_st_mode(d,dt=10):
     b=d.get_bounds("ch000")
-    z=d.read_vector_c81d(b[0],1600,"ch000")
-    plt.plot(z.real)
-    plt.plot(z.imag)
-    plt.show()
 
-d=drf.DigitalRFReader("test_data/mmode")
-start_idxs=find_mmode_start(d)
-plot_overview(dirname="test_data/mmode",mmode_start=start_idxs)
+    stm=pm.get_st_mode()
+    ncodes=10
+    codes=pm.get_vector(stm,ncodes=len(stm["codes"]))
+    codes.shape=(160,320) 
+    C=n.copy(codes)
+    
+    for i in range(codes.shape[0]):
+        C[i,:]=n.conj(n.fft.fft(codes[i,:]))
 
-d=drf.DigitalRFReader("test_data/mixmode")
-start_idxs=find_mmode_start(d)
-plot_overview(dirname="test_data/mixmode",mmode_start=start_idxs)
+    # how many integration periods
+    n_ints=int(n.floor((b[1]-b[0])/1e6/dt))
+    for i in range(rank,n_ints,size):
+        i0=b[0]+i*dt*1000000
+        i1=b[0]+(i+1)*dt*1000000
+        st_start_idxs=find_st_mode_start(d,i0,i1)
+        n_beam=len(stm["beam_pos_az_za"])
+        n_rg=320
+        n_pulse=32
+        n_reps=32
+        wf=sw.hann(n_reps*n_pulse)
+        Z=n.zeros([n_beam,n_rg,n_pulse*n_reps],dtype=n.complex64)
+        S=n.zeros([n_beam,n_rg,n_pulse*n_reps],dtype=n.float32)
+
+        rvec=n.arange(n_rg)*0.15
+        # 2*f*v/c = df
+        # df*c/f/2 = v
+        fvec=n.fft.fftshift(n.fft.fftfreq(n_reps*n_pulse,d=n_beam*320/1e6))*c.c/47.5e6/2.0
+        if len(st_start_idxs) > 0:
+            print("%1.1f found %d sequences"%(i*dt,len(st_start_idxs)))
+            n_cycles=int(n.floor(len(st_start_idxs)/n_reps))
+            print(n_cycles)
+            for ci in range(n_cycles):
+                print("cycle %d"%(ci))
+                for ri in range(n_reps):
+                    i0=st_start_idxs[ci*n_reps + ri]
+                    for pi in range(n_pulse):
+                        for bi in range(n_beam):
+                            iread = i0 + pi*320*n_beam + bi*320 + 20
+                            z=d.read_vector_c81d(iread,320,"ch000")
+                            codei = (pi*n_beam + bi)%160
+                            Z[bi,:,ri*n_pulse + pi]=n.fft.ifft(n.fft.fft(z)*C[codei,:])
+                            # phase shift based on transmit pulse phase 
+                            phase = n.angle(Z[bi,0,ri*n_pulse + pi])
+                            Z[bi,:,ri*n_pulse + pi]=Z[bi,:,ri*n_pulse + pi]*n.exp(-1j*phase)
+    #                        if True:
+    #                           plt.plot(Z[bi,:,pi].real)
+    #                          plt.plot(Z[bi,:,pi].imag)
+    #                         plt.show()
+
+                for bi in range(n_beam):
+                    if False:
+                        plt.pcolormesh(Z[bi,:,:].real)
+                        plt.title("beam %d"%(bi))
+                        plt.colorbar()
+                        plt.show()
+                    for ri in range(n_rg):
+                        S[bi,ri,:]+=n.abs(n.fft.fftshift(n.fft.fft(wf*Z[bi,ri,:])))**2.0
+#            for bi in range(n_beam):
+ #               for ri in range(n_rg):
+  #                  S[bi,ri,:]=S[bi,ri,:]/n.median(n.abs(S[bi,ri,:]-n.median(S[bi,ri,:])))
+
+            plt.figure(figsize=(16,9))
+            plt.subplot(231)
+            dB=10.0*n.log10(S[0,:,:])
+            plt.title("Beam 1")
+            dB=dB-n.nanmedian(dB)
+            plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
+            plt.xlim([-200,200])
+            plt.ylim([0,40])
+
+            plt.subplot(232)
+            dB=10.0*n.log10(S[1,:,:])
+            dB=dB-n.nanmedian(dB)
+            plt.xlim([-200,200])
+            plt.ylim([0,40])
+            plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
+            plt.title("Beam 2")
+            
+            plt.subplot(233)
+            dB=10.0*n.log10(S[2,:,:])
+            dB=dB-n.nanmedian(dB)
+            plt.xlim([-200,200])
+            plt.ylim([0,40])
+            plt.title("Beam 3")
+
+            plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
+            plt.subplot(234)
+            dB=10.0*n.log10(S[3,:,:])
+            dB=dB-n.nanmedian(dB)
+            plt.xlim([-200,200])
+            plt.ylim([0,40])
+            plt.title("Beam 4")
 
 
-#b=d.get_bounds("ch000")
-#plt.plot((start_idxs-b[0])/1e6,n.mod(start_idxs,1600),".")
-#plt.show()
-#plt.plot(n.diff(start_idxs),".")
-#plt.show()
+            plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
+            plt.subplot(235)
+            dB=10.0*n.log10(S[4,:,:])
+            dB=dB-n.nanmedian(dB)
+            plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
+            plt.xlim([-200,200])
+            plt.ylim([0,40])
+            plt.title("Beam 5")
+            plt.subplot(236)
+            plt.title(stuffr.unix2datestr(st_start_idxs[0]/1e6))
+            plt.pcolormesh(Z[0,:,:].real)
+            plt.tight_layout()
+            plt.savefig("strd-%d.png"%(int(st_start_idxs[0]/1e6)))
+            #plt.show()    
+            plt.close()
+            plt.clf()
+
+
+def analyze_m_mode(d,dt=10,debug=False):
+    # simple range-Doppler power spectrum for the M-mode
+    b=d.get_bounds("ch000")
+
+    stm=pm.get_m_mode()
+    ncodes=20
+    codes=pm.get_vector(stm,ncodes=len(stm["codes"]))
+    codes.shape=(ncodes,1600) 
+    C=n.copy(codes)
+    
+    for i in range(codes.shape[0]):
+        if debug:
+            plt.plot(codes[i,:].real)
+            plt.show()
+
+        C[i,:]=n.conj(n.fft.fft(codes[i,:]))
+
+    # how many integration periods
+    n_ints=int(n.floor((b[1]-b[0])/1e6/dt))
+    for i in range(rank,n_ints,size):
+        i0=b[0]+i*dt*1000000
+        i1=b[0]+(i+1)*dt*1000000
+        m_start_idxs=find_m_mode_start(d,i0,i1)
+        n_beam=len(stm["beam_pos_az_za"])
+        n_rg=1600
+        n_pulse=4
+        n_reps=32
+        wf=sw.hann(n_reps*n_pulse)
+        Z=n.zeros([n_beam,n_rg,n_pulse*n_reps],dtype=n.complex64)
+        S=n.zeros([n_beam,n_rg,n_pulse*n_reps],dtype=n.float32)
+
+        rvec=n.arange(n_rg)*0.15
+        # 2*f*v/c = df
+        # df*c/f/2 = v
+        fvec=n.fft.fftshift(n.fft.fftfreq(n_reps*n_pulse,d=n_beam*1600/1e6))*c.c/47.5e6/2.0
+        if len(m_start_idxs) > 0:
+            print("%1.1f found %d sequences"%(i*dt,len(m_start_idxs)))
+            n_cycles=int(n.floor(len(m_start_idxs)/n_reps))
+            print(n_cycles)
+            for ci in range(n_cycles):
+                print("cycle %d"%(ci))
+                for ri in range(n_reps):
+                    i0=m_start_idxs[ci*n_reps + ri]
+                    for pi in range(n_pulse):
+                        for bi in range(n_beam):
+                            iread = i0 + pi*1600*n_beam + bi*1600 #+ 20
+                            z=d.read_vector_c81d(iread,1600,"ch000")
+                            codei = (pi*n_beam + bi)%20
+                            Z[bi,:,ri*n_pulse + pi]=n.fft.ifft(n.fft.fft(z)*C[codei,:])
+                            #plt.plot(Z[bi,:,ri*n_pulse + pi].real)
+                            #plt.plot(Z[bi,:,ri*n_pulse + pi].imag)
+                            #plt.show()
+                            # phase shift based on transmit pulse phase 
+                            phase = n.angle(Z[bi,0,ri*n_pulse + pi])
+                            Z[bi,:,ri*n_pulse + pi]=Z[bi,:,ri*n_pulse + pi]*n.exp(-1j*phase)
+    #                        if True:
+    #                           plt.plot(Z[bi,:,pi].real)
+    #                          plt.plot(Z[bi,:,pi].imag)
+    #                         plt.show()
+
+                for bi in range(n_beam):
+                    if False:
+                        plt.pcolormesh(Z[bi,:,:].real)
+                        plt.title("beam %d"%(bi))
+                        plt.colorbar()
+                        plt.show()
+                    for ri in range(n_rg):
+                        S[bi,ri,:]+=n.abs(n.fft.fftshift(n.fft.fft(wf*Z[bi,ri,:])))**2.0
+#            for bi in range(n_beam):
+ #               for ri in range(n_rg):
+  #                  S[bi,ri,:]=S[bi,ri,:]/n.median(n.abs(S[bi,ri,:]-n.median(S[bi,ri,:])))
+
+            plt.figure(figsize=(16,9))
+            plt.subplot(231)
+            dB=10.0*n.log10(S[0,:,:])
+            plt.title("Beam 1")
+            dB=dB-n.nanmedian(dB)
+            plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
+            plt.xlim([-200,200])
+            plt.ylim([0,40])
+
+            plt.subplot(232)
+            dB=10.0*n.log10(S[1,:,:])
+            dB=dB-n.nanmedian(dB)
+            plt.xlim([-200,200])
+            plt.ylim([0,40])
+            plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
+            plt.title("Beam 2")
+            
+            plt.subplot(233)
+            dB=10.0*n.log10(S[2,:,:])
+            dB=dB-n.nanmedian(dB)
+            plt.xlim([-200,200])
+            plt.ylim([0,40])
+            plt.title("Beam 3")
+
+            plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
+            plt.subplot(234)
+            dB=10.0*n.log10(S[3,:,:])
+            dB=dB-n.nanmedian(dB)
+            plt.xlim([-200,200])
+            plt.ylim([0,40])
+            plt.title("Beam 4")
+
+
+            plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
+            plt.subplot(235)
+            dB=10.0*n.log10(S[4,:,:])
+            dB=dB-n.nanmedian(dB)
+            plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
+            plt.xlim([-200,200])
+            plt.ylim([0,40])
+            plt.title("Beam 5")
+            plt.subplot(236)
+            plt.title(stuffr.unix2datestr(m_start_idxs[0]/1e6))
+            plt.pcolormesh(Z[0,:,:].real)
+            plt.tight_layout()
+            plt.savefig("mrd-%d.png"%(int(m_start_idxs[0]/1e6)))
+            #plt.show()    
+            plt.close()
+            plt.clf()
+
+def test_mode_detection():
+    # test mode finding with the test data
+    d=drf.DigitalRFReader("test_data/mixmode")
+    st_start_idxs=find_st_mode_start(d)
+    m_start_idxs=find_m_mode_start(d)
+    plot_overview(dirname="test_data/mixmode", m_mode_start=m_start_idxs, st_mode_start=st_start_idxs)
+
+    d=drf.DigitalRFReader("test_data/stmode")
+    start_idxs=find_st_mode_start(d)
+    plot_overview(dirname="test_data/stmode",st_mode_start=start_idxs)
+
+    d=drf.DigitalRFReader("test_data/mmode")
+    start_idxs=find_m_mode_start(d)
+    plot_overview(dirname="test_data/mmode",m_mode_start=start_idxs)
+
+
+if __name__ == "__main__":
+    d=drf.DigitalRFReader("test_data/mmode")
+    analyze_m_mode(d)
+
+    d=drf.DigitalRFReader("test_data/stmode")
+    analyze_st_mode(d)
 
 
 
-if False:
-    plot_overview(dirname="test_data/mixmode")
-    plot_overview(dirname="test_data/mmode")
-    plot_overview(dirname="test_data/stmode")
+
+
+        
