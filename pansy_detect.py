@@ -304,7 +304,11 @@ def analyze_st_mode(d,dt=10):
             plt.title("Beam 5")
             plt.subplot(236)
             plt.title(stuffr.unix2datestr(st_start_idxs[0]/1e6))
-            plt.pcolormesh(Z[0,:,:].real)
+            A=n.abs(Z[0,:,:])**2.0
+            nf=n.mean(A[200:1400,:])
+            A=(A-nf)/nf
+            plt.pcolormesh(A,vmin=0,vmax=5)
+
             plt.tight_layout()
             plt.savefig("strd-%d.png"%(int(st_start_idxs[0]/1e6)))
             #plt.show()    
@@ -391,13 +395,13 @@ def analyze_m_mode(d,dt=10,debug=False):
             dB=dB-n.nanmedian(dB)
             plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
             plt.xlim([-200,200])
-            plt.ylim([0,40])
+         #   plt.ylim([0,40])
 
             plt.subplot(232)
             dB=10.0*n.log10(S[1,:,:])
             dB=dB-n.nanmedian(dB)
             plt.xlim([-200,200])
-            plt.ylim([0,40])
+         #   plt.ylim([0,40])
             plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
             plt.title("Beam 2")
             
@@ -405,7 +409,7 @@ def analyze_m_mode(d,dt=10,debug=False):
             dB=10.0*n.log10(S[2,:,:])
             dB=dB-n.nanmedian(dB)
             plt.xlim([-200,200])
-            plt.ylim([0,40])
+          #  plt.ylim([0,40])
             plt.title("Beam 3")
 
             plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
@@ -413,7 +417,7 @@ def analyze_m_mode(d,dt=10,debug=False):
             dB=10.0*n.log10(S[3,:,:])
             dB=dB-n.nanmedian(dB)
             plt.xlim([-200,200])
-            plt.ylim([0,40])
+        #    plt.ylim([0,40])
             plt.title("Beam 4")
 
 
@@ -423,11 +427,26 @@ def analyze_m_mode(d,dt=10,debug=False):
             dB=dB-n.nanmedian(dB)
             plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
             plt.xlim([-200,200])
-            plt.ylim([0,40])
+#            plt.ylim([0,40])
             plt.title("Beam 5")
             plt.subplot(236)
             plt.title(stuffr.unix2datestr(m_start_idxs[0]/1e6))
-            plt.pcolormesh(Z[0,:,:].real)
+            Z2=n.zeros([Z.shape[1],int(Z.shape[2]/4)],dtype=n.complex64)
+            A=n.zeros([Z.shape[1],int(Z.shape[2]/4)],dtype=n.float32)
+
+            print(Z2.shape)
+            print(Z.shape)
+            for bi in range(5):
+                tidx=n.arange(int(Z.shape[2]/4),dtype=int)
+                Z2=n.zeros([Z.shape[1],int(Z.shape[2]/4)],dtype=n.complex64)
+                for chi in range(4):
+                    Z2[:,0:32]+=Z[bi,:,chi:128:4]
+                A+=n.abs(Z2[:,:])**2.0
+            nf=n.nanmedian(A[200:1400,:])
+            A=(A-nf)/nf
+            plt.pcolormesh(A,vmin=0,vmax=10)
+
+#            plt.pcolormesh(Z[0,:,:].real)
             plt.tight_layout()
             plt.savefig("mrd-%d.png"%(int(m_start_idxs[0]/1e6)))
             #plt.show()    
