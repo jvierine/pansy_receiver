@@ -13,3 +13,7 @@ The symptoms would make sense if the UPS was a 1KL model instead of a 1K model.
 Then the problem is that the UPS does not function because the input power voltage
 is only 4.5 VAC too low.
 
+Update: Mushiake-san reports that he had already tried input voltage of 110VAC 
+over the weekend, and this did not fix the issue. Another possible cause is 
+that the UPS has been damaged in shipping.
+
