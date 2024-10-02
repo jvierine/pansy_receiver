@@ -1,0 +1,15 @@
+The UPS device, PowerWalker VFI R1U, is not functioning properly with 100 V input. 
+
+The device sounds a beep approximately every two seconds. This indicates based on the manual a 
+power line fault. 
+
+The device should support 800 W output, which is enough for the receiver. 
+
+However, upon close read of the specifications, it appears that 110V +/- 5% 
+is the low voltage level for the 1KL model at 60% load.
+
+For the 1K model even 55VAC would be okay at a 60% load and 80VAC would be fine at 100% load. 
+
+It appears that we have the 1K model, which is triggers a fault when the input voltage drops 
+below 110 V. 
+
