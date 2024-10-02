@@ -127,7 +127,9 @@ def find_st_mode_start(d,i0=None,i1=None,ch="ch000", rxp_max=3e8):
         i0+=160*320
     return(n.array(st_idxs,dtype=int))
 
-def find_m_mode_start(d,i0=None,i1=None,ch="ch000",debug=False):
+def find_m_mode_start(d,
+                      i0=None,i1=None,
+                      ch="ch000",debug=False):
     # look for AA, which happens at the end of the cycle!
     # use the fact that the cross-correlation AB is zero
     # where AA maximizes
@@ -197,7 +199,7 @@ def find_m_mode_start(d,i0=None,i1=None,ch="ch000",debug=False):
         i0+=10*N
     return(n.array(start_idxs,dtype=int))
 
-def analyze_st_mode(d,dt=10):
+def analyze_st_mode(d,dt=10, debug_phase=False):
     b=d.get_bounds("ch000")
 
     stm=pm.get_st_mode()
@@ -241,9 +243,30 @@ def analyze_st_mode(d,dt=10):
                             z=d.read_vector_c81d(iread,320,"ch000")
                             codei = (pi*n_beam + bi)%160
                             Z[bi,:,ri*n_pulse + pi]=n.fft.ifft(n.fft.fft(z)*C[codei,:])
+                            if debug_phase:
+                                plt.subplot(211)
+                                plt.plot(Z[bi,:,ri*n_pulse + pi].real)
+                                plt.plot(Z[bi,:,ri*n_pulse + pi].imag)
+                                plt.xlabel(r"Time ($\mu s$)")
+                                plt.title("Uncorrected phase")
+                                plt.ylabel("Complex voltage")
                             # phase shift based on transmit pulse phase 
                             phase = n.angle(Z[bi,0,ri*n_pulse + pi])
+                            # rx blank
+#                            z[0:40]=0.0
+ #                           Z[bi,:,ri*n_pulse + pi]=n.fft.ifft(n.fft.fft(z)*C[codei,:])
+
                             Z[bi,:,ri*n_pulse + pi]=Z[bi,:,ri*n_pulse + pi]*n.exp(-1j*phase)
+                            if debug_phase:
+                                plt.subplot(212)
+                                plt.plot(Z[bi,:,ri*n_pulse + pi].real)
+                                plt.plot(Z[bi,:,ri*n_pulse + pi].imag)
+                                plt.xlabel(r"Time ($\mu s$)")
+                                plt.title("Corrected phase")
+                                plt.ylabel("Complex voltage")
+                                plt.tight_layout()
+                                plt.show()
+
     #                        if True:
     #                           plt.plot(Z[bi,:,pi].real)
     #                          plt.plot(Z[bi,:,pi].imag)
@@ -304,10 +327,8 @@ def analyze_st_mode(d,dt=10):
             plt.title("Beam 5")
             plt.subplot(236)
             plt.title(stuffr.unix2datestr(st_start_idxs[0]/1e6))
-            A=n.abs(Z[0,:,:])**2.0
-            nf=n.mean(A[200:1400,:])
-            A=(A-nf)/nf
-            plt.pcolormesh(A,vmin=0,vmax=5)
+
+            plt.pcolormesh(Z[1,:,:].real,vmin=-50e3,vmax=50e3)
 
             plt.tight_layout()
             plt.savefig("strd-%d.png"%(int(st_start_idxs[0]/1e6)))
@@ -316,7 +337,7 @@ def analyze_st_mode(d,dt=10):
             plt.clf()
 
 
-def analyze_m_mode(d,dt=10,debug=False):
+def analyze_m_mode(d,dt=10,debug=False, alias=False):
     # simple range-Doppler power spectrum for the M-mode
     b=d.get_bounds("ch000")
 
@@ -348,6 +369,8 @@ def analyze_m_mode(d,dt=10,debug=False):
         S=n.zeros([n_beam,n_rg,n_pulse*n_reps],dtype=n.float32)
 
         rvec=n.arange(n_rg)*0.15
+        if alias:
+            rvec+=2*1600*0.15
         # 2*f*v/c = df
         # df*c/f/2 = v
         fvec=n.fft.fftshift(n.fft.fftfreq(n_reps*n_pulse,d=n_beam*1600/1e6))*c.c/47.5e6/2.0
@@ -363,6 +386,9 @@ def analyze_m_mode(d,dt=10,debug=False):
                         for bi in range(n_beam):
                             iread = i0 + pi*1600*n_beam + bi*1600 #+ 20
                             z=d.read_vector_c81d(iread,1600,"ch000")
+                            if alias:
+                                z2=d.read_vector_c81d(iread+2*1600,1600,"ch000")
+                                z[200:1600]=z2[200:1600]
                             codei = (pi*n_beam + bi)%20
                             Z[bi,:,ri*n_pulse + pi]=n.fft.ifft(n.fft.fft(z)*C[codei,:])
                             #plt.plot(Z[bi,:,ri*n_pulse + pi].real)
@@ -395,30 +421,29 @@ def analyze_m_mode(d,dt=10,debug=False):
             dB=dB-n.nanmedian(dB)
             plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
             plt.xlim([-200,200])
-         #   plt.ylim([0,40])
 
             plt.subplot(232)
             dB=10.0*n.log10(S[1,:,:])
             dB=dB-n.nanmedian(dB)
-            plt.xlim([-200,200])
          #   plt.ylim([0,40])
             plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
             plt.title("Beam 2")
+            plt.xlim([-200,200])
             
             plt.subplot(233)
             dB=10.0*n.log10(S[2,:,:])
             dB=dB-n.nanmedian(dB)
-            plt.xlim([-200,200])
           #  plt.ylim([0,40])
             plt.title("Beam 3")
+            plt.xlim([-200,200])
 
             plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
             plt.subplot(234)
             dB=10.0*n.log10(S[3,:,:])
             dB=dB-n.nanmedian(dB)
-            plt.xlim([-200,200])
         #    plt.ylim([0,40])
             plt.title("Beam 4")
+            plt.xlim([-200,200])
 
 
             plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
@@ -427,28 +452,28 @@ def analyze_m_mode(d,dt=10,debug=False):
             dB=dB-n.nanmedian(dB)
             plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
             plt.xlim([-200,200])
+
 #            plt.ylim([0,40])
             plt.title("Beam 5")
             plt.subplot(236)
             plt.title(stuffr.unix2datestr(m_start_idxs[0]/1e6))
-            Z2=n.zeros([Z.shape[1],int(Z.shape[2]/4)],dtype=n.complex64)
-            A=n.zeros([Z.shape[1],int(Z.shape[2]/4)],dtype=n.float32)
-
-            print(Z2.shape)
-            print(Z.shape)
+            A=n.zeros([Z.shape[1],Z.shape[2]],dtype=n.float32)
             for bi in range(5):
-                tidx=n.arange(int(Z.shape[2]/4),dtype=int)
-                Z2=n.zeros([Z.shape[1],int(Z.shape[2]/4)],dtype=n.complex64)
-                for chi in range(4):
-                    Z2[:,0:32]+=Z[bi,:,chi:128:4]
-                A+=n.abs(Z2[:,:])**2.0
+                A+=n.abs(Z[bi,:,:])**2.0
+            # range average a bit to get all details
+            for ti in range(A.shape[1]):
+                A[:,ti] = n.convolve(n.repeat(1,20),A[:,ti],mode="same")
             nf=n.nanmedian(A[200:1400,:])
             A=(A-nf)/nf
-            plt.pcolormesh(A,vmin=0,vmax=10)
+            plt.pcolormesh(A,vmin=0,vmax=5)
 
 #            plt.pcolormesh(Z[0,:,:].real)
             plt.tight_layout()
-            plt.savefig("mrd-%d.png"%(int(m_start_idxs[0]/1e6)))
+            if alias:
+                plt.savefig("amrd-%d.png"%(int(m_start_idxs[0]/1e6)))
+            else:
+                plt.savefig("mrd-%d.png"%(int(m_start_idxs[0]/1e6)))
+
             #plt.show()    
             plt.close()
             plt.clf()
@@ -470,10 +495,14 @@ def test_mode_detection():
 
 
 if __name__ == "__main__":
+    d=drf.DigitalRFReader("test_data/stmode")
+    analyze_st_mode(d)
+
     d=drf.DigitalRFReader("test_data/mmode")
     analyze_m_mode(d)
 
-    d=drf.DigitalRFReader("test_data/stmode")
+    d=drf.DigitalRFReader("test_data/mixmode")
+    analyze_m_mode(d)
     analyze_st_mode(d)
 
 
