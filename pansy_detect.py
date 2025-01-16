@@ -401,12 +401,13 @@ def analyze_m_mode(d,
         wf=sw.hann(n_reps
                    *n_pulse)
         
+        n_channels=len(channels)
+        
+        Z=n.zeros([n_channels,n_beam,n_rg,n_pulse*n_reps],dtype=n.complex64)
+        S=n.zeros([n_channels,n_beam,n_rg,n_pulse*n_reps],dtype=n.float32)
+        
         for chi in range(len(channels)):
             ch=channels[chi]
-        
-            Z=n.zeros([n_beam,n_rg,n_pulse*n_reps],dtype=n.complex64)
-            S=n.zeros([n_beam,n_rg,n_pulse*n_reps],dtype=n.float32)
-
             rvec=n.arange(n_rg)*0.15
             if alias:
                 rvec+=2*1600*0.15
@@ -429,13 +430,13 @@ def analyze_m_mode(d,
                                     z2=d.read_vector_c81d(iread+2*1600,1600,ch)
                                     z[200:1600]=z2[200:1600]
                                 codei = (pi*n_beam + bi)%20
-                                Z[bi,:,ri*n_pulse + pi]=n.fft.ifft(n.fft.fft(z)*C[codei,:])
+                                Z[chi,bi,:,ri*n_pulse + pi]=n.fft.ifft(n.fft.fft(z)*C[codei,:])
                                 #plt.plot(Z[bi,:,ri*n_pulse + pi].real)
                                 #plt.plot(Z[bi,:,ri*n_pulse + pi].imag)
                                 #plt.show()
                                 # phase shift based on transmit pulse phase 
-                                phase = n.angle(Z[bi,0,ri*n_pulse + pi])
-                                Z[bi,:,ri*n_pulse + pi]=Z[bi,:,ri*n_pulse + pi]*n.exp(-1j*phase)
+                                phase = n.angle(Z[chi,bi,0,ri*n_pulse + pi])
+                                Z[chi,bi,:,ri*n_pulse + pi]=Z[chi,bi,:,ri*n_pulse + pi]*n.exp(-1j*phase)
         #                        if True:
         #                           plt.plot(Z[bi,:,pi].real)
         #                          plt.plot(Z[bi,:,pi].imag)
@@ -443,19 +444,19 @@ def analyze_m_mode(d,
 
                     for bi in range(n_beam):
                         if False:
-                            plt.pcolormesh(Z[bi,:,:].real)
+                            plt.pcolormesh(Z[chi,bi,:,:].real)
                             plt.title("beam %d"%(bi))
                             plt.colorbar()
                             plt.show()
                         for ri in range(n_rg):
-                            S[bi,ri,:]+=n.abs(n.fft.fftshift(n.fft.fft(wf*Z[bi,ri,:])))**2.0
+                            S[chi,bi,ri,:]+=n.abs(n.fft.fftshift(n.fft.fft(wf*Z[chi,bi,ri,:])))**2.0
     #            for bi in range(n_beam):
      #               for ri in range(n_rg):
       #                  S[bi,ri,:]=S[bi,ri,:]/n.median(n.abs(S[bi,ri,:]-n.median(S[bi,ri,:])))
 
                 plt.figure(figsize=(16,9))
                 plt.subplot(231)
-                dB=10.0*n.log10(S[0,:,:])
+                dB=10.0*n.log10(S[chi,0,:,:])
                 plt.title("Beam 1")
                 dB=dB-n.nanmedian(dB)
                 plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
@@ -464,7 +465,7 @@ def analyze_m_mode(d,
                 plt.xlim([-200,200])
 
                 plt.subplot(232)
-                dB=10.0*n.log10(S[1,:,:])
+                dB=10.0*n.log10(S[chi,1,:,:])
                 dB=dB-n.nanmedian(dB)
              #   plt.ylim([0,40])
                 plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
@@ -475,7 +476,7 @@ def analyze_m_mode(d,
                 plt.xlim([-200,200])
 
                 plt.subplot(233)
-                dB=10.0*n.log10(S[2,:,:])
+                dB=10.0*n.log10(S[chi,2,:,:])
                 dB=dB-n.nanmedian(dB)
               #  plt.ylim([0,40])
                 plt.title("Beam 3")
@@ -486,7 +487,7 @@ def analyze_m_mode(d,
                 plt.xlabel("Doppler (Hz)")
 
                 plt.subplot(234)
-                dB=10.0*n.log10(S[3,:,:])
+                dB=10.0*n.log10(S[chi,3,:,:])
                 dB=dB-n.nanmedian(dB)
             #    plt.ylim([0,40])
                 plt.title("Beam 4")
@@ -498,7 +499,7 @@ def analyze_m_mode(d,
                 plt.xlabel("Doppler (Hz)")
 
                 plt.subplot(235)
-                dB=10.0*n.log10(S[4,:,:])
+                dB=10.0*n.log10(S[chi,4,:,:])
                 dB=dB-n.nanmedian(dB)
                 plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
                 plt.ylabel("Range (km)")
@@ -511,9 +512,9 @@ def analyze_m_mode(d,
 
                 plt.subplot(236)
                 plt.title(stuffr.unix2datestr(m_start_idxs[0]/1e6))
-                A=n.zeros([Z.shape[1],Z.shape[2]],dtype=n.float32)
+                A=n.zeros([Z.shape[2],Z.shape[3]],dtype=n.float32)
                 for bi in range(5):
-                    A+=n.abs(Z[bi,:,:])**2.0
+                    A+=n.abs(Z[chi,bi,:,:])**2.0
                 # range average a bit to get all details
                 for ti in range(A.shape[1]):
                     A[:,ti] = n.convolve(n.repeat(1,20),A[:,ti],mode="same")
