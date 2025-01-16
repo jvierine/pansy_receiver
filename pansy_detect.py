@@ -400,21 +400,23 @@ def analyze_m_mode(d,
         n_reps=32
         wf=sw.hann(n_reps
                    *n_pulse)
-        Z=n.zeros([n_beam,n_rg,n_pulse*n_reps],dtype=n.complex64)
-        S=n.zeros([n_beam,n_rg,n_pulse*n_reps],dtype=n.float32)
         
-        rvec=n.arange(n_rg)*0.15
-        if alias:
-            rvec+=2*1600*0.15
-        # 2*f*v/c = df
-        # df*c/f/2 = v
-        fvec=n.fft.fftshift(n.fft.fftfreq(n_reps*n_pulse,d=n_beam*1600/1e6))*c.c/47.5e6/2.0
-        if len(m_start_idxs) > 2:
-            print("%1.1f found %d sequences"%(i*dt,len(m_start_idxs)))
-            n_cycles=int(n.floor(len(m_start_idxs)/n_reps))
-            print(n_cycles)
-            for chi in range(len(channels)):
-                ch=channels[chi]
+        for chi in range(len(channels)):
+            ch=channels[chi]
+        
+            Z=n.zeros([n_beam,n_rg,n_pulse*n_reps],dtype=n.complex64)
+            S=n.zeros([n_beam,n_rg,n_pulse*n_reps],dtype=n.float32)
+
+            rvec=n.arange(n_rg)*0.15
+            if alias:
+                rvec+=2*1600*0.15
+            # 2*f*v/c = df
+            # df*c/f/2 = v
+            fvec=n.fft.fftshift(n.fft.fftfreq(n_reps*n_pulse,d=n_beam*1600/1e6))*c.c/47.5e6/2.0
+            if len(m_start_idxs) > 2:
+                print("%1.1f found %d sequences"%(i*dt,len(m_start_idxs)))
+                n_cycles=int(n.floor(len(m_start_idxs)/n_reps))
+                print(n_cycles)
                 for ci in range(n_cycles):
                     print("cycle %d %s"%(ci,ch))
                     for ri in range(n_reps):
