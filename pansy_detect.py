@@ -561,10 +561,10 @@ if __name__ == "__main__":
     d=drf.DigitalRFReader("/media/archive/")
     b=d.get_bounds("ch000")
     print(b)
-    analyze_st_mode(d,b0=b[1]-3600000*1000000,b1=b[1])
+    analyze_st_mode(d,b0=b[1]-3600*1000000,b1=b[1])
 
     b=d.get_bounds("ch000")
-    analyze_m_mode(d,b0=b[1]-3600000*1000000,b1=b[1])
+    analyze_m_mode(d,b0=b[1]-3600*1000000,b1=b[1])
     
     #
     #d=drf.DigitalRFReader("test_data/mmode")
