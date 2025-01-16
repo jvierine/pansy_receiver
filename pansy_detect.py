@@ -414,7 +414,7 @@ def analyze_m_mode(d,
             # 2*f*v/c = df
             # df*c/f/2 = v
             fvec=n.fft.fftshift(n.fft.fftfreq(n_reps*n_pulse,d=n_beam*1600/1e6))*c.c/47.5e6/2.0
-            if len(m_start_idxs) > 2:
+            if len(m_start_idxs) > 1:
                 print("%1.1f found %d sequences"%(i*dt,len(m_start_idxs)))
                 n_cycles=int(n.floor(len(m_start_idxs)/n_reps))
                 print(n_cycles)
