@@ -172,12 +172,16 @@ def find_m_mode_start(d,
 
         # regularize with +1 to avoid division by zero
         zp=z.real**2.0 + z.imag**2.0#n.abs(z)**2.0
+        # correlate power pattern
         pwr=n.abs(n.fft.ifft(n.fft.fft(zp)*P))+1
         
         # the maxima of AA and minima of AB cross-correlations coincide
         # make use of this!
         pfr=(ccaa/pwr - ccbb/pwr)
         mi=n.argmax(pfr)
+        plt.plot(pfr)
+        plt.show()
+                 
         #print(pfr[mi])        
         if pfr[mi]>150 and (i0+mi - prev_idx) != 0:
             # found new start
