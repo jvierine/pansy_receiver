@@ -210,8 +210,16 @@ def find_m_mode_start(d,
         i0+=10*N
     return(n.array(start_idxs,dtype=int))
 
-def analyze_st_mode(d,dt=10, debug_phase=False):
+def analyze_st_mode(d,
+                    dt=10,
+                    b0=None,
+                    b1=None,
+                    debug_phase=False):
     b=d.get_bounds("ch000")
+    if b0==None:
+        b0=b[0]
+    if b1==None:
+        b1=b[1]        
 
     stm=pm.get_st_mode()
     ncodes=10
@@ -223,10 +231,10 @@ def analyze_st_mode(d,dt=10, debug_phase=False):
         C[i,:]=n.conj(n.fft.fft(codes[i,:]))
 
     # how many integration periods
-    n_ints=int(n.floor((b[1]-b[0])/1e6/dt))
+    n_ints=int(n.floor((b1-b0)/1e6/dt))
     for i in range(rank,n_ints,size):
-        i0=b[0]+i*dt*1000000
-        i1=b[0]+(i+1)*dt*1000000
+        i0=b0+i*dt*1000000
+        i1=b0+(i+1)*dt*1000000
         st_start_idxs=find_st_mode_start(d,i0,i1)
         n_beam=len(stm["beam_pos_az_za"])
         n_rg=320
@@ -348,9 +356,23 @@ def analyze_st_mode(d,dt=10, debug_phase=False):
             plt.clf()
 
 
-def analyze_m_mode(d,dt=10,debug=False, alias=False):
+def analyze_m_mode(d,
+                   dt=10,
+                   debug=False,
+                   b0=None,
+                   b1=None,
+                   alias=False):
+    # The mesospheric mode is a special sequence of
+    # 20 16-bit complementary codes
+    # two codes are sent in each direction
+    # 
+    
     # simple range-Doppler power spectrum for the M-mode
     b=d.get_bounds("ch000")
+    if b0 == None:
+        b0=b[0]
+    if b1==None:
+        b1=b[1]
 
     stm=pm.get_m_mode()
     ncodes=20
@@ -366,10 +388,10 @@ def analyze_m_mode(d,dt=10,debug=False, alias=False):
         C[i,:]=n.conj(n.fft.fft(codes[i,:]))
 
     # how many integration periods
-    n_ints=int(n.floor((b[1]-b[0])/1e6/dt))
+    n_ints=int(n.floor((b1-b0)/1e6/dt))
     for i in range(rank,n_ints,size):
-        i0=b[0]+i*dt*1000000
-        i1=b[0]+(i+1)*dt*1000000
+        i0=b0+i*dt*1000000
+        i1=b0+(i+1)*dt*1000000
         m_start_idxs=find_m_mode_start(d,i0,i1)
         n_beam=len(stm["beam_pos_az_za"])
         n_rg=1600
@@ -379,7 +401,7 @@ def analyze_m_mode(d,dt=10,debug=False, alias=False):
                    *n_pulse)
         Z=n.zeros([n_beam,n_rg,n_pulse*n_reps],dtype=n.complex64)
         S=n.zeros([n_beam,n_rg,n_pulse*n_reps],dtype=n.float32)
-
+        
         rvec=n.arange(n_rg)*0.15
         if alias:
             rvec+=2*1600*0.15
@@ -507,36 +529,42 @@ def test_mode_detection():
 
 
 if __name__ == "__main__":
-    d=drf.DigitalRFReader("/media/archive/")
-    b=d.get_bounds("ch007")
-    # 10 seconds later then start of buffer
-    idx_end=b[1]-3600*1000000
-    print(b)
-    while True:
+    if False:
+        d=drf.DigitalRFReader("/media/archive/")
         b=d.get_bounds("ch007")
-        if idx_end < b[0]:
-            print("cannot keep up. adjust start")
-            idx_end=b[0]+10000000
-        i1=idx_end+60000000
-        if i1>b[1]:
-            i1=b[1]
-        start_idx=find_m_mode_start(d,
-                                    i0=idx_end,
-                                    i1=i1,
-                                    ch="ch007", # channel 007 is the transmit sample
-                                    debug=True)
-        print(len(start_idx))
-        if len(start_idx) == 0:
-            idx_end=i1
-        else:
-            # we found 
-            idx_end=start_idx[-1]+1600*10
-        
-        print(idx_end)
-        time.sleep(1)
+        # 10 seconds later then start of buffer
+        idx_end=b[1]-3600*1000000
+        print(b)
+        while True:
+            b=d.get_bounds("ch007")
+            if idx_end < b[0]:
+                print("cannot keep up. adjust start")
+                idx_end=b[0]+10000000
+            i1=idx_end+60000000
+            if i1>b[1]:
+                i1=b[1]
+            start_idx=find_m_mode_start(d,
+                                        i0=idx_end,
+                                        i1=i1,
+                                        ch="ch007", # channel 007 is the transmit sample
+                                        debug=True)
+            print(len(start_idx))
+            if len(start_idx) == 0:
+                idx_end=i1
+            else:
+                # we found 
+                idx_end=start_idx[-1]+1600*10
+
+            print(idx_end)
+            time.sleep(1)
     
+    d=drf.DigitalRFReader("/media/archive/")
+    b=d.get_bounds("ch000")
+    analyze_st_mode(d,b0=b[1]-3600000*1000000,b1=b[1])
+
+    b=d.get_bounds("ch000")
+    analyze_m_mode(d,b0=b[1]-3600000*1000000,b1=b[1])
     
-#    analyze_st_mode(d)
     #
     #d=drf.DigitalRFReader("test_data/mmode")
     #analyze_m_mode(d)
