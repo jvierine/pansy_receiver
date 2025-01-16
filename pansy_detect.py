@@ -161,7 +161,7 @@ def find_m_mode_start(d,
 
     start_idxs=[]
     prev_idx=0
-    plot=False
+    plot=True
     while i0 < i1:
         z=d.read_vector_c81d(i0,11*N,ch)
         Z=n.fft.fft(z)
@@ -181,13 +181,14 @@ def find_m_mode_start(d,
         mi=n.argmax(pfr)
         #        plt.plot(pfr)
         #        plt.show()
-                 
-        print(pfr[mi])        
+        if debug:
+            print(pfr[mi])        
         if pfr[mi]>150 and (i0+mi - prev_idx) != 0:
             # found new start
             if debug:
                 print("%f %d %f"%( (i0-b[0])/1e6, i0+mi - prev_idx, pfr[mi]))
-            # the idx points to the start of last ipp in a sequence of 20 ipps
+            # 
+            # the idx points to the start of last ipp in a sequence of 20 ipps. we need to adjust to the start of the first ipp.
             start_idxs.append(i0+mi - 19*1600)
             if plot:
                 plt.plot(pfr,label=r"$m_t$")
@@ -514,16 +515,20 @@ if __name__ == "__main__":
         if idx_end < b[0]:
             print("cannot keep up. adjust start")
             idx_end=b[0]+10000000
+        i1=idx_end+10000000
+        if i1>b[1]:
+            i1=b[1]
         start_idx=find_m_mode_start(d,
                                     i0=idx_end,
-                                    i1=idx_end+10000000,
+                                    i1=i1,
                                     ch="ch007", # channel 007 is the transmit sample
                                     debug=True)
         print(len(start_idx))
         if len(start_idx) == 0:
-            idx_end+=10000000
+            idx_end=i1
         else:
             idx_end=start_idx[-1]+1000000
+        
         print(idx_end)
         time.sleep(1)
     
