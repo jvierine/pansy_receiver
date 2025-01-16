@@ -142,7 +142,7 @@ def find_m_mode_start(d,
     codes=pm.get_vector(stm,ncodes=2)
     codeaa=n.concatenate((codes[0:1600],codes[0:1600]))
     codebb=n.concatenate((codes[1600:3200],codes[1600:3200]))
-    # look for A A. This only happens at end of cycle
+    # look for A A. This only happens at end of cycle 
     N=len(codeaa)
 
     # select power
@@ -161,7 +161,7 @@ def find_m_mode_start(d,
 
     start_idxs=[]
     prev_idx=0
-    plot=True
+    plot=False
     while i0 < i1:
         z=d.read_vector_c81d(i0,11*N,ch)
         Z=n.fft.fft(z)
@@ -206,6 +206,7 @@ def find_m_mode_start(d,
                 plt.plot(z.imag*codebb.real)
                 plt.show()
             prev_idx=i0+mi
+        # go forward by one code sequence
         i0+=10*N
     return(n.array(start_idxs,dtype=int))
 
@@ -515,7 +516,7 @@ if __name__ == "__main__":
         if idx_end < b[0]:
             print("cannot keep up. adjust start")
             idx_end=b[0]+10000000
-        i1=idx_end+10000000
+        i1=idx_end+60000000
         if i1>b[1]:
             i1=b[1]
         start_idx=find_m_mode_start(d,
@@ -527,7 +528,8 @@ if __name__ == "__main__":
         if len(start_idx) == 0:
             idx_end=i1
         else:
-            idx_end=start_idx[-1]+1000000
+            # we found 
+            idx_end=start_idx[-1]+1600*10
         
         print(idx_end)
         time.sleep(1)
