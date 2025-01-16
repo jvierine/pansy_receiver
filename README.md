@@ -6,3 +6,8 @@ The video below shows the troposphere-stratosphere mode analyzed using the recei
 
 https://github.com/user-attachments/assets/849bf707-b011-4c54-bbf1-1a141d7f4ec6
 
+## Instructions
+
+To run the python signal processing, use the standard environment, instead of the conda environment of SanDRA.  
+
+> conda deactivate
