@@ -454,6 +454,8 @@ def analyze_m_mode(d,
             plt.title("Beam 1")
             dB=dB-n.nanmedian(dB)
             plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
+            plt.ylabel("Range (km)")
+            plt.xlabel("Doppler (Hz)")
             plt.xlim([-200,200])
 
             plt.subplot(232)
@@ -461,6 +463,9 @@ def analyze_m_mode(d,
             dB=dB-n.nanmedian(dB)
          #   plt.ylim([0,40])
             plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
+            plt.ylabel("Range (km)")
+            plt.xlabel("Doppler (Hz)")
+            
             plt.title("Beam 2")
             plt.xlim([-200,200])
             
@@ -472,6 +477,9 @@ def analyze_m_mode(d,
             plt.xlim([-200,200])
 
             plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
+            plt.ylabel("Range (km)")
+            plt.xlabel("Doppler (Hz)")
+            
             plt.subplot(234)
             dB=10.0*n.log10(S[3,:,:])
             dB=dB-n.nanmedian(dB)
@@ -481,14 +489,21 @@ def analyze_m_mode(d,
 
 
             plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
+            plt.ylabel("Range (km)")
+            plt.xlabel("Doppler (Hz)")
+            
             plt.subplot(235)
             dB=10.0*n.log10(S[4,:,:])
             dB=dB-n.nanmedian(dB)
             plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
+            plt.ylabel("Range (km)")
+            plt.xlabel("Doppler (Hz)")
+            
             plt.xlim([-200,200])
 
 #            plt.ylim([0,40])
             plt.title("Beam 5")
+            
             plt.subplot(236)
             plt.title(stuffr.unix2datestr(m_start_idxs[0]/1e6))
             A=n.zeros([Z.shape[1],Z.shape[2]],dtype=n.float32)
@@ -500,6 +515,8 @@ def analyze_m_mode(d,
             nf=n.nanmedian(A[200:1400,:])
             A=(A-nf)/nf
             plt.pcolormesh(A,vmin=0,vmax=5)
+#            plt.ylabel("Range (km)")
+#            plt.xlabel("Doppler (Hz)")
 
 #            plt.pcolormesh(Z[0,:,:].real)
             plt.tight_layout()
