@@ -17,7 +17,8 @@ while True:
     l=f.readlines()[0].strip()
     tnow=time.time()
     lfo.write("%f %s\n"%(tnow,l))
+    print("%f %s\n"%(tnow,l))
     lfo.flush()
-    time.sleep(1)
+    time.sleep(600)
 
 lfo.close()
