@@ -14,7 +14,7 @@ while True:
     cmd='./test_gps 2>/dev/null |grep "GPS lock" 1> /tmp/gpslock'
     os.system(cmd)
     f=open("/tmp/gpslock")
-    l=f.readlines().strip()
+    l=f.readlines()[0].strip()
     tnow=time.time()
     lfo.write("%f %s\n"%(tnow,l))
     lfo.flush()
