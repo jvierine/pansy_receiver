@@ -179,10 +179,10 @@ def find_m_mode_start(d,
         # make use of this!
         pfr=(ccaa/pwr - ccbb/pwr)
         mi=n.argmax(pfr)
-        plt.plot(pfr)
-        plt.show()
+        #        plt.plot(pfr)
+        #        plt.show()
                  
-        #print(pfr[mi])        
+        print(pfr[mi])        
         if pfr[mi]>150 and (i0+mi - prev_idx) != 0:
             # found new start
             if debug:
