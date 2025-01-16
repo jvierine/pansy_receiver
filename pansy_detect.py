@@ -516,7 +516,11 @@ if __name__ == "__main__":
                                     ch="ch007", # channel 007 is the transmit sample
                                     debug=True)
         print(len(start_idx))
-        
+        if len(start_idx) == 0:
+            idx_end+=10000000
+        else:
+            idx_end=start_idx[-1]+1000000
+        print(idx_end)
         time.sleep(1)
     
     
