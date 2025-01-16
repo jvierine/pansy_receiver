@@ -128,8 +128,10 @@ def find_st_mode_start(d,i0=None,i1=None,ch="ch000", rxp_max=3e8):
     return(n.array(st_idxs,dtype=int))
 
 def find_m_mode_start(d,
-                      i0=None,i1=None,
-                      ch="ch000",debug=False):
+                      i0=None,
+                      i1=None,
+                      ch="ch007", # channel 007 is the transmit sample
+                      debug=False):
     # look for AA, which happens at the end of the cycle!
     # use the fact that the cross-correlation AB is zero
     # where AA maximizes
@@ -169,6 +171,7 @@ def find_m_mode_start(d,
         # regularize with +1 to avoid division by zero
         zp=z.real**2.0 + z.imag**2.0#n.abs(z)**2.0
         pwr=n.abs(n.fft.ifft(n.fft.fft(zp)*P))+1
+        
         # the maxima of AA and minima of AB cross-correlations coincide
         # make use of this!
         pfr=(ccaa/pwr - ccbb/pwr)
@@ -495,15 +498,34 @@ def test_mode_detection():
 
 
 if __name__ == "__main__":
-    d=drf.DigitalRFReader("test_data/stmode")
-    analyze_st_mode(d)
-
-    d=drf.DigitalRFReader("test_data/mmode")
-    analyze_m_mode(d)
-
-    d=drf.DigitalRFReader("test_data/mixmode")
-    analyze_m_mode(d)
-    analyze_st_mode(d)
+    d=drf.DigitalRFReader("/media/buffer/")
+    b=d.get_bounds("ch007")
+    # 10 seconds later then start of buffer
+    idx_end=b[0]+1000000*10
+    print(b)
+    while True:
+        b=d.get_bounds("ch007")
+        if idx_end < b[0]:
+            print("cannot keep up. adjust start")
+            idx_end=b[0]+10000000
+        start_idx=find_m_mode_start(d,
+                                    i0=idx_end,
+                                    i1=idx_end+10000000,
+                                    ch="ch007", # channel 007 is the transmit sample
+                                    debug=True)
+        print(len(start_idx))
+        
+        time.sleep(1)
+    
+    
+#    analyze_st_mode(d)
+    #
+    #d=drf.DigitalRFReader("test_data/mmode")
+    #analyze_m_mode(d)
+    #
+    #d=drf.DigitalRFReader("test_data/mixmode")
+    #analyze_m_mode(d)
+    #analyze_st_mode(d)
 
 
 
