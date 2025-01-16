@@ -5,6 +5,7 @@ import pansy_modes as pm
 import scipy.signal.windows as sw
 import scipy.constants as c
 import stuffr
+import time
 
 #from mpi4py import MPI
 
