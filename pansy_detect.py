@@ -7,11 +7,11 @@ import scipy.constants as c
 import stuffr
 import time
 
-#from mpi4py import MPI
+from mpi4py import MPI
 
-#comm = MPI.COMM_WORLD
-#size = comm.Get_size()
-#rank = comm.Get_rank()
+comm = MPI.COMM_WORLD
+size = comm.Get_size()
+rank = comm.Get_rank()
 
 def plot_overview(dirname="test_data/test_data/mixmode",m_mode_start=n.array([],dtype=int),st_mode_start=n.array([],dtype=int)):
     d=drf.DigitalRFReader(dirname)
