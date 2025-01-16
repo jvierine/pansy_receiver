@@ -181,8 +181,8 @@ def find_m_mode_start(d,
         mi=n.argmax(pfr)
         #        plt.plot(pfr)
         #        plt.show()
-        if debug:
-            print(pfr[mi])        
+#        if debug:
+#            print(pfr[mi])        
         if pfr[mi]>150 and (i0+mi - prev_idx) != 0:
             # found new start
             if debug:
@@ -375,7 +375,8 @@ def analyze_m_mode(d,dt=10,debug=False, alias=False):
         n_rg=1600
         n_pulse=4
         n_reps=32
-        wf=sw.hann(n_reps*n_pulse)
+        wf=sw.hann(n_reps
+                   *n_pulse)
         Z=n.zeros([n_beam,n_rg,n_pulse*n_reps],dtype=n.complex64)
         S=n.zeros([n_beam,n_rg,n_pulse*n_reps],dtype=n.float32)
 
@@ -506,10 +507,10 @@ def test_mode_detection():
 
 
 if __name__ == "__main__":
-    d=drf.DigitalRFReader("/media/buffer/")
+    d=drf.DigitalRFReader("/media/archive/")
     b=d.get_bounds("ch007")
     # 10 seconds later then start of buffer
-    idx_end=b[0]+1000000*10
+    idx_end=b[1]-3600*1000000
     print(b)
     while True:
         b=d.get_bounds("ch007")
