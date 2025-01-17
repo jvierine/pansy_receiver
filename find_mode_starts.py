@@ -42,13 +42,13 @@ def update_tx_pulses():
     # tx channel bounds
     b=d.get_bounds("ch007")
 
-    dt=60000000
+    dt=10000000
     n_windows = int(n.floor((b[1]-b[0])/dt))
 
     i0=b[0]
     if db[1] != -1:
         # start where we left off, instead of the start
-        i0=db[1]
+        i0=db[1]+10*1600
     print("starting at %s"%(stuffr.unix2datestr(i0/1e6)))
 
     for i in range(n_windows):
