@@ -50,7 +50,7 @@ def update_tx_pulses():
     if db[1] != -1:
         # start where we left off, instead of the start
         i0=db[1]+30*1600
-    print("starting at %s"%(stuffr.unix2datestr(i0)))
+    print("starting at %s"%(stuffr.unix2datestr(i0/1e6)))
 
     for i in range(n_windows):
         # search for the start of a continuous 20 IPP sequence
