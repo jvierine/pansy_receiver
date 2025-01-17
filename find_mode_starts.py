@@ -10,7 +10,7 @@ import time
 
 def update_tx_pulses():
     metadata_dir = "/media/archive/metadata/tx"
-
+    db=[-1,-1]
     if os.path.exists(metadata_dir):
         print("metadata directory exists. searching for last timestamp")
         try:
@@ -19,7 +19,6 @@ def update_tx_pulses():
             print(db)
         except:
             print("couldn't read metadata")
-            db=[-1,-1]
     else:
         os.system("mkdir -p %s"%(metadata_dir))
 
