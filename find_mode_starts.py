@@ -14,7 +14,7 @@ samples_per_second_numerator = 1000000
 samples_per_second_denominator = 1
 file_name = "m_tx"
 
-dmw = digital_rf.DigitalMetadataWriter(
+dmw = drf.DigitalMetadataWriter(
     metadata_dir,
     subdirectory_cadence_seconds,
     file_cadence_seconds,
