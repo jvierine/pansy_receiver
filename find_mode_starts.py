@@ -68,7 +68,7 @@ def update_tx_pulses():
             # let's use 1 as id of standard M-mode
             mode_id=n.array(n.repeat(1,len(start_idx)),dtype=n.uint8)
             gidx=n.where( (start_idx >= idx0) & (start_idx < idx1) )[0]
-            print("%d in range"%(len(gidx)))
+            print("%d in range"%(20*len(gidx)))
             data_dict["id"]=mode_id[gidx]
             dmw.write(start_idx[gidx],data_dict)
     
