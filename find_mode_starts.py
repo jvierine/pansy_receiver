@@ -48,14 +48,16 @@ def update_tx_pulses():
     i0=b[0]
     if db[1] != -1:
         # start where we left off, instead of the start
-        i0=db[1]+30*1600
+        i0=db[1]
     print("starting at %s"%(stuffr.unix2datestr(i0/1e6)))
 
     for i in range(n_windows):
+        idx0=i0+i*dt
+        idx1=i0+i*dt+dt
         # search for the start of a continuous 20 IPP sequence
         start_idx=pd.find_m_mode_start(d,
-                                       i0=i0+i*dt,
-                                       i1=i0+i*dt+dt,
+                                       i0=idx0,
+                                       i1=idx1,
                                        ch="ch007", # channel 007 is the transmit sample
                                        debug=False)
         print("%s found %d pulses"%(stuffr.unix2datestr((i0+i*dt)/1e6),20*len(start_idx)))
@@ -65,8 +67,9 @@ def update_tx_pulses():
             data_dict={}
             # let's use 1 as id of standard M-mode
             mode_id=n.array(n.repeat(1,len(start_idx)),dtype=n.uint8)
-            data_dict["id"]=mode_id
-            dmw.write(start_idx,data_dict)
+            gidx=n.where( (start_idx >= idx0) & (start_idx < idx1) )[0]
+            data_dict["id"]=mode_id[gidx]
+            dmw.write(start_idx[gidx],data_dict)
     
 
 if __name__ == "__main__":
