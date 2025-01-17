@@ -29,7 +29,7 @@ d=drf.DigitalRFReader("/media/archive/")
 b=d.get_bounds("ch007")
 
 dt=60000000
-n_windows = (b[1]-b[0])/dt
+n_windows = int(n.floor((b[1]-b[0])/dt))
 i0=b[0]
 for i in range(n_windows):
     start_idx=find_m_mode_start(d,
