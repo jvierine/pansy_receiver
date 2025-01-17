@@ -32,11 +32,11 @@ dt=60000000
 n_windows = int(n.floor((b[1]-b[0])/dt))
 i0=b[0]
 for i in range(n_windows):
-    start_idx=find_m_mode_start(d,
-                                i0=i0+i*dt,
-                                i1=i0+i*dt+dt,
-                                ch="ch007", # channel 007 is the transmit sample
-                                debug=False)
+    start_idx=pd.find_m_mode_start(d,
+                                   i0=i0+i*dt,
+                                   i1=i0+i*dt+dt,
+                                   ch="ch007", # channel 007 is the transmit sample
+                                   debug=False)
     print("%s found %d pulses"%(stuffr.unix2datestr((i0+i*dt)/1e6),len(start_idx)))
 
     if len(start_idx)>0:
