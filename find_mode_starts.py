@@ -43,7 +43,7 @@ for i in range(n_windows):
         print("writing metadata")
         data_dict={}
         # let's use 1 as id of standard M-mode
-        mode_id=n.array(n.repeat(1,len(start_idx)),dtype=n.in32)
+        mode_id=n.array(n.repeat(1,len(start_idx)),dtype=n.int32)
         data_dict["id"]=mode_id
         dmw.write(start_idx,data_dict)
     
