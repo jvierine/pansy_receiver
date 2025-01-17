@@ -2,6 +2,7 @@ import numpy as n
 import pansy_detect as pd
 import matplotlib.pyplot as plt
 import digital_rf as drf
+import os
 
 
 metadata_dir = "/media/archive/metadata/tx"
