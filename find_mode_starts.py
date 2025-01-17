@@ -3,7 +3,7 @@ import pansy_detect as pd
 import matplotlib.pyplot as plt
 import digital_rf as drf
 import os
-
+import stuffr
 
 metadata_dir = "/media/archive/metadata/tx"
 os.system("mkdir -p %s"%(metadata_dir))
