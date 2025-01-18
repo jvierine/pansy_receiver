@@ -31,7 +31,7 @@ def meteor_search():
     db = dmr.get_bounds()
     print(db)
 
-    n_blocks=int(n.floor((db[1]-db[0])/(ipp*n_codes)))
+    n_blocks=int(n.floor((db[1]-b[0])/(ipp*n_codes)))
     
     RTI = n.zeros([n_beam,n_codes,ipp],dtype=n.float32)
 
@@ -39,8 +39,8 @@ def meteor_search():
     for bi in range(n_blocks):
         b=d.get_bounds("ch000")
         
-        i0=bi*ipp*n_codes + db[0]
-        i1=bi*ipp*n_codes + db[0] + ipp*n_codes + ipp
+        i0=bi*ipp*n_codes + b[0]
+        i1=bi*ipp*n_codes + b[0] + ipp*n_codes + ipp
 
         if (i0 > b[0]) & (i1 < b[1]):
             data_dict = dmr.read(i0, i1, "id")
@@ -51,4 +51,6 @@ def meteor_search():
     
     
     
-
+if __name__ == "__main__":
+    meteor_search()
+    
