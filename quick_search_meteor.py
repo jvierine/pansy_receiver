@@ -37,7 +37,7 @@ def meteor_search():
 
     N=20*1600
     for bi in range(n_blocks):
-        b=d.get_bounds("ch000")
+        #b=d.get_bounds("ch000")
         
         i0=bi*ipp*n_codes + b[0]
         i1=bi*ipp*n_codes + b[0] + ipp*n_codes + ipp
