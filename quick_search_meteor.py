@@ -30,7 +30,7 @@ def meteor_search():
     dmr = drf.DigitalMetadataReader(metadata_dir)
     db = dmr.get_bounds()
     print(db)
-
+    b=d.get_bounds("ch000")
     n_blocks=int(n.floor((db[1]-b[0])/(ipp*n_codes)))
     
     RTI = n.zeros([n_beam,n_codes,ipp],dtype=n.float32)
