@@ -46,6 +46,10 @@ def meteor_search():
             data_dict = dmr.read(i0, i1, "id")
             for key in data_dict.keys():
                 print((key, data_dict[key]))
+                z=d.read_vector_c81d(key,1600*20,"ch000")
+                plt.plot(z.real)
+                plt.plot(z.imag)
+                plt.show()
         
 
     
