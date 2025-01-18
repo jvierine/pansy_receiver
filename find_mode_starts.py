@@ -6,9 +6,12 @@ import os
 import stuffr
 import time
 
-# TBD. 
 
 def update_tx_pulses():
+    """
+    Find transmit pulses for the mesosphere mode.
+    Start off where the current metadata ends.
+    """
     metadata_dir = "/media/archive/metadata/tx"
     db=[-1,-1]
     if os.path.exists(metadata_dir):
@@ -22,6 +25,9 @@ def update_tx_pulses():
     else:
         os.system("mkdir -p %s"%(metadata_dir))
 
+    # setup the directory and file cadence.
+    # use 1 MHz, as this is the sample-rate and thus a
+    # natural resolution for timing.
     subdirectory_cadence_seconds = 3600
     file_cadence_seconds = 60
     samples_per_second_numerator = 1000000
@@ -68,9 +74,10 @@ def update_tx_pulses():
             # let's use 1 as id of standard M-mode
             mode_id=n.array(n.repeat(1,len(start_idx)),dtype=n.uint8)
             gidx=n.where( (start_idx >= idx0) & (start_idx < idx1) )[0]
-            print("%d in range"%(20*len(gidx)))
-            data_dict["id"]=mode_id[gidx]
-            dmw.write(start_idx[gidx],data_dict)
+            if len(gidx)>0:
+                print("%d in range"%(20*len(gidx)))
+                data_dict["id"]=mode_id[gidx]
+                dmw.write(start_idx[gidx],data_dict)
     
 
 if __name__ == "__main__":
