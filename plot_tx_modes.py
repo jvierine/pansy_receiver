@@ -35,7 +35,7 @@ for i in range(n_hours):
     plt.plot(n.diff(times)/1e6,".")
     plt.show()
     plt.plot(n.diff(times),".")
-    plt.ylim([0,10000])
+    plt.ylim([0,100000])
     plt.show()
 
         
