@@ -37,6 +37,7 @@ for i in range(n_hours):
     plt.ylim([0,100000])
     plt.title(stuffr.unix2datestr(i0/1e6))
     plt.savefig("mode-%06d.png"%(i))
+    plt.tight_layout()
     print("mode-%06d.png"%(i))
     plt.close()
 
