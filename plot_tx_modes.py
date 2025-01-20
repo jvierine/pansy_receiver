@@ -18,18 +18,23 @@ if not os.path.exists(metadata_dir):
 dmr = drf.DigitalMetadataReader(metadata_dir)
 db = dmr.get_bounds()
 print(db)
-data_dict = dmr.read(db[0], db[0]+60*1000000, "id")
-times=[]
-for key in data_dict.keys():
-    print((key, data_dict[key]))
-    times.append(key)
-times=n.array(times)
-plt.plot(times,".")
-plt.show()
+i0=db[0]
+n_hours=int(n.floor((db[1]-db[0])/1e6/3600))
+for i in range(n_hours):
+    data_dict = dmr.read(i0,i0+3600*1000000, "id")
+    times=[]
+    i0+=3600*1000000
 
+    for key in data_dict.keys():
+        print((key, data_dict[key]))
+        times.append(key)
+    times=n.array(times)
+    plt.plot(times,".")
+    plt.show()
 
-plt.plot(n.diff(times),".")
-plt.show()
+    
+    plt.plot(n.diff(times),".")
+    plt.show()
 
         
 
