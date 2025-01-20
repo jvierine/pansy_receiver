@@ -29,14 +29,17 @@ for i in range(n_hours):
         print((key, data_dict[key]))
         times.append(key)
     times=n.array(times)
+    plt.subplot(131)
     plt.plot(times,".")
-    plt.show()
-    
+    plt.subplot(132)
     plt.plot(n.diff(times)/1e6,".")
-    plt.show()
+    plt.subplot(133)
     plt.plot(n.diff(times),".")
     plt.ylim([0,100000])
-    plt.show()
+    plt.title(stuffr.unix2datestr(i0/1e6))
+    plt.savefig("mode-%06d.png"%(i))
+    plt.close()
+
 
         
 
