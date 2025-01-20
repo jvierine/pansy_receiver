@@ -26,7 +26,6 @@ for i in range(n_hours):
     i0+=3600*1000000
 
     for key in data_dict.keys():
-        print((key, data_dict[key]))
         times.append(key)
     times=n.array(times)
     plt.subplot(131)
@@ -38,6 +37,7 @@ for i in range(n_hours):
     plt.ylim([0,100000])
     plt.title(stuffr.unix2datestr(i0/1e6))
     plt.savefig("mode-%06d.png"%(i))
+    print("mode-%06d.png"%(i))
     plt.close()
 
 
