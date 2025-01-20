@@ -18,7 +18,7 @@ if not os.path.exists(metadata_dir):
 dmr = drf.DigitalMetadataReader(metadata_dir)
 db = dmr.get_bounds()
 print(db)
-data_dict = dmr.read(db[0], db[0]+24*3600*1000000, "id")
+data_dict = dmr.read(db[0], db[0]+60*1000000, "id")
 times=[]
 for key in data_dict.keys():
     print((key, data_dict[key]))
