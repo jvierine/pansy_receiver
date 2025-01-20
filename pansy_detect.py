@@ -154,7 +154,7 @@ def find_m_mode_start(d,
         i0=b[0]
     if i1==None:
         i1=(b[1]-12*N)
-        #        i1=(b[1]-(160+1)*320)
+        # i1=(b[1]-(160+1)*320)
     CAA=n.conj(n.fft.fft(codeaa,11*N))
     CBB=n.conj(n.fft.fft(codebb,11*N))
     P=n.conj(n.fft.fft(power,11*N))
@@ -163,7 +163,13 @@ def find_m_mode_start(d,
     prev_idx=0
     plot=False
     while i0 < i1:
-        z=d.read_vector_c81d(i0,11*N,ch)
+        try:
+            z=d.read_vector_c81d(i0,11*N,ch)
+        except:
+            import traceback
+            traceback.print_exc()
+            print("read fail %d. returning empty string."%(i0))
+            return(n.array([],dtype=n.int64))
         Z=n.fft.fft(z)
         ccaaa=n.fft.ifft(Z*CAA)
         ccaa=ccaaa.real**2.0+ccaaa.imag**2.0
