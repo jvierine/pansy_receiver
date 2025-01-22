@@ -13,11 +13,13 @@ import scipy.fftpack as fp
 class range_doppler_search:
     def __init__(self,txlen=130,
                  rg=n.arange(400,950,2,dtype=n.int64)):
+        
         self.idx=n.arange(130,dtype=n.int64)
         self.n_rg=len(rg)
         self.txlen=txlen
         self.idx_mat=n.zeros([self.n_rg,self.txlen],dtype=n.int64)
         self.idx=n.arange(self.txlen,dtype=n.int64)
+        self.rg=rg
         for ri in range(self.n_rg):
             self.idx_mat[ri,:]=self.idx+rg[ri]
 
@@ -34,11 +36,18 @@ class range_doppler_search:
         plt.plot(z_tx.imag)
         plt.show()
         z_tx=n.conj(z_tx)
+
         # decode each range gate
+        Z2=n.zeros([self.n_rg,self.txlen])
+        for i in range(self.n_rg):
+            Z2[i,:]=z[(self.rg[i]):(self.rg[i]+self.txlen)] 
         Z=z[self.idx_mat]*z_tx[None,:]
 
         plt.pcolormesh(n.real(Z))
         plt.show()
+        plt.pcolormesh(n.real(Z2))
+        plt.show()
+
         ZF=fp.fft(Z,axis=0)
         plt.pcolormesh(n.abs(ZF)**2.0)
         plt.show()
