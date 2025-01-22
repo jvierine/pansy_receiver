@@ -26,6 +26,13 @@ class range_doppler_search:
         z = echo
         z_tx = transmit code
         """
+        plt.subplot(121)
+        plt.plot(z.real)
+        plt.plot(z.imag)
+        plt.subplot(122)
+        plt.plot(z_tx.real)
+        plt.plot(z_tx.imag)
+        plt.show()
         z_tx=n.conj(z_tx)
         # decode each range gate
         Z=z[self.idx_mat]*z_tx[None,:]
@@ -83,7 +90,7 @@ def meteor_search():
                 z=d.read_vector_c81d(key,1600*20,"ch000")
                 z_tx=d.read_vector_c81d(key,1600*20,"ch007")                
                 for ti in range(20):
-                    rds.mf(z[0:1600],z_tx[(0+ti*1600):(rds.txlen+ti*1600)])
+                    rds.mf(z[(0+ti*1600):(1600+ti*1600],z_tx[(0+ti*1600):(rds.txlen+ti*1600)])
         
                 plt.plot(z_tx.real)
                 plt.plot(z_tx.imag)
