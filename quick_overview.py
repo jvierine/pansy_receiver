@@ -17,7 +17,7 @@ n_windows=1800
 dt=int(n.floor((b[1]-i0)/n_windows))
 
 
-n_days=n.ceil((b[1]-i0)/(3600*1000000))
+n_days=int(n.ceil((b[1]-i0)/(3600*1000000)))
 
 window_len=1600
 
