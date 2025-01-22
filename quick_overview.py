@@ -14,10 +14,12 @@ d=drf.DigitalRFReader("/media/archive")
 b=d.get_bounds("ch000")
 i0=b[0]+10000000
 n_windows=1800
-dt=int(n.floor((b[1]-i0)/n_windows))
+
 
 
 n_days=int(n.ceil((b[1]-i0)/(3600*1000000)))
+
+dt=int(n.round(24*3600*1000000/n_windows))
 
 window_len=1600
 
