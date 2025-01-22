@@ -23,7 +23,7 @@ class range_doppler_search:
         for ri in range(self.n_rg):
             self.idx_mat[ri,:]=self.idx+rg[ri]
 
-    def mf(self,z,z_tx):
+    def mf(self,z,z_tx,debug=False):
         """
         z = echo
         z_tx = transmit code
@@ -48,18 +48,15 @@ class range_doppler_search:
         frad=47.5e6
         fvec=n.fft.fftshift(n.fft.fftfreq(self.txlen,d=1/1e6))
         dopv=fvec*c.c/2.0/frad
-        #plt.pcolormesh(n.real(Z))
-        ##plt.show()
-        #plt.pcolormesh(n.real(Z2))
-        #plt.show()
 
         ZF=n.fft.fftshift(fp.fft(Z,axis=1),axes=1)
-        plt.pcolormesh(dopv/1e3,self.rg*0.15,n.abs(ZF)**2.0)
+        pprof=n.max(ZF,axis=1)
+        plt.plot(pprof)
         plt.show()
-        
-        
-
-    
+        if debug:
+            plt.pcolormesh(dopv/1e3,self.rg*0.15,n.abs(ZF)**2.0)
+            plt.show()
+        return(ZF)    
 
 def meteor_search():
 
