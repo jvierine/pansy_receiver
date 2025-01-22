@@ -8,6 +8,29 @@ import digital_rf as drf
 import os
 import stuffr
 import time
+import scipy.fftpack as fp
+
+class range_doppler_search:
+    def __init__(self,txlen=130,
+                 rg=n.arange(400,950,2,dtype=n.int64)):
+        self.idx=n.arange(130,dtype=n.int64)
+        self.n_rg=len(rg)
+        self.txlen=txlen
+        self.idx_mat=n.zeros([self.n_rg,self.txlen],dtype=n.int64)
+        self.idx=n.arange(self.txlen,dtype=n.int64)
+        for ri in range(self.n_rg):
+            self.idx_mat[ri,:]=self.idx+rg[ri]
+    def mf(self,z):
+        Z=z[self.idx_mat]
+        plt.pcolormesh(n.real(Z))
+        plt.show()
+        ZF=fp.fft(Z,axis=0)
+        plt.pcolormesh(n.abs(ZF)**2.0)
+        plt.show()
+        
+        
+
+    
 
 def meteor_search():
 
@@ -37,6 +60,7 @@ def meteor_search():
     
     RTI = n.zeros([n_beam,n_codes,ipp],dtype=n.float32)
 
+    rds=range_doppler_search()
     N=20*1600
     for bi in range(n_blocks):
 
@@ -49,6 +73,7 @@ def meteor_search():
             for key in data_dict.keys():
                 print((key, data_dict[key]))
                 z=d.read_vector_c81d(key,1600*20,"ch000")
+                rds.mf(z[0:1600])
                 z_tx=d.read_vector_c81d(key,1600*20,"ch007")                
                 plt.plot(z_tx.real)
                 plt.plot(z_tx.imag)
