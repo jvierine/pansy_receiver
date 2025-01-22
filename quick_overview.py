@@ -24,7 +24,7 @@ tv=[]
 for i in range(n_windows):
     print(i)
     read_idx=i0+dt,window_len
-    z=d.read_vector_c81d(read_idx,"ch000")
+    z=d.read_vector_c81d(read_idx,window_len,"ch000")
     tv.append(n.datetime64(read_idx/1e6, 's'))
     S[i,:]=n.abs(z)
 
