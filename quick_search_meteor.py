@@ -86,7 +86,7 @@ def meteor_search():
     print(db)
     b=d.get_bounds("ch000")
 
-    start_idx=db[1]-1000000
+    start_idx=db[1]-100000000
     n_blocks=int(n.floor((db[1]-start_idx)/(ipp*n_codes)))
     
     RTI = n.zeros([n_beam,n_codes,ipp],dtype=n.float32)
