@@ -20,8 +20,16 @@ class range_doppler_search:
         self.idx=n.arange(self.txlen,dtype=n.int64)
         for ri in range(self.n_rg):
             self.idx_mat[ri,:]=self.idx+rg[ri]
-    def mf(self,z):
-        Z=z[self.idx_mat]
+
+    def mf(self,z,z_tx):
+        """
+        z = echo
+        z_tx = transmit code
+        """
+        z_tx=n.conj(z_tx)
+        # decode each range gate
+        Z=z[self.idx_mat]*z_tx[:,None]
+
         plt.pcolormesh(n.real(Z))
         plt.show()
         ZF=fp.fft(Z,axis=0)
@@ -73,8 +81,10 @@ def meteor_search():
             for key in data_dict.keys():
                 print((key, data_dict[key]))
                 z=d.read_vector_c81d(key,1600*20,"ch000")
-                rds.mf(z[0:1600])
                 z_tx=d.read_vector_c81d(key,1600*20,"ch007")                
+                for ti in range(20):
+                    rds.mf(z[0:1600],z_tx[(0+i*1600):(rds.txlen+i*1600)])
+        
                 plt.plot(z_tx.real)
                 plt.plot(z_tx.imag)
                 plt.show()
