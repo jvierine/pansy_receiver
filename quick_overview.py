@@ -23,7 +23,7 @@ S=n.zeros([n_windows,window_len],dtype=n.float64)
 tv=[]
 for i in range(n_windows):
     print(i)
-    read_idx=i0+dt
+    read_idx=i0+dt*i
     z=d.read_vector_c81d(read_idx,window_len,"ch000")
     print(z[0])
     tv.append(n.datetime64(int(read_idx/1e6), 's'))
