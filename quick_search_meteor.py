@@ -33,13 +33,14 @@ class range_doppler_search:
         z = echo
         z_tx = transmit code
         """
-        plt.subplot(121)
-        plt.plot(z.real)
-        plt.plot(z.imag)
-        plt.subplot(122)
-        plt.plot(z_tx.real)
-        plt.plot(z_tx.imag)
-        plt.show()
+        if debug:
+            plt.subplot(121)
+            plt.plot(z.real)
+            plt.plot(z.imag)
+            plt.subplot(122)
+            plt.plot(z_tx.real)
+            plt.plot(z_tx.imag)
+            plt.show()
 
         z_tx=n.conj(z_tx)
 
