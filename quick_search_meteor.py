@@ -28,7 +28,7 @@ class range_doppler_search:
         """
         z_tx=n.conj(z_tx)
         # decode each range gate
-        Z=z[self.idx_mat]*z_tx[:,None]
+        Z=z[self.idx_mat]*z_tx[None,:]
 
         plt.pcolormesh(n.real(Z))
         plt.show()
