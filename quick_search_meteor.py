@@ -33,7 +33,7 @@ class range_doppler_search:
         z = echo
         z_tx = transmit code
         """
-        if True:
+        if False:
             plt.subplot(121)
             plt.plot(z.real)
             plt.plot(z.imag)
