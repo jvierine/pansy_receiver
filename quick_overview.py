@@ -18,16 +18,20 @@ dt=int(n.floor((b[1]-i0)/n_windows))
 
 window_len=1600
 
-S=n.zeros([n_windows,window_len],dtype=n.float32)
+S=n.zeros([n_windows,window_len],dtype=n.float64)
 
 tv=[]
 for i in range(n_windows):
     print(i)
     read_idx=i0+dt
     z=d.read_vector_c81d(read_idx,window_len,"ch000")
+    print(z[0])
     tv.append(n.datetime64(int(read_idx/1e6), 's'))
     S[i,:]=n.abs(z)
 
 plt.pcolormesh(tv,n.arange(1600),S.T)
+plt.colorbar()
+plt.show()
+plt.pcolormesh(S)
 plt.colorbar()
 plt.show()
