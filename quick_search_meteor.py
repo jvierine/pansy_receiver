@@ -33,7 +33,7 @@ class range_doppler_search:
         z = echo
         z_tx = transmit code
         """
-        if debug:
+        if True:
             plt.subplot(121)
             plt.plot(z.real)
             plt.plot(z.imag)
@@ -104,7 +104,7 @@ def meteor_search():
             for key in data_dict.keys():
                 print((key, data_dict[key]))
                 z=d.read_vector_c81d(key,1600*20,"ch000")
-                z_tx=d.read_vector_c81d(key,1600*20,"ch007")                
+                z_tx=d.read_vector_c81d(key,1600*20,"ch007")
                 RTI=n.zeros([20,rds.n_rg],dtype=n.float32)
                 RTIV=n.zeros([20,rds.n_rg],dtype=n.float32)
                 noise_floors=[]
