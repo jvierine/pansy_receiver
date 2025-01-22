@@ -113,11 +113,17 @@ def meteor_search():
                     RTI[ti,:]=pprof
                     RTIV[ti,:]=dop_prof
                 tv=n.arange(20)*1.6e-3
-                plt.pcolormesh(tv,rds.rangev,10.0*n.log10(RTI.T))
-                plt.show()
-                plt.pcolormesh(tv,rds.rangev,RTIV.T,cmap="turbo")
-                plt.colorbar()
-                plt.show()
+                noise_floor=n.median(RTI.T)
+                snr=10.0*n.log10( (RTI.T-noise_floor)/noise_floor)
+                snr[n.isnan(snr)]=-10
+                max_snr=n.max(snr)
+                print(max_snr)
+                if max_snr > 25:
+                    plt.pcolormesh(tv,rds.rangev,snr,vmin=0,vmax=20)
+                    plt.show()
+                    plt.pcolormesh(tv,rds.rangev,RTIV.T/1e3,cmap="turbo")
+                    plt.colorbar()
+                    plt.show()
 
                 #plt.plot(z_tx.real)
                 #plt.plot(z_tx.imag)
