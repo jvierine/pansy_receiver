@@ -35,13 +35,13 @@ class range_doppler_search:
         plt.plot(z_tx.real)
         plt.plot(z_tx.imag)
         plt.show()
-        
+
         z_tx=n.conj(z_tx)
 
         # decode each range gate
         Z2=n.zeros([self.n_rg,self.txlen])
         for i in range(self.n_rg):
-            Z2[i,:]=z[(self.rg[i]):(self.rg[i]+self.txlen)] 
+            Z2[i,:]=z[(self.rg[i]):(self.rg[i]+self.txlen)]*z_tx
         Z=z[self.idx_mat]*z_tx[None,:]
 
         plt.pcolormesh(n.real(Z))
