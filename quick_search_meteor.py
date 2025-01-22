@@ -53,15 +53,15 @@ class range_doppler_search:
         # df*c/2/f
 
         ZF=n.fft.fftshift(fp.fft(Z,axis=1),axes=1)
-        pprof=n.max(ZF,axis=1)
-        peak_dopv=self.dopv[n.argmax(ZF,axis=1)]
+        pwr=n.real(ZF*n.conj(ZF))
+        noise_floor=n.median(pwr)
+        pprof=n.max(pwr,axis=1)
+        peak_dopv=self.dopv[n.argmax(pwr,axis=1)]
 
-#        plt.plot(pprof)
- #       plt.show()
         if debug:
             plt.pcolormesh(self.dopv,self.rangev,n.abs(ZF)**2.0)
             plt.show()
-        return(ZF,pprof,peak_dopv)
+        return(pwr,pprof,peak_dopv,noise_floor)
 
 def meteor_search():
 
@@ -107,13 +107,14 @@ def meteor_search():
                 z_tx=d.read_vector_c81d(key,1600*20,"ch007")                
                 RTI=n.zeros([20,rds.n_rg],dtype=n.float32)
                 RTIV=n.zeros([20,rds.n_rg],dtype=n.float32)
-
+                noise_floors=[]
                 for ti in range(20):
-                    MF,pprof,dop_prof=rds.mf(z[(0+ti*1600):(1600+ti*1600)],z_tx[(0+ti*1600):(rds.txlen+ti*1600)])
+                    MF,pprof,dop_prof,nf=rds.mf(z[(0+ti*1600):(1600+ti*1600)],z_tx[(0+ti*1600):(rds.txlen+ti*1600)])
+                    noise_floors.append(nf)
                     RTI[ti,:]=pprof
                     RTIV[ti,:]=dop_prof
                 tv=n.arange(20)*1.6e-3
-                noise_floor=n.median(RTI.T)
+                noise_floor=n.median(noise_floors)
                 snr= (RTI.T-noise_floor)/noise_floor
                 snr[snr<=0]=0.0001
                 max_snr=n.max(snr)
