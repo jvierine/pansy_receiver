@@ -122,8 +122,9 @@ def meteor_search():
                 mi,mj=n.unravel_index(n.argmax(snr),snr.shape)
 
                 print(max_snr)
-                print(RTIV[mj,mi])
-                if max_snr > 60:
+                max_dop=RTIV[mj,mi]
+                print(max_dop)
+                if max_snr > 60 and n.abs(max_dop) > 10e3 and and n.abs(max_dop) < 100e3:
                     plt.subplot(121)
                     plt.pcolormesh(tv,rds.rangev,10.0*n.log10(snr),vmin=-3,vmax=20)
                     plt.subplot(122)
