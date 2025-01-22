@@ -20,6 +20,11 @@ class range_doppler_search:
         self.idx_mat=n.zeros([self.n_rg,self.txlen],dtype=n.int64)
         self.idx=n.arange(self.txlen,dtype=n.int64)
         self.rg=rg
+        self.rangev=self.rg*0.15
+        self.frad=47.5e6
+        self.fvec=n.fft.fftshift(n.fft.fftfreq(self.txlen,d=1/1e6))
+        self.dopv=self.fvec*c.c/2.0/self.frad
+
         for ri in range(self.n_rg):
             self.idx_mat[ri,:]=self.idx+rg[ri]
 
@@ -45,18 +50,17 @@ class range_doppler_search:
 
         # df = 2*f*v/c
         # df*c/2/f
-        frad=47.5e6
-        fvec=n.fft.fftshift(n.fft.fftfreq(self.txlen,d=1/1e6))
-        dopv=fvec*c.c/2.0/frad
 
         ZF=n.fft.fftshift(fp.fft(Z,axis=1),axes=1)
         pprof=n.max(ZF,axis=1)
-        plt.plot(pprof)
-        plt.show()
+        peak_dopv=self.dopv[n.argmax(ZF,axis=1)]
+
+#        plt.plot(pprof)
+ #       plt.show()
         if debug:
-            plt.pcolormesh(dopv/1e3,self.rg*0.15,n.abs(ZF)**2.0)
+            plt.pcolormesh(self.dopv,self.rangev,n.abs(ZF)**2.0)
             plt.show()
-        return(ZF)    
+        return(ZF,pprof,peak_dopv)
 
 def meteor_search():
 
@@ -100,12 +104,22 @@ def meteor_search():
                 print((key, data_dict[key]))
                 z=d.read_vector_c81d(key,1600*20,"ch000")
                 z_tx=d.read_vector_c81d(key,1600*20,"ch007")                
+                RTI=n.zeros([20,rds.n_rg],dtype=n.float32)
+                RTIV=n.zeros([20,rds.n_rg],dtype=n.float32)
+
                 for ti in range(20):
-                    rds.mf(z[(0+ti*1600):(1600+ti*1600)],z_tx[(0+ti*1600):(rds.txlen+ti*1600)])
-        
-                plt.plot(z_tx.real)
-                plt.plot(z_tx.imag)
+                    MF,pprof,dop_prof=rds.mf(z[(0+ti*1600):(1600+ti*1600)],z_tx[(0+ti*1600):(rds.txlen+ti*1600)])
+                    RTI[ti,:]=pprof
+                    RTIV[ti,:]=dop_prof
+                plt.pcolormesh(10.0*n.log10(RTI))
                 plt.show()
+                plt.pcolormesh(RTIV,cmap="turbo")
+                plt.colorbar()
+                plt.show()
+
+                #plt.plot(z_tx.real)
+                #plt.plot(z_tx.imag)
+                #plt.show()
         
 
     
