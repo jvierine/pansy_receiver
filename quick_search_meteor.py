@@ -46,7 +46,7 @@ class range_doppler_search:
         # df = 2*f*v/c
         # df*c/2/f
         frad=47.5e6
-        fvec=n.fft.fftfreq(self.txlen,d=1/1e6)
+        fvec=n.fft.fftshift(n.fft.fftfreq(self.txlen,d=1/1e6))
         dopv=fvec*c.c/2.0/frad
         #plt.pcolormesh(n.real(Z))
         ##plt.show()
