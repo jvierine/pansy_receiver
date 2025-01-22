@@ -28,6 +28,6 @@ for i in range(n_windows):
     tv.append(n.datetime64(int(read_idx/1e6), 's'))
     S[i,:]=n.abs(z)
 
-plt.pcolormesh(tv,n.arange(1600),S)
+plt.pcolormesh(tv,n.arange(1600),S.T)
 plt.colorbar()
 plt.show()
