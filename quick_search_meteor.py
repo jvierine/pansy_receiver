@@ -112,9 +112,9 @@ def meteor_search():
                     MF,pprof,dop_prof=rds.mf(z[(0+ti*1600):(1600+ti*1600)],z_tx[(0+ti*1600):(rds.txlen+ti*1600)])
                     RTI[ti,:]=pprof
                     RTIV[ti,:]=dop_prof
-                plt.pcolormesh(10.0*n.log10(RTI))
+                plt.pcolormesh(10.0*n.log10(RTI.T))
                 plt.show()
-                plt.pcolormesh(RTIV,cmap="turbo")
+                plt.pcolormesh(RTIV.T,cmap="turbo")
                 plt.colorbar()
                 plt.show()
 
