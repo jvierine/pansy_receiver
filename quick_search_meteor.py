@@ -90,7 +90,7 @@ def meteor_search():
                 z=d.read_vector_c81d(key,1600*20,"ch000")
                 z_tx=d.read_vector_c81d(key,1600*20,"ch007")                
                 for ti in range(20):
-                    rds.mf(z[(0+ti*1600):(1600+ti*1600],z_tx[(0+ti*1600):(rds.txlen+ti*1600)])
+                    rds.mf(z[(0+ti*1600):(1600+ti*1600)],z_tx[(0+ti*1600):(rds.txlen+ti*1600)])
         
                 plt.plot(z_tx.real)
                 plt.plot(z_tx.imag)
