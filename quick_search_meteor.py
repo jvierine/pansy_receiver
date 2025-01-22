@@ -39,18 +39,22 @@ class range_doppler_search:
         z_tx=n.conj(z_tx)
 
         # decode each range gate
-        Z2=n.zeros([self.n_rg,self.txlen])
-        for i in range(self.n_rg):
-            Z2[i,:]=z[(self.rg[i]):(self.rg[i]+self.txlen)]*z_tx
+        #Z2=n.zeros([self.n_rg,self.txlen])
+        ##   Z2[i,:]=z[(self.rg[i]):(self.rg[i]+self.txlen)]*z_tx
         Z=z[self.idx_mat]*z_tx[None,:]
 
-        plt.pcolormesh(n.real(Z))
-        plt.show()
-        plt.pcolormesh(n.real(Z2))
-        plt.show()
+        # df = 2*f*v/c
+        # df*c/2/f
+        frad=47.5e6
+        fvec=n.fft.fftfreq(self.txlen,d=1/1e6)
+        dopv=fvec*c.c/2.0/frad
+        #plt.pcolormesh(n.real(Z))
+        ##plt.show()
+        #plt.pcolormesh(n.real(Z2))
+        #plt.show()
 
         ZF=fp.fft(Z,axis=1)
-        plt.pcolormesh(n.abs(ZF)**2.0)
+        plt.pcolormesh(dopv/1e3,self.rg*0.15,n.abs(ZF)**2.0)
         plt.show()
         
         
