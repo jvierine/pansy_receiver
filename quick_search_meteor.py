@@ -49,7 +49,7 @@ class range_doppler_search:
         plt.pcolormesh(n.real(Z2))
         plt.show()
 
-        ZF=fp.fft(Z,axis=0)
+        ZF=fp.fft(Z,axis=1)
         plt.pcolormesh(n.abs(ZF)**2.0)
         plt.show()
         
