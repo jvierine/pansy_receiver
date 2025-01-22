@@ -119,7 +119,7 @@ def meteor_search():
                 snr[snr<=0]=0.0001
                 max_snr=n.max(snr)
                 print(max_snr)
-                if max_snr > 4:
+                if max_snr > 60:
                     plt.subplot(121)
                     plt.pcolormesh(tv,rds.rangev,10.0*n.log10(snr),vmin=-3,vmax=20)
                     plt.subplot(122)
