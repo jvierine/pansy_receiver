@@ -119,10 +119,12 @@ def meteor_search():
                 max_snr=n.max(snr)
                 print(max_snr)
                 if max_snr > 4:
+                    plt.subplot(121)
                     plt.pcolormesh(tv,rds.rangev,10.0*n.log10(snr),vmin=0,vmax=20)
-                    plt.show()
+                    plt.subplot(122)
                     plt.pcolormesh(tv,rds.rangev,RTIV.T/1e3,cmap="turbo")
                     plt.colorbar()
+                    plt.tight_layout()
                     plt.show()
 
                 #plt.plot(z_tx.real)
