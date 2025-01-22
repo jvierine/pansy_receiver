@@ -35,6 +35,7 @@ class range_doppler_search:
         plt.plot(z_tx.real)
         plt.plot(z_tx.imag)
         plt.show()
+        
         z_tx=n.conj(z_tx)
 
         # decode each range gate
