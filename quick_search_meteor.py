@@ -118,7 +118,12 @@ def meteor_search():
                 snr= (RTI.T-noise_floor)/noise_floor
                 snr[snr<=0]=0.0001
                 max_snr=n.max(snr)
+
+                mi,mj=n.unravel_index(n.argmax(snr),snr.shape)
+
+                
                 print(max_snr)
+                print(dop_prof[mi,mj])                
                 if max_snr > 60:
                     plt.subplot(121)
                     plt.pcolormesh(tv,rds.rangev,10.0*n.log10(snr),vmin=-3,vmax=20)
