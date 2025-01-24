@@ -221,7 +221,7 @@ def meteor_search(debug=False):
                 dmw.write(tx_idxs,data_dict)
 
         cput1=time.time()
-        print("%s cputime/realtime %1.2f"% (stuffr.unix2datestr(i0/1e6), (cput1-cput0)/60.0))
+        print("%s cputime/realtime %1.2f"% (stuffr.unix2datestr(i0/1e6), (cput1-cput0)/(size*60.0)))
 
     
     
