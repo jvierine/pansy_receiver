@@ -52,6 +52,7 @@ for i in range(n_min):
     plt.subplot(311)
     plt.scatter((txidxa[gidx]-n.min(txidxa[gidx]))/1e6,rnga[gidx],s=1,c=10.0*n.log10(snra[gidx]),vmin=13,vmax=30)
     cb=plt.colorbar()
+    plt.title("%s"%(stuffr.unix2datestr(i0/1e6)))
     cb.set_label("SNR (dB)")
     plt.ylabel("Range (km)")
     plt.subplot(312)
