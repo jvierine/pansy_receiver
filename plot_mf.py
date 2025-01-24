@@ -25,8 +25,9 @@ for i in range(n_min):
     txidxa=n.array([],dtype=n.uint64)
     rnga=n.array([],dtype=n.float32)
     dopa=n.array([],dtype=n.float32)
-    snra=n.array([],dtype=n.float32)        
-    data_dict = dm_mf.read(i0, i1, ("tx_pwr","max_range","tx_idxs","max_dopvel","max_snr"))
+    snra=n.array([],dtype=n.float32)
+    beam=n.array([],dtype=n.int32)            
+    data_dict = dm_mf.read(i0, i1, ("tx_pwr","max_range","tx_idxs","max_dopvel","max_snr","beam_pos_idx"))
     for k in data_dict.keys():
         data=data_dict[k]
         
@@ -37,6 +38,7 @@ for i in range(n_min):
             rnga=n.concatenate((rnga,data["max_range"]))
             dopa=n.concatenate((dopa,data["max_dopvel"]))
             snra=n.concatenate((snra,data["max_snr"]))
+            beam=n.concatenate((beam,data["beam_pos_idx"]))            
         else:
             print("low txpower. skipping")
     gidx=n.where(snra>20)[0]
@@ -48,7 +50,7 @@ for i in range(n_min):
     plt.ylim([-100,0])
     plt.ylabel("Doppler velocity (km/s)")
     plt.subplot(313)
-    plt.scatter((txidxa[gidx]-n.min(txidxa[gidx]))/1e6,10.0*n.log10(snra[gidx]),s=1,c=10.0*n.log10(snra[gidx]),vmin=13,vmax=40)
+    plt.scatter((txidxa[gidx]-n.min(txidxa[gidx]))/1e6,10.0*n.log10(snra[gidx]),s=1,c=beam%5,vmin=0,vmax=4,cmap="turbo")
     plt.ylabel("SNR (dB)")
     plt.xlabel("Time (s)")
     plt.ylim([10,50])
