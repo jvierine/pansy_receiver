@@ -16,7 +16,7 @@ mf_metadata_dir = "/media/archive/metadata/mf"
 dm_mf = drf.DigitalMetadataReader(mf_metadata_dir)
 db_mf = dm_mf.get_bounds()
 
-dt=60000000
+dt=10000000
 n_min=int(n.floor((db_mf[1]-db_mf[0])/dt))
 for i in range(n_min):
     i0=db_mf[0]+i*dt
@@ -41,10 +41,16 @@ for i in range(n_min):
             print("low txpower. skipping")
     plt.subplot(311)
     plt.plot((txidxa-n.min(txidxa))/1e6,rnga,".",alpha=0.1)
+    plt.ylabel("Range-gate (km/s)")
     plt.subplot(312)
-    plt.plot((txidxa-n.min(txidxa))/1e6,dopa,".",alpha=0.1)
+    plt.plot((txidxa-n.min(txidxa))/1e6,dopa/1e3,".",alpha=0.1)
+    plt.ylim([-100,0])
+    plt.ylabel("Doppler velocity (km/s)")
     plt.subplot(313)
-    plt.plot((txidxa-n.min(txidxa))/1e6,snra,".")
+    plt.plot((txidxa-n.min(txidxa))/1e6,10.0*n.log10(snra),".")
+    plt.ylabel("SNR (dB)")
+    plt.xlabel("Time (s)")
+    plt.ylim([0,50])
     plt.tight_layout()
     plt.show()
         
