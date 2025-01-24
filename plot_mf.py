@@ -105,6 +105,13 @@ for i in range(n_min):
     i1=start_idx+i*dt+dt 
     txpa,txidxa,rnga,dopa,snra,beam=read_mf_output(dm_mf,i0,i1)
 
+    gidx=n.where(n.abs(dopa)>3e3)[0]
+    txpa=txpa[gidx]
+    txidxa=txidxa[gidx]
+    rnga=rnga[gidx]
+    dopa=dopa[gidx]
+    snra=snra[gidx]
+    beam=beam[gidx]
   #  cluster_idx=cluster(txidxa,rnga,dopa,snra)
 
     plt.subplot(311)
