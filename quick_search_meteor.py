@@ -17,24 +17,42 @@ rank = comm.Get_rank()
 
 
 class range_doppler_search:
-    def __init__(self,txlen=130,
-                 rg=n.arange(400,950,2,dtype=n.int64)):
+    def __init__(self,
+                 txlen=132,
+                 rg=n.arange(400,950,2,dtype=n.int64),
+                 fdec=4, # how much do we decimate before fft. can save a lot of compute
+                 fftlen=128
+                 ):
         
-        self.idx=n.arange(130,dtype=n.int64)
+        self.idx=n.arange(132,dtype=n.int64)
         self.n_rg=len(rg)
         self.txlen=txlen
-        self.fftlen=n.max((512,self.txlen))
+        if fftlen < txlen/fdec:
+            print("too short fftlen. increasing")
+            fftlen=n.ceil(txlen/fdec)
+        self.fftlen=fftlen
         self.idx_mat=n.zeros([self.n_rg,self.txlen],dtype=n.int64)
         self.idx=n.arange(self.txlen,dtype=n.int64)
         self.rg=rg
         drg=c.c/2/1e6/1e3
         self.rangev=self.rg*drg
         self.frad=47.5e6
-        self.fvec=n.fft.fftshift(n.fft.fftfreq(self.fftlen,d=1/1e6))
+        self.fvec=n.fft.fftshift(n.fft.fftfreq(self.fftlen,d=fdec/1e6))
         self.dopv=self.fvec*c.c/2.0/self.frad
+        self.fdec=fdec
 
         for ri in range(self.n_rg):
             self.idx_mat[ri,:]=self.idx+rg[ri]
+
+    def decim(self,Z,fdec=4):
+        new_width=int(self.fftlen/self.fdec)
+        Z2=n.zeros([self.n_rg,new_width],dtype=n.complex64)
+        idx=n.arange(new_width,dtype=n.int64)
+        idx2=n.arange(new_width,dtype=n.int64)*fdec
+
+        for i in range(fdec):
+            Z2[:,idx]+=Z[:,idx2+i]
+        return(Z2)
 
     def mf(self,z,z_tx,debug=False):
         """
@@ -62,14 +80,11 @@ class range_doppler_search:
             ##   Z2[i,:]=z[(self.rg[i]):(self.rg[i]+self.txlen)]*z_tx
 
             Z=z[rxi,self.idx_mat]*z_tx[None,:]
+            # decimate
+            ZD=self.decim(Z,fdec=self.fdec)
 
-            # df = 2*f*v/c
-            # df*c/2/f
-
-            ZF=n.fft.fftshift(fp.fft(Z,self.fftlen,axis=1),axes=1)
+            ZF=n.fft.fftshift(fp.fft(ZD,self.fftlen,axis=1),axes=1)
             pwr=n.real(ZF*n.conj(ZF))
-#            print(pwr.shape)
-#            print(MF.shape)
             MF+=pwr
         
         noise_floor=n.median(MF)
