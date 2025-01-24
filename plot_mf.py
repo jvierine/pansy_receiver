@@ -29,7 +29,7 @@ def read_mf_output(dm_mf,i0,i1,snr_threshold=7,tx_pwr_threshold=1e9):
             
             txp=data["tx_pwr"]
             # use this threshold for tx power. check that it is okay!!!
-            if n.min(txp) > 1e9:
+            if n.min(txp) > tx_pwr_threshold:
                 txpa=n.concatenate((txpa,txp))
                 txidxa=n.concatenate((txidxa,data["tx_idxs"]))
                 rnga=n.concatenate((rnga,data["max_range"]))
@@ -39,7 +39,7 @@ def read_mf_output(dm_mf,i0,i1,snr_threshold=7,tx_pwr_threshold=1e9):
             else:
                 print("low txpower. skipping")
 
-        gidx=n.where(snra>7)[0]
+        gidx=n.where(snra>snr_threshold)[0]
         txpa=txpa[gidx]
         txidxa=txidxa[gidx]
         rnga=rnga[gidx]
@@ -48,14 +48,13 @@ def read_mf_output(dm_mf,i0,i1,snr_threshold=7,tx_pwr_threshold=1e9):
         beam=beam[gidx]
     return(txpa,txidxa,rnga,dopa,snra,beam)
 
-
 mf_metadata_dir = "/media/archive/metadata/mf"
 dm_mf = drf.DigitalMetadataReader(mf_metadata_dir)
 db_mf = dm_mf.get_bounds()
 
 dt=10000000
 #n_min=int(n.floor((db_mf[1]-db_mf[0])/dt))
-start_idx=db_mf[1]-60*60*1000000
+start_idx=db_mf[1]-30*60*1000000
 #start_idx=db_mf[0]
 n_min=int(n.floor((db_mf[1]-start_idx)/dt))
 for i in range(n_min):
