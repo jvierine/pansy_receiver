@@ -11,6 +11,28 @@ import stuffr
 import time
 import scipy.fftpack as fp
 
+def cluster(tx_idx,
+            rg,
+            dop,
+            snr,
+            min_det=5
+            ):
+    gidx=n.where(n.abs(dop) > 3e3)[0]
+    tx_idx=tx_idx[gidx]
+    rg=rg[gidx]
+    dop=dop[gidx]
+    tv=tx_idx/1e6
+    idx=n.arange(len(dop),dtype=n.int64)
+    if len(idx) > min_det:
+        # try to add measurements to peak snr obs
+        i0=n.argmax(snr)
+        t0=tv[i0]
+        # doppler migration
+        plt.plot(tv-t0,rg-dop*(tv[idx]-t0),".")
+        plt.show()
+
+    n.argsort(snr)
+
 def read_mf_output(dm_mf,i0,i1,snr_threshold=7,tx_pwr_threshold=1e9):
     txpa=n.array([],dtype=n.float32)
     txidxa=n.array([],dtype=n.uint64)
@@ -61,6 +83,9 @@ for i in range(n_min):
     i0=start_idx+i*dt
     i1=start_idx+i*dt+dt 
     txpa,txidxa,rnga,dopa,snra,beam=read_mf_output(dm_mf,i0,i1)
+
+    cluster(txidxa,rnga,dopa,snra)
+
     plt.subplot(311)
     plt.scatter((txidxa-i0)/1e6,rnga,s=1,c=10.0*n.log10(snra),vmin=13,vmax=30)
     plt.xlim([0,dt/1e6])
