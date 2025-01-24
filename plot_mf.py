@@ -29,7 +29,7 @@ def cluster(tx_idx,
         i0=n.argmax(snr[idx])
         t0=tv[idx[i0]]
         # doppler migration
-        rg_resid=rg[idx]-dop[idx[i0]]*(tv[idx]-t0)
+        rg_resid=rg[idx]-(0.5*dop[idx]+0.5*dop[idx[i0]])*(tv[idx]-t0)
         plt.plot(tv[idx]-t0,rg_resid,".")
         plt.show()
 
