@@ -73,6 +73,7 @@ def meteor_search(debug=False):
 
     mf_metadata_dir = "/media/archive/metadata/mf"
     db_mf=[-1,-1]
+    dm_mf=None
     if os.path.exists(mf_metadata_dir):
         print("metadata directory exists. searching for last timestamp")
         try:
