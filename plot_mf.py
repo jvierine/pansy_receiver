@@ -40,7 +40,7 @@ for i in range(n_min):
         
         txp=data["tx_pwr"]
         # use this threshold for tx power. check that it is okay!!!
-        if n.min(txp) > 1e1:
+        if n.min(txp) > 1e9:
             txpa=n.concatenate((txpa,txp))
             txidxa=n.concatenate((txidxa,data["tx_idxs"]))
             rnga=n.concatenate((rnga,data["max_range"]))
