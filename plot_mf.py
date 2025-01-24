@@ -22,8 +22,8 @@ n_min=2
 #i0=db_mf[0]
 i0=db_mf[1]-2*60*1000000
 for i in range(n_min):
-    i0=db_mf[0]+i*dt
-    i1=db_mf[0]+i*dt+dt
+    i0=i0+i*dt
+    i1=i0+i*dt+dt
     txpa=n.array([],dtype=n.float32)
     txidxa=n.array([],dtype=n.uint64)
     rnga=n.array([],dtype=n.float32)
