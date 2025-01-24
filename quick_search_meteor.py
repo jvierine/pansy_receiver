@@ -166,7 +166,7 @@ def meteor_search(debug=False):
             data_dict = dmr.read(i0, i1, "id")
             
             for key in data_dict.keys():
-                #print((key, data_dict[key]))
+                print((key, data_dict[key]))
                 z=d.read_vector_c81d(key,1600*20,"ch000")
                 z_tx=d.read_vector_c81d(key,1600*20,"ch007")
                 RTI=n.zeros([20,rds.n_rg],dtype=n.float32)
