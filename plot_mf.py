@@ -50,7 +50,7 @@ for i in range(n_min):
     plt.ylim([-100,0])
     plt.ylabel("Doppler velocity (km/s)")
     plt.subplot(313)
-    plt.scatter((txidxa[gidx]-n.min(txidxa[gidx]))/1e6,10.0*n.log10(snra[gidx]),s=1,c=beam%5,vmin=0,vmax=4,cmap="turbo")
+    plt.scatter((txidxa[gidx]-n.min(txidxa[gidx]))/1e6,10.0*n.log10(snra[gidx]),s=1,c=beam[gidx]%5,vmin=0,vmax=4,cmap="turbo")
     plt.ylabel("SNR (dB)")
     plt.xlabel("Time (s)")
     plt.ylim([10,50])
