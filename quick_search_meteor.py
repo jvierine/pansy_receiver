@@ -109,6 +109,8 @@ def meteor_search():
                 RTIV=n.zeros([20,rds.n_rg],dtype=n.float32)
                 noise_floors=[]
                 for ti in range(20):
+                    tx_pwr=n.sum(n.abs(z_tx[(0+ti*1600):(rds.txlen+ti*1600)])**2.0)
+                    print(tx_pwr)
                     MF,pprof,dop_prof,nf=rds.mf(z[(0+ti*1600):(1600+ti*1600)],z_tx[(0+ti*1600):(rds.txlen+ti*1600)])
                     noise_floors.append(nf)
                     RTI[ti,:]=pprof
