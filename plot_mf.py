@@ -30,13 +30,13 @@ def cluster(tx_idx,
         t0=tv[idx[i0]]
         # doppler migration
         rg_resid=rg[idx] - (rg[idx[i0]]+(0.5*dop[idx]+0.5*dop[idx[i0]])*(tv[idx]-t0))
-        plt.plot(tv[idx]-t0,rg_resid,".")
-        plt.show()
 
 
 
         gidx=idx[n.where(n.abs(rg_resid)<3e3 )[0]]
         if len(gidx)>min_det:
+            plt.plot(tv[idx]-t0,rg_resid,".")
+            plt.show()
 
             meteor_idxs.append(gidx)
         idx=n.setdiff1d(idx,gidx)
@@ -99,7 +99,7 @@ for i in range(n_min):
     plt.scatter((txidxa-i0)/1e6,rnga,s=1,c=10.0*n.log10(snra),vmin=13,vmax=30)
 
     for ci in range(len(cluster_idx)):
-        plt.plot((txidxa[cluster_idx[ci]]-i0)/1e6,rnga[cluster_idx[ci]],alpha=0.2)                
+        plt.plot((txidxa[cluster_idx[ci]]-i0)/1e6,rnga[cluster_idx[ci]])                
 
     plt.xlim([0,dt/1e6])
     cb=plt.colorbar()
