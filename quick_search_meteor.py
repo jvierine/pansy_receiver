@@ -65,6 +65,54 @@ class range_doppler_search:
 
 def meteor_search():
 
+    mf_metadata_dir = "/media/archive/metadata/mf"
+    db_mf=[-1,-1]
+    if os.path.exists(mf_metadata_dir):
+        print("metadata directory exists. searching for last timestamp")
+        try:
+            dm_mf = drf.DigitalMetadataReader(mf_metadata_dir)
+            db_mf = dm_mf.get_bounds()
+            print(db_mf)
+        except:
+            print("couldn't read mf metadata")
+    else:
+        os.system("mkdir -p %s"%(mf_metadata_dir))
+
+    # setup the directory and file cadence.
+    # use 1 MHz, as this is the sample-rate and thus a
+    # natural resolution for timing.
+    subdirectory_cadence_seconds = 3600
+    file_cadence_seconds = 60
+    samples_per_second_numerator = 1000000
+    samples_per_second_denominator = 1
+    file_name = "mf"
+
+    dmw = drf.DigitalMetadataWriter(
+        mf_metadata_dir,
+        subdirectory_cadence_seconds,
+        file_cadence_seconds,
+        samples_per_second_numerator,
+        samples_per_second_denominator,
+        file_name,
+    )
+
+    # this is where the data is
+    d=drf.DigitalRFReader("/media/archive/")
+    # tx channel bounds
+    b=d.get_bounds("ch007")
+
+
+    i0=b[0]
+    if db[1] != -1:
+        # start where we left off, instead of the start
+        i0=db[1]+10*1600
+    print("starting at %s"%(stuffr.unix2datestr(i0/1e6)))
+
+    dt=10000000
+    n_windows = int(n.floor((b[1]-i0)/dt))
+
+
+    
     d=drf.DigitalRFReader("/media/archive")
     print(d.get_bounds("ch000"))
 
@@ -93,8 +141,8 @@ def meteor_search():
 
     rds=range_doppler_search()
     N=20*1600
+    beam_pos_idx=n.arange(20,dtype=n.int8)%5
     for bi in range(n_blocks):
-        
         i0=bi*ipp*n_codes + start_idx
         i1=bi*ipp*n_codes + start_idx + ipp*n_codes + ipp
 
@@ -108,9 +156,11 @@ def meteor_search():
                 RTI=n.zeros([20,rds.n_rg],dtype=n.float32)
                 RTIV=n.zeros([20,rds.n_rg],dtype=n.float32)
                 noise_floors=[]
+                tx_pwrs=[]
                 for ti in range(20):
                     tx_pwr=n.sum(n.abs(z_tx[(0+ti*1600):(rds.txlen+ti*1600)])**2.0)
-                    print(tx_pwr)
+                    tx_pwrs.append(tx_pwr)
+#                    print(tx_pwr)
                     MF,pprof,dop_prof,nf=rds.mf(z[(0+ti*1600):(1600+ti*1600)],z_tx[(0+ti*1600):(rds.txlen+ti*1600)])
                     noise_floors.append(nf)
                     RTI[ti,:]=pprof
@@ -124,7 +174,8 @@ def meteor_search():
                     max_rg=n.argmax(snr[ti,:])
                     max_dop=RTIV[ti,max_rg]
                     max_snr=snr[ti,max_rg]
-                    print("%d snr=%1.0f range=%1.1f km doppler=%1.1f km/s"%(int(key)+ti*1600,max_snr,rds.rangev[max_rg],max_dop))
+                    print("%s snr=%1.0f range=%1.1f km doppler=%1.1f km/s txp=%1.1f"%(stuffr.unix2datestr((int(key)+ti*1600)/1e6),max_snr,rds.rangev[max_rg],max_dop,tx_pwrs[ti]))
+                
             cput1=time.time()
             print("cputime/realtime %1.2f"% ( (cput1-cput0)/(1600*20/1e6) ))
     
