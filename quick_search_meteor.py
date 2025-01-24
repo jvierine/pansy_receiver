@@ -179,7 +179,7 @@ def meteor_search(debug=False):
 #                print(data_dict[key])
  #               print(key)
                 keyi=int(key)
-                if keyi < db_mf[1]:
+                if keyi+19*1600 <= db_mf[1]:
                     print(db_mf)
                     print("already processed %d. skipping"%(keyi))
                     continue
