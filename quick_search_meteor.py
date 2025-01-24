@@ -172,7 +172,7 @@ def meteor_search(debug=False):
         # only process if we have raw voltage data in ringbuffer
         if (i0 > b[0]) & (i1 < b[1]):
             data_dict = dmr.read(i0, i1, "id")
-            keys=data_dict.keys().sort()
+            keys=data_dict.keys()
             
             print("processing %d pulses"%(20*len(keys)))
             for key in keys:
