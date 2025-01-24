@@ -40,10 +40,10 @@ for i in range(n_min):
         else:
             print("low txpower. skipping")
     plt.subplot(311)
-    plt.plot((txidxa-n.min(txidxa))/1e6,rnga,".",alpha=0.1)
+    plt.plot((txidxa-n.min(txidxa))/1e6,rnga,".")
     plt.ylabel("Range-gate (km/s)")
     plt.subplot(312)
-    plt.plot((txidxa-n.min(txidxa))/1e6,dopa/1e3,".",alpha=0.1)
+    plt.plot((txidxa-n.min(txidxa))/1e6,dopa/1e3,".")
     plt.ylim([-100,0])
     plt.ylabel("Doppler velocity (km/s)")
     plt.subplot(313)
