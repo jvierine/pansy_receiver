@@ -210,7 +210,7 @@ def meteor_search():
                 dmw.write(tx_idxs,data_dict)
 
             cput1=time.time()
-            print("cputime/realtime %1.2f"% ( (cput1-cput0)/(1600*20/1e6) ))
+            print("%s cputime/realtime %1.2f"% (stuffr.unix2datestr(i0/1e6), (cput1-cput0)/(1600*20/1e6) ))
     
     
     
