@@ -10,6 +10,12 @@ import stuffr
 import time
 import scipy.fftpack as fp
 
+#from mpi4py import MPI
+#comm = MPI.COMM_WORLD
+#size = comm.Get_size()
+#rank = comm.Get_rank()
+
+
 class range_doppler_search:
     def __init__(self,txlen=130,
                  rg=n.arange(400,950,2,dtype=n.int64)):
@@ -105,7 +111,7 @@ def meteor_search():
     i0=b[0]
     if db_mf[1] != -1:
         # start where we left off, instead of the start
-        i0=db[1]+10
+        i0=db_mf[1]+10
     print("starting at %s"%(stuffr.unix2datestr(i0/1e6)))
 
     # 100 seconds per analysis window
@@ -145,7 +151,12 @@ def meteor_search():
     for bi in range(n_blocks):
         i0=bi*ipp*n_codes + start_idx
         i1=bi*ipp*n_codes + start_idx + ipp*n_codes + ipp
-        
+
+        db_mf = dm_mf.get_bounds()
+        if db_mf[1] >=i0:
+            print("skipping block, because it is already processed")
+            continue
+            
         b=d.get_bounds("ch000")
         # if we have raw voltage
         if (i0 > b[0]) & (i1 < b[1]):
