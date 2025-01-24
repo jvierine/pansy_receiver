@@ -28,6 +28,10 @@ for i in range(n_min):
     snra=n.array([],dtype=n.float32)
     beam=n.array([],dtype=n.int32)            
     data_dict = dm_mf.read(i0, i1, ("tx_pwr","max_range","tx_idxs","max_dopvel","max_snr","beam_pos_idx"))
+
+    if len(data_dict.keys()) == 0:
+        print("no data")
+        continue
     for k in data_dict.keys():
         data=data_dict[k]
         
