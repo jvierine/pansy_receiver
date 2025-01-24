@@ -68,12 +68,14 @@ class range_doppler_search:
 
             ZF=n.fft.fftshift(fp.fft(Z,self.fftlen,axis=1),axes=1)
             pwr=n.real(ZF*n.conj(ZF))
+#            print(pwr.shape)
+#            print(MF.shape)
             MF+=pwr
-            
+        
         noise_floor=n.median(MF)
-        pprof=n.max(noise_floor,axis=1)
-        peak_dopv=self.dopv[n.argmax(noise_floor,axis=1)]
-
+        pprof=n.max(MF,axis=1)
+        peak_dopv=self.dopv[n.argmax(MF,axis=1)]
+        
         if debug:
             plt.pcolormesh(self.dopv,self.rangev,n.abs(ZF)**2.0)
             plt.show()
