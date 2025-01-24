@@ -172,7 +172,7 @@ def meteor_search(debug=False):
         if (i0 > b[0]) & (i1 < b[1]):
             data_dict = dmr.read(i0, i1, "id")
             keys=data_dict.keys()
-            print("processing %d pulses"(20*len(keys)))
+            print("processing %d pulses"%(20*len(keys)))
             for key in keys:
 #                print((key, data_dict[key]))
                 z=d.read_vector_c81d(key,1600*20,"ch000")
