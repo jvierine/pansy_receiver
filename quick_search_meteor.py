@@ -23,10 +23,12 @@ class range_doppler_search:
         self.idx=n.arange(130,dtype=n.int64)
         self.n_rg=len(rg)
         self.txlen=txlen
+        self.fftlen=n.max((512,self.txlen))
         self.idx_mat=n.zeros([self.n_rg,self.txlen],dtype=n.int64)
         self.idx=n.arange(self.txlen,dtype=n.int64)
         self.rg=rg
-        self.rangev=self.rg*0.15
+        drg=c.c/2/1e6/1e3
+        self.rangev=self.rg*drg
         self.frad=47.5e6
         self.fvec=n.fft.fftshift(n.fft.fftfreq(self.txlen,d=1/1e6))
         self.dopv=self.fvec*c.c/2.0/self.frad
@@ -50,19 +52,27 @@ class range_doppler_search:
 
         z_tx=n.conj(z_tx)
 
-        # decode each range gate
-        #Z2=n.zeros([self.n_rg,self.txlen])
-        ##   Z2[i,:]=z[(self.rg[i]):(self.rg[i]+self.txlen)]*z_tx
-        Z=z[self.idx_mat]*z_tx[None,:]
+        n_rx=z.shape[0]
+        
+        MF=n.zeros([self.n_rg,self.fftlen],dtype=n.float32)
 
-        # df = 2*f*v/c
-        # df*c/2/f
+        for rxi in range(n_rx):
+            # decode each range gate
+            #Z2=n.zeros([self.n_rg,self.txlen])
+            ##   Z2[i,:]=z[(self.rg[i]):(self.rg[i]+self.txlen)]*z_tx
 
-        ZF=n.fft.fftshift(fp.fft(Z,axis=1),axes=1)
-        pwr=n.real(ZF*n.conj(ZF))
-        noise_floor=n.median(pwr)
-        pprof=n.max(pwr,axis=1)
-        peak_dopv=self.dopv[n.argmax(pwr,axis=1)]
+            Z=z[rxi,self.idx_mat]*z_tx[None,:]
+
+            # df = 2*f*v/c
+            # df*c/2/f
+
+            ZF=n.fft.fftshift(fp.fft(Z,axis=1),axes=1)
+            pwr=n.real(ZF*n.conj(ZF))
+            MF+=pwr
+            
+        noise_floor=n.median(MF)
+        pprof=n.max(noise_floor,axis=1)
+        peak_dopv=self.dopv[n.argmax(noise_floor,axis=1)]
 
         if debug:
             plt.pcolormesh(self.dopv,self.rangev,n.abs(ZF)**2.0)
@@ -181,8 +191,12 @@ def meteor_search(debug=False):
                     print(db_mf)
                     print("already processed %d. skipping"%(keyi))
                     continue
-                
-                z=d.read_vector_c81d(key,1600*20,"ch000")
+
+                chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"]
+                n_ch=len(chs)
+                z=n.zeros([n_ch,1600*20],dtype=n.complex64)
+                for chi in range(n_ch):
+                    z[chi,:]=d.read_vector_c81d(key,1600*20,chs[chi])
                 z_tx=d.read_vector_c81d(key,1600*20,"ch007")
                 RTI=n.zeros([20,rds.n_rg],dtype=n.float32)
                 RTIV=n.zeros([20,rds.n_rg],dtype=n.float32)
@@ -197,7 +211,7 @@ def meteor_search(debug=False):
                     tx_idxs.append(key+ti*1600)
                     tx_pwrs.append(tx_pwr)
 #                    print(tx_pwr)
-                    MF,pprof,dop_prof,nf=rds.mf(z[(0+ti*1600):(1600+ti*1600)],z_tx[(0+ti*1600):(rds.txlen+ti*1600)])
+                    MF,pprof,dop_prof,nf=rds.mf(z[:,(0+ti*1600):(1600+ti*1600)],z_tx[(0+ti*1600):(rds.txlen+ti*1600)])
                     noise_floors.append(nf)
                     RTI[ti,:]=pprof
                     RTIV[ti,:]=dop_prof
