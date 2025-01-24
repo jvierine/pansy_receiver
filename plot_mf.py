@@ -24,12 +24,12 @@ def cluster(tx_idx,
     tv=tx_idx/1e6
     idx=n.arange(len(dop),dtype=n.int64)
     meteor_idxs=[]
-    if len(idx) > min_det:
+    while len(idx) > min_det:
         # try to add measurements to peak snr obs
         i0=n.argmax(snr[idx])
         t0=tv[idx[i0]]
         # doppler migration
-        rg_resid=rg[idx]-dop[idx]*(tv[idx]-t0)
+        rg_resid=rg[idx]-dop[idx[i0]]*(tv[idx]-t0)
         plt.plot(tv[idx]-t0,rg_resid,".")
         plt.show()
 
