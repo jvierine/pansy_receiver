@@ -67,7 +67,7 @@ for i in range(n_min):
     cb.set_label("beam position")
     plt.ylabel("SNR (dB)")
     plt.xlabel("Time (s)")
-    plt.ylim([10,50])
+    plt.ylim([7,50])
     plt.tight_layout()
     plt.show()
         
