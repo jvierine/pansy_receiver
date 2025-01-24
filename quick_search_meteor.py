@@ -119,19 +119,21 @@ def meteor_search():
                 snr[snr<=0]=0.0001
                 max_snr=n.max(snr)
 
+                tidx=n.arange(4,dtype=n.int64)
                 mi,mj=n.unravel_index(n.argmax(snr),snr.shape)
 
                 print(max_snr)
                 max_dop=RTIV[mj,mi]
                 print(max_dop)
                 if max_snr > 60 and n.abs(max_dop) > 10e3 and n.abs(max_dop) < 100e3:
-                    plt.subplot(121)
-                    plt.pcolormesh(tv,rds.rangev,10.0*n.log10(snr),vmin=-3,vmax=20)
-                    plt.subplot(122)
-                    plt.pcolormesh(tv,rds.rangev,RTIV.T/1e3,cmap="turbo")
-                    plt.colorbar()
-                    plt.tight_layout()
-                    plt.show()
+                    for pi in range(5):
+                        plt.subplot(121)
+                        plt.pcolormesh(tv[tidx*5+pi],rds.rangev,10.0*n.log10(snr[tidx*5+pi,:]),vmin=-3,vmax=20)
+                        plt.subplot(122)
+                        plt.pcolormesh(tv[tidx*5+pi],rds.rangev,RTIV.T[tidx*5+pi,:]/1e3,cmap="turbo")
+                        plt.colorbar()
+                        plt.tight_layout()
+                        plt.show()
 
                 #plt.plot(z_tx.real)
                 #plt.plot(z_tx.imag)
