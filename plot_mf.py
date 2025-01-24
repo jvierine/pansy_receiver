@@ -95,7 +95,7 @@ mf_metadata_dir = "/media/archive/metadata/mf"
 dm_mf = drf.DigitalMetadataReader(mf_metadata_dir)
 db_mf = dm_mf.get_bounds()
 
-dt=10000000
+dt=60000000
 #n_min=int(n.floor((db_mf[1]-db_mf[0])/dt))
 start_idx=db_mf[1]-2*60*60*1000000
 #start_idx=db_mf[0]
