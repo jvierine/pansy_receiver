@@ -40,11 +40,12 @@ for i in range(n_min):
         else:
             print("low txpower. skipping")
     plt.subplot(311)
-    plt.plot((txidxa-n.min(txidxa))/1e6,rnga,".")
+    plt.plot((txidxa-n.min(txidxa))/1e6,rnga,".",alpha=0.1)
     plt.subplot(312)
-    plt.plot((txidxa-n.min(txidxa))/1e6,dopa,".")
+    plt.plot((txidxa-n.min(txidxa))/1e6,dopa,".",alpha=0.1)
     plt.subplot(313)
     plt.plot((txidxa-n.min(txidxa))/1e6,snra,".")
+    plt.tight_layout()
     plt.show()
         
 #        print(data.keys())
