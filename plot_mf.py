@@ -21,15 +21,28 @@ n_min=int(n.floor((db_mf[1]-db_mf[0])/dt))
 for i in range(n_min):
     i0=db_mf[0]+i*dt
     i1=db_mf[0]+i*dt+dt
-    data_dict = dm_mf.read(i0, i1, ("tx_pwr","max_range","tx_idxs"))
+    txpa=n.array([],dtype=n.float32)
+    txidxa=n.array([],dtype=n.uint64)
+    rnga=n.array([],dtype=n.float32)
+    dopa=n.array([],dtype=n.float32)        
+    data_dict = dm_mf.read(i0, i1, ("tx_pwr","max_range","tx_idxs","max_dopvel"))
     for k in data_dict.keys():
         data=data_dict[k]
+        
         txp=data["tx_pwr"]
-        tx_idxs=data["tx_idxs"]
-        plt.plot(tx_idxs,txp)
-        plt.show()
-        plt.plot(tx_idxs,data["max_range"],".")
-        plt.show()
+        if n.min(txp) > 1e10:
+            txpa=n.concatenate((txpa,txp))
+            txidxa=n.concatenate((txidxa,data["tx_idxs"]))
+            rnga=n.concatenate((rnga,data["max_range"]))
+            dopa=n.concatenate((dopa,data["max_dopvel"]))            
+        else:
+            print("low txpower. skipping")
+    plt.subplot(211)
+    plt.plot(txidxa,rnga,".")
+    plt.subplot(212)
+    plt.plot(txidxa,dopa,".")
+    plt.show()
+        
 #        print(data.keys())
         
     
