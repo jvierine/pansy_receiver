@@ -41,10 +41,10 @@ for i in range(n_min):
             print("low txpower. skipping")
     gidx=n.where(snra>20)[0]
     plt.subplot(311)
-    plt.plot((txidxa[gidx]-n.min(txidxa[gidx]))/1e6,rnga[gidx],".")
+    plt.scatter((txidxa[gidx]-n.min(txidxa[gidx]))/1e6,rnga[gidx],s=1,c=10.0*n.log10(snra[gidx]),vmin=13,vmax=40)
     plt.ylabel("Range (km)")
     plt.subplot(312)
-    plt.plot((txidxa[gidx]-n.min(txidxa[gidx]))/1e6,dopa[gidx]/1e3,".")
+    plt.scatter((txidxa[gidx]-n.min(txidxa[gidx]))/1e6,dopa[gidx]/1e3,s=1,c=10.0*n.log10(snra[gidx]),vmin=13,vmax=40)
     plt.ylim([-100,0])
     plt.ylabel("Doppler velocity (km/s)")
     plt.subplot(313)
