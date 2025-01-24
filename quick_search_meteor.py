@@ -175,13 +175,15 @@ def meteor_search(debug=False):
             
             print("processing %d pulses"%(20*len(keys)))
             for key in keys:
+                print(data_dict[key])
+                print(key)
                 keyi=int(key)
                 if keyi < db_mf[1]:
                     print(db_mf)
                     print("already processed %d. skipping"%(keyi))
                     continue
                 
-                print(key, data_dict[key])
+
                 z=d.read_vector_c81d(key,1600*20,"ch000")
                 z_tx=d.read_vector_c81d(key,1600*20,"ch007")
                 RTI=n.zeros([20,rds.n_rg],dtype=n.float32)
