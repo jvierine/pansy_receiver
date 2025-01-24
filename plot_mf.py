@@ -18,7 +18,7 @@ db_mf = dm_mf.get_bounds()
 
 dt=10000000
 #n_min=int(n.floor((db_mf[1]-db_mf[0])/dt))
-start_idx=db_mf[1]-2*60*1000000
+start_idx=db_mf[1]-60*60*1000000
 #start_idx=db_mf[0]
 n_min=int(n.floor((db_mf[1]-start_idx)/dt))
 for i in range(n_min):
@@ -51,7 +51,7 @@ for i in range(n_min):
             print("low txpower. skipping")
     plt.plot(txpa,".")
     plt.show()
-    
+
     gidx=n.where(snra>7)[0]
     plt.subplot(311)
     plt.scatter((txidxa[gidx]-i0)/1e6,rnga[gidx],s=1,c=10.0*n.log10(snra[gidx]),vmin=13,vmax=30)
