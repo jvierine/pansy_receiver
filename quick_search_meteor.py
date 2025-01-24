@@ -217,17 +217,17 @@ def meteor_search(debug=False):
                     max_dops.append(max_dop)
                     max_ranges.append(rds.rangev[max_rg])
                     max_snrs.append(max_snr)
-                data_dict={}
+                odata_dict={}
                 
                 tx_idxs=n.array(tx_idxs)
-                data_dict["beam_pos_idx"]=n.arange(20,dtype=n.int8)
-                data_dict["tx_std"]=n.repeat(n.std(tx_pwrs),20)
-                data_dict["tx_pwr"]=tx_pwrs
-                data_dict["max_snr"]=max_snrs
-                data_dict["max_range"]=max_ranges
-                data_dict["max_dopvel"]=max_dops
-                data_dict["noise_floor"]=noise_floors
-                dmw.write(tx_idxs,data_dict)
+                odata_dict["beam_pos_idx"]=n.arange(20,dtype=n.int8)
+                odata_dict["tx_std"]=n.repeat(n.std(tx_pwrs),20)
+                odata_dict["tx_pwr"]=tx_pwrs
+                odata_dict["max_snr"]=max_snrs
+                odata_dict["max_range"]=max_ranges
+                odata_dict["max_dopvel"]=max_dops
+                odata_dict["noise_floor"]=noise_floors
+                dmw.write(tx_idxs,odata_dict)
 
         cput1=time.time()
         print("%s cputime/realtime %1.2f"% (stuffr.unix2datestr(i0/1e6), (cput1-cput0)/(size*60.0)))
