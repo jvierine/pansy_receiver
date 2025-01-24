@@ -37,8 +37,7 @@ def cluster(tx_idx,
         if len(gidx)>min_det:
             meteor_idxs.append(gidx)
         idx=n.setdiff1d(idx,gidx)
-
-    n.argsort(snr)
+    return(meteor_idxs)
 
 def read_mf_output(dm_mf,i0,i1,snr_threshold=7,tx_pwr_threshold=1e9):
     txpa=n.array([],dtype=n.float32)
@@ -91,10 +90,14 @@ for i in range(n_min):
     i1=start_idx+i*dt+dt 
     txpa,txidxa,rnga,dopa,snra,beam=read_mf_output(dm_mf,i0,i1)
 
-    cluster(txidxa,rnga,dopa,snra)
+    cluster_idx=cluster(txidxa,rnga,dopa,snra)
 
     plt.subplot(311)
     plt.scatter((txidxa-i0)/1e6,rnga,s=1,c=10.0*n.log10(snra),vmin=13,vmax=30)
+
+    for ci in range(len(cluster_idx)):
+        plt.plot((txidxa[cluster_idx[ci]-i0)/1e6,rnga[cluster_idx[ci]])                
+
     plt.xlim([0,dt/1e6])
     cb=plt.colorbar()
     plt.title("%s"%(stuffr.unix2datestr(i0/1e6)))
