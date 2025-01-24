@@ -23,7 +23,7 @@ n_min=5
 start_idx=db_mf[1]-5*60*1000000
 for i in range(n_min):
     i0=start_idx+i*dt
-    i1=start_idx+i*dt+dt
+    i1=start_idx+i*dt+dt 
     txpa=n.array([],dtype=n.float32)
     txidxa=n.array([],dtype=n.uint64)
     rnga=n.array([],dtype=n.float32)
