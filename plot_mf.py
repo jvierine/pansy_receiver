@@ -25,7 +25,7 @@ for i in range(n_min):
     txidxa=n.array([],dtype=n.uint64)
     rnga=n.array([],dtype=n.float32)
     dopa=n.array([],dtype=n.float32)
-    snrsa=n.array([],dtype=n.float32)        
+    snra=n.array([],dtype=n.float32)        
     data_dict = dm_mf.read(i0, i1, ("tx_pwr","max_range","tx_idxs","max_dopvel","max_snr"))
     for k in data_dict.keys():
         data=data_dict[k]
