@@ -24,6 +24,12 @@ for i in range(n_min):
     data_dict = dm_mf.read(i0, i1, ("tx_pwr","max_range","tx_idxs"))
     for k in data_dict.keys():
         data=data_dict[k]
-        print(data.keys())
+        txp=data["tx_pwr"]
+        tx_idxs=data["tx_idxs"]
+        plt.plot(tx_idxs,txp)
+        plt.show()
+        plt.plot(tx_idxs,data["max_range"],".")
+        plt.show()
+#        print(data.keys())
         
     
