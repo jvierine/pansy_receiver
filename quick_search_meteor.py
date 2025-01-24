@@ -145,7 +145,8 @@ def meteor_search():
     for bi in range(n_blocks):
         i0=bi*ipp*n_codes + start_idx
         i1=bi*ipp*n_codes + start_idx + ipp*n_codes + ipp
-
+        
+        b=d.get_bounds("ch000")
         # if we have raw voltage
         if (i0 > b[0]) & (i1 < b[1]):
             cput0=time.time()
