@@ -48,7 +48,7 @@ for i in range(n_min):
             beam=n.concatenate((beam,data["beam_pos_idx"]))            
         else:
             print("low txpower. skipping")
-    gidx=n.where(snra>10)[0]
+    gidx=n.where(snra>7)[0]
     plt.subplot(311)
     plt.scatter((txidxa[gidx]-n.min(txidxa[gidx]))/1e6,rnga[gidx],s=1,c=10.0*n.log10(snra[gidx]),vmin=13,vmax=30)
     cb=plt.colorbar()
