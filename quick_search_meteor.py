@@ -203,5 +203,7 @@ def meteor_search():
     
     
 if __name__ == "__main__":
-    meteor_search()
+    while True:
+        meteor_search()
+        time.sleep(1)
     
