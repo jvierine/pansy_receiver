@@ -66,7 +66,7 @@ class range_doppler_search:
             # df = 2*f*v/c
             # df*c/2/f
 
-            ZF=n.fft.fftshift(fp.fft(Z,axis=1),axes=1)
+            ZF=n.fft.fftshift(fp.fft(Z,self.fftlen,axis=1),axes=1)
             pwr=n.real(ZF*n.conj(ZF))
             MF+=pwr
             
