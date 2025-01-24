@@ -172,14 +172,12 @@ def meteor_search(debug=False):
         # only process if we have raw voltage data in ringbuffer
         if (i0 > b[0]) & (i1 < b[1]):
             data_dict = dmr.read(i0, i1, "id")
-            keys=data_dict.keys()
+            keys=data_dict.keys().sort()
             
             print("processing %d pulses"%(20*len(keys)))
             for key in keys:
-#                print(data_dict[key])
- #               print(key)
                 keyi=int(key)
-                if keyi+19*1600 <= db_mf[1]:
+                if keyi <= db_mf[1]:
                     print(db_mf)
                     print("already processed %d. skipping"%(keyi))
                     continue
@@ -220,14 +218,15 @@ def meteor_search(debug=False):
                 odata_dict={}
                 
                 tx_idxs=n.array(tx_idxs)
-                odata_dict["beam_pos_idx"]=n.arange(20,dtype=n.int8)
-                odata_dict["tx_std"]=n.repeat(n.std(tx_pwrs),20)
-                odata_dict["tx_pwr"]=tx_pwrs
-                odata_dict["max_snr"]=max_snrs
-                odata_dict["max_range"]=max_ranges
-                odata_dict["max_dopvel"]=max_dops
-                odata_dict["noise_floor"]=noise_floors
-                dmw.write(tx_idxs,odata_dict)
+                odata_dict["beam_pos_idx"]=[n.arange(20,dtype=n.int8)]
+                odata_dict["tx_std"]=[n.repeat(n.std(tx_pwrs),20)]
+                odata_dict["tx_pwr"]=[tx_pwrs]
+                odata_dict["max_snr"]=[max_snrs]
+                odata_dict["max_range"]=[max_ranges]
+                odata_dict["max_dopvel"]=[max_dops]
+                odata_dict["noise_floor"]=[noise_floors]
+                odata_dict["tx_idxs"]=[tx_idxs]
+                dmw.write([key],odata_dict)
 
         cput1=time.time()
         print("%s cputime/realtime %1.2f"% (stuffr.unix2datestr(i0/1e6), (cput1-cput0)/(size*60.0)))
