@@ -41,10 +41,6 @@ def cluster(tx_idx,
             rg_resid=rg[idx] - (rg[idx[i0]]+(dop[idx[i0]])*(tv[idx]-t0)) + 1e6* (n.abs((tv[idx]-t0))>0.01) + 1e6* (n.abs((tv[idx]-t0))==0)
             # find best measurement. when only one meas, look only nearby
             i1=idx[n.argmin(rg_resid)]
-        if n_m>1 and n_m < 10:
-            A=n.zeros([2*n_m,2],dtype=n.float32)
-            A[:,0]=1.0
-            A[:,1]= # TBC
 
 
 
