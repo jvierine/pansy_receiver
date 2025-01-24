@@ -18,9 +18,9 @@ db_mf = dm_mf.get_bounds()
 
 dt=10000000
 #n_min=int(n.floor((db_mf[1]-db_mf[0])/dt))
-n_min=5
-#i0=db_mf[0]
-start_idx=db_mf[1]-5*60*1000000
+start_idx=db_mf[1]-10*60*1000000
+#start_idx=db_mf[0]
+n_min=int(n.floor((db_mf[1]-start_idx)/dt))
 for i in range(n_min):
     i0=start_idx+i*dt
     i1=start_idx+i*dt+dt 
