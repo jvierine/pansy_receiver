@@ -39,7 +39,8 @@ for i in range(n_min):
         data=data_dict[k]
         
         txp=data["tx_pwr"]
-        if n.min(txp) > 1e10:
+        # use this threshold for tx power. check that it is okay!!!
+        if n.min(txp) > 1e1:
             txpa=n.concatenate((txpa,txp))
             txidxa=n.concatenate((txidxa,data["tx_idxs"]))
             rnga=n.concatenate((rnga,data["max_range"]))
@@ -48,6 +49,9 @@ for i in range(n_min):
             beam=n.concatenate((beam,data["beam_pos_idx"]))            
         else:
             print("low txpower. skipping")
+    plt.plot(txpa,".")
+    plt.show()
+    
     gidx=n.where(snra>7)[0]
     plt.subplot(311)
     plt.scatter((txidxa[gidx]-i0)/1e6,rnga[gidx],s=1,c=10.0*n.log10(snra[gidx]),vmin=13,vmax=30)
