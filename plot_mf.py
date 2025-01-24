@@ -24,8 +24,9 @@ for i in range(n_min):
     txpa=n.array([],dtype=n.float32)
     txidxa=n.array([],dtype=n.uint64)
     rnga=n.array([],dtype=n.float32)
-    dopa=n.array([],dtype=n.float32)        
-    data_dict = dm_mf.read(i0, i1, ("tx_pwr","max_range","tx_idxs","max_dopvel"))
+    dopa=n.array([],dtype=n.float32)
+    snrsa=n.array([],dtype=n.float32)        
+    data_dict = dm_mf.read(i0, i1, ("tx_pwr","max_range","tx_idxs","max_dopvel","max_snr"))
     for k in data_dict.keys():
         data=data_dict[k]
         
@@ -34,13 +35,16 @@ for i in range(n_min):
             txpa=n.concatenate((txpa,txp))
             txidxa=n.concatenate((txidxa,data["tx_idxs"]))
             rnga=n.concatenate((rnga,data["max_range"]))
-            dopa=n.concatenate((dopa,data["max_dopvel"]))            
+            dopa=n.concatenate((dopa,data["max_dopvel"]))
+            snra=n.concatenate((snra,data["max_snr"]))
         else:
             print("low txpower. skipping")
-    plt.subplot(211)
-    plt.plot(txidxa,rnga,".")
-    plt.subplot(212)
-    plt.plot(txidxa,dopa,".")
+    plt.subplot(311)
+    plt.plot((txidxa-n.min(txidxa))/1e6,rnga,".")
+    plt.subplot(312)
+    plt.plot((txidxa-n.min(txidxa))/1e6,dopa,".")
+    plt.subplot(313)
+    plt.plot((txidxa-n.min(txidxa))/1e6,snra,".")
     plt.show()
         
 #        print(data.keys())
