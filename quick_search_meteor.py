@@ -69,7 +69,7 @@ class range_doppler_search:
             plt.show()
         return(pwr,pprof,peak_dopv,noise_floor)
 
-def meteor_search():
+def meteor_search(debug=False):
 
     mf_metadata_dir = "/media/archive/metadata/mf"
     db_mf=[-1,-1]
@@ -149,18 +149,20 @@ def meteor_search():
     N=20*1600
     beam_pos_idx=n.arange(20,dtype=n.int8)%5
     for bi in range(n_blocks):
+        cput0=time.time()                        
         i0=bi*ipp*n_codes + start_idx
         i1=bi*ipp*n_codes + start_idx + ipp*n_codes + ipp
 
         db_mf = dm_mf.get_bounds()
-        if db_mf[1] >=i0:
-            print("skipping block, because it is already processed")
+        if db_mf[1] >= i0:
+            print("skipping block %d, because it is already processed"%(bi))
             continue
+        print("processing %d"%(bi))
             
         b=d.get_bounds("ch000")
         # if we have raw voltage
+        
         if (i0 > b[0]) & (i1 < b[1]):
-            cput0=time.time()
             data_dict = dmr.read(i0, i1, "id")
             
             for key in data_dict.keys():
@@ -193,7 +195,7 @@ def meteor_search():
                     max_rg=n.argmax(snr[ti,:])
                     max_dop=RTIV[ti,max_rg]
                     max_snr=snr[ti,max_rg]
-                    if ti==0:
+                    if debug:
                         print("%s snr=%1.0f range=%1.1f km doppler=%1.1f km/s txp=%1.1f"%(stuffr.unix2datestr((int(key)+ti*1600)/1e6),max_snr,rds.rangev[max_rg],max_dop,tx_pwrs[ti]))
                     max_dops.append(max_dop)
                     max_ranges.append(rds.rangev[max_rg])
@@ -210,9 +212,10 @@ def meteor_search():
                 data_dict["noise_floor"]=noise_floors
                 dmw.write(tx_idxs,data_dict)
 
-            cput1=time.time()
-            if bi%100==0:
-                print("%s cputime/realtime %1.2f"% (stuffr.unix2datestr(i0/1e6), (cput1-cput0)/(1600*20/1e6) ))
+
+        cput1=time.time()
+        print("%s cputime/realtime %1.2f"% (stuffr.unix2datestr(i0/1e6), (cput1-cput0)/(1600*20/1e6) ))
+
     
     
     
