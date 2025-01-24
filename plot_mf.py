@@ -51,7 +51,7 @@ for i in range(n_min):
     plt.plot((txidxa[gidx]-n.min(txidxa[gidx]))/1e6,10.0*n.log10(snra[gidx]),".")
     plt.ylabel("SNR (dB)")
     plt.xlabel("Time (s)")
-    plt.ylim([0,50])
+    plt.ylim([10,50])
     plt.tight_layout()
     plt.show()
         
