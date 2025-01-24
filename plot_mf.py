@@ -17,12 +17,12 @@ def cluster(tx_idx,
             snr,
             min_det=5
             ):
-    gidx=n.where(n.abs(dop) > 3e3)[0]
-    tx_idx=tx_idx[gidx]
-    rg=rg[gidx]
-    dop=dop[gidx]
+    idx=n.where(n.abs(dop) > 3e3)[0]
+    #tx_idx=tx_idx[gidx]
+    #rg=rg[gidx]
+    #dop=dop[gidx]
     tv=tx_idx/1e6
-    idx=n.arange(len(dop),dtype=n.int64)
+    #idx=n.arange(len(dop),dtype=n.int64)
     meteor_idxs=[]
     while len(idx) > min_det:
         # try to add measurements to peak snr obs
@@ -96,7 +96,7 @@ for i in range(n_min):
     plt.scatter((txidxa-i0)/1e6,rnga,s=1,c=10.0*n.log10(snra),vmin=13,vmax=30)
 
     for ci in range(len(cluster_idx)):
-        plt.plot((txidxa[cluster_idx[ci]]-i0)/1e6,rnga[cluster_idx[ci]])                
+        plt.plot((txidxa[cluster_idx[ci]]-i0)/1e6,rnga[cluster_idx[ci]],alpha=0.2)                
 
     plt.xlim([0,dt/1e6])
     cb=plt.colorbar()
