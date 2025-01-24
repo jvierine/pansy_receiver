@@ -27,9 +27,25 @@ def cluster(tx_idx,
     while len(idx) > min_det:
         # try to add measurements to peak snr obs
         i0=n.argmax(snr[idx])
+        this_idx=n.array([idx[i0]],dtype=n.int64)
         t0=tv[idx[i0]]
-        # doppler migration
-        rg_resid=rg[idx] - (rg[idx[i0]]+(0.5*dop[idx]+0.5*dop[idx[i0]])*(tv[idx]-t0))
+
+
+        n_m=len(this_idx)
+        # if >= 3 measurements
+        # r(t) = r0 + v*(t-t0) + 0.5*a*(t-t0)**2
+        # if less than 3 measurements
+        # r(t) = r0 + v*(t-t0)
+        if n_m==1:
+            # doppler migration corrected range residuals. these are good candidates
+            rg_resid=rg[idx] - (rg[idx[i0]]+(dop[idx[i0]])*(tv[idx]-t0)) + 1e6* (n.abs((tv[idx]-t0))>0.01) + 1e6* (n.abs((tv[idx]-t0))==0)
+            # find best measurement. when only one meas, look only nearby
+            i1=idx[n.argmin(rg_resid)]
+        if n_m>1 and n_m < 10:
+            A=n.zeros([2*n_m,2],dtype=n.float32)
+            A[:,0]=1.0
+            A[:,1]= # TBC
+
 
 
 
@@ -93,13 +109,13 @@ for i in range(n_min):
     i1=start_idx+i*dt+dt 
     txpa,txidxa,rnga,dopa,snra,beam=read_mf_output(dm_mf,i0,i1)
 
-    cluster_idx=cluster(txidxa,rnga,dopa,snra)
+  #  cluster_idx=cluster(txidxa,rnga,dopa,snra)
 
     plt.subplot(311)
     plt.scatter((txidxa-i0)/1e6,rnga,s=1,c=10.0*n.log10(snra),vmin=13,vmax=30)
 
-    for ci in range(len(cluster_idx)):
-        plt.plot((txidxa[cluster_idx[ci]]-i0)/1e6,rnga[cluster_idx[ci]])                
+#    for ci in range(len(cluster_idx)):
+ #       plt.plot((txidxa[cluster_idx[ci]]-i0)/1e6,rnga[cluster_idx[ci]])                
 
     plt.xlim([0,dt/1e6])
     cb=plt.colorbar()
