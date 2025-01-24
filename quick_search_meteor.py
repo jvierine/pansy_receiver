@@ -86,7 +86,7 @@ def meteor_search():
     print(db)
     b=d.get_bounds("ch000")
 
-    start_idx=db[1]-100000000
+    start_idx=db[1]-200000000
     n_blocks=int(n.floor((db[1]-start_idx)/(ipp*n_codes)))
     
     RTI = n.zeros([n_beam,n_codes,ipp],dtype=n.float32)
@@ -94,7 +94,6 @@ def meteor_search():
     rds=range_doppler_search()
     N=20*1600
     for bi in range(n_blocks):
-
         
         i0=bi*ipp*n_codes + start_idx
         i1=bi*ipp*n_codes + start_idx + ipp*n_codes + ipp
@@ -128,7 +127,7 @@ def meteor_search():
                 if max_snr > 60 and n.abs(max_dop) > 10e3 and n.abs(max_dop) < 100e3:
                     for pi in range(5):
                         plt.subplot(121)
-                        plt.pcolormesh(tv[tidx*5+pi],rds.rangev,10.0*n.log10(snr[tidx*5+pi,:]),vmin=-3,vmax=20)
+                        plt.pcolormesh(tv[tidx*5+pi],rds.rangev,10.0*n.log10(snr[tidx*5+pi,:]),vmin=0,vmax=30)
                         plt.subplot(122)
                         plt.pcolormesh(tv[tidx*5+pi],rds.rangev,RTIV.T[tidx*5+pi,:]/1e3,cmap="turbo")
                         plt.colorbar()
