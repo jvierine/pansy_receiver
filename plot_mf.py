@@ -17,7 +17,10 @@ dm_mf = drf.DigitalMetadataReader(mf_metadata_dir)
 db_mf = dm_mf.get_bounds()
 
 dt=10000000
-n_min=int(n.floor((db_mf[1]-db_mf[0])/dt))
+#n_min=int(n.floor((db_mf[1]-db_mf[0])/dt))
+n_min=2
+#i0=db_mf[0]
+i0=db_mf[1]-2*60*1000000
 for i in range(n_min):
     i0=db_mf[0]+i*dt
     i1=db_mf[0]+i*dt+dt
