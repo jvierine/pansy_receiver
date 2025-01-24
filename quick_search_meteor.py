@@ -45,7 +45,7 @@ class range_doppler_search:
             self.idx_mat[ri,:]=self.idx+rg[ri]
 
     def decim(self,Z,fdec=4):
-        new_width=int(self.fftlen/self.fdec)
+        new_width=int(self.txlen/self.fdec)
         Z2=n.zeros([self.n_rg,new_width],dtype=n.complex64)
         idx=n.arange(new_width,dtype=n.int64)
         idx2=n.arange(new_width,dtype=n.int64)*fdec
