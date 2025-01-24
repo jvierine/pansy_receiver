@@ -160,7 +160,7 @@ def meteor_search(debug=False):
         i0=start_minute*60*1000000 + bi*60*1000000
         i1=start_minute*60*1000000 + bi*60*1000000 + 60*1000000
         print("rank %d processing minute %d/%d"%(rank,bi,n_minutes))
-        db_mf = dm_mf.get_bounds()
+        #db_mf = dm_mf.get_bounds()
         #       if db_mf[1] >= i0:
         #          print("skipping block %d, because it is already processed"%(bi))
         #         continue
