@@ -193,7 +193,8 @@ def meteor_search():
                     max_rg=n.argmax(snr[ti,:])
                     max_dop=RTIV[ti,max_rg]
                     max_snr=snr[ti,max_rg]
-                    print("%s snr=%1.0f range=%1.1f km doppler=%1.1f km/s txp=%1.1f"%(stuffr.unix2datestr((int(key)+ti*1600)/1e6),max_snr,rds.rangev[max_rg],max_dop,tx_pwrs[ti]))
+                    if ti==0:
+                        print("%s snr=%1.0f range=%1.1f km doppler=%1.1f km/s txp=%1.1f"%(stuffr.unix2datestr((int(key)+ti*1600)/1e6),max_snr,rds.rangev[max_rg],max_dop,tx_pwrs[ti]))
                     max_dops.append(max_dop)
                     max_ranges.append(rds.rangev[max_rg])
                     max_snrs.append(max_snr)
@@ -210,7 +211,8 @@ def meteor_search():
                 dmw.write(tx_idxs,data_dict)
 
             cput1=time.time()
-            print("%s cputime/realtime %1.2f"% (stuffr.unix2datestr(i0/1e6), (cput1-cput0)/(1600*20/1e6) ))
+            if bi%100==0:
+                print("%s cputime/realtime %1.2f"% (stuffr.unix2datestr(i0/1e6), (cput1-cput0)/(1600*20/1e6) ))
     
     
     
