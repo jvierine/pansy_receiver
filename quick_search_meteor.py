@@ -101,20 +101,19 @@ def meteor_search():
     # tx channel bounds
     b=d.get_bounds("ch007")
 
-
+    # this is the first sample in data
     i0=b[0]
-    if db[1] != -1:
+    if db_mf[1] != -1:
         # start where we left off, instead of the start
-        i0=db[1]+10*1600
+        i0=db[1]+10
     print("starting at %s"%(stuffr.unix2datestr(i0/1e6)))
 
-    dt=10000000
-    n_windows = int(n.floor((b[1]-i0)/dt))
-
-
+    # 100 seconds per analysis window
+    #dt=60000000
+    #n_windows = int(n.floor((b[1]-i0)/dt))
     
-    d=drf.DigitalRFReader("/media/archive")
-    print(d.get_bounds("ch000"))
+#    d=drf.DigitalRFReader("/media/archive")
+ #   print(d.get_bounds("ch000"))
 
     stm=pm.get_m_mode()
     ipp=stm["ipp_us"]
@@ -124,6 +123,7 @@ def meteor_search():
     # get code vector
     codes=pm.get_vector(stm,ncodes=n_codes)
 
+    # transmit metadata
     metadata_dir = "/media/archive/metadata/tx"
     if not os.path.exists(metadata_dir):
         print("metadata directory doesn't exist. exiting")
@@ -134,7 +134,7 @@ def meteor_search():
     print(db)
     b=d.get_bounds("ch000")
 
-    start_idx=db[1]-200000000
+    start_idx=i0#db[1]-200000000
     n_blocks=int(n.floor((db[1]-start_idx)/(ipp*n_codes)))
     
     RTI = n.zeros([n_beam,n_codes,ipp],dtype=n.float32)
@@ -146,19 +146,26 @@ def meteor_search():
         i0=bi*ipp*n_codes + start_idx
         i1=bi*ipp*n_codes + start_idx + ipp*n_codes + ipp
 
+        # if we have raw voltage
         if (i0 > b[0]) & (i1 < b[1]):
             cput0=time.time()
             data_dict = dmr.read(i0, i1, "id")
+            
             for key in data_dict.keys():
-                print((key, data_dict[key]))
+                #print((key, data_dict[key]))
                 z=d.read_vector_c81d(key,1600*20,"ch000")
                 z_tx=d.read_vector_c81d(key,1600*20,"ch007")
                 RTI=n.zeros([20,rds.n_rg],dtype=n.float32)
                 RTIV=n.zeros([20,rds.n_rg],dtype=n.float32)
                 noise_floors=[]
                 tx_pwrs=[]
+                max_dops=[]
+                max_snrs=[]
+                max_ranges=[]
+                tx_idxs=[]
                 for ti in range(20):
                     tx_pwr=n.sum(n.abs(z_tx[(0+ti*1600):(rds.txlen+ti*1600)])**2.0)
+                    tx_idxs.append(key+ti*1600)
                     tx_pwrs.append(tx_pwr)
 #                    print(tx_pwr)
                     MF,pprof,dop_prof,nf=rds.mf(z[(0+ti*1600):(1600+ti*1600)],z_tx[(0+ti*1600):(rds.txlen+ti*1600)])
@@ -175,7 +182,21 @@ def meteor_search():
                     max_dop=RTIV[ti,max_rg]
                     max_snr=snr[ti,max_rg]
                     print("%s snr=%1.0f range=%1.1f km doppler=%1.1f km/s txp=%1.1f"%(stuffr.unix2datestr((int(key)+ti*1600)/1e6),max_snr,rds.rangev[max_rg],max_dop,tx_pwrs[ti]))
+                    max_dops.append(max_dop)
+                    max_ranges.append(rds.rangev[max_rg])
+                    max_snrs.append(max_snr)
+                data_dict={}
                 
+                tx_idxs=n.array(tx_idxs)
+                data_dict["beam_pos_idx"]=n.arange(20,dtype=n.int8)
+                data_dict["tx_std"]=n.repeat(n.std(tx_pwrs),20)
+                data_dict["tx_pwr"]=tx_pwrs
+                data_dict["max_snr"]=max_snrs
+                data_dict["max_range"]=max_ranges
+                data_dict["max_dopvel"]=max_dops
+                data_dict["noise_floor"]=noise_floors
+                dmw.write(tx_idxs,data_dict)
+
             cput1=time.time()
             print("cputime/realtime %1.2f"% ( (cput1-cput0)/(1600*20/1e6) ))
     
