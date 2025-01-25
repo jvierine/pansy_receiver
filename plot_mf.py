@@ -97,7 +97,10 @@ db_mf = dm_mf.get_bounds()
 
 dt=60000000
 #n_min=int(n.floor((db_mf[1]-db_mf[0])/dt))
-start_idx=db_mf[1]-2*60*60*1000000
+d=drf.DigitalRFReader("/media/archive/")
+# tx channel bounds
+b=d.get_bounds("ch007")
+start_idx=b[0]#db_mf[1]-2*60*60*1000000
 #start_idx=db_mf[0]
 n_min=int(n.floor((db_mf[1]-start_idx)/dt))
 for i in range(n_min):
@@ -112,6 +115,9 @@ for i in range(n_min):
     dopa=dopa[gidx]
     snra=snra[gidx]
     beam=beam[gidx]
+    if len(txpa)<5:
+        print("not enough data")
+        continue
   #  cluster_idx=cluster(txidxa,rnga,dopa,snra)
 
     plt.subplot(311)
@@ -141,7 +147,9 @@ for i in range(n_min):
     plt.xlabel("Time (s)")
     plt.ylim([7,50])
     plt.tight_layout()
-    plt.show()
+    plt.savefig("meteors-%d.png"%(i0/1e6))
+    plt.close()
+#    plt.show()
         
 #        print(data.keys())
         
