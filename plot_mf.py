@@ -145,7 +145,7 @@ for i in range(n_min):
     plt.xlim([0,dt/1e6])
     cb=plt.colorbar()
     cb.set_label("SNR (dB)")
-    plt.ylim([-100,10])
+    plt.ylim([-70,5])
     plt.ylabel("Doppler velocity (km/s)")
     plt.subplot(313)
     plt.scatter((txidxa-i0)/1e6,10.0*n.log10(snra),s=1,c=beam%5,vmin=0,vmax=4,cmap="turbo")
