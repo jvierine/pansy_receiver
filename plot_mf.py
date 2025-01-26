@@ -101,13 +101,13 @@ mf_metadata_dir = "/media/archive/metadata/mf"
 dm_mf = drf.DigitalMetadataReader(mf_metadata_dir)
 db_mf = dm_mf.get_bounds()
 
-dt=60000000
+dt=10000000
 #n_min=int(n.floor((db_mf[1]-db_mf[0])/dt))
 d=drf.DigitalRFReader("/media/archive/")
 # tx channel bounds
 b=d.get_bounds("ch007")
 #start_idx=b[0]#db_mf[1]-2*60*60*1000000
-start_idx=60000000*int(n.floor(db_mf[0]/60000000))#-2*60*60*1000000
+start_idx=dt*int(n.floor(db_mf[0]/dt))#-2*60*60*1000000
 #start_idx=db_mf[0]
 n_min=int(n.floor((db_mf[1]-start_idx)/dt))
 for i in range(n_min):
@@ -129,7 +129,7 @@ for i in range(n_min):
 
     plt.subplot(311)
     plt.scatter((txidxa-i0)/1e6,rnga,s=1,c=10.0*n.log10(snra),vmin=13,vmax=30)
-    plt.ylim([60,140])
+#    plt.ylim([60,140])
 
 #    for ci in range(len(cluster_idx)):
  #       plt.plot((txidxa[cluster_idx[ci]]-i0)/1e6,rnga[cluster_idx[ci]])                
