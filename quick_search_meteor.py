@@ -9,6 +9,10 @@ import os
 import stuffr
 import time
 import scipy.fftpack as fp
+import pyfftw 
+
+
+fft = pyfftw.interfaces.scipy_fftpack.fft
 
 from mpi4py import MPI
 comm = MPI.COMM_WORLD
@@ -82,7 +86,7 @@ class range_doppler_search:
             # decimate
             ZD=self.decim(Z,fdec=self.fdec)
 
-            ZF=n.fft.fftshift(fp.fft(ZD,self.fftlen,axis=1),axes=1)
+            ZF=n.fft.fftshift(fft(ZD,self.fftlen,axis=1),axes=1)
             pwr=n.real(ZF*n.conj(ZF))
             MF+=pwr
         
