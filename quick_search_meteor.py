@@ -276,7 +276,8 @@ def meteor_search(debug=False):
                     print("not writing. out of range.")
 
         cput1=time.time()
-        print("%s cputime/realtime %1.2f"% (stuffr.unix2datestr(i0/1e6), (cput1-cput0)/(size*n_keys*20*1.6e-3)))
+        if n_keys > 0:
+            print("%s cputime/realtime %1.2f"% (stuffr.unix2datestr(i0/1e6), (cput1-cput0)/(size*n_keys*20*1.6e-3)))
 
     
     
