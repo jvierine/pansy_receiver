@@ -169,7 +169,7 @@ def meteor_search(debug=False):
 
     start_idx=i0#db[1]-200000000
     # stay 6 minutes behind realtime to avoid underfull metadata files
-    end_idx=b[1]-6*60*1000000
+    end_idx=db[1]-6*60*1000000
 
     d_analysis=file_cadence_seconds*1000000
     end_minute=int(n.floor(end_idx/d_analysis))
