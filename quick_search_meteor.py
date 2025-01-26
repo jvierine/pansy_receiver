@@ -169,10 +169,9 @@ def meteor_search(debug=False):
     print(db)
     b=d.get_bounds("ch000")
 
-
     d_analysis=file_cadence_seconds*1000000
 
-    start_idx=d_analysis*int(n.ceil(i0/d_analysis))#db[1]-200000000
+    start_idx=d_analysis*int(n.ceil(i0/d_analysis))
     # stay 6 minutes behind realtime to avoid underfull metadata files
     end_idx=d_analysis*int(n.ceil(db[1]/d_analysis))-6*d_analysis
 
@@ -184,8 +183,6 @@ def meteor_search(debug=False):
     end_minute=int(n.floor(end_idx/d_analysis))
     start_minute=int(n.floor(start_idx/d_analysis))
     n_minutes=end_minute-start_minute
-    #    n_blocks=int(n.floor((db[1]-start_idx)/(ipp*n_codes)))
-    #   RTI = n.zeros([n_beam,n_codes,ipp],dtype=n.float32)
 
     rds=range_doppler_search()
     N=20*1600
@@ -262,15 +259,18 @@ def meteor_search(debug=False):
                 odata_dict={}
                 
                 tx_idxs=n.array(tx_idxs)
-                odata_dict["beam_pos_idx"]=[n.arange(20,dtype=n.int8)]
-                odata_dict["tx_std"]=[n.repeat(n.std(tx_pwrs),20)]
-                odata_dict["tx_pwr"]=[tx_pwrs]
-                odata_dict["max_snr"]=[max_snrs]
-                odata_dict["max_range"]=[max_ranges]
-                odata_dict["max_dopvel"]=[max_dops]
-                odata_dict["noise_floor"]=[noise_floors]
-                odata_dict["tx_idxs"]=[tx_idxs]
-                dmw.write([key],odata_dict)
+                if (key >= i0) & (key<i1):                
+                    odata_dict["beam_pos_idx"]=[n.arange(20,dtype=n.int8)]
+                    odata_dict["tx_std"]=[n.repeat(n.std(tx_pwrs),20)]
+                    odata_dict["tx_pwr"]=[tx_pwrs]
+                    odata_dict["max_snr"]=[max_snrs]
+                    odata_dict["max_range"]=[max_ranges]
+                    odata_dict["max_dopvel"]=[max_dops]
+                    odata_dict["noise_floor"]=[noise_floors]
+                    odata_dict["tx_idxs"]=[tx_idxs]
+                    dmw.write([key],odata_dict)
+                else:
+                    print("not writing. out of range.")
 
         cput1=time.time()
         print("%s cputime/realtime %1.2f"% (stuffr.unix2datestr(i0/1e6), (cput1-cput0)/(size*60.0)))
