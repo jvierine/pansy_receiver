@@ -15,7 +15,6 @@ comm = MPI.COMM_WORLD
 size = comm.Get_size()
 rank = comm.Get_rank()
 
-
 class range_doppler_search:
     def __init__(self,
                  txlen=132,
@@ -169,9 +168,11 @@ def meteor_search(debug=False):
     b=d.get_bounds("ch000")
 
     start_idx=i0#db[1]-200000000
+    # stay 6 minutes behind realtime to avoid underfull metadata files
+    end_idx=b[1]-6*60*1000000
 
     d_analysis=file_cadence_seconds*1000000
-    end_minute=int(n.floor(db[1]/d_analysis))
+    end_minute=int(n.floor(end_idx/d_analysis))
     start_minute=int(n.floor(start_idx/d_analysis))
 
     n_minutes=end_minute-start_minute
