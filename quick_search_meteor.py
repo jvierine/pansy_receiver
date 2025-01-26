@@ -212,7 +212,7 @@ def meteor_search(debug=False):
             data_dict = dmr.read(i0, i1, "id")
             keys=data_dict.keys()
             n_keys=len(keys)
-            print("processing %d pulses"%(20*n_keys))
+            #print("processing %d pulses"%(20*n_keys))
             for key in keys:
                 keyi=int(key)
                 if keyi <= db_mf[1]:
