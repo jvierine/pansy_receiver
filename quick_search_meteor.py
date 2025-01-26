@@ -97,6 +97,7 @@ class range_doppler_search:
 
 def meteor_search(debug=False):
 
+    # this is where the existing metadata lives
     mf_metadata_dir = "/media/archive/metadata/mf"
     db_mf=[-1,-1]
     dm_mf=None
@@ -179,10 +180,9 @@ def meteor_search(debug=False):
         print("end before start!!!")
         exit(0)
 
-
+    # minutes since 1970
     end_minute=int(n.floor(end_idx/d_analysis))
     start_minute=int(n.floor(start_idx/d_analysis))
-
     n_minutes=end_minute-start_minute
     #    n_blocks=int(n.floor((db[1]-start_idx)/(ipp*n_codes)))
     #   RTI = n.zeros([n_beam,n_codes,ipp],dtype=n.float32)
@@ -191,7 +191,11 @@ def meteor_search(debug=False):
     N=20*1600
     beam_pos_idx=n.arange(20,dtype=n.int8)%5
     # analyze in parallel. one minute for each thread
-    for bi in range(rank,n_minutes,size):
+    for bi in range(n_minutes):
+        if bi%size != rank:
+            print("rank %d skipping minute for rank %d"%(rank,bi%size))
+            continue
+        
         cput0=time.time()                        
         i0=start_minute*60*1000000 + bi*60*1000000
         i1=start_minute*60*1000000 + bi*60*1000000 + 60*1000000
