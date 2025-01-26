@@ -71,6 +71,7 @@ def read_mf_output(dm_mf,i0,i1,snr_threshold=7,tx_pwr_threshold=1e9):
             data=data_dict[k]
             
             txp=data["tx_pwr"]
+            print(txp)
             # use this threshold for tx power. check that it is okay!!!
             if n.min(txp) > tx_pwr_threshold:
                 txpa=n.concatenate((txpa,txp))
