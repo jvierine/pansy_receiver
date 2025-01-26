@@ -141,6 +141,8 @@ for i in range(n_min):
     plt.ylabel("Range (km)")
     plt.subplot(312)
     plt.scatter((txidxa-i0)/1e6,dopa/1e3,s=1,c=10.0*n.log10(snra),vmin=13,vmax=30)
+    plt.ylim([60,140])
+
     plt.xlim([0,dt/1e6])
     cb=plt.colorbar()
     cb.set_label("SNR (dB)")
