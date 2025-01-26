@@ -107,7 +107,7 @@ d=drf.DigitalRFReader("/media/archive/")
 # tx channel bounds
 b=d.get_bounds("ch007")
 #start_idx=b[0]#db_mf[1]-2*60*60*1000000
-start_idx=60000000*int(n.floor(db_mf[1]/60000000))#-2*60*60*1000000
+start_idx=60000000*int(n.floor(db_mf[0]/60000000))#-2*60*60*1000000
 #start_idx=db_mf[0]
 n_min=int(n.floor((db_mf[1]-start_idx)/dt))
 for i in range(n_min):
