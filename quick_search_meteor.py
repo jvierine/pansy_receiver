@@ -139,6 +139,7 @@ def meteor_search(debug=False):
     if db_mf[1] != -1:
         # start where we left off, instead of the start
         i0=db_mf[1]+10
+    
     print("starting at %s"%(stuffr.unix2datestr(i0/1e6)))
 
     # 100 seconds per analysis window
@@ -167,11 +168,18 @@ def meteor_search(debug=False):
     print(db)
     b=d.get_bounds("ch000")
 
-    start_idx=i0#db[1]-200000000
-    # stay 6 minutes behind realtime to avoid underfull metadata files
-    end_idx=db[1]-6*60*1000000
 
     d_analysis=file_cadence_seconds*1000000
+
+    start_idx=d_analysis*int(n.ceil(i0/d_analysis))#db[1]-200000000
+    # stay 6 minutes behind realtime to avoid underfull metadata files
+    end_idx=d_analysis*int(n.ceil(db[1]/d_analysis))-6*d_analysis
+
+    if end_idx < start_idx:
+        print("end before start!!!")
+        exit(0)
+
+
     end_minute=int(n.floor(end_idx/d_analysis))
     start_minute=int(n.floor(start_idx/d_analysis))
 
@@ -269,5 +277,5 @@ def meteor_search(debug=False):
 if __name__ == "__main__":
     while True:
         meteor_search()
-        time.sleep(1)
+        time.sleep(60)
     
