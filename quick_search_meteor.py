@@ -76,7 +76,7 @@ class range_doppler_search:
         n_rx=z.shape[0]
         
         MF=n.zeros([self.n_rg,self.fftlen],dtype=n.float32)
-
+        cput0=time.time()
         for rxi in range(n_rx):
             # decode each range gate
             #Z2=n.zeros([self.n_rg,self.txlen])
@@ -89,7 +89,8 @@ class range_doppler_search:
             ZF=n.fft.fftshift(fft(ZD,self.fftlen,axis=1),axes=1)
             pwr=n.real(ZF*n.conj(ZF))
             MF+=pwr
-        
+        cput1=time.time()
+        print("%1.2f"%((cput1-cput0)/0.0016))
         noise_floor=n.median(MF)
         pprof=n.max(MF,axis=1)
         peak_dopv=self.dopv[n.argmax(MF,axis=1)]
