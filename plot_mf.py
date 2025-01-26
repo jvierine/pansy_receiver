@@ -71,7 +71,7 @@ def read_mf_output(dm_mf,i0,i1,snr_threshold=7,tx_pwr_threshold=1e9):
             data=data_dict[k]
             
             txp=data["tx_pwr"]
-            print(txp)
+#            print(txp)
             # use this threshold for tx power. check that it is okay!!!
             if n.min(txp) > tx_pwr_threshold:
                 txpa=n.concatenate((txpa,txp))
@@ -131,6 +131,7 @@ for i in range(n_min):
     plt.xlim([0,dt/1e6])
     cb=plt.colorbar()
     plt.title("%s"%(stuffr.unix2datestr(i0/1e6)))
+    print("saving %s"%(stuffr.unix2datestr(i0/1e6))
     cb.set_label("SNR (dB)")
     plt.ylabel("Range (km)")
     plt.subplot(312)
