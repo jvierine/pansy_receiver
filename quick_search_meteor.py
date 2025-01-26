@@ -191,13 +191,13 @@ def meteor_search(debug=False):
     # analyze in parallel. one minute for each thread
     for bi in range(n_minutes):
         if bi%size != rank:
-            print("rank %d skipping minute for rank %d"%(rank,bi%size))
+#            print("rank %d skipping minute for rank %d"%(rank,bi%size))
             continue
         
         cput0=time.time()                        
         i0=start_minute*60*1000000 + bi*60*1000000
         i1=start_minute*60*1000000 + bi*60*1000000 + 60*1000000
-        print("rank %d processing minute %d/%d"%(rank,bi,n_minutes))
+#        print("rank %d processing minute %d/%d"%(rank,bi,n_minutes))
         #db_mf = dm_mf.get_bounds()
         #       if db_mf[1] >= i0:
         #          print("skipping block %d, because it is already processed"%(bi))
@@ -275,7 +275,7 @@ def meteor_search(debug=False):
 
         cput1=time.time()
         if n_keys > 0:
-            print("%s cputime/realtime %1.2f"% (stuffr.unix2datestr(i0/1e6), (cput1-cput0)/(size*n_keys*20*1.6e-3)))
+            print("rank %d %d pulses %s cputime/realtime %1.2f"% (rank,n_keys*20,stuffr.unix2datestr(i0/1e6), (cput1-cput0)/(size*n_keys*20*1.6e-3)))
 
     
     
