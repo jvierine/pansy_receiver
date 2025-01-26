@@ -9,10 +9,11 @@ import os
 import stuffr
 import time
 import scipy.fftpack as fp
-import pyfftw 
+#import pyfftw 
 
 
-fft = pyfftw.interfaces.scipy_fftpack.fft
+#fft = pyfftw.interfaces.scipy_fftpack.fft
+fft=fp.fft
 
 from mpi4py import MPI
 comm = MPI.COMM_WORLD
