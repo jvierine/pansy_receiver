@@ -94,7 +94,7 @@ class range_doppler_search:
         if debug:
             plt.pcolormesh(self.dopv,self.rangev,n.abs(ZF)**2.0)
             plt.show()
-        return(pwr,pprof,peak_dopv,noise_floor)
+        return(MF,pprof,peak_dopv,noise_floor)
 
 def meteor_search(debug=False):
 
