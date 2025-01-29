@@ -20,7 +20,7 @@ R=n.zeros([fftlen,n_rg])
 d=drf.DigitalRFReader("/media/archive/")
 # tx channel bounds
 b=d.get_bounds("ch007")
-n_samp=10*1000000
+n_samp=100*1000000
 i0=b[1]-n_samp + 10736
 ipp=12500
 txlen=527
