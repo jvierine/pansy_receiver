@@ -7,11 +7,12 @@ import os
 import stuffr
 import time
 import scipy.fftpack as fp
-import pyfftw 
+#import pyfftw 
 
 rg=n.arange(400,6500,10)
 n_rg=len(rg)
-R=n.zeros([1024,n_rg])
+fftlen=1024
+R=n.zeros([fftlen,n_rg])
 
 
 
@@ -33,7 +34,7 @@ for i in range(n_ipp):
     ztx=d.read_vector_c81d(i0+i*ipp,ipp,"ch007")
     z[0:txlen]=0
     for ri in range(n_rg):
-        S=n.fft.fftshift(n.fft.fft(z[(rg[ri]):(rg[ri]+txlen)]*ztx[0:txlen],fftlen))
+        S=n.fft.fftshift(fp.fft(z[(rg[ri]):(rg[ri]+txlen)]*ztx[0:txlen],fftlen))
         R[:,ri]+=S.real**2.0 + S.imag**2.0
 
 plt.pcolormesh(10.0*n.log10(S))
