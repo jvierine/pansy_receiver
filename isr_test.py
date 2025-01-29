@@ -28,9 +28,9 @@ n_ipp=int(n.floor(n_samp/ipp))
 for i in range(n_ipp):
     print(i)
     z=d.read_vector_c81d(i0+i*ipp,ipp,"ch000")
-    plt.plot(z.real)
-    plt.plot(z.imag)
-    plt.show()
+    #plt.plot(z.real)
+    #plt.plot(z.imag)
+    #plt.show()
     ztx=d.read_vector_c81d(i0+i*ipp,ipp,"ch007")
     z[0:txlen]=0
     for ri in range(n_rg):
