@@ -26,11 +26,11 @@ txlen=527
 n_ipp=int(n.floor(n_samp/ipp))
 for i in range(n_ipp):
     print(i)
-    z=n.read_vector_c81d(i0+i*ipp,ipp,"ch000")
+    z=d.read_vector_c81d(i0+i*ipp,ipp,"ch000")
     plt.plot(z.real)
     plt.plot(z.imag)
     plt.show()
-    ztx=n.read_vector_c81d(i0+i*ipp,ipp,"ch007")
+    ztx=d.read_vector_c81d(i0+i*ipp,ipp,"ch007")
     z[0:txlen]=0
     for ri in range(n_rg):
         S=n.fft.fftshift(n.fft.fft(z[(rg[ri]):(rg[ri]+txlen)]*ztx[0:txlen],fftlen))
