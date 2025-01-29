@@ -32,12 +32,12 @@ for i in range(n_ipp):
     #plt.plot(z.imag)
     #plt.show()
     ztx=d.read_vector_c81d(i0+i*ipp,ipp,"ch007")
-    z[0:txlen]=0
+    z[0:(txlen+400)]=0
     for ri in range(n_rg):
-        S=n.fft.fftshift(fp.fft(z[(rg[ri]):(rg[ri]+txlen)]*ztx[0:txlen],fftlen))
+        S=n.fft.fftshift(fp.fft(z[(rg[ri]):(rg[ri]+txlen)]*n.conj(ztx[0:txlen]),fftlen))
         R[:,ri]+=S.real**2.0 + S.imag**2.0
-
-plt.pcolormesh(10.0*n.log10(R))
+dop=n.fft.fftshift(n.fft.fftfreq(fftlen,d=1/1e6))
+plt.pcolormesh(dop,rg*0.15,10.0*n.log10(R.T))
 plt.colorbar()
 plt.show()
 
