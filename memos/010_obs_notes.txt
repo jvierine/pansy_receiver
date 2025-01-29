@@ -4,4 +4,5 @@
            Only a few files were broken, so I will ignore for now.
 2025-01-26 Switched to 16-bit int. Restarted buffer. 
            Saving some interesting events to /media/analysis/events
-           
+2025-01-29 Running in ISR mode, no analysis. 
+           DNS lookup not working, so switching to 8.8.8.8 in /etc/resolv.conf 
