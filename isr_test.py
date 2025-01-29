@@ -37,7 +37,7 @@ for i in range(n_ipp):
         S=n.fft.fftshift(fp.fft(z[(rg[ri]):(rg[ri]+txlen)]*ztx[0:txlen],fftlen))
         R[:,ri]+=S.real**2.0 + S.imag**2.0
 
-plt.pcolormesh(10.0*n.log10(S))
+plt.pcolormesh(10.0*n.log10(R))
 plt.colorbar()
 plt.show()
 
