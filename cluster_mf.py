@@ -33,19 +33,29 @@ def cluster(tx_idx,
         if len(pair_idx) > 1:
             print(pair_idx)
             pairs.append(pair_idx)
-            plt.subplot(131)
-            plt.plot(dt[fit_idx],dr[fit_idx],".")
-            plt.subplot(132)
-            plt.plot(tx_idx[pair_idx],rg[pair_idx],".")
-            plt.subplot(133)
-            plt.plot(tx_idx[pair_idx],dop[pair_idx],".")
-            plt.tight_layout()
-            plt.show()
+            if False:
+                plt.subplot(131)
+                plt.plot(dt[fit_idx],dr[fit_idx],".")
+                plt.subplot(132)
+                plt.plot(tx_idx[pair_idx],rg[pair_idx],".")
+                plt.subplot(133)
+                plt.plot(tx_idx[pair_idx],dop[pair_idx],".")
+                plt.tight_layout()
+                plt.show()
         else:
             print("no fit. removing")
             print(pair_idx)
             
         idx=n.setdiff1d(idx,pair_idx)
+    pairs=n.array(pairs,dtype=n.int64)
+    plt.subplot(121)
+    for p in pairs:
+        plt.plot(tx_idx[p],rg[p],".")
+    plt.subplot(122)
+    for p in pairs:
+        plt.plot(tx_idx[p],dop[p],".")
+    plt.show()
+    
 
         
         
