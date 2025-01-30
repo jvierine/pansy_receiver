@@ -31,10 +31,11 @@ def cluster(tx_idx,
         if len(pair_idx) > 1:
             print(pair_idx)
             pairs.append(pair_idx)
+            plt.subplot(131)
             plt.plot(dt[fit_idx],dr[fit_idx],".")
-            plt.show()
+            plt.subplot(132)
             plt.plot(tx_idx[pair_idx],rg[pair_idx],".")
-            plt.show()
+            plt.subplot(133)
             plt.plot(tx_idx[pair_idx],dop[pair_idx],".")
             plt.show()
         else:
