@@ -20,11 +20,27 @@ def cluster(tx_idx,
     idx=n.argsort(snr)[::-1]
     pairs=[]
     # look for measurement pair that best fits this measurement
-    for i in idx:
-        dt = (tx_idx-tx_idx[i])/1e6
-        dr = rg[i]-(rg-dop*dt)
-        plt.plot(dt,dr,".")
-        plt.show()
+    # has to be less than 10 ms apart and fit better than 500 meters
+    while len(idx)>1:
+        i = idx[0]
+        dt = (tx_idx[idx]-tx_idx[i])/1e6
+        dr = rg[i]-(rg[idx]-dop[idx]*dt)
+
+        fit_idx=n.where( (n.abs(dt) < 10e-3) & (n.abs(dr)<500))[0]
+        pair_idx=idx[fit_idx]
+        if len(pair_idx) > 1:
+            print(pair_idx)
+            pairs.append(pair_idx)
+            plt.plot(dt[fit_idx],dr[fit_idx],".")
+            plt.show()
+            plt.plot(tx_idx[pair_idx],rg[pair_idx],".")
+            plt.show()
+            plt.plot(tx_idx[pair_idx],dop[pair_idx],".")
+            plt.show()
+            
+            idx=n.setdiff1d(idx,pair_idx)
+
+        
         
         
 
