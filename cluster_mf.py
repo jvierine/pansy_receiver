@@ -37,6 +37,7 @@ def cluster(tx_idx,
             plt.plot(tx_idx[pair_idx],rg[pair_idx],".")
             plt.subplot(133)
             plt.plot(tx_idx[pair_idx],dop[pair_idx],".")
+            plt.tight_layout()
             plt.show()
         else:
             print("no fit. removing")
