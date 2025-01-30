@@ -47,14 +47,15 @@ def cluster(tx_idx,
             print(pair_idx)
             
         idx=n.setdiff1d(idx,pair_idx)
-    pairs=n.array(pairs,dtype=n.int64)
-    plt.subplot(121)
-    for p in pairs:
-        plt.plot(tx_idx[p],rg[p],".")
-    plt.subplot(122)
-    for p in pairs:
-        plt.plot(tx_idx[p],dop[p],".")
-    plt.show()
+    if len(pairs)>0:
+        #    pairs=n.array(pairs,dtype=n.int64)
+        plt.subplot(121)
+        for p in pairs:
+            plt.plot(tx_idx[p],rg[p],".")
+        plt.subplot(122)
+        for p in pairs:
+            plt.plot(tx_idx[p],dop[p],".")
+        plt.show()
     
 
         
