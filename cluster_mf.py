@@ -38,7 +38,7 @@ def cluster(tx_idx,
             plt.plot(tx_idx[pair_idx],dop[pair_idx],".")
             plt.show()
             
-            idx=n.setdiff1d(idx,pair_idx)
+        idx=n.setdiff1d(idx,pair_idx)
 
         
         
