@@ -37,6 +37,9 @@ def cluster(tx_idx,
             plt.show()
             plt.plot(tx_idx[pair_idx],dop[pair_idx],".")
             plt.show()
+        else:
+            print("no fit. removing")
+            print(pair_idx)
             
         idx=n.setdiff1d(idx,pair_idx)
 
