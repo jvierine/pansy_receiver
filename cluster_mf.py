@@ -22,7 +22,7 @@ def cluster(tx_idx,
     # look for measurement pair that best fits this measurement
     for i in idx:
         dt = (tx_idx-tx_idx[i])/1e6
-        dr = rg-dop*dt
+        dr = rg[i]-(rg-dop*dt)
         plt.plot(dt,dr,".")
         plt.show()
         
