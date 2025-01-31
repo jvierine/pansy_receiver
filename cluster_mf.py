@@ -10,6 +10,30 @@ import os
 import stuffr
 import time
 import scipy.fftpack as fp
+import itertools
+
+def fit_obs(tx_idx,rg,dop):
+    n_m=len(tx_idx)
+    A=n.zeros([n_m,3],dtype=n.float32)
+    tmean=n.mean(tx_idx)
+    t=(tx_idx-tmean)/1e6
+    A[:,0]=1.0
+    A[:,1]=t
+    A[:,2]=t**2.0
+    m=n.zeros(2*n_m,dtype=n.float32)
+    m[0:n_m]=rg/1e3
+    m[n_m:(2*n_m)]=dop/1e3
+    xhat=n.linalg.lstsq(A,m)[0]
+    model=n.dot(A,xhat)
+    r_resid=rg/1e3-model[0:n_m]
+    dop_resid=dop/1e3-model[n_m:(2*n_m)]
+    plt.subplot(121)
+    plt.plot(t,model[0:n_m]/1e3)
+    plt.plot(t,rg/1e3,".")
+    plt.subplot(122)
+    plt.plot(t,model[n_m:(2*n_m)]/1e3)
+    plt.plot(t,dop/1e3,".")
+    plt.show()
 
 def cluster(tx_idx,
             rg,
@@ -19,6 +43,7 @@ def cluster(tx_idx,
             ):
     idx=n.argsort(snr)[::-1]
     pairs=[]
+    # first pass
     # look for measurement pair that best fits this measurement
     # has to be less than 10 ms apart and fit better than 500 meters
     # also, doppler can't change more than 15 km/s
@@ -56,6 +81,19 @@ def cluster(tx_idx,
         for p in pairs:
             plt.plot(tx_idx[p],dop[p],".")
         plt.show()
+
+        # second pass.
+        # find all the 2-combinations of measurement pairs 
+        candidates=list(itertools.combinations(pairs,2))
+        for c in candidates:
+            t0=n.mean(tx_idx[c[0]])/1e6
+            t1=n.mean(tx_idx[c[1]])/1e6
+            # at most 5*4*1.6e-3 apart to try merging
+            if n.abs(t1-t0)<24e-3:
+                idx=n.concatenate((c[0],c[1]))
+                fit_obs(idx,rg[idx],dop[idx])
+                
+        
     
 
         
