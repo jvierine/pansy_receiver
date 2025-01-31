@@ -33,15 +33,20 @@ def fit_obs(tx_idx,rg,dop):
     model=n.dot(A,xhat)
     r_resid=rg-r_std*model[0:n_m]
     dop_resid=dop/1e3-v_std*model[n_m:(2*n_m)]
-    plt.subplot(121)
-    plt.plot(t,r_std*model[0:n_m])
-    plt.title(n.std(r_resid))
-    plt.plot(t,rg,".")
-    plt.subplot(122)
-    plt.plot(t,v_std*model[n_m:(2*n_m)])
-    plt.title(n.std(dop_resid))    
-    plt.plot(t,dop/1e3,".")
-    plt.show()
+
+    v_std=n.std(dop_resid)
+    r_std=n.std(r_resid)
+    if False:
+        plt.subplot(121)
+        plt.plot(t,r_std*model[0:n_m])
+        plt.title(r_std)
+        plt.plot(t,rg,".")
+        plt.subplot(122)
+        plt.plot(t,v_std*model[n_m:(2*n_m)])
+        plt.title(v_std)    
+        plt.plot(t,dop/1e3,".")
+        plt.show()
+    return(r_std,v_std,xhat)
 
 def cluster(tx_idx,
             rg,
@@ -82,26 +87,77 @@ def cluster(tx_idx,
         idx=n.setdiff1d(idx,pair_idx)
     if len(pairs)>0:
         #    pairs=n.array(pairs,dtype=n.int64)
+        
         plt.subplot(121)
         for p in pairs:
             plt.plot(tx_idx[p],rg[p],".")
         plt.subplot(122)
         for p in pairs:
-            plt.plot(tx_idx[p],dop[p],".")
+            plt.plot(tx_idx[p],dop[p]/1e3,".")
         plt.show()
 
         # second pass.
         # find all the 2-combinations of measurement pairs 
         candidates=list(itertools.combinations(pairs,2))
+        used_idx=[]
+        tuples=[]
         for c in candidates:
             t0=n.mean(tx_idx[c[0]])/1e6
             t1=n.mean(tx_idx[c[1]])/1e6
-            # at most 5*4*1.6e-3 apart to try merging
-            if n.abs(t1-t0)<24e-3:
-                try_idx=n.concatenate((c[0],c[1]))
-                print(try_idx)
-                fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx])
+
+            if (len(n.intersect1d(used_idx,c[0])) > 0) or (len(n.intersect1d(used_idx,c[1]))>0):
+                # at most 5*4*1.6e-3 apart to try merging
+                if n.abs(t1-t0)<24e-3:
+                    try_idx=n.concatenate((c[0],c[1]))
+                    print(try_idx)
+                    r_resid, v_resid, xhat=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx])
+                    if (r_resid < 0.5) and  (v_resid < 2):
+                        print("merging")
+                        used_idx=n.concatenate((used_idx,try_idx))
+                        tuples.append(try_idx)
+            else:
+                print("already used. skipping")
+
+
+        plt.subplot(121)
+        for p in tuples:
+            plt.plot(tx_idx[p],rg[p],".")
+        plt.subplot(122)
+        for p in tuples:
+            plt.plot(tx_idx[p],dop[p]/1e3,".")
+        plt.show()
                 
+        # third pass.
+        # find all the 2-combinations of measurement merged tuples
+        candidates=list(itertools.combinations(tuples,2))
+        used_idx=[]
+        tuples2=[]
+        for c in candidates:
+            t0=n.mean(tx_idx[c[0]])/1e6
+            t1=n.mean(tx_idx[c[1]])/1e6
+
+            if (len(n.intersect1d(used_idx,c[0])) > 0) or (len(n.intersect1d(used_idx,c[1]))>0):
+                # at most 5*8*1.6e-3 apart to try merging
+                max_dt=5*8*1.6e-3
+                if n.abs(t1-t0)< max_dt:
+                    try_idx=n.concatenate((c[0],c[1]))
+                    print(try_idx)
+                    r_resid, v_resid, xhat=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx])
+                    if (r_resid < 0.5) and  (v_resid < 2):
+                        print("merging")
+                        used_idx=n.concatenate((used_idx,try_idx))
+                        tuples2.append(try_idx)
+            else:
+                print("already used. skipping")
+                
+                
+        plt.subplot(121)
+        for p in tuples2:
+            plt.plot(tx_idx[p],rg[p],".")
+        plt.subplot(122)
+        for p in tuples2:
+            plt.plot(tx_idx[p],dop[p]/1e3,".")
+        plt.show()
         
     
 
