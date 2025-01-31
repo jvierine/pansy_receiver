@@ -100,7 +100,7 @@ def cluster(tx_idx,
             if n.abs(t1-t0)<24e-3:
                 try_idx=n.concatenate((c[0],c[1]))
                 print(try_idx)
-                fit_obs(try_idx,rg[try_idx],dop[try_idx])
+                fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx])
                 
         
     
