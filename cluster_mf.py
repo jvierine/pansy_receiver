@@ -111,11 +111,16 @@ def cluster(tx_idx,
                     try_idx=n.concatenate((c[0],c[1]))
                     print(try_idx)
                     r_resid, v_resid, xhat=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx])
-                    if (r_resid < 0.5) and  (v_resid < 2):
+                    if (r_resid < 0.5) and (v_resid < 2):
                         print("merging")
                         used_idx=n.concatenate((used_idx,try_idx))
                         tuples.append(try_idx)
+                    else:
+                        print("not merging")
+                        print(r_resid)
+                        print(v_resid)
             else:
+                print(used_idx)
                 print("already used. skipping")
 
 
