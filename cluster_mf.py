@@ -67,7 +67,7 @@ def cluster(tx_idx,
         dr = rg[i]-(rg[idx]-dop[idx]*dt)
         ddop = dop[i]-dop[idx]
 
-        fit_idx=n.where( (n.abs(dt) < 10e-3) & (n.abs(dr)<500) & (n.abs(ddop)<15e3))[0]
+        fit_idx=n.where( (n.abs(dt) < 20e-3) & (n.abs(dr)<500) & (n.abs(ddop)<15e3))[0]
         pair_idx=idx[fit_idx]
         if len(pair_idx) > 1:
             print(pair_idx)
