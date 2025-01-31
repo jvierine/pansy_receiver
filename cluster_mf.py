@@ -34,10 +34,10 @@ def fit_obs(tx_idx,rg,dop):
     r_resid=rg/1e3-r_std*model[0:n_m]
     dop_resid=dop/1e3-v_std*model[n_m:(2*n_m)]
     plt.subplot(121)
-    plt.plot(t,model[0:n_m])
+    plt.plot(t,r_std*model[0:n_m])
     plt.plot(t,rg,".")
     plt.subplot(122)
-    plt.plot(t,model[n_m:(2*n_m)])
+    plt.plot(t,v_std*model[n_m:(2*n_m)])
     plt.plot(t,dop/1e3,".")
     plt.show()
 
