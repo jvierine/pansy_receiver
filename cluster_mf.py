@@ -111,8 +111,8 @@ def cluster(tx_idx,
             print(n.intersect1d(used_idx,c[1]))
             
             if (len(n.intersect1d(used_idx,c[0])) == 0) and (len(n.intersect1d(used_idx,c[1])) == 0):
-                # at most 5*4*1.6e-3 apart to try merging
-                max_dt=5*8*1.6e-3
+                # at most 5*2*1.6e-3 apart to try merging
+                max_dt=5*2*1.6e-3
                 if n.abs(t1-t0)<max_dt:
                     try_idx=n.concatenate((c[0],c[1]))
                     print(try_idx)
@@ -149,8 +149,8 @@ def cluster(tx_idx,
             t1=n.mean(tx_idx[c[1]])/1e6
 
             if (len(n.intersect1d(used_idx,c[0])) == 0) and (len(n.intersect1d(used_idx,c[1]))==0):
-                # at most 5*8*1.6e-3 apart to try merging
-                max_dt=5*16*1.6e-3
+                # at most 5*4*1.6e-3 apart to try merging
+                max_dt=5*4*1.6e-3
                 if n.abs(t1-t0)< max_dt:
                     try_idx=n.concatenate((c[0],c[1]))
                     print(try_idx)
@@ -184,8 +184,9 @@ def cluster(tx_idx,
 
             if (len(n.intersect1d(used_idx,c[0])) == 0) and (len(n.intersect1d(used_idx,c[1]))==0):
                 # at most 5*8*1.6e-3 apart to try merging
-                max_dt=5*32*1.6e-3
-                if n.abs(t1-t0)< max_dt:
+                max_dt=5*8*1.6e-3
+                if n.abs(t
+                         1-t0)< max_dt:
                     try_idx=n.concatenate((c[0],c[1]))
                     print(try_idx)
                     r_resid, v_resid, xhat=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx])
