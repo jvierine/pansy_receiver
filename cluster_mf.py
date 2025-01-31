@@ -166,7 +166,7 @@ def cluster(tx_idx,
                 if n.abs(t1-t0)< max_dt:
                     try_idx=n.concatenate((c[0],c[1]))
                     print(try_idx)
-                    r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx],fit_acc=True)
+                    r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx])
                     if (r_resid < 0.5) and  (v_resid < 2):
                         print("merging")
                         used_idx=n.concatenate((used_idx,try_idx))
@@ -189,7 +189,7 @@ def cluster(tx_idx,
         tv_global=(tx_idx-tx_idx[0])/1e6
         plt.plot(tv_global,rg,".")
         for p in tuples2:
-            r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[p],rg[p],dop[p])
+            r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[p],rg[p],dop[p],fit_acc=True)
             tv=(tx_idx-tmean)/1e6
             rgmodel=xhat[0]+xhat[1]*tv+0.5*xhat[2]*tv**2.0
             plt.plot(tv_global,rgmodel)
