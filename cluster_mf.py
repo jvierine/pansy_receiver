@@ -31,13 +31,15 @@ def fit_obs(tx_idx,rg,dop):
     xhat=n.linalg.lstsq(A,m)[0]
     print(xhat)
     model=n.dot(A,xhat)
-    r_resid=rg/1e3-r_std*model[0:n_m]
+    r_resid=rg-r_std*model[0:n_m]
     dop_resid=dop/1e3-v_std*model[n_m:(2*n_m)]
     plt.subplot(121)
     plt.plot(t,r_std*model[0:n_m])
+    plt.title(n.mean(r_resid))
     plt.plot(t,rg,".")
     plt.subplot(122)
     plt.plot(t,v_std*model[n_m:(2*n_m)])
+    plt.title(n.mean(v_resid))    
     plt.plot(t,dop/1e3,".")
     plt.show()
 
