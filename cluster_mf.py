@@ -166,7 +166,7 @@ def cluster(tx_idx,
                 if n.abs(t1-t0)< max_dt:
                     try_idx=n.concatenate((c[0],c[1]))
                     print(try_idx)
-                    r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx])
+                    r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx],fit_acc=True)
                     if (r_resid < 0.5) and  (v_resid < 2):
                         print("merging")
                         used_idx=n.concatenate((used_idx,try_idx))
