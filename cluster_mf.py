@@ -56,6 +56,7 @@ def cluster(tx_idx,
             ):
     idx=n.argsort(snr)[::-1]
     pairs=[]
+    tv=(tx_idx-tx_idx[0])/1e6
     # first pass
     # look for measurement pair that best fits this measurement
     # has to be less than 10 ms apart and fit better than 500 meters
@@ -90,10 +91,10 @@ def cluster(tx_idx,
         
         plt.subplot(121)
         for p in pairs:
-            plt.plot(tx_idx[p],rg[p],".")
+            plt.plot(tv[p],rg[p],".")
         plt.subplot(122)
         for p in pairs:
-            plt.plot(tx_idx[p],dop[p]/1e3,".")
+            plt.plot(tv[p],dop[p]/1e3,".")
         plt.show()
 
         # second pass.
@@ -131,11 +132,11 @@ def cluster(tx_idx,
 
         plt.subplot(121)
         for p in tuples:
-            plt.plot(tx_idx[p],rg[p],".")
+            plt.plot(tv[p],rg[p],".")
         plt.title("Tuples")
         plt.subplot(122)
         for p in tuples:
-            plt.plot(tx_idx[p],dop[p]/1e3,".")
+            plt.plot(tv[p],dop[p]/1e3,".")
         plt.show()
                 
         # third pass.
@@ -165,10 +166,10 @@ def cluster(tx_idx,
         plt.subplot(121)
         plt.title("Tuples 2")        
         for p in tuples2:
-            plt.plot(tx_idx[p],rg[p],".")
+            plt.plot(tv[p],rg[p],".")
         plt.subplot(122)
         for p in tuples2:
-            plt.plot(tx_idx[p],dop[p]/1e3,".")
+            plt.plot(tv[p],dop[p]/1e3,".")
         plt.show()
 
 
@@ -199,14 +200,15 @@ def cluster(tx_idx,
         plt.subplot(121)
         plt.title("Tuples 3")        
         for p in tuples3:
-            plt.plot(tx_idx[p],rg[p],".")
+            plt.plot(tv[p],rg[p],".")
         plt.subplot(122)
         for p in tuples3:
-            plt.plot(tx_idx[p],dop[p]/1e3,".")
+            plt.plot(tv[p],dop[p]/1e3,".")
         plt.show()
         
     
-
+        # now we have everything. look for all measurements that fit
+        
         
         
         
