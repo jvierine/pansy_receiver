@@ -191,7 +191,7 @@ def cluster(tx_idx,
                     if (r_resid < 0.5) and  (v_resid < 3):
                         print("merging")
                         used_idx=n.concatenate((used_idx,try_idx))
-                        tuples2.append(try_idx)
+                        tuples3.append(try_idx)
             else:
                 print("already used. skipping")
                 
