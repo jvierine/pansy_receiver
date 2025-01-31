@@ -170,6 +170,40 @@ def cluster(tx_idx,
         for p in tuples2:
             plt.plot(tx_idx[p],dop[p]/1e3,".")
         plt.show()
+
+
+        # Fourth pass.
+        # find all the 2-combinations of measurement merged tuples
+        candidates=list(itertools.combinations(tuples2,2))
+        used_idx=[]
+        tuples3=[]
+        for c in candidates:
+            t0=n.mean(tx_idx[c[0]])/1e6
+            t1=n.mean(tx_idx[c[1]])/1e6
+
+            if (len(n.intersect1d(used_idx,c[0])) == 0) and (len(n.intersect1d(used_idx,c[1]))==0):
+                # at most 5*8*1.6e-3 apart to try merging
+                max_dt=5*32*1.6e-3
+                if n.abs(t1-t0)< max_dt:
+                    try_idx=n.concatenate((c[0],c[1]))
+                    print(try_idx)
+                    r_resid, v_resid, xhat=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx])
+                    if (r_resid < 0.5) and  (v_resid < 3):
+                        print("merging")
+                        used_idx=n.concatenate((used_idx,try_idx))
+                        tuples2.append(try_idx)
+            else:
+                print("already used. skipping")
+                
+                
+        plt.subplot(121)
+        plt.title("Tuples 3")        
+        for p in tuples3:
+            plt.plot(tx_idx[p],rg[p],".")
+        plt.subplot(122)
+        for p in tuples3:
+            plt.plot(tx_idx[p],dop[p]/1e3,".")
+        plt.show()
         
     
 
