@@ -29,6 +29,7 @@ def fit_obs(tx_idx,rg,dop):
     m[0:n_m]=rg/r_std
     m[n_m:(2*n_m)]=dop/1e3/v_std
     xhat=n.linalg.lstsq(A,m)[0]
+    print(xhat)
     model=n.dot(A,xhat)
     r_resid=rg/1e3-r_std*model[0:n_m]
     dop_resid=dop/1e3-v_std*model[n_m:(2*n_m)]
