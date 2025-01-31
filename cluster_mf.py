@@ -72,7 +72,7 @@ def cluster(tx_idx,
         if len(pair_idx) > 1:
             print(pair_idx)
             pairs.append(pair_idx)
-            if True:
+            if False:
                 plt.subplot(131)
                 plt.plot(dt[fit_idx],dr[fit_idx],".")
                 plt.subplot(132)
@@ -86,8 +86,9 @@ def cluster(tx_idx,
             print(pair_idx)
             
         idx=n.setdiff1d(idx,pair_idx)
+        
     if len(pairs)>0:
-        #    pairs=n.array(pairs,dtype=n.int64)
+        # we could pair some measurements. now see we can merge any of them
 
         if False:
             plt.subplot(121)
@@ -113,7 +114,7 @@ def cluster(tx_idx,
             
             if (len(n.intersect1d(used_idx,c[0])) == 0) and (len(n.intersect1d(used_idx,c[1])) == 0):
                 # at most 5*2*1.6e-3 apart to try merging
-                max_dt=30e-3#5*3*1.6e-3
+                max_dt=3*5*1.6e-3
                 if n.abs(t1-t0)<max_dt:
                     try_idx=n.concatenate((c[0],c[1]))
                     print(try_idx)
@@ -130,7 +131,7 @@ def cluster(tx_idx,
                 print(used_idx)
                 print("already used. skipping")
 
-        if False:
+        if True:
             plt.subplot(121)
             for p in tuples:
                 plt.plot(tv[p],rg[p],".")
