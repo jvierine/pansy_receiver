@@ -12,22 +12,32 @@ import time
 import scipy.fftpack as fp
 import itertools
 
-def fit_obs(tx_idx,rg,dop):
+def fit_obs(tx_idx,rg,dop,fit_acc=False):
     n_m=len(tx_idx)
-    A=n.zeros([2*n_m,3],dtype=n.float32)
     tmean=n.mean(tx_idx)
     t=(tx_idx-tmean)/1e6
     r_std=0.5
     v_std=3
-    A[0:n_m,0]=(1.0)/r_std
-    A[0:n_m,1]=(t)/r_std
-    A[0:n_m,2]=(t**2.0)/r_std
-    A[n_m:(2*n_m),1]=1/v_std
-    A[n_m:(2*n_m),2]=(2*t)/v_std
     
+    if fit_acc:
+        A=n.zeros([2*n_m,3],dtype=n.float32)
+        A[0:n_m,0]=(1.0)/r_std
+        A[0:n_m,1]=(t)/r_std
+        A[0:n_m,2]=(t**2.0)/r_std
+        A[n_m:(2*n_m),1]=1/v_std
+        A[n_m:(2*n_m),2]=(2*t)/v_std
+        
+        
+    else:
+        A=n.zeros([2*n_m,2],dtype=n.float32)
+        A[0:n_m,0]=(1.0)/r_std
+        A[0:n_m,1]=(t)/r_std
+        A[n_m:(2*n_m),1]=1/v_std
+
     m=n.zeros(2*n_m,dtype=n.float32)
     m[0:n_m]=rg/r_std
     m[n_m:(2*n_m)]=dop/1e3/v_std
+
     xhat=n.linalg.lstsq(A,m)[0]
     print(xhat)
     model=n.dot(A,xhat)
@@ -118,7 +128,7 @@ def cluster(tx_idx,
                 if n.abs(t1-t0)<max_dt:
                     try_idx=n.concatenate((c[0],c[1]))
                     print(try_idx)
-                    r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx])
+                    r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx],fit_acc=False)
                     if (r_resid < 0.5) and (v_resid < 2):
                         print("merging")
                         used_idx=n.concatenate((used_idx,try_idx))
