@@ -109,7 +109,7 @@ def cluster(tx_idx,
             print(n.intersect1d(used_idx,c[0]))
             print(n.intersect1d(used_idx,c[1]))
             
-            if (len(n.intersect1d(used_idx,c[0])) > 0) or (len(n.intersect1d(used_idx,c[1]))>0):
+            if (len(n.intersect1d(used_idx,c[0])) == 0) and (len(n.intersect1d(used_idx,c[1])) == 0):
                 # at most 5*4*1.6e-3 apart to try merging
                 if n.abs(t1-t0)<24e-3:
                     try_idx=n.concatenate((c[0],c[1]))
@@ -145,7 +145,7 @@ def cluster(tx_idx,
             t0=n.mean(tx_idx[c[0]])/1e6
             t1=n.mean(tx_idx[c[1]])/1e6
 
-            if (len(n.intersect1d(used_idx,c[0])) > 0) or (len(n.intersect1d(used_idx,c[1]))>0):
+            if (len(n.intersect1d(used_idx,c[0])) == 0) and (len(n.intersect1d(used_idx,c[1]))==0):
                 # at most 5*8*1.6e-3 apart to try merging
                 max_dt=5*8*1.6e-3
                 if n.abs(t1-t0)< max_dt:
