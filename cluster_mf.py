@@ -14,19 +14,24 @@ import itertools
 
 def fit_obs(tx_idx,rg,dop):
     n_m=len(tx_idx)
-    A=n.zeros([n_m,3],dtype=n.float32)
+    A=n.zeros([2*n_m,3],dtype=n.float32)
     tmean=n.mean(tx_idx)
     t=(tx_idx-tmean)/1e6
-    A[:,0]=1.0
-    A[:,1]=t
-    A[:,2]=t**2.0
+    r_std=0.5
+    v_std=3
+    A[0:n_m,0]=(1.0)/r_std
+    A[0:n_m,1]=(t)/r_std
+    A[0:n_m,2]=(t**2.0)/r_std
+    A[n_m:(2*n_m),1]=1/v_std
+    A[n_m:(2*n_m),2]=(2*t)/v_std
+    
     m=n.zeros(2*n_m,dtype=n.float32)
-    m[0:n_m]=rg/1e3
-    m[n_m:(2*n_m)]=dop/1e3
+    m[0:n_m]=rg/1e3/r_std
+    m[n_m:(2*n_m)]=dop/1e3/v_std
     xhat=n.linalg.lstsq(A,m)[0]
     model=n.dot(A,xhat)
-    r_resid=rg/1e3-model[0:n_m]
-    dop_resid=dop/1e3-model[n_m:(2*n_m)]
+    r_resid=rg/1e3-r_std*model[0:n_m]
+    dop_resid=dop/1e3-v_std*model[n_m:(2*n_m)]
     plt.subplot(121)
     plt.plot(t,model[0:n_m]/1e3)
     plt.plot(t,rg/1e3,".")
