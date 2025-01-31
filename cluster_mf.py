@@ -39,7 +39,7 @@ def fit_obs(tx_idx,rg,dop):
     plt.plot(t,rg,".")
     plt.subplot(122)
     plt.plot(t,v_std*model[n_m:(2*n_m)])
-    plt.title(n.mean(v_resid))    
+    plt.title(n.mean(dop_resid))    
     plt.plot(t,dop/1e3,".")
     plt.show()
 
