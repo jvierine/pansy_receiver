@@ -95,8 +95,9 @@ def cluster(tx_idx,
             t1=n.mean(tx_idx[c[1]])/1e6
             # at most 5*4*1.6e-3 apart to try merging
             if n.abs(t1-t0)<24e-3:
-                idx=n.concatenate((c[0],c[1]))
-                fit_obs(idx,rg[idx],dop[idx])
+                try_idx=n.concatenate((c[0],c[1]))
+                print(try_idx)
+                fit_obs(try_idx,rg[try_idx],dop[try_idx])
                 
         
     
