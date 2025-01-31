@@ -72,7 +72,7 @@ def cluster(tx_idx,
         if len(pair_idx) > 1:
             print(pair_idx)
             pairs.append(pair_idx)
-            if False:
+            if True:
                 plt.subplot(131)
                 plt.plot(dt[fit_idx],dr[fit_idx],".")
                 plt.subplot(132)
