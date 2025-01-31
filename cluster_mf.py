@@ -132,6 +132,7 @@ def cluster(tx_idx,
         plt.subplot(121)
         for p in tuples:
             plt.plot(tx_idx[p],rg[p],".")
+        plt.title("Tuples")
         plt.subplot(122)
         for p in tuples:
             plt.plot(tx_idx[p],dop[p]/1e3,".")
@@ -162,6 +163,7 @@ def cluster(tx_idx,
                 
                 
         plt.subplot(121)
+        plt.title("Tuples 2")        
         for p in tuples2:
             plt.plot(tx_idx[p],rg[p],".")
         plt.subplot(122)
