@@ -13,6 +13,9 @@ import scipy.fftpack as fp
 import itertools
 
 def fit_obs(tx_idx,rg,dop,fit_acc=False):
+    """
+    given range and doppler measurements, find best fit radial trajectory
+    """
     n_m=len(tx_idx)
     tmean=n.mean(tx_idx)
     t=(tx_idx-tmean)/1e6
@@ -74,9 +77,10 @@ def cluster(tx_idx,
     while len(idx)>1:
         i = idx[0]
         dt = (tx_idx[idx]-tx_idx[i])/1e6
-        dr = rg[i]-(rg[idx]-(dop[idx]/1e3)*dt)
+        dr = rg[i]-(rg[idx]-(dop[i]/1e3)*dt)
         ddop = dop[i]-dop[idx]
-        print(dr)
+        #print(dr)
+        # has to be close in time, but also close enough in range and doppler
         fit_idx=n.where( (n.abs(dt) < 10e-3) & (n.abs(dr)<0.5) & (n.abs(ddop)<10e3))[0]
         pair_idx=idx[fit_idx]
         if len(pair_idx) > 1:
@@ -129,7 +133,7 @@ def cluster(tx_idx,
                     try_idx=n.concatenate((c[0],c[1]))
                     print(try_idx)
                     r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx],fit_acc=False)
-                    if (r_resid < 0.5) and (v_resid < 2):
+                    if (r_resid < 0.5) and (v_resid < 3):
                         print("merging")
                         used_idx=n.concatenate((used_idx,try_idx))
                         tuples.append(try_idx)
@@ -141,7 +145,7 @@ def cluster(tx_idx,
                 print(used_idx)
                 print("already used. skipping")
 
-        if True:
+        if False:
             plt.subplot(121)
             for p in tuples:
                 plt.plot(tv[p],rg[p],".")
@@ -162,12 +166,12 @@ def cluster(tx_idx,
 
             if (len(n.intersect1d(used_idx,c[0])) == 0) and (len(n.intersect1d(used_idx,c[1]))==0):
                 # at most 5*4*1.6e-3 apart to try merging
-                max_dt=5*9*1.6e-3
+                max_dt=5*6*1.6e-3
                 if n.abs(t1-t0)< max_dt:
                     try_idx=n.concatenate((c[0],c[1]))
                     print(try_idx)
                     r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx])
-                    if (r_resid < 0.5) and  (v_resid < 2):
+                    if (r_resid < 0.5) and  (v_resid < 3):
                         print("merging")
                         used_idx=n.concatenate((used_idx,try_idx))
                         tuples2.append(try_idx)
