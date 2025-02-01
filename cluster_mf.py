@@ -220,6 +220,7 @@ def cluster(tx_idx,
                 tuples22.append(tuples2[i])
         for t3 in tuples3:
             tuples22.append(t3)
+        tuples2=tuples22
 
 
 
