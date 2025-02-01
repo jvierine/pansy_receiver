@@ -203,7 +203,8 @@ def cluster(tx_idx,
         plt.plot(tv_global,rg,".",color="gray")
         for p in tuples2:
             r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[p],rg[p],dop[p],fit_acc=True)
-            tv=(tx_idx-tmean)/1e6
+            
+            tv=(tx_idx[n.min(p):n.max(p)]-tmean)/1e6
             rgmodel=xhat[0]+xhat[1]*tv+0.5*xhat[2]*tv**2.0
             plt.plot(tv_global,rgmodel)
 
