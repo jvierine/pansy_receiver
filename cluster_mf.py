@@ -205,6 +205,10 @@ def cluster(tx_idx,
             rgmodel=xhat[0]+xhat[1]*tv+0.5*xhat[2]*tv**2.0
             plt.plot(tv_global,rgmodel)
 
+        for p in pairs:
+                plt.plot(tv_global[p],rg[p],".")
+            
+
         plt.ylim([60,140])
         plt.show()
         
