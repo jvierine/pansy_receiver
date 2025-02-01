@@ -202,6 +202,7 @@ def cluster(tx_idx,
         # try merging pairs
         candidates=list(itertools.combinations(n.arange(len(tuples2)),2))
         is_merged=n.zeros(len(tuples2),dtype=bool)
+        tuples3=[]
         for c in candidates:
             if is_merged[c[0]] == False and is_merged[c[1]]==False:
                 try_idx=n.concatenate((tuples2[c[0]],tuples2[c[1]]))
