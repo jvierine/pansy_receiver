@@ -199,6 +199,29 @@ def cluster(tx_idx,
                 tuples2.append(idx_this)
 
 
+        # try merging pairs
+        candidates=list(itertools.combinations(n.arange(len(tuples2)),2))
+        is_merged=n.zeros(len(tuples2),dtype=bool)
+        for c in candidates:
+            if is_merged[c[0]] == False and is_merged[c[1]]==False:
+                try_idx=n.concatenate((tuples2[c[0]],tuples2[c[1]]))
+                    r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx])
+                    if (r_resid < 0.5) and (v_resid < 3):
+                        # merging pair
+                        print("merging pair")
+                        idx_this=try_idx
+                        tuples3.append(idx_this)
+                        is_merged[c[0]]=True
+                        is_merged[c[1]]=True
+        tuples22=[]
+        for i in range(len(tuples2)):
+            if is_merged[i]==False:
+                tuples22.append(tuples2[i])
+        for t3 in tuples3:
+            tuples22.append(t3)
+
+
+
         # for each cluster, find measurements that fit
         
         plt.plot(tv_global,rg,".",color="gray")
@@ -217,8 +240,6 @@ def cluster(tx_idx,
             plt.axvline(n.max(tv_global[p]),color="green")
             plt.text(n.min(tv_global[p]),xhat[0],"%1.2f s"%(dur))
 
-#        for p in tuples:
-#            plt.plot(tv_global[p],rg[p],".",color="green")
             
 
         plt.ylim([60,140])
