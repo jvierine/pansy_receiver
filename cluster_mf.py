@@ -205,14 +205,14 @@ def cluster(tx_idx,
         for c in candidates:
             if is_merged[c[0]] == False and is_merged[c[1]]==False:
                 try_idx=n.concatenate((tuples2[c[0]],tuples2[c[1]]))
-                    r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx])
-                    if (r_resid < 0.5) and (v_resid < 3):
-                        # merging pair
-                        print("merging pair")
-                        idx_this=try_idx
-                        tuples3.append(idx_this)
-                        is_merged[c[0]]=True
-                        is_merged[c[1]]=True
+                r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx])
+                if (r_resid < 0.5) and (v_resid < 3):
+                    # merging pair
+                    print("merging pair")
+                    idx_this=try_idx
+                    tuples3.append(idx_this)
+                    is_merged[c[0]]=True
+                    is_merged[c[1]]=True
         tuples22=[]
         for i in range(len(tuples2)):
             if is_merged[i]==False:
