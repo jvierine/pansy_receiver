@@ -206,7 +206,9 @@ def cluster(tx_idx,
             plt.plot(tv_global,rgmodel)
 
         for p in pairs:
-                plt.plot(tv_global[p],rg[p],".",color="red")
+            plt.plot(tv_global[p],rg[p],".",color="red")
+        for p in tuples:
+            plt.plot(tv_global[p],rg[p],".",color="green")
             
 
         plt.ylim([60,140])
