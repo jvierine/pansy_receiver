@@ -149,10 +149,17 @@ def cluster(tx_idx,
             plt.subplot(121)
             for p in tuples:
                 plt.plot(tv[p],rg[p],".")
+
+            for p in pairs:
+                plt.plot(tv[p],rg[p],".")
+            
             plt.title("Tuples")
             plt.subplot(122)
             for p in tuples:
                 plt.plot(tv[p],dop[p]/1e3,".")
+            for p in pairs:
+                plt.plot(tv[p],dop[p]/1e3,".")
+
             plt.show()
                 
         # third pass.
