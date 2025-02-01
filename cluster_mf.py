@@ -186,7 +186,7 @@ def cluster(tx_idx,
                 # only try adding if this pair is not already in tuple
                 if len(n.intersect1d(idx_this,p))==0:
                     # if we are close enough in time
-                    if n.abs(n.mean(tv_global[p])-n.min(tv_global[idx_this])) < 0.05 or n.abs(n.mean(tv_global[p])-n.max(tv_global[idx_this])) < 0.05:
+                    if n.abs(n.mean(tv_global[p])-n.min(tv_global[idx_this])) < 0.1 or n.abs(n.mean(tv_global[p])-n.max(tv_global[idx_this])) < 0.1:
                         try_idx=n.concatenate((idx_this,p))
                         r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx])
                         if (r_resid < 0.5) and (v_resid < 3):
