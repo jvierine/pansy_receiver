@@ -207,6 +207,8 @@ def cluster(tx_idx,
             tv=(tx_idx[p]-tmean)/1e6
             rgmodel=xhat[0]+xhat[1]*tv+0.5*xhat[2]*tv**2.0
             plt.plot(tv_global[p],rgmodel)
+            plt.axvline(n.min(tv_global[p]),color="green")
+            plt.axvline(n.max(tv_global[p]),color="green")
 
         for p in pairs:
             plt.plot(tv_global[p],rg[p],".",color="red")
