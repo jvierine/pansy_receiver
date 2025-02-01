@@ -193,9 +193,10 @@ def cluster(tx_idx,
                             # adding
                             print("added pair")
                             idx_this=try_idx
-            used_idx=n.concatenate((used_idx,idx_this))
-            print("found group with %d measurements"%(len(idx_this)))
-            tuples2.append(idx_this)
+            if len(idx_this)>6:
+                used_idx=n.concatenate((used_idx,idx_this))
+                print("found group with %d measurements"%(len(idx_this)))
+                tuples2.append(idx_this)
 
 
         # for each cluster, find measurements that fit
