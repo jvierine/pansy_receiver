@@ -42,7 +42,7 @@ def fit_obs(tx_idx,rg,dop,fit_acc=False):
     m[n_m:(2*n_m)]=dop/1e3/v_std
 
     xhat=n.linalg.lstsq(A,m)[0]
-    print(xhat)
+#    print(xhat)
     model=n.dot(A,xhat)
     r_resid=rg-r_std*model[0:n_m]
     dop_resid=dop/1e3-v_std*model[n_m:(2*n_m)]
@@ -202,9 +202,13 @@ def cluster(tx_idx,
         # for each cluster, find measurements that fit
         
         plt.plot(tv_global,rg,".",color="gray")
+        for p in pairs:
+            plt.plot(tv_global[p],rg[p],".",color="red")
+
         for p in tuples2:
             r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[p],rg[p],dop[p],fit_acc=True)
-            
+            for p in pairs:
+                plt.plot(tv_global[p],rg[p],".",color="green")
             tv=(tx_idx[p]-tmean)/1e6
             rgmodel=xhat[0]+xhat[1]*tv+0.5*xhat[2]*tv**2.0
             plt.plot(tv_global[p],rgmodel)
@@ -213,10 +217,8 @@ def cluster(tx_idx,
             plt.axvline(n.max(tv_global[p]),color="green")
             plt.text(n.min(tv_global[p]),xhat[0],"%1.2f s"%(dur))
 
-        for p in pairs:
-            plt.plot(tv_global[p],rg[p],".",color="red")
-        for p in tuples:
-            plt.plot(tv_global[p],rg[p],".",color="green")
+#        for p in tuples:
+#            plt.plot(tv_global[p],rg[p],".",color="green")
             
 
         plt.ylim([60,140])
