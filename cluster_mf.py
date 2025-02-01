@@ -207,8 +207,8 @@ def cluster(tx_idx,
 
         for p in tuples2:
             r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[p],rg[p],dop[p],fit_acc=True)
-            for p in pairs:
-                plt.plot(tv_global[p],rg[p],".",color="green")
+            plt.plot(tv_global[p],rg[p],".",color="green")
+
             tv=(tx_idx[p]-tmean)/1e6
             rgmodel=xhat[0]+xhat[1]*tv+0.5*xhat[2]*tv**2.0
             plt.plot(tv_global[p],rgmodel)
