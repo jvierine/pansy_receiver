@@ -238,11 +238,11 @@ def cluster(tx_idx,
 
             tvlocal=(tx_idx[p]-tmean)/1e6
             rgmodel=xhat[0]+xhat[1]*tvlocal+0.5*xhat[2]*tvlocal**2.0
-            plt.plot(tvlocal,rgmodel)
+            plt.plot(tv[p],rgmodel)
             dur=n.max(tvlocal)-n.min(tvlocal)
-            plt.axvline(n.min(tvlocal),color="green")
-            plt.axvline(n.max(tvlocal),color="green")
-            plt.text(n.min(tvlocal),xhat[0],"%1.2f s"%(dur))
+            plt.axvline(n.min(tv[p]),color="green")
+            plt.axvline(n.max(tv[p]),color="green")
+            plt.text(n.min(tvlocal[p]),xhat[0],"%1.2f s"%(dur))
 
             
 
