@@ -12,7 +12,7 @@ import time
 import scipy.fftpack as fp
 import itertools
 
-def fit_obs(tx_idx,rg,dop,fit_acc=False):
+def fit_obs(tx_idx,rg,dop,fit_acc=False,return_model=False):
     """
     given range and doppler measurements, find best fit radial trajectory
     """
@@ -22,33 +22,42 @@ def fit_obs(tx_idx,rg,dop,fit_acc=False):
     t=(tx_idx-tmean)/1e6
     r_std=0.5
     v_std=3
-    
-    if fit_acc:
+
+#    if dur > 
+    if dur < 0.05:
+        A=n.zeros([2*n_m,2],dtype=n.float32)
+#        AA=n.zeros([2*n_m,2],dtype=n.float32)
+
+        A[0:n_m,0]=(1.0)/r_std
+        A[0:n_m,1]=(t)/r_std
+        A[n_m:(2*n_m),1]=1/v_std
+        #AA[0:n_m,0]=(1.0)
+        #AA[0:n_m,1]=(t)
+        #AA[n_m:(2*n_m),1]=1
+    if dur < 0.25:
         A=n.zeros([2*n_m,3],dtype=n.float32)
-        AA=n.zeros([2*n_m,3],dtype=n.float32)
+#        AA=n.zeros([2*n_m,3],dtype=n.float32)
         A[0:n_m,0]=(1.0)/r_std
         A[0:n_m,1]=(t)/r_std
         A[0:n_m,2]=(t**2.0)/r_std
         A[n_m:(2*n_m),1]=1/v_std
         A[n_m:(2*n_m),2]=(2*t)/v_std
-        AA[0:n_m,0]=(1.0)
-        AA[0:n_m,1]=(t)
-        AA[0:n_m,2]=(t**2.0)
-        AA[n_m:(2*n_m),1]=1
-        AA[n_m:(2*n_m),2]=(2*t)
-        
-        
+ #       AA[0:n_m,0]=(1.0)
+  #      AA[0:n_m,1]=(t)
+   #     AA[0:n_m,2]=(t**2.0)
+    #    AA[n_m:(2*n_m),1]=1
+     #   AA[n_m:(2*n_m),2]=(2*t)        
     else:
-        A=n.zeros([2*n_m,2],dtype=n.float32)
-        AA=n.zeros([2*n_m,2],dtype=n.float32)
-
+        A=n.zeros([2*n_m,4],dtype=n.float32)
         A[0:n_m,0]=(1.0)/r_std
         A[0:n_m,1]=(t)/r_std
+        A[0:n_m,2]=(t**2.0)/r_std
+        A[0:n_m,3]=(t**3.0)/r_std
         A[n_m:(2*n_m),1]=1/v_std
-        AA[0:n_m,0]=(1.0)
-        AA[0:n_m,1]=(t)
-        AA[n_m:(2*n_m),1]=1
-
+        A[n_m:(2*n_m),2]=(2*t)/v_std
+        A[n_m:(2*n_m),3]=(3*t**2)/v_std
+# r = r0+v*t + at**2 + bt**3
+# dr/dt = v + 2*a*t + 3*b*t**2
 
     m=n.zeros(2*n_m,dtype=n.float32)
     m[0:n_m]=rg/r_std
@@ -56,9 +65,9 @@ def fit_obs(tx_idx,rg,dop,fit_acc=False):
 
     xhat=n.linalg.lstsq(A,m)[0]
 #    print(xhat)
-    model=n.dot(AA,xhat)
-    r_resid=rg-model[0:n_m]
-    dop_resid=dop/1e3-model[n_m:(2*n_m)]
+    model=n.dot(A,xhat)
+    r_resid=rg-r_std*model[0:n_m]
+    dop_resid=dop/1e3-v_std*model[n_m:(2*n_m)]
 
     v_std=n.std(dop_resid)
     r_std=n.std(r_resid)
@@ -72,7 +81,13 @@ def fit_obs(tx_idx,rg,dop,fit_acc=False):
         plt.title(v_std)    
         plt.plot(t,dop/1e3,".")
         plt.show()
-    return(r_std,v_std,xhat,tmean)
+    if return_model:
+        import scipy.interpolate as sint
+        rmodel=sint.interp1d(t,r_std*model[0:n_m])
+        vmodel=sint.interp1d(t,v_std*model[n_m:(2*n_m)])
+        return(r_std,v_std,xhat,tmean,rmodel,vmodel)
+    else:
+        return(r_std,v_std,xhat,tmean)
 
 def cluster(tx_idx,
             rg,
@@ -206,12 +221,12 @@ def cluster(tx_idx,
             plt.plot(tv[p],rg[p],".",color="red")
 
         for p in tuples2:
-            r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[p],rg[p],dop[p],fit_acc=True)
+            r_resid, v_resid, xhat, tmean, rmodel,vmodel=fit_obs(tx_idx[p],rg[p],dop[p],fit_acc=True,retur_model=True)
             plt.plot(tv[p],rg[p],".",color="green")
 
             ps=n.sort(p)
             tvlocal=(tx_idx[ps]-tmean)/1e6
-            rgmodel=xhat[0]+xhat[1]*tvlocal+0.5*xhat[2]*tvlocal**2.0
+            rgmodel=rmodel(tvlocal)#xhat[0]+xhat[1]*tvlocal+0.5*xhat[2]*tvlocal**2.0
             plt.plot(tv[ps],rgmodel)
             dur=n.max(tvlocal)-n.min(tvlocal)
             plt.axvline(n.min(tv[p]),color="green")
