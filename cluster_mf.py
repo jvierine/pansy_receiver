@@ -221,7 +221,7 @@ def cluster(tx_idx,
             plt.plot(tv[p],rg[p],".",color="red")
 
         for p in tuples2:
-            r_resid, v_resid, xhat, tmean, rmodel,vmodel=fit_obs(tx_idx[p],rg[p],dop[p],fit_acc=True,retur_model=True)
+            r_resid, v_resid, xhat, tmean, rmodel,vmodel=fit_obs(tx_idx[p],rg[p],dop[p],fit_acc=True,return_model=True)
             plt.plot(tv[p],rg[p],".",color="green")
 
             ps=n.sort(p)
