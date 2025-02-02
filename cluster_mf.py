@@ -188,7 +188,7 @@ def cluster(tx_idx,
                     # if we are close enough in time
                     if n.abs(n.mean(tv_global[p])-n.min(tv_global[idx_this])) < 0.1 or n.abs(n.mean(tv_global[p])-n.max(tv_global[idx_this])) < 0.1:
                         try_idx=n.concatenate((idx_this,p))
-                        r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx])
+                        r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx],fit_acc=True)
                         if (r_resid < 0.5) and (v_resid < 3):
                             # adding
                             print("added pair")
@@ -206,9 +206,11 @@ def cluster(tx_idx,
         for c in candidates:
             if is_merged[c[0]] == False and is_merged[c[1]]==False:
                 try_idx=n.concatenate((tuples2[c[0]],tuples2[c[1]]))
-                r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx])
+                r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx],fit_acc=True)
                 if (r_resid < 0.5) and (v_resid < 3):
                     # merging pair
+                    print("%d-%d merge %1.2f rresid %1.2f vresid"%(c[0],c[1],r_resid,v_resid))
+
                     print("merging pair")
                     idx_this=try_idx
                     tuples3.append(idx_this)
