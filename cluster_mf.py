@@ -199,12 +199,7 @@ def cluster(tx_idx,
                 print("found group with %d measurements"%(len(idx_this)))
                 tuples2.append(idx_this)
 
-  
-
-
-
-        # for each cluster, find measurements that fit
-        
+        # for each cluster, find measurements that fit        
         plt.plot(tv,rg,".",color="gray")
         for p in pairs:
             plt.plot(tv[p],rg[p],".",color="red")
@@ -213,7 +208,7 @@ def cluster(tx_idx,
             r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[p],rg[p],dop[p],fit_acc=True)
             plt.plot(tv[p],rg[p],".",color="green")
 
-            ps=n.argsort(p)
+            ps=n.sort(p)
             tvlocal=(tx_idx[ps]-tmean)/1e6
             rgmodel=xhat[0]+xhat[1]*tvlocal+0.5*xhat[2]*tvlocal**2.0
             plt.plot(tv[ps],rgmodel)
