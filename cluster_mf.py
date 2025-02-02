@@ -215,7 +215,7 @@ def cluster(tx_idx,
                     is_merged[c[0]]=True
                     is_merged[c[1]]=True
                 else:
-                    print("can't merge %1.2f rresid %1.2f vresid"%(r_resid,v_resid))
+                    print("can't %d-%d merge %1.2f rresid %1.2f vresid"%(c[0],c[1],r_resid,v_resid))
         tuples22=[]
         for i in range(len(tuples2)):
             if is_merged[i]==False:
