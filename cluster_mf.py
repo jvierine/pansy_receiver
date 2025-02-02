@@ -17,6 +17,7 @@ def fit_obs(tx_idx,rg,dop,fit_acc=False):
     given range and doppler measurements, find best fit radial trajectory
     """
     n_m=len(tx_idx)
+    dur=(n.max(tx_idx)-n.min(tx_idx))/1e6
     tmean=n.mean(tx_idx)
     t=(tx_idx-tmean)/1e6
     r_std=0.5
@@ -184,7 +185,7 @@ def cluster(tx_idx,
                 # only try adding if this pair is not already in tuple
                 if len(n.intersect1d(idx_this,p))==0:
                     # if we are close enough in time
-                    if n.min(n.abs(n.mean(tv[p])-tv[idx_this])) < 0.1:
+                    if n.min(n.abs(n.mean(tv[p])-tv[idx_this])) < 0.15:
                         try_idx=n.concatenate((idx_this,p))
                         r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx],fit_acc=True)
                         if (r_resid < 0.5) and (v_resid < 3):
