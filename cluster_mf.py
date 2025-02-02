@@ -81,11 +81,14 @@ def cluster(tx_idx,
             ):
     idx=n.argsort(snr)[::-1]
     pairs=[]
+    pair_time=[]
     tv=(tx_idx-tx_idx[0])/1e6
+
     # first pass
-    # look for measurement pair that best fits this measurement
+    # look for measurement pair that fits together with each measurement
     # has to be less than 10 ms apart and fit better than 500 meters
     # also, doppler can't change more than 15 km/s
+    # things that don't git together are not considered in the next stage
     while len(idx)>1:
         i = idx[0]
         dt = (tx_idx[idx]-tx_idx[i])/1e6
@@ -98,6 +101,7 @@ def cluster(tx_idx,
         if len(pair_idx) > 1:
             print(pair_idx)
             pairs.append(pair_idx)
+            pair_time.append(n.mean(tv[pair_idx]))
             if False:
                 plt.subplot(131)
                 plt.plot(dt[fit_idx],dr[fit_idx],".")
@@ -112,21 +116,14 @@ def cluster(tx_idx,
             print(pair_idx)
             
         idx=n.setdiff1d(idx,pair_idx)
-        
+    pair_time=n.array(pair_time)  
+
     if len(pairs)>0:
         # we could pair some measurements. now see we can merge any of them
 
-        if False:
-            plt.subplot(121)
-            for p in pairs:
-                plt.plot(tv[p],rg[p],".")
-            plt.subplot(122)
-            for p in pairs:
-                plt.plot(tv[p],dop[p]/1e3,".")
-            plt.show()
-
         # second pass.
         # find all the 2-combinations of measurement pairs 
+        # these are ones that we will try to expand upon later
         candidates=list(itertools.combinations(pairs,2))
         used_idx=[]
         tuples=[]
@@ -156,23 +153,6 @@ def cluster(tx_idx,
             else:
                 print(used_idx)
                 print("already used. skipping")
-
-        if False:
-            plt.subplot(121)
-            for p in tuples:
-                plt.plot(tv[p],rg[p],".")
-
-            for p in pairs:
-                plt.plot(tv[p],rg[p],".")
-            
-            plt.title("Tuples")
-            plt.subplot(122)
-            for p in tuples:
-                plt.plot(tv[p],dop[p]/1e3,".")
-            for p in pairs:
-                plt.plot(tv[p],dop[p]/1e3,".")
-
-            plt.show()
                 
         # third pass.
         # go through all tuple groups. try to add measurements to them. 
@@ -185,20 +165,25 @@ def cluster(tx_idx,
         #
         used_idx=n.array([],dtype=n.int64)
         tuples2=[]
-        tv_global=(tx_idx-tx_idx[0])/1e6
         for tup in tuples:
             # remove already used indices
             idx_this = n.setdiff1d(tup,used_idx)
             if len(idx_this) < 4:
 #                print("not enough measurements in tuple. skipping")
-                # not enough measurements in tuple. skipping
                 used_idx=n.concatenate((used_idx,idx_this))
                 continue
-            for p in pairs:
+
+            t0_this=n.mean(tv[idx_this])
+            # find the closest one in time to add
+            dtidx=n.argsort(n.abs(pair_time-t0_this))
+
+            # try adding each measurement once
+            for pi in range(len(pairs)):
+                p=pairs[dtidx[pi]]
                 # only try adding if this pair is not already in tuple
                 if len(n.intersect1d(idx_this,p))==0:
                     # if we are close enough in time
-                    if n.min(n.abs(n.mean(tv_global[p])-(tv_global[idx_this]))) < 0.1:
+                    if n.min(n.abs(n.mean(tv[p])-tv[idx_this])) < 0.1:
                         try_idx=n.concatenate((idx_this,p))
                         r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx],fit_acc=True)
                         if (r_resid < 0.5) and (v_resid < 3):
