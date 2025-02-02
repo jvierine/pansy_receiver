@@ -236,9 +236,10 @@ def cluster(tx_idx,
             r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[p],rg[p],dop[p],fit_acc=True)
             plt.plot(tv[p],rg[p],".",color="green")
 
-            tvlocal=(tx_idx[p]-tmean)/1e6
+            ps=n.argsort(p)
+            tvlocal=(tx_idx[ps]-tmean)/1e6
             rgmodel=xhat[0]+xhat[1]*tvlocal+0.5*xhat[2]*tvlocal**2.0
-            plt.plot(tv[p],rgmodel)
+            plt.plot(tv[ps],rgmodel)
             dur=n.max(tvlocal)-n.min(tvlocal)
             plt.axvline(n.min(tv[p]),color="green")
             plt.axvline(n.max(tv[p]),color="green")
