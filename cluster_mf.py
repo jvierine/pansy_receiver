@@ -69,8 +69,8 @@ def fit_obs(tx_idx,rg,dop,fit_acc=False,return_model=False):
     r_resid=rg-r_std*model[0:n_m]
     dop_resid=dop/1e3-v_std*model[n_m:(2*n_m)]
 
-    v_std=n.std(dop_resid)
-    r_std=n.std(r_resid)
+    fit_v_std=n.std(dop_resid)
+    fit_r_std=n.std(r_resid)
     if False:
         plt.subplot(121)
         plt.plot(t,r_std*model[0:n_m])
@@ -85,9 +85,9 @@ def fit_obs(tx_idx,rg,dop,fit_acc=False,return_model=False):
         import scipy.interpolate as sint
         rmodel=sint.interp1d(t,r_std*model[0:n_m])
         vmodel=sint.interp1d(t,v_std*model[n_m:(2*n_m)])
-        return(r_std,v_std,xhat,tmean,rmodel,vmodel)
+        return(fit_r_std,fit_v_std,xhat,tmean,rmodel,vmodel)
     else:
-        return(r_std,v_std,xhat,tmean)
+        return(fit_r_std,fit_v_std,xhat,tmean)
 
 def cluster(tx_idx,
             rg,
