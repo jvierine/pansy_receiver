@@ -24,18 +24,30 @@ def fit_obs(tx_idx,rg,dop,fit_acc=False):
     
     if fit_acc:
         A=n.zeros([2*n_m,3],dtype=n.float32)
+        AA=n.zeros([2*n_m,3],dtype=n.float32)
         A[0:n_m,0]=(1.0)/r_std
         A[0:n_m,1]=(t)/r_std
         A[0:n_m,2]=(t**2.0)/r_std
         A[n_m:(2*n_m),1]=1/v_std
         A[n_m:(2*n_m),2]=(2*t)/v_std
+        AA[0:n_m,0]=(1.0)
+        AA[0:n_m,1]=(t)
+        AA[0:n_m,2]=(t**2.0)
+        AA[n_m:(2*n_m),1]=1
+        AA[n_m:(2*n_m),2]=(2*t)
         
         
     else:
         A=n.zeros([2*n_m,2],dtype=n.float32)
+        AA=n.zeros([2*n_m,2],dtype=n.float32)
+
         A[0:n_m,0]=(1.0)/r_std
         A[0:n_m,1]=(t)/r_std
         A[n_m:(2*n_m),1]=1/v_std
+        AA[0:n_m,0]=(1.0)
+        AA[0:n_m,1]=(t)
+        AA[n_m:(2*n_m),1]=1
+
 
     m=n.zeros(2*n_m,dtype=n.float32)
     m[0:n_m]=rg/r_std
@@ -43,9 +55,9 @@ def fit_obs(tx_idx,rg,dop,fit_acc=False):
 
     xhat=n.linalg.lstsq(A,m)[0]
 #    print(xhat)
-    model=n.dot(A,xhat)
-    r_resid=rg-r_std*model[0:n_m]
-    dop_resid=dop/1e3-v_std*model[n_m:(2*n_m)]
+    model=n.dot(AA,xhat)
+    r_resid=rg-model[0:n_m]
+    dop_resid=dop/1e3-model[n_m:(2*n_m)]
 
     v_std=n.std(dop_resid)
     r_std=n.std(r_resid)
