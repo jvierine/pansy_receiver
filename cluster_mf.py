@@ -228,21 +228,21 @@ def cluster(tx_idx,
 
         # for each cluster, find measurements that fit
         
-        plt.plot(tv_global,rg,".",color="gray")
+        plt.plot(tv,rg,".",color="gray")
         for p in pairs:
-            plt.plot(tv_global[p],rg[p],".",color="red")
+            plt.plot(tv[p],rg[p],".",color="red")
 
         for p in tuples2:
             r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[p],rg[p],dop[p],fit_acc=True)
-            plt.plot(tv_global[p],rg[p],".",color="green")
+            plt.plot(tv[p],rg[p],".",color="green")
 
             tv=(tx_idx[p]-tmean)/1e6
             rgmodel=xhat[0]+xhat[1]*tv+0.5*xhat[2]*tv**2.0
-            plt.plot(tv_global[p],rgmodel)
-            dur=n.max(tv_global[p])-n.min(tv_global[p])
-            plt.axvline(n.min(tv_global[p]),color="green")
-            plt.axvline(n.max(tv_global[p]),color="green")
-            plt.text(n.min(tv_global[p]),xhat[0],"%1.2f s"%(dur))
+            plt.plot(tv[p],rgmodel)
+            dur=n.max(tv[p])-n.min(tv[p])
+            plt.axvline(n.min(tv[p]),color="green")
+            plt.axvline(n.max(tv[p]),color="green")
+            plt.text(n.min(tv[p]),xhat[0],"%1.2f s"%(dur))
 
             
 
