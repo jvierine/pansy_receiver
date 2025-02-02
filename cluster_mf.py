@@ -217,6 +217,7 @@ def cluster(tx_idx,
 
         # for each cluster, find measurements that fit        
         plt.plot(tv,rg,".",color="gray")
+        plt.title(stuffr.unix2datestr(tx_idx[0]/1e6))
         for p in pairs:
             plt.plot(tv[p],rg[p],".",color="red")
 
