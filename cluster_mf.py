@@ -190,7 +190,7 @@ def cluster(tx_idx,
             # remove already used indices
             idx_this = n.setdiff1d(tup,used_idx)
             if len(idx_this) < 4:
-                print("not enough measurements in tuple. skipping")
+#                print("not enough measurements in tuple. skipping")
                 # not enough measurements in tuple. skipping
                 used_idx=n.concatenate((used_idx,idx_this))
                 continue
@@ -203,7 +203,7 @@ def cluster(tx_idx,
                         r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx],fit_acc=True)
                         if (r_resid < 0.5) and (v_resid < 3):
                             # adding
-                            print("added pair")
+                            print("added pair %1.2f %1.2f"%(r_resid,v_resid))
                             idx_this=try_idx
             if len(idx_this)>6:
                 used_idx=n.concatenate((used_idx,idx_this))
@@ -220,7 +220,7 @@ def cluster(tx_idx,
                     try_idx=n.concatenate((tuples2[c[0]],tuples2[c[1]]))
                     r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx],fit_acc=True)
                     if (r_resid < 0.5) and (v_resid < 3):
-                        # merging pair
+                        # merging pairnot
                         print("%d-%d merge %1.2f rresid %1.2f vresid"%(c[0],c[1],r_resid,v_resid))
                         idx_this=try_idx
                         tuples3.append(idx_this)
