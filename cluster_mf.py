@@ -205,6 +205,9 @@ def cluster(tx_idx,
                             # adding
                             print("added pair %1.2f %1.2f"%(r_resid,v_resid))
                             idx_this=try_idx
+                        else:
+                            print("not adding %1.2f %1.2f"%(r_resid,v_resid))
+
             if len(idx_this)>6:
                 used_idx=n.concatenate((used_idx,idx_this))
                 print("found group with %d measurements"%(len(idx_this)))
