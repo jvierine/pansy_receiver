@@ -295,13 +295,13 @@ dt=10000000
 d=drf.DigitalRFReader("/media/archive/")
 # tx channel bounds
 b=d.get_bounds("ch007")
-start_idx=db_mf[1]-2*60*60*1000000
-#start_idx=dt*int(n.floor(db_mf[0]/dt))#-2*60*60*1000000
+#start_idx=db_mf[1]-2*60*60*1000000
+start_idx=dt*int(n.floor(db_mf[0]/dt))#-2*60*60*1000000
 #start_idx=db_mf[0]
 n_min=int(n.floor((db_mf[1]-start_idx)/dt))
 for i in range(n_min):
-    i0=start_idx+i*dt
-    i1=start_idx+i*dt+dt 
+    i0=start_idx+i*dt*100
+    i1=start_idx+i*dt*100+dt 
     txpa,txidxa,rnga,dopa,snra,beam=read_mf_output(dm_mf,i0,i1)
 
     gidx=n.where(n.abs(dopa)>3e3)[0]
