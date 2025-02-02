@@ -242,7 +242,7 @@ def cluster(tx_idx,
             dur=n.max(tvlocal)-n.min(tvlocal)
             plt.axvline(n.min(tv[p]),color="green")
             plt.axvline(n.max(tv[p]),color="green")
-            plt.text(n.min(tvlocal[p]),xhat[0],"%1.2f s"%(dur))
+            plt.text(n.min(tv[p]),xhat[0],"%1.2f s"%(dur))
 
             
 
