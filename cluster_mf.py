@@ -77,7 +77,8 @@ def cluster(tx_idx,
             rg,
             dop,
             snr,
-            min_det=5
+            min_dur=0.06,
+            min_det=6
             ):
     idx=n.argsort(snr)[::-1]
     pairs=[]
@@ -192,37 +193,13 @@ def cluster(tx_idx,
                             idx_this=try_idx
                         else:
                             print("not adding %1.2f %1.2f"%(r_resid,v_resid))
-
-            if len(idx_this)>6:
+            dur=n.max(tv[idx_this])-n.min(tv[idx_this])
+            if dur>min_dur and len(idx_this)>min_det:
                 used_idx=n.concatenate((used_idx,idx_this))
                 print("found group with %d measurements"%(len(idx_this)))
                 tuples2.append(idx_this)
 
-        if False:
-            # try merging pairs
-            candidates=list(itertools.combinations(n.arange(len(tuples2)),2))
-            is_merged=n.zeros(len(tuples2),dtype=bool)
-            tuples3=[]
-            for c in candidates:
-                if is_merged[c[0]] == False and is_merged[c[1]]==False:
-                    try_idx=n.concatenate((tuples2[c[0]],tuples2[c[1]]))
-                    r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx],fit_acc=True)
-                    if (r_resid < 0.5) and (v_resid < 3):
-                        # merging pairnot
-                        print("%d-%d merge %1.2f rresid %1.2f vresid"%(c[0],c[1],r_resid,v_resid))
-                        idx_this=try_idx
-                        tuples3.append(idx_this)
-                        is_merged[c[0]]=True
-                        is_merged[c[1]]=True
-                    else:
-                        print("can't %d-%d merge %1.2f rresid %1.2f vresid"%(c[0],c[1],r_resid,v_resid))
-            tuples22=[]
-            for i in range(len(tuples2)):
-                if is_merged[i]==False:
-                    tuples22.append(tuples2[i])
-            for t3 in tuples3:
-                tuples22.append(t3)
-            tuples2=tuples22
+  
 
 
 
