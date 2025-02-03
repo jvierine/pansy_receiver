@@ -306,8 +306,8 @@ start_idx=dt*int(n.floor(db_mf[0]/dt))#-2*60*60*1000000
 n_min=int(n.floor((db_mf[1]-start_idx)/dt))
 max_tx_idx=150
 for i in range(n_min):
-    i0=start_idx+i*dt*100
-    i1=start_idx+i*dt*100+dt 
+    i0=start_idx+i*dt*33
+    i1=start_idx+i*dt*33+dt 
     txpa,txidxa,rnga,dopa,snra,beam=read_mf_output(dm_mf,i0,i1)
 
     gidx=n.where(n.abs(dopa)>3e3)[0]
