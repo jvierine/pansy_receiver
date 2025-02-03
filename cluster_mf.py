@@ -331,7 +331,7 @@ for i in range(n_min):
         rnga=rnga[dop_idx[0:n_m]]
         dopa=dopa[dop_idx[0:n_m]]
         snra=snra[dop_idx[0:n_m]]
-        beama=beama[dop_idx[0:n_m]]         
+        beam=beam[dop_idx[0:n_m]]         
         n_m=max_tx_idx
 
     cluster_idx=cluster(txidxa,rnga,dopa,snra)
