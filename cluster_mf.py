@@ -311,7 +311,7 @@ def find_clusters(txpa,txidxa,rnga,dopa,snra,beam):
     beam=beam[gidx]
     if len(txpa)<5:
         print("not enough data")
-        continue
+        return
 
     # filtering PMSE based on histogram statistics
     rbins=n.linspace(60,140,num=80)
