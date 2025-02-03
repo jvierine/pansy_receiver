@@ -236,7 +236,7 @@ def cluster(tx_idx,
             plt.axvline(n.min(tv[p]),color="green")
             plt.axvline(n.max(tv[p]),color="green")
             print(xhat)
-            plt.text(n.min(tv[p]),xhat[0],"%d %1.2f s\n%1.1f km/s\n%1.1f km/s2\nfr %1.2f"%(len(ps),dur,xhat[1],xhat[2],len(ps)/dur))
+            plt.text(n.min(tv[p]),xhat[0],"%d %1.2f s\n%1.1f km/s\n%1.1f km/s2\nfr %1.2f"%(len(p),dur,xhat[1],xhat[2],len(p)/dur))
 
             
 
