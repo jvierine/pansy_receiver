@@ -12,20 +12,13 @@ import time
 import scipy.fftpack as fp
 import itertools
 
-def fit_obs(tx_idx,rg,dop,fit_acc=False,return_model=False, max_tx_idx=200):
+def fit_obs(tx_idx,rg,dop,fit_acc=False,return_model=False):
     """
     given range and doppler measurements, find best fit radial trajectory
     """
     # in some cases, there is a lot of PMSE and the doppler sidelobes of these echoes
     # will jam the processing. Limit to maximum 200 of the largest doppler shift detections
     n_m=len(tx_idx)
-
-    if n_m > max_tx_idx:
-        print("too many detections. limiting to %d highest doppler shift detections "%(max_tx_idx))
-        dop_idx=n.argsort(n.abs(dop))[::-1]
-        tx_idx=tx_idx[dop_idx[0:n_m]]
-        rg=rg[dop_idx[0:n_m]]
-        dop=dop[dop_idx[0:n_m]]        
     
     dur=(n.max(tx_idx)-n.min(tx_idx))/1e6
     tmean=n.mean(tx_idx)
@@ -104,8 +97,21 @@ def cluster(tx_idx,
             dop,
             snr,
             min_dur=0.06,
-            min_det=6
+            min_det=6,
+            max_tx_idx=200
             ):
+    n_m=len(tx_idx)
+
+    if n_m > max_tx_idx:
+        print("too many detections. limiting to %d highest doppler shift detections "%(max_tx_idx))
+        dop_idx=n.argsort(n.abs(dop))[::-1]
+        tx_idx=tx_idx[dop_idx[0:n_m]]
+        rg=rg[dop_idx[0:n_m]]
+        dop=dop[dop_idx[0:n_m]]
+        snr=snr[dop_idx[0:n_m]] 
+        n_m=max_tx_idx
+
+    
     idx=n.argsort(snr)[::-1]
     pairs=[]
     pair_time=[]
