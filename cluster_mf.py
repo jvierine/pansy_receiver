@@ -294,28 +294,15 @@ def read_mf_output(dm_mf,i0,i1,snr_threshold=7,tx_pwr_threshold=1e9):
         beam=beam[gidx]
     return(txpa,txidxa,rnga,dopa,snra,beam)
 
-mf_metadata_dir = "/media/archive/metadata/mf"
-dm_mf = drf.DigitalMetadataReader(mf_metadata_dir)
-db_mf = dm_mf.get_bounds()
-
-dt=10000000
-#n_min=int(n.floor((db_mf[1]-db_mf[0])/dt))
-d=drf.DigitalRFReader("/media/archive/")
-# tx channel bounds
-b=d.get_bounds("ch007")
-#start_idx=db_mf[1]-2*60*60*1000000
-start_idx=dt*int(n.floor(db_mf[0]/dt))#-2*60*60*1000000
-#start_idx=db_mf[0]
-n_min=int(n.floor((db_mf[1]-start_idx)/dt))
-max_tx_idx=300
-# Any count per range gate exceeding this is counted as PMSE
-pmse_threshold=100
-for i in range(n_min):
-    i0=start_idx+i*dt*33
-    i1=start_idx+i*dt*33+dt 
-    txpa,txidxa,rnga,dopa,snra,beam=read_mf_output(dm_mf,i0,i1)
-
-    gidx=n.where(n.abs(dopa)>3e3)[0]
+def find_clusters(txpa,txidxa,rnga,dopa,snra,beam):
+    # at most this many mf outputs
+    max_tx_idx=300
+    # Any count per range gate exceeding this is counted as PMSE
+    pmse_threshold=100
+    # doppler shift has to be at least 3 km/s to be analyzed
+    dop_thresh=3e3
+    
+    gidx=n.where(n.abs(dopa)>dop_thresh)[0]
     txpa=txpa[gidx]
     txidxa=txidxa[gidx]
     rnga=rnga[gidx]
@@ -359,4 +346,26 @@ for i in range(n_min):
         cluster_idx=cluster(txidxa,rnga,dopa,snra)
     else:
         print("not enough measurements")
+    
+
+
+mf_metadata_dir = "/media/archive/metadata/mf"
+dm_mf = drf.DigitalMetadataReader(mf_metadata_dir)
+db_mf = dm_mf.get_bounds()
+
+dt=10000000
+#n_min=int(n.floor((db_mf[1]-db_mf[0])/dt))
+d=drf.DigitalRFReader("/media/archive/")
+# tx channel bounds
+b=d.get_bounds("ch007")
+#start_idx=db_mf[1]-2*60*60*1000000
+start_idx=dt*int(n.floor(db_mf[0]/dt))#-2*60*60*1000000
+#start_idx=db_mf[0]
+n_min=int(n.floor((db_mf[1]-start_idx)/dt))
+for i in range(n_min):
+    i0=start_idx+i*dt*33
+    i1=start_idx+i*dt*33+dt
+
+    txpa,txidxa,rnga,dopa,snra,beam=read_mf_output(dm_mf,i0,i1)
+    find_clusters(txpa,txidxa,rnga,dopa,snra,beam)
     
