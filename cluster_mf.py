@@ -307,7 +307,7 @@ b=d.get_bounds("ch007")
 start_idx=dt*int(n.floor(db_mf[0]/dt))#-2*60*60*1000000
 #start_idx=db_mf[0]
 n_min=int(n.floor((db_mf[1]-start_idx)/dt))
-max_tx_idx=150
+max_tx_idx=200
 # Any count per range gate exceeding this is counted as PMSE
 pmse_threshold=100
 for i in range(n_min):
