@@ -327,7 +327,7 @@ for i in range(n_min):
         continue
 
     # filtering PMSE based on histogram statistics
-    rbins=n.linspace(60,140,num=160)
+    rbins=n.linspace(60,140,num=80)
     h,be=n.histogram(rnga,rbins)
     pmse_rg=n.where(h>100)[0]
     pmse_drg=2.0
