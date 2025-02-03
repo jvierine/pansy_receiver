@@ -97,20 +97,8 @@ def cluster(tx_idx,
             dop,
             snr,
             min_dur=0.06,
-            min_det=6,
-            max_tx_idx=200
+            min_det=6
             ):
-    n_m=len(tx_idx)
-
-    if n_m > max_tx_idx:
-        print("too many detections. limiting to %d highest doppler shift detections "%(max_tx_idx))
-        dop_idx=n.argsort(n.abs(dop))[::-1]
-        tx_idx=tx_idx[dop_idx[0:n_m]]
-        rg=rg[dop_idx[0:n_m]]
-        dop=dop[dop_idx[0:n_m]]
-        snr=snr[dop_idx[0:n_m]] 
-        n_m=max_tx_idx
-
     
     idx=n.argsort(snr)[::-1]
     pairs=[]
@@ -316,6 +304,7 @@ b=d.get_bounds("ch007")
 start_idx=dt*int(n.floor(db_mf[0]/dt))#-2*60*60*1000000
 #start_idx=db_mf[0]
 n_min=int(n.floor((db_mf[1]-start_idx)/dt))
+max_tx_idx=200
 for i in range(n_min):
     i0=start_idx+i*dt*100
     i1=start_idx+i*dt*100+dt 
@@ -331,6 +320,19 @@ for i in range(n_min):
     if len(txpa)<5:
         print("not enough data")
         continue
-    
+
+
+    n_m=len(txpa)
+
+    if n_m > max_tx_idx:
+        print("too many detections. limiting to %d highest doppler shift detections "%(max_tx_idx))
+        dop_idx=n.argsort(n.abs(dopa))[::-1]
+        txpa=txpa[dop_idx[0:n_m]]
+        rnga=rnga[dop_idx[0:n_m]]
+        dopa=dopa[dop_idx[0:n_m]]
+        snra=snra[dop_idx[0:n_m]]
+        beama=beama[dop_idx[0:n_m]]         
+        n_m=max_tx_idx
+
     cluster_idx=cluster(txidxa,rnga,dopa,snra)
     
