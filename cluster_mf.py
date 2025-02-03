@@ -304,6 +304,8 @@ start_idx=dt*int(n.floor(db_mf[0]/dt))#-2*60*60*1000000
 #start_idx=db_mf[0]
 n_min=int(n.floor((db_mf[1]-start_idx)/dt))
 max_tx_idx=150
+# Any count per range gate exceeding this is counted as PMSE
+pmse_threshold=100
 for i in range(n_min):
     i0=start_idx+i*dt*33
     i1=start_idx+i*dt*33+dt 
@@ -320,15 +322,22 @@ for i in range(n_min):
         print("not enough data")
         continue
 
-
+    # filtering PMSE based on histogram statistics
     rbins=n.linspace(60,140,num=160)
     h,be=n.histogram(rnga,rbins)
     pmse_rg=n.where(h>100)[0]
-    plt.plot(0.5*(be[0:(len(be)-1)]+be[1:(len(be))]),h)
+    pmse_drg=0.5
     for ri in pmse_rg:
-        plt.axhline(rbins[ri])
-    plt.show()
-    
+        print("pmse at %1.2f km"%(rbins[ri]))
+        pmse_r=rbins[ri]
+        gidx=n.where( ((rnga > (pmse_r+pmse_drg))) | ((rnga < (pmse_r-pmse_drg))) )[0]
+        txpa=txpa[gidx]
+        txidxa=txidxa[gidx]
+        rnga=rnga[gidx]
+        dopa=dopa[gidx]
+        snra=snra[gidx]
+        beam=beam[gidx]
+        
     n_m=len(txpa)
 
     if n_m > max_tx_idx:
