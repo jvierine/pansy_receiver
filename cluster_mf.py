@@ -330,7 +330,7 @@ for i in range(n_min):
     rbins=n.linspace(60,140,num=160)
     h,be=n.histogram(rnga,rbins)
     pmse_rg=n.where(h>100)[0]
-    pmse_drg=0.5
+    pmse_drg=1.0
     for ri in pmse_rg:
         print("pmse at %1.2f km"%(rbins[ri]))
         pmse_r=rbins[ri]
