@@ -355,8 +355,8 @@ for i in range(n_min):
         beam=beam[dop_idx[0:max_tx_idx]]         
         n_m=max_tx_idx
 
-    if len(txpa)>max_tx_idx:
-        print("exiting. something went wrong!")
-
-    cluster_idx=cluster(txidxa,rnga,dopa,snra)
+    if len(txidxa) > 5:
+        cluster_idx=cluster(txidxa,rnga,dopa,snra)
+    else:
+        print("not enough measurements")
     
