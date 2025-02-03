@@ -12,11 +12,21 @@ import time
 import scipy.fftpack as fp
 import itertools
 
-def fit_obs(tx_idx,rg,dop,fit_acc=False,return_model=False):
+def fit_obs(tx_idx,rg,dop,fit_acc=False,return_model=False, max_tx_idx=200):
     """
     given range and doppler measurements, find best fit radial trajectory
     """
+    # in some cases, there is a lot of PMSE and the doppler sidelobes of these echoes
+    # will jam the processing. Limit to maximum 200 of the largest doppler shift detections
     n_m=len(tx_idx)
+
+    if n_m > max_tx_idx:
+        print("too many detections. limiting to %d highest doppler shift detections "%(max_tx_idx))
+        dop_idx=n.argsort(n.abs(dop))[::-1]
+        tx_idx=tx_idx[dop_idx[0:n_m]]
+        rg=rg[dop_idx[0:n_m]]
+        dop=dop[dop_idx[0:n_m]]        
+    
     dur=(n.max(tx_idx)-n.min(tx_idx))/1e6
     tmean=n.mean(tx_idx)
     t=(tx_idx-tmean)/1e6
