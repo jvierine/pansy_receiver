@@ -56,7 +56,7 @@ def update_tx_pulses():
     print("starting at %s"%(stuffr.unix2datestr(i0/1e6)))
 
     dt=10000000
-    n_windows = int(n.floor((b[1]-i0)/dt))
+    n_windows = int(n.floor(((b[1]-1000000)-i0)/dt))
     
 
     for i in range(n_windows):
