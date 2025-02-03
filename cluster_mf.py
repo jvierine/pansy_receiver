@@ -120,7 +120,7 @@ def cluster(tx_idx,
         fit_idx=n.where( (n.abs(dt) < 10e-3) & (n.abs(dr)<0.5) & (n.abs(ddop)<10e3))[0]
         pair_idx=idx[fit_idx]
         if len(pair_idx) > 1:
-            print(pair_idx)
+#            print(pair_idx)
             pairs.append(pair_idx)
             pair_time.append(n.mean(tv[pair_idx]))
             if False:
@@ -133,8 +133,9 @@ def cluster(tx_idx,
                 plt.tight_layout()
                 plt.show()
         else:
-            print("no fit. removing")
-            print(pair_idx)
+            pass
+#            print("no fit. removing")
+#            print(pair_idx)
             
         idx=n.setdiff1d(idx,pair_idx)
     pair_time=n.array(pair_time)  
@@ -151,29 +152,31 @@ def cluster(tx_idx,
         for c in candidates:
             t0=n.mean(tx_idx[c[0]])/1e6
             t1=n.mean(tx_idx[c[1]])/1e6
-            print(c[0])
-            print(c[1])
-            print(n.intersect1d(used_idx,c[0]))
-            print(n.intersect1d(used_idx,c[1]))
+#            print(c[0])
+ #           print(c[1])
+  #          print(n.intersect1d(used_idx,c[0]))
+   #         print(n.intersect1d(used_idx,c[1]))
             
             if (len(n.intersect1d(used_idx,c[0])) == 0) and (len(n.intersect1d(used_idx,c[1])) == 0):
                 # at most 5*2*1.6e-3 apart to try merging
                 max_dt=3*5*1.6e-3
                 if n.abs(t1-t0)<max_dt:
                     try_idx=n.concatenate((c[0],c[1]))
-                    print(try_idx)
+#                    print(try_idx)
                     r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx],fit_acc=False)
                     if (r_resid < 0.5) and (v_resid < 3):
-                        print("merging")
+#                        print("merging")
                         used_idx=n.concatenate((used_idx,try_idx))
                         tuples.append(try_idx)
                     else:
-                        print("not merging")
-                        print(r_resid)
-                        print(v_resid)
+                        pass
+#                        print("not merging")
+ #                       print(r_resid)
+  #                      print(v_resid)
             else:
-                print(used_idx)
-                print("already used. skipping")
+                pass
+                #print(used_idx)
+                #print("already used. skipping")
                 
         # third pass.
         # go through all tuple groups. try to add measurements to them. 
@@ -209,10 +212,11 @@ def cluster(tx_idx,
                         r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx],fit_acc=True)
                         if (r_resid < 0.5) and (v_resid < 3):
                             # adding
-                            print("added pair %1.2f %1.2f"%(r_resid,v_resid))
+#                            print("added pair %1.2f %1.2f"%(r_resid,v_resid))
                             idx_this=try_idx
                         else:
-                            print("not adding %1.2f %1.2f"%(r_resid,v_resid))
+                            pass
+#                            print("not adding %1.2f %1.2f"%(r_resid,v_resid))
             dur=n.max(tv[idx_this])-n.min(tv[idx_this])
             if dur>min_dur and len(idx_this)>min_det:
                 used_idx=n.concatenate((used_idx,idx_this))
@@ -235,7 +239,7 @@ def cluster(tx_idx,
             dur=n.max(tvlocal)-n.min(tvlocal)
             plt.axvline(n.min(tv[p]),color="green")
             plt.axvline(n.max(tv[p]),color="green")
-            print(xhat)
+#            print(xhat)
             plt.text(n.min(tv[p]),xhat[0],"%d %1.2f s\n%1.1f km/s\n%1.1f km/s2\nfr %1.2f"%(len(p),dur,xhat[1],xhat[2],len(p)/dur))
 
             
