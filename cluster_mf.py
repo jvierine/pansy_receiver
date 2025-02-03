@@ -304,7 +304,7 @@ b=d.get_bounds("ch007")
 start_idx=dt*int(n.floor(db_mf[0]/dt))#-2*60*60*1000000
 #start_idx=db_mf[0]
 n_min=int(n.floor((db_mf[1]-start_idx)/dt))
-max_tx_idx=200
+max_tx_idx=150
 for i in range(n_min):
     i0=start_idx+i*dt*100
     i1=start_idx+i*dt*100+dt 
@@ -327,12 +327,12 @@ for i in range(n_min):
     if n_m > max_tx_idx:
         print("too many detections. limiting to %d highest doppler shift detections "%(max_tx_idx))
         dop_idx=n.argsort(n.abs(dopa))[::-1]
-        txpa=txpa[dop_idx[0:n_m]]
-        txidxa=txidxa[dop_idx[0:n_m]]
-        rnga=rnga[dop_idx[0:n_m]]
-        dopa=dopa[dop_idx[0:n_m]]
-        snra=snra[dop_idx[0:n_m]]
-        beam=beam[dop_idx[0:n_m]]         
+        txpa=txpa[dop_idx[0:max_tx_idx]]
+        txidxa=txidxa[dop_idx[0:max_tx_idx]]
+        rnga=rnga[dop_idx[0:max_tx_idx]]
+        dopa=dopa[dop_idx[0:max_tx_idx]]
+        snra=snra[dop_idx[0:max_tx_idx]]
+        beam=beam[dop_idx[0:max_tx_idx]]         
         n_m=max_tx_idx
 
     if len(txpa)>max_tx_idx:
