@@ -323,7 +323,10 @@ for i in range(n_min):
 
     rbins=n.linspace(60,140,num=160)
     h,be=n.histogram(rnga,rbins)
+    pmse_rg=n.where(h>100)[0]
     plt.plot(0.5*(be[0:(len(be)-1)]+be[1:(len(be))]),h)
+    for ri in pmse_rg:
+        plt.axhline(rbins[ri])
     plt.show()
     
     n_m=len(txpa)
