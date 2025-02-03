@@ -328,6 +328,7 @@ for i in range(n_min):
         print("too many detections. limiting to %d highest doppler shift detections "%(max_tx_idx))
         dop_idx=n.argsort(n.abs(dopa))[::-1]
         txpa=txpa[dop_idx[0:n_m]]
+        txidxa=txidxa[dop_idx[0:n_m]]
         rnga=rnga[dop_idx[0:n_m]]
         dopa=dopa[dop_idx[0:n_m]]
         snra=snra[dop_idx[0:n_m]]
