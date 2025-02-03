@@ -321,6 +321,11 @@ for i in range(n_min):
         continue
 
 
+    rbins=n.arange(60,140,num=160)
+    h,be=n.histogram(rnga,rbins,density=True)
+    plt.plot(0.5*(be[0:(len(be)-1)]+be[1:(len(be))]),h)
+    plt.show()
+    
     n_m=len(txpa)
 
     if n_m > max_tx_idx:
