@@ -335,5 +335,8 @@ for i in range(n_min):
         beam=beam[dop_idx[0:n_m]]         
         n_m=max_tx_idx
 
+    if len(txpa)>max_tx_idx:
+        print("exiting. something went wrong!")
+
     cluster_idx=cluster(txidxa,rnga,dopa,snra)
     
