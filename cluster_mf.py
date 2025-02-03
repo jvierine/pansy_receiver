@@ -322,7 +322,7 @@ for i in range(n_min):
 
 
     rbins=n.linspace(60,140,num=160)
-    h,be=n.histogram(rnga,rbins,density=True)
+    h,be=n.histogram(rnga,rbins)
     plt.plot(0.5*(be[0:(len(be)-1)]+be[1:(len(be))]),h)
     plt.show()
     
