@@ -35,7 +35,7 @@ for i in range(s0,s1):
         for f in fl:
             for c in ch:
                 fname="%s/%s/%s"%("/media/archive/",c,f)
-                print(fname)
+#                print(fname)
                 os.system("ls %s"%(fname))
     #os.system("ls /media/archive/ch000/")
     #for k in data_dict.keys():
