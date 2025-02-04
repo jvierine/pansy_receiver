@@ -1,6 +1,7 @@
 import numpy as n
 import digital_rf as drf
 import matplotlib.pyplot as plt
+import stuffr
 
 det_md_dir = "/media/archive/metadata/detections"
 
@@ -19,7 +20,7 @@ for k in data_dict.keys():
     r0=data[0]
     v0=data[1]
     t0=k
-    tv.append(t0/1e6)
+    tv.append(stuffr.unix2date(t0/1e6))
     v0s.append(v0)
     r0s.append(r0)
 
