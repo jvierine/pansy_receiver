@@ -7,7 +7,7 @@ det_md_dir = "/media/archive/metadata/detections"
 dm = drf.DigitalMetadataReader(det_md_dir)
 b = dm.get_bounds()
 
-data_dict = dm.read(b[0], b[0]+3600*1000000, ("xhat"))
+data_dict = dm.read(b[0], b[0]+24*3600*1000000, ("xhat"))
 
 tv=[]
 v0s=[]
