@@ -358,7 +358,7 @@ def find_clusters(txpa,txidxa,rnga,dopa,snra,beam,dmw):
         meteor_detections=cluster(txidxa,rnga,dopa,snra)
         for det in meteor_detections:
             xhat=det["xhat"]
-            print("%s meteor %d detections v=%1.1f km/s r=%1.1f km"%(stuffr.unix2datestr(n.min(txidx[det["idx"]])/1e6),len(det["idx"]),xhat[1],xhat[0]))
+            print("%s meteor %d detections v=%1.1f km/s r=%1.1f km"%(stuffr.unix2datestr(n.min(txidxa[det["idx"]])/1e6),len(det["idx"]),xhat[1],xhat[0]))
 
             odata_dict={}
             odata_dict["xhat"]=det["xhat"]
