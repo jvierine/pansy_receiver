@@ -99,7 +99,9 @@ def cluster(tx_idx,
             min_dur=0.06,
             min_det=6
             ):
-    
+
+    meteor_detections=[]
+
     idx=n.argsort(snr)[::-1]
     pairs=[]
     pair_time=[]
@@ -242,10 +244,14 @@ def cluster(tx_idx,
 #            print(xhat)
             plt.text(n.min(tv[p]),xhat[0],"%d %1.2f s\n%1.1f km/s\n%1.1f km/s2\nfr %1.2f"%(len(p),dur,xhat[1],xhat[2],len(p)/dur))
 
+            meteor_data = {"idx":p,"xhat":xhat}
+            meteor_detections.append(meteor_data)
             
 
         plt.ylim([60,140])
         plt.show()
+    return(meteor_detections)
+    
         
         
         
@@ -294,7 +300,7 @@ def read_mf_output(dm_mf,i0,i1,snr_threshold=7,tx_pwr_threshold=1e9):
         beam=beam[gidx]
     return(txpa,txidxa,rnga,dopa,snra,beam)
 
-def find_clusters(txpa,txidxa,rnga,dopa,snra,beam):
+def find_clusters(txpa,txidxa,rnga,dopa,snra,beam,dmw):
     # at most this many mf outputs
     max_tx_idx=300
     # Any count per range gate exceeding this is counted as PMSE
@@ -310,7 +316,7 @@ def find_clusters(txpa,txidxa,rnga,dopa,snra,beam):
     snra=snra[gidx]
     beam=beam[gidx]
     if len(txpa)<5:
-        print("not enough data")
+        #print("not enough data")
         return
 
     # filtering PMSE based on histogram statistics
@@ -332,7 +338,7 @@ def find_clusters(txpa,txidxa,rnga,dopa,snra,beam):
     n_m=len(txpa)
 
     if n_m > max_tx_idx:
-        print("too many detections. limiting to %d highest doppler shift detections "%(max_tx_idx))
+        #print("too many detections. limiting to %d highest doppler shift detections "%(max_tx_idx))
         dop_idx=n.argsort(n.abs(dopa))[::-1]
         txpa=txpa[dop_idx[0:max_tx_idx]]
         txidxa=txidxa[dop_idx[0:max_tx_idx]]
@@ -343,10 +349,55 @@ def find_clusters(txpa,txidxa,rnga,dopa,snra,beam):
         n_m=max_tx_idx
 
     if len(txidxa) > 5:
-        cluster_idx=cluster(txidxa,rnga,dopa,snra)
-    else:
-        print("not enough measurements")
+        meteor_detections=cluster(txidxa,rnga,dopa,snra)
+        for det in meteor_detections:
+            odata_dict={}
+            odata_dict["xhat"]=det["xhat"]
+            odata_dict["tx_idx"]=txidxa[det["idx"]]
+            odata_dict["range"]=rnga[det["idx"]]
+            odata_dict["doppler"]=dopa[det["idx"]]
+            odata_dict["snr"]=snra[det["idx"]]
+            idx0=n.min(txidxa[det["idx"]])
+            dmw.write([idx0],odata_dict)
+#    else:
+ #       print("not enough measurements")
     
+    
+
+
+
+# this is where the existing metadata lives
+det_md_dir = "/media/archive/metadata/detections"
+b_det=[-1,-1]
+det_md=None
+if os.path.exists(det_md_dir):
+    print("metadata directory exists. searching for last timestamp")
+    try:
+        det_md = drf.DigitalMetadataReader(det_md_dir)
+        b_det = det_md.get_bounds()
+        print(b_det)
+    except:
+        print("couldn't read det metadata")
+else:
+    os.system("mkdir -p %s"%(det_md_dir))
+
+# setup the directory and file cadence.
+# use 1 MHz, as this is the sample-rate and thus a
+# natural resolution for timing.
+subdirectory_cadence_seconds = 3600
+file_cadence_seconds = 600
+samples_per_second_numerator = 1000000
+samples_per_second_denominator = 1
+file_name = "det"
+
+dmw = drf.DigitalMetadataWriter(
+    det_md_dir,
+    subdirectory_cadence_seconds,
+    file_cadence_seconds,
+    samples_per_second_numerator,
+    samples_per_second_denominator,
+    file_name,
+)
 
 
 mf_metadata_dir = "/media/archive/metadata/mf"
@@ -359,13 +410,18 @@ d=drf.DigitalRFReader("/media/archive/")
 # tx channel bounds
 b=d.get_bounds("ch007")
 #start_idx=db_mf[1]-2*60*60*1000000
-start_idx=dt*int(n.floor(db_mf[0]/dt))#-2*60*60*1000000
-#start_idx=db_mf[0]
+
+start_idx=dt*int(n.floor(db_mf[0]/dt))
+# start in the beginning
+if b_det[1] != -1:
+    # start where detections end
+    start_idx=dt*int(n.ceil(b_det[1]/dt))
+
 n_min=int(n.floor((db_mf[1]-start_idx)/dt))
 for i in range(n_min):
-    i0=start_idx+i*dt*33
-    i1=start_idx+i*dt*33+dt
+    i0=start_idx+i*dt
+    i1=start_idx+i*dt+dt
 
     txpa,txidxa,rnga,dopa,snra,beam=read_mf_output(dm_mf,i0,i1)
-    find_clusters(txpa,txidxa,rnga,dopa,snra,beam)
+    find_clusters(txpa,txidxa,rnga,dopa,snra,beam,dmw)
     
