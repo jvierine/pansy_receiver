@@ -7,7 +7,7 @@ det_md_dir = "/media/archive/metadata/detections"
 dm = drf.DigitalMetadataReader(det_md_dir)
 b = dm.get_bounds()
 
-data_dict = dm.read(b[0], b[0]+24*3600*1000000, ("xhat"))
+data_dict = dm.read(b[0], b[0]+7*24*3600*1000000, ("xhat"))
 
 tv=[]
 v0s=[]
@@ -23,7 +23,7 @@ for k in data_dict.keys():
     v0s.append(v0)
     r0s.append(r0)
 
-plt.scatter(tv,r0s,c=v0s,vmin=-73,vmax=0)
+plt.scatter(tv,r0s,c=v0s,vmin=-73,vmax=0,s=1,cmap="turbo")
 cb=plt.colorbar()
 cb.set_label("Doppler (km/s)")
 plt.xlabel("Time (unix)")
