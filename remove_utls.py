@@ -9,7 +9,7 @@ import time
 d=drf.DigitalRFReader("/media/archive/")
 # tx channel bounds
 b=d.get_bounds("ch007")
-
+print(d._get_file_list(b[0],b[0]+100,1000000,3600,1000))
 
 # transmit metadata
 metadata_dir = "/media/archive/metadata/tx"
@@ -27,5 +27,6 @@ for i in range(s0,s1):
     #    print(i)
     data_dict = dmr.read(i*dt-1600*20, i*dt+dt, "id")
     print("%d n_ipp %d"%(i,len(data_dict.keys())))
+    os.system("ls /media/archive/ch000/")
     #for k in data_dict.keys():
      #   print(k)
