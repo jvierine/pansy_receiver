@@ -27,10 +27,12 @@ for k in data_dict.keys():
     r0s.append(r0)
     durs.append(dur)
 
-plt.hist(durs)
+plt.hist(durs,bins=50)
+plt.xlabel("Event duration (s)")
 plt.show()
 
-plt.hist(r0s)
+plt.hist(r0s,bins=50)
+plt.xlabel("Height (km)")
 plt.show()
 
 plt.scatter(tv,r0s,c=durs,s=1,cmap="turbo")
