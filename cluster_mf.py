@@ -223,7 +223,6 @@ def cluster(tx_idx,
             dur=n.max(tv[idx_this])-n.min(tv[idx_this])
             if dur>min_dur and len(idx_this)>min_det:
                 used_idx=n.concatenate((used_idx,idx_this))
-                print("found group with %d measurements"%(len(idx_this)))
                 tuples2.append(idx_this)
 
         # for each cluster, find measurements that fit        
@@ -278,7 +277,8 @@ def read_mf_output(dm_mf,i0,i1,snr_threshold=7,tx_pwr_threshold=1e9):
     
 
     if len(data_dict.keys()) == 0:
-        print("no data")
+        pass
+#        print("no data")
     else:
         for k in data_dict.keys():
             data=data_dict[k]
@@ -294,7 +294,8 @@ def read_mf_output(dm_mf,i0,i1,snr_threshold=7,tx_pwr_threshold=1e9):
                 snra=n.concatenate((snra,data["max_snr"]))
                 beam=n.concatenate((beam,data["beam_pos_idx"]))            
             else:
-                print("low txpower. skipping")
+                pass
+#                print("low txpower. skipping")
 
         gidx=n.where(snra>snr_threshold)[0]
         txpa=txpa[gidx]
@@ -356,6 +357,9 @@ def find_clusters(txpa,txidxa,rnga,dopa,snra,beam,dmw):
     if len(txidxa) > 5:
         meteor_detections=cluster(txidxa,rnga,dopa,snra)
         for det in meteor_detections:
+            xhat=det["xhat"]
+            print("%s meteor %d detections v=%1.1f km/s r=%1.1f km"%(stuffr.unix2datestr(det["idx"][0]/1e6),len(det["idx"]),xhat[1],xhat[0]))
+
             odata_dict={}
             odata_dict["xhat"]=det["xhat"]
             odata_dict["tx_idx"]=txidxa[det["idx"]]
