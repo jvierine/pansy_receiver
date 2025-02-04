@@ -15,6 +15,7 @@ r0s=[]
 for k in data_dict.keys():
     print(k)
     data=data_dict[k]
+    print(data)
     r0=data["xhat"][0]
     v0=data["xhat"][1]
     t0=k
