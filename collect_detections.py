@@ -19,8 +19,8 @@ for k in data_dict.keys():
     data=data_dict[k]
     xhat=data["xhat"]
     dur=(n.max(data["tx_idx"])-n.min(data["tx_idx"]))/1e6
-    r0=data[0]
-    v0=data[1]
+    r0=xhat[0]
+    v0=xhat[1]
     t0=k
     tv.append(stuffr.unix2date(t0/1e6))
     v0s.append(v0)
