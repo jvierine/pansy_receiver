@@ -8,16 +8,19 @@ det_md_dir = "/media/archive/metadata/detections"
 dm = drf.DigitalMetadataReader(det_md_dir)
 b = dm.get_bounds()
 
-data_dict = dm.read(b[0], b[1], ("xhat","tx_idx"))
+data_dict = dm.read(b[0], b[1], ("xhat","tx_idx","snr"))
 
 tv=[]
 v0s=[]
 r0s=[]
 durs=[]
+snrs=[]
 for k in data_dict.keys():
     print(k)
     data=data_dict[k]
     xhat=data["xhat"]
+    snr=data["snr"]
+    snrs.append(n.max(snr))
     dur=(n.max(data["tx_idx"])-n.min(data["tx_idx"]))/1e6
     r0=xhat[0]
     v0=xhat[1]
@@ -26,6 +29,10 @@ for k in data_dict.keys():
     v0s.append(v0)
     r0s.append(r0)
     durs.append(dur)
+
+plt.hist(10.0*n.log10(snrs),bins=50)
+plt.xlabel("Signa-to-noise ratio (dB)")
+plt.show()
 
 plt.hist(durs,bins=50)
 plt.xlabel("Event duration (s)")
@@ -47,6 +54,13 @@ plt.scatter(tv,r0s,c=v0s,vmin=-73,vmax=0,s=1,cmap="turbo")
 plt.title("%d meteors"%(len(tv)))
 cb=plt.colorbar()
 cb.set_label("Doppler (km/s)")
+plt.xlabel("Time (unix)")
+plt.show()
+
+plt.scatter(tv,r0s,c=10.0*n.log10(snrs),s=1,cmap="turbo")
+plt.title("%d meteors"%(len(tv)))
+cb=plt.colorbar()
+cb.set_label("SNR (dB)")
 plt.xlabel("Time (unix)")
 plt.show()
 
