@@ -172,7 +172,7 @@ def meteor_search(debug=False):
 
     d_analysis=file_cadence_seconds*1000000
 
-    start_idx=d_analysis*int(n.ceil(i0/d_analysis))
+    start_idx=d_analysis*int(n.ceil(b[0]/d_analysis))
     # stay 6 minutes behind realtime to avoid underfull metadata files
     end_idx=d_analysis*int(n.ceil(db[1]/d_analysis))-6*d_analysis
 
@@ -210,15 +210,25 @@ def meteor_search(debug=False):
         # only process if we have raw voltage data in ringbuffer
         if (i0 > b[0]) & (i1 < b[1]):
             data_dict = dmr.read(i0, i1, "id")
+
+            # see if results already exist
+            dm_mf2 = drf.DigitalMetadataReader(mf_metadata_dir)
+            mf2out=dm_mf2.read(i0,i1,["beam_pos_idx"])
+            if len(mf2out.keys())>0:
+                print("rank %d already processed %d-%d %d results"%(rank,i0,i1,len(mf2out.keys())))
+                continue
+            print("not processed yet rank %d"%(rank))
+            
+
             keys=data_dict.keys()
             n_keys=len(keys)
             #print("processing %d pulses"%(20*n_keys))
             for key in keys:
                 keyi=int(key)
-                if keyi <= db_mf[1]:
-                    print(db_mf)
-                    print("already processed %d. skipping"%(keyi))
-                    continue
+#                if keyi <= db_mf[1]:
+ #                   print(db_mf)
+  #                  print("already processed %d. skipping"%(keyi))
+   #                 continue
 
                 chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"]
                 n_ch=len(chs)
@@ -269,7 +279,11 @@ def meteor_search(debug=False):
                     odata_dict["max_dopvel"]=[max_dops]
                     odata_dict["noise_floor"]=[noise_floors]
                     odata_dict["tx_idxs"]=[tx_idxs]
-                    dmw.write([key],odata_dict)
+                    try:
+                        dmw.write([key],odata_dict)
+                    except:
+                        import traceback
+                        traceback.print_exc()
                 else:
                     print("not writing. out of range.")
 
