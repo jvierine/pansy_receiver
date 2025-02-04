@@ -27,6 +27,6 @@ for i in range(s0,s1):
     #    print(i)
     data_dict = dmr.read(i*dt-1600*20, i*dt+dt, "id")
     print("%d n_ipp %d"%(i,len(data_dict.keys())))
-    os.system("ls /media/archive/ch000/")
+  #  os.system("ls /media/archive/ch000/")
     #for k in data_dict.keys():
      #   print(k)
