@@ -24,6 +24,7 @@ for k in data_dict.keys():
     r0s.append(r0)
 
 plt.scatter(tv,r0s,c=v0s,vmin=-73,vmax=0,s=1,cmap="turbo")
+plt.title("%d meteors"%(len(tv)))
 cb=plt.colorbar()
 cb.set_label("Doppler (km/s)")
 plt.xlabel("Time (unix)")
