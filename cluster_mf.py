@@ -97,7 +97,8 @@ def cluster(tx_idx,
             dop,
             snr,
             min_dur=0.06,
-            min_det=6
+            min_det=6,
+            plot=False
             ):
 
     meteor_detections=[]
@@ -226,30 +227,34 @@ def cluster(tx_idx,
                 tuples2.append(idx_this)
 
         # for each cluster, find measurements that fit        
-        plt.plot(tv,rg,".",color="gray")
-        plt.title("%s %d %d"%(stuffr.unix2datestr(tx_idx[0]/1e6),len(tx_idx),2*len(pairs)))
-        for p in pairs:
-            plt.plot(tv[p],rg[p],".",color="red")
+        if plot:
+            plt.plot(tv,rg,".",color="gray")
+            plt.title("%s %d %d"%(stuffr.unix2datestr(tx_idx[0]/1e6),len(tx_idx),2*len(pairs)))
+            for p in pairs:
+                plt.plot(tv[p],rg[p],".",color="red")
 
         for p in tuples2:
             r_resid, v_resid, xhat, tmean, rmodel,vmodel=fit_obs(tx_idx[p],rg[p],dop[p],fit_acc=True,return_model=True)
-            plt.plot(tv[p],rg[p],".",color="green")
+            if plot:
+                plt.plot(tv[p],rg[p],".",color="green")
             #ps=n.sort(p)
             tvlocal=(tx_idx[p]-tmean)/1e6
             rgmodel=rmodel(tvlocal)#xhat[0]+xhat[1]*tvlocal+0.5*xhat[2]*tvlocal**2.0
-            plt.plot(tv[p],rgmodel,".",color="blue")
+            if plot:
+                plt.plot(tv[p],rgmodel,".",color="blue")
             dur=n.max(tvlocal)-n.min(tvlocal)
-            plt.axvline(n.min(tv[p]),color="green")
-            plt.axvline(n.max(tv[p]),color="green")
-#            print(xhat)
-            plt.text(n.min(tv[p]),xhat[0],"%d %1.2f s\n%1.1f km/s\n%1.1f km/s2\nfr %1.2f"%(len(p),dur,xhat[1],xhat[2],len(p)/dur))
+            if plot:
+                plt.axvline(n.min(tv[p]),color="green")
+                plt.axvline(n.max(tv[p]),color="green")
+    #                print(xhat)
+                plt.text(n.min(tv[p]),xhat[0],"%d %1.2f s\n%1.1f km/s\n%1.1f km/s2\nfr %1.2f"%(len(p),dur,xhat[1],xhat[2],len(p)/dur))
 
             meteor_data = {"idx":p,"xhat":xhat}
             meteor_detections.append(meteor_data)
             
-
-        plt.ylim([60,140])
-        plt.show()
+        if plot:
+            plt.ylim([60,140])
+            plt.show()
     return(meteor_detections)
     
         
