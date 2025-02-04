@@ -367,7 +367,12 @@ def find_clusters(txpa,txidxa,rnga,dopa,snra,beam,dmw):
             odata_dict["doppler"]=dopa[det["idx"]]
             odata_dict["snr"]=snra[det["idx"]]
             idx0=n.min(txidxa[det["idx"]])
-            dmw.write([idx0],odata_dict)
+            try:
+                dmw.write([idx0],odata_dict)
+            except:
+                import traceback
+                traceback.print_exc()
+#                print(
 #    else:
  #       print("not enough measurements")
     
