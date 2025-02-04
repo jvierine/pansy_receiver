@@ -27,6 +27,12 @@ for k in data_dict.keys():
     r0s.append(r0)
     durs.append(dur)
 
+plt.hist(durs)
+plt.show()
+
+plt.hist(r0s)
+plt.show()
+
 plt.scatter(tv,r0s,c=durs,s=1,cmap="turbo")
 plt.title("%d meteors"%(len(tv)))
 cb=plt.colorbar()
