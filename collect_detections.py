@@ -23,7 +23,7 @@ for k in data_dict.keys():
     v0s.append(v0)
     r0s.append(r0)
 
-plt.scatter(tv,r0s,c=v0s,vmin=0,vmax=73)
+plt.scatter(tv,r0s,c=v0s,vmin=-73,vmax=0)
 cb=plt.colorbar()
 cb.set_label("Doppler (km/s)")
 plt.xlabel("Time (unix)")
