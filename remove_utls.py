@@ -33,7 +33,7 @@ def clean_utls():
     #    print("%d n_ipp %d"%(i,len(data_dict.keys())))
         n_ipp=len(data_dict.keys())
         if n_ipp == 0:
-            print("no ipps %d. deleting."%(i))
+            print("no ipps %s. deleting."%(stuffr.unix2datestr(i)))
             fl=d._get_file_list(i*dt+10,i*dt+1000,1000000,3600,1000)
             for f in fl:
                 for c in ch:
