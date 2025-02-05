@@ -1,8 +1,32 @@
 2025-01-11 Correctly aligned samples.
+
 2025-01-17 Correct antenna configuration connected.
+
 2025-01-20 Noticed missing samples at 2025-01-16T18:00.
            Only a few files were broken, so I will ignore for now.
+
 2025-01-26 Switched to 16-bit int. Restarted buffer. 
            Saving some interesting events to /media/analysis/events
+
 2025-01-29 Running in ISR mode, no analysis. 
-           DNS lookup not working, so switching to 8.8.8.8 in /etc/resolv.conf 
+           DNS lookup not working, so switching to 8.8.8.8 in /etc/resolv.conf
+
+2025-02-05 Signal processing chain running now up to meteor detections.
+    1. find_mode_starts.py - Detect the start of each 20 pulse mesospheric mode sequence 
+        (5 pointing directions, complementary code, aliasing cancellelation, see cfg/mm1600+r.dat)
+        output goes into /media/archive/metadata/tx
+    2. quick_search_meteor.py - MPI paralellized range-doppler matched filterbank
+        output goes into /media/archive/metadata/mf
+    3. cluster_mf.py - Cluster self consistent outputs of range-doppler matched filter into meteor events. 
+        filter out specular trail echoes, satellites, and PMSE echoes.
+        output goes into /media/archive/metadata/detections
+    4. remove_utls.py - Cleanup of digital rf files not containing the mm1600 experiment. saves about 50% of data storage
+
+    TODO: - Cut and store meteor events
+          - interferometry calibration 
+          - trajectory estimates
+          - Keplerian estimates
+        
+
+    
+
