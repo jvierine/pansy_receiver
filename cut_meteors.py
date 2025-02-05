@@ -66,7 +66,7 @@ for i in range(n_block):
         cb.set_label("Beam index")
 
         plt.subplot(224)
-        plt.pcolormesh(tx_idx/1e6,n.arange(1600),10.0*n.log10(RTI),cmap="plasma")
+        plt.pcolormesh(tx_idx/1e6,n.arange(1600),10.0*n.log10(RTI.T),cmap="plasma")
         plt.colorbar(location="top")
         plt.xlabel("Time (unix)")                
         plt.colorbar()
