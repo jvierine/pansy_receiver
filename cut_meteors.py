@@ -75,7 +75,7 @@ for i in range(n_block):
         fit_r_std,fit_v_std,xhat,tmean,rmodel,vmodel = cmf.fit_obs(tx_idx,range_km,doppler_ms,return_model=True)
 
 
-        gidx=n.where(n.abs(rmodel(m_txidxa)-m_rnga)<0.5)[0]
+        gidx=n.where( (n.abs(rmodel(m_txidxa)-m_rnga)<0.5) & (n.abs(vmodel(m_txidxa)-m_dopa/1e3)<3) )[0]
         if n.max(snr)>100:
             plt.subplot(221)
             plt.plot(tx_idx/1e6-t0,range_km,".")
