@@ -45,6 +45,7 @@ for i in range(n_block):
         tx_idx=tx_idx[idxidx]
         snr=snr[idxidx]
         beam_idx=beam_idx[idxidx]
+        range_km=range_km[idxidx]
         doppler_ms=doppler_ms[idxidx]
         
         n_ipp=len(tx_idx)
