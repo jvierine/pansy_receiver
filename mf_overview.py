@@ -45,11 +45,14 @@ def create_overview(i0,md,dt=15*60*1000000):
     plt.close()
 
 
-mf_metadata_dir=pc.mf_metadata_dir
-md = drf.DigitalMetadataReader(mf_metadata_dir)
-b = md.get_bounds()
-day0=int(n.floor(b[0]/24/3600/1e6))
-day1=int(n.floor(b[1]/24/3600/1e6))
-for day in range(day0,day1):
-    i0=day0*24*3600*1000000
-    create_overview(i0,md)
+while True:
+    mf_metadata_dir=pc.mf_metadata_dir
+    md = drf.DigitalMetadataReader(mf_metadata_dir)
+    b = md.get_bounds()
+    day0=int(n.floor(b[0]/24/3600/1e6))
+    day1=int(n.floor(b[1]/24/3600/1e6))
+    for day in range(day0,day1):
+        i0=day0*24*3600*1000000
+        create_overview(i0,md)
+
+    time.sleep(1800)
