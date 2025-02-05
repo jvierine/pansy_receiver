@@ -41,6 +41,11 @@ for i in range(n_block):
         beam_idx=data["beam"]
         doppler_ms=data["doppler"]
 
+        idxidx=n.argsort(tx_idx)
+        tx_idx=tx_idx[idxidx]
+        snr=snr[idxidx]
+        beam_idx=beam_idx[idxidx]
+        doppler_ms=doppler_ms[idxidx]
         
         n_ipp=len(tx_idx)
         RTI=n.zeros([n_ipp,256],dtype=n.float32)
