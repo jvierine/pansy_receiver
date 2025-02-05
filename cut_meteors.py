@@ -74,16 +74,18 @@ for i in range(n_block):
 
         fit_r_std,fit_v_std,xhat,tmean,rmodel,vmodel = cmf.fit_obs(tx_idx,range_km,doppler_ms,return_model=True)
 
+
+        gidx=n.where(n.abs(rmodel(m_txidxa)-m_rnga)<0.5)[0]
         if n.max(snr)>100:
             plt.subplot(221)
             plt.plot(tx_idx/1e6-t0,range_km,".")
-            plt.plot(m_txidxa/1e6-t0,rmodel(m_txidxa))
-            plt.plot(m_txidxa/1e6-t0,m_rnga,"x")
+            plt.plot(m_txidxa[gidx]/1e6-t0,rmodel(m_txidxa))
+            plt.plot(m_txidxa[gidx]/1e6-t0,m_rnga[gidx],"x")
             plt.ylabel("Range (km)")
             plt.xlabel("Time (s)")        
             plt.subplot(222)
             plt.plot(tx_idx/1e6-t0,doppler_ms/1e3,".")
-            plt.plot(m_txidxa/1e6-t0,m_dopa/1e3,"x")
+            plt.plot(m_txidxa[gidx]/1e6-t0,m_dopa[gidx]/1e3,"x")
             plt.plot(m_txidxa/1e6-t0,vmodel(m_txidxa))
             plt.ylabel("Doppler (km/s)")
             plt.xlabel("Time (s)")
