@@ -45,9 +45,10 @@ for i in range(n_block):
         plt.subplot(222)
         plt.plot(tx_idx/1e6,doppler_ms/1e3,".")
         plt.subplot(223)
-        plt.scatter(tx_idx/1e6,10.0*n.log10(snr),s=1,c=beam_idx,cmap="turbo")
+        plt.scatter(tx_idx/1e6,10.0*n.log10(snr),s=1,c=n.mod(beam_idx,5),cmap="turbo")
         cb=plt.colorbar()
         cb.set_label("Beam index")
+        plt.tight_layout()
         plt.show()
     
 
