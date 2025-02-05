@@ -32,9 +32,12 @@ def create_overview(i0,md,dt=15*60*1000000):
             n_avg[i,ridx]+=1.0
     rti=rti/(n_avg+1.0)
     plt.title(stuffr.unix2datestr(i0/1e6))
-    plt.pcolormesh(tv_hr,rvec,rti.T,vmin=4,vmax=10)
+    snr=rti.T
+    snr[snr<=0]=1e-3
+    dB=10.0*n.log10(snr)
+    plt.pcolormesh(tv_hr,rvec,dB,vmin=3,vmax=30)
     cb=plt.colorbar()
-    cb.set_label("SNR")
+    cb.set_label("SNR (dB)")
     plt.xlabel("Time (UTC hour)")
     plt.ylabel("Range (km)")
     plt.tight_layout()
