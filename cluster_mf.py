@@ -352,7 +352,7 @@ def find_clusters(txpa,txidxa,rnga,dopa,snra,beam,dmw):
         rnga=rnga[dop_idx[0:max_tx_idx]]
         dopa=dopa[dop_idx[0:max_tx_idx]]
         snra=snra[dop_idx[0:max_tx_idx]]
-        beam=beam[dop_idx[0:max_tx_idx]]         
+        beam=beam[dop_idx[0:max_tx_idx]] 
         n_m=max_tx_idx
 
     if len(txidxa) > 5:
@@ -367,6 +367,7 @@ def find_clusters(txpa,txidxa,rnga,dopa,snra,beam,dmw):
             odata_dict["range"]=rnga[det["idx"]]
             odata_dict["doppler"]=dopa[det["idx"]]
             odata_dict["snr"]=snra[det["idx"]]
+            odata_dict["beam"]=beam[det["idx"]]
             idx0=n.min(txidxa[det["idx"]])
             try:
                 dmw.write([idx0],odata_dict)
