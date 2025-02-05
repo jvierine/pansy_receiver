@@ -6,13 +6,17 @@ import os
 import stuffr
 import time
 import pansy_config as pc
+import cluster_mf as cmf
 
+# meteor detections
 dm = drf.DigitalMetadataReader(pc.detections_metadata_dir)
 bm = dm.get_bounds()
 
+# match function outputs
 dmf = drf.DigitalMetadataReader(pc.mf_metadata_dir)
 bmf = dmf.get_bounds()
 
+# raw voltage
 d=drf.DigitalRFReader("/media/archive/")
 b=d.get_bounds("ch007")
 
@@ -31,6 +35,7 @@ for i in range(n_block):
 
     data_dict = dm.read(i0, i1, ("tx_idx","xhat","range","doppler","snr","beam"))
 
+    # for each detection
     for k in data_dict.keys():
         data=data_dict[k]
         print(data)
@@ -61,17 +66,27 @@ for i in range(n_block):
                 RTI[ipp,:]+=n.convolve(n.abs(z)**2.0,w2,mode="same")
 
         t0=n.min(tx_idx)/1e6
+
+        dur=(n.max(tx_idx)-n.min(tx_idx))/1e6
+        n_pad=int((dur*0.1)*1000000)
+
+        m_txpa,m_txidxa,m_rnga,m_dopa,m_snra,m_beam=cmf.read_mf_output(dmf,n.min(tx_idx)-n_pad,n.max(tx_idx)+n_pad)
+
         if n.max(snr)>100:
             plt.subplot(221)
             plt.plot(tx_idx/1e6-t0,range_km,".")
+            plt.plot(m_txpa/1e6-t0,m_rnga,".")
             plt.ylabel("Range (km)")
             plt.xlabel("Time (s)")        
             plt.subplot(222)
             plt.plot(tx_idx/1e6-t0,doppler_ms/1e3,".")
+            plt.plot(m_txpa/1e6-t0,m_dopa/1e3,".")
             plt.ylabel("Doppler (km/s)")
             plt.xlabel("Time (s)")
             plt.subplot(223)
             plt.scatter(tx_idx/1e6-t0,10.0*n.log10(snr),s=1,c=n.mod(beam_idx,5),cmap="berlin",vmin=0,vmax=4)
+            plt.scatter(m_txpa/1e6-t0,10.0*n.log10(m_snra),s=1,c=n.mod(m_beam,5),cmap="berlin",vmin=0,vmax=4)
+
             plt.ylabel("SNR (dB)")
             plt.xlabel("Time (s)")        
             
