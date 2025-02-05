@@ -10,6 +10,9 @@ os.system("mkdir -p /media/analysis/overview/")
 
 def create_overview(i0,md,dt=15*60*1000000):
     fname="/media/analysis/overview/overview-%d.png"%(i0/1e6)
+    if os.path.exists(fname):
+        print("%s already exists"%(fname))
+        return
     L=24*3600*1000000
     n_windows=int(n.floor(L/dt))
     rvec=n.arange(50,150)
