@@ -14,7 +14,7 @@ b = md.get_bounds()
 
 dt=15*60*1000000
 
-L=3600*1000000
+L=24*3600*1000000
 n_windows=int(n.floor(L/dt))
 
 rvec=n.arange(0,150)
@@ -33,6 +33,6 @@ for i in range(n_windows):
         rti[i,ridx]+=data_dict[k]["max_snr"][0]
         n_avg[i,ridx]+=1.0
 rti=rti/(n_avg+1.0)
-plt.pcolormesh(rti.T,vmin=0,vmax=10)
+plt.pcolormesh(rti.T,vmin=4,vmax=20)
 plt.colorbar()
 plt.show()
