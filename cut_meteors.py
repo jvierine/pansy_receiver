@@ -79,7 +79,7 @@ for i in range(n_block):
         if n.max(snr)>100:
             plt.subplot(221)
             plt.plot(tx_idx/1e6-t0,range_km,".")
-            plt.plot(m_txidxa[gidx]/1e6-t0,rmodel(m_txidxa))
+            plt.plot(m_txidxa/1e6-t0,rmodel(m_txidxa))
             plt.plot(m_txidxa[gidx]/1e6-t0,m_rnga[gidx],"x")
             plt.ylabel("Range (km)")
             plt.xlabel("Time (s)")        
