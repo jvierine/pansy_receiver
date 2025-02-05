@@ -49,7 +49,7 @@ for i in range(n_block):
         for ipp in range(n_ipp):
             rg=int(range_km[ipp]/drg)
             for ch in chs:
-                z=d.read_vector_c81d(tx_idx[ipp]+rg-128,256,ch)
+                z=d.read_vector_c81d(tx_idx[ipp]+rg-64,256,ch)
                 RTI[ipp,:]+=n.abs(z)**2.0
 
         
