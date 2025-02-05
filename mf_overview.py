@@ -19,7 +19,7 @@ def create_overview(i0,md,dt=15*60*1000000):
     n_r=len(rvec)
     rti=n.zeros([n_windows,n_r],dtype=n.float32)
     n_avg=n.zeros([n_windows,n_r],dtype=n.float32)
-
+    tv_hr=n.arange(n_windows)*dt/1e6/3600
     for i in range(n_windows):
         mi0=i0+i*dt
         mi1=i0+i*dt+dt
@@ -32,8 +32,9 @@ def create_overview(i0,md,dt=15*60*1000000):
             n_avg[i,ridx]+=1.0
     rti=rti/(n_avg+1.0)
     plt.title(stuffr.unix2datestr(i0/1e6))
-    plt.pcolormesh(rti.T,vmin=4,vmax=10)
-    plt.colorbar()
+    plt.pcolormesh(tv_hr,rvec,rti.T,vmin=4,vmax=10)
+    cb=plt.colorbar()
+    cb.set_label("SNR")
     plt.xlabel("Time (UTC hour)")
     plt.ylabel("Range (km)")
     plt.tight_layout()
