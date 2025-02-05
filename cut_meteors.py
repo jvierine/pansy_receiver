@@ -52,10 +52,11 @@ for i in range(n_block):
         RTI=n.zeros([n_ipp,256],dtype=n.float32)
         chs=["ch000","ch002","ch003","ch004","ch005","ch006"]
         drg=c.c/1e6/2/1e3
+        w=n.repeat(1/4,4)
         for ipp in range(n_ipp):
             rg=int(range_km[ipp]/drg)
             for ch in chs:
-                z=d.read_vector_c81d(tx_idx[ipp]+rg-64,256,ch)
+                z=n.convolve(d.read_vector_c81d(tx_idx[ipp]+rg-64,256,ch),w,mode="same")
                 RTI[ipp,:]+=n.abs(z)**2.0
 
         if n.max(snr)>100:
