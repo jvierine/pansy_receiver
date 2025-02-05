@@ -3,7 +3,9 @@ import digital_rf as drf
 import matplotlib.pyplot as plt
 import stuffr
 
-det_md_dir = "/media/archive/metadata/detections"
+import pansy_config as pc
+
+det_md_dir = pc.detections_metadata_dir#"/media/archive/metadata/detections"
 
 dm = drf.DigitalMetadataReader(det_md_dir)
 b = dm.get_bounds()

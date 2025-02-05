@@ -10,7 +10,7 @@ import stuffr
 import time
 import scipy.fftpack as fp
 import pyfftw 
-
+import pansy_config as pc
 
 fft = pyfftw.interfaces.scipy_fftpack.fft
 #fft=fp.fft
@@ -99,7 +99,8 @@ class range_doppler_search:
 def meteor_search(debug=False):
 
     # this is where the existing metadata lives
-    mf_metadata_dir = "/media/archive/metadata/mf"
+    mf_metadata_dir=pc.mf_metadata_dir
+    #mf_metadata_dir = "/media/archive/metadata/mf"
     db_mf=[-1,-1]
     dm_mf=None
     if os.path.exists(mf_metadata_dir):
@@ -160,7 +161,8 @@ def meteor_search(debug=False):
     codes=pm.get_vector(stm,ncodes=n_codes)
 
     # transmit metadata
-    metadata_dir = "/media/archive/metadata/tx"
+    metadata_dir=pc.tx_metadata_dir
+    #metadata_dir = "/media/archive/metadata/tx"
     if not os.path.exists(metadata_dir):
         print("metadata directory doesn't exist. exiting")
         exit(0)

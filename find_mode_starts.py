@@ -6,13 +6,16 @@ import os
 import stuffr
 import time
 
+import pansy_config as pc
+
 
 def update_tx_pulses():
     """
     Find transmit pulses for the mesosphere mode.
     Start off where the current metadata ends.
     """
-    metadata_dir = "/media/archive/metadata/tx"
+    metadata_dir=pc.tx_metadata_dir
+    #metadata_dir = "/media/archive/metadata/tx"
     db=[-1,-1]
     if os.path.exists(metadata_dir):
         print("metadata directory exists. searching for last timestamp")

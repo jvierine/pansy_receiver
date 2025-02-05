@@ -11,6 +11,7 @@ import stuffr
 import time
 import scipy.fftpack as fp
 import itertools
+import pansy_config as pc
 
 def fit_obs(tx_idx,rg,dop,fit_acc=False,return_model=False):
     """
@@ -381,7 +382,9 @@ def find_clusters(txpa,txidxa,rnga,dopa,snra,beam,dmw):
 
 
 # this is where the existing metadata lives
-det_md_dir = "/media/archive/metadata/detections"
+
+det_md_dir=pc.detections_metadata_dir
+#det_md_dir = "/media/archive/metadata/detections"
 b_det=[-1,-1]
 det_md=None
 if os.path.exists(det_md_dir):
@@ -413,8 +416,8 @@ dmw = drf.DigitalMetadataWriter(
     file_name,
 )
 
-
-mf_metadata_dir = "/media/archive/metadata/mf"
+mf_metadata_dir=pc.mf_metadata_dir
+#mf_metadata_dir = "/media/archive/metadata/mf"
 dm_mf = drf.DigitalMetadataReader(mf_metadata_dir)
 db_mf = dm_mf.get_bounds()
 
