@@ -52,28 +52,28 @@ for i in range(n_block):
                 z=d.read_vector_c81d(tx_idx[ipp]+rg-64,256,ch)
                 RTI[ipp,:]+=n.abs(z)**2.0
 
+        if n.max(snr)>100:
+            plt.subplot(221)
+            plt.plot(tx_idx/1e6,range_km,".")
+            plt.ylabel("Range (km)")
+            plt.xlabel("Time (unix)")        
+            plt.subplot(222)
+            plt.plot(tx_idx/1e6,doppler_ms/1e3,".")
+            plt.ylabel("Doppler (km/s)")
+            plt.xlabel("Time (unix)")
+            plt.subplot(223)
+            plt.scatter(tx_idx/1e6,10.0*n.log10(snr),s=1,c=n.mod(beam_idx,5),cmap="berlin",vmin=0,vmax=4)
+            plt.ylabel("SNR (dB)")
+            plt.xlabel("Time (unix)")        
+            
+            cb=plt.colorbar(location="top")
+            cb.set_label("Beam index")
+            plt.subplot(224)
+            plt.pcolormesh(tx_idx/1e6,n.arange(256),10.0*n.log10(RTI.T),cmap="plasma")
+            plt.colorbar(location="top")
+            plt.xlabel("Time (unix)")                
+            plt.tight_layout()
+            plt.show()
         
-        plt.subplot(221)
-        plt.plot(tx_idx/1e6,range_km,".")
-        plt.ylabel("Range (km)")
-        plt.xlabel("Time (unix)")        
-        plt.subplot(222)
-        plt.plot(tx_idx/1e6,doppler_ms/1e3,".")
-        plt.ylabel("Doppler (km/s)")
-        plt.xlabel("Time (unix)")
-        plt.subplot(223)
-        plt.scatter(tx_idx/1e6,10.0*n.log10(snr),s=1,c=n.mod(beam_idx,5),cmap="berlin",vmin=0,vmax=4)
-        plt.ylabel("SNR (dB)")
-        plt.xlabel("Time (unix)")        
-        
-        cb=plt.colorbar(location="top")
-        cb.set_label("Beam index")
-        plt.subplot(224)
-        plt.pcolormesh(tx_idx/1e6,n.arange(256),10.0*n.log10(RTI.T),cmap="plasma")
-        plt.colorbar(location="top")
-        plt.xlabel("Time (unix)")                
-        plt.tight_layout()
-        plt.show()
-    
 
 
