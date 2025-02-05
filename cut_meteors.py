@@ -53,11 +53,12 @@ for i in range(n_block):
         chs=["ch000","ch002","ch003","ch004","ch005","ch006"]
         drg=c.c/1e6/2/1e3
         w=n.repeat(1/4,4)
+        w2=n.repeat(1/16,16)
         for ipp in range(n_ipp):
             rg=int(range_km[ipp]/drg)
             for ch in chs:
                 z=n.convolve(d.read_vector_c81d(tx_idx[ipp]+rg-64,256,ch),w,mode="same")
-                RTI[ipp,:]+=n.abs(z)**2.0
+                RTI[ipp,:]+=n.convolve(n.abs(z)**2.0,w2,mode="same")
 
         if n.max(snr)>100:
             plt.subplot(221)
