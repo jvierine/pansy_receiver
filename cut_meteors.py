@@ -43,11 +43,13 @@ for i in range(n_block):
 
         
         n_ipp=len(tx_idx)
-        RTI=n.zeros([n_ipp,1600],dtype=n.float32)
+        RTI=n.zeros([n_ipp,256],dtype=n.float32)
         chs=["ch000","ch002","ch003","ch004","ch005","ch006"]
+        drg=c.c/1e6/2/1e3
         for ipp in range(n_ipp):
+            rg=int(ranges_km[ipp]/drg)
             for ch in chs:
-                z=d.read_vector_c81d(tx_idx[ipp],1600,ch)
+                z=d.read_vector_c81d(tx_idx[ipp]+rg-128,256,ch)
                 RTI[ipp,:]+=n.abs(z)**2.0
 
         
@@ -68,7 +70,7 @@ for i in range(n_block):
         cb.set_label("Beam index")
 
         plt.subplot(224)
-        plt.pcolormesh(tx_idx/1e6,n.arange(1600),10.0*n.log10(RTI.T),cmap="plasma")
+        plt.pcolormesh(tx_idx/1e6,n.arange(256),10.0*n.log10(RTI.T),cmap="plasma")
         plt.colorbar(location="top")
         plt.xlabel("Time (unix)")                
         plt.colorbar()
