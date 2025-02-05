@@ -15,7 +15,7 @@ def create_overview(i0,md,dt=15*60*1000000):
         return
     L=24*3600*1000000
     n_windows=int(n.floor(L/dt))
-    rvec=n.arange(50,150)
+    rvec=n.arange(0,150)
     n_r=len(rvec)
     rti=n.zeros([n_windows,n_r],dtype=n.float32)
     n_avg=n.zeros([n_windows,n_r],dtype=n.float32)
@@ -37,6 +37,7 @@ def create_overview(i0,md,dt=15*60*1000000):
     plt.xlabel("Time (UTC hour)")
     plt.ylabel("Range (km)")
     plt.tight_layout()
+    plt.ylim([50,150])
     fname="/media/analysis/overview/overview-%d.png"%(i0/1e6)
     print("saving %s"%(fname))
     plt.savefig("/media/analysis/overview/overview-%d.png"%(i0/1e6))
