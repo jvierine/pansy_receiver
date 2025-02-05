@@ -46,8 +46,9 @@ for i in range(n_block):
         RTI=n.zeros([n_ipp,1600],dtype=n.float32)
         chs=["ch000","ch002","ch003","ch004","ch005","ch006"]
         for ipp in range(n_ipp):
-            z=d.read_vector_c81d(tx_idx[ipp],1600,"ch000")
-            RTI[ipp,:]=n.abs(z)**2.0
+            for ch in chs:
+                z=d.read_vector_c81d(tx_idx[ipp],1600,ch)
+                RTI[ipp,:]+=n.abs(z)**2.0
 
         
         plt.subplot(221)
