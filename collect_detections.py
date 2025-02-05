@@ -29,7 +29,7 @@ for k in data_dict.keys():
     v0s.append(v0)
     r0s.append(r0)
     durs.append(dur)
-
+v0s=-1*n.array(v0s)
 plt.hist(10.0*n.log10(snrs),bins=50)
 plt.xlabel("Signa-to-noise ratio (dB)")
 plt.show()
@@ -50,7 +50,7 @@ plt.xlabel("Time (unix)")
 plt.show()
 
 
-plt.scatter(tv,r0s,c=v0s,vmin=-73,vmax=0,s=1,cmap="turbo")
+plt.scatter(tv,r0s,c=v0s,vmin=0,vmax=72,s=1,cmap="turbo")
 plt.title("%d meteors"%(len(tv)))
 cb=plt.colorbar()
 cb.set_label("Doppler (km/s)")
