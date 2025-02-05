@@ -380,66 +380,66 @@ def find_clusters(txpa,txidxa,rnga,dopa,snra,beam,dmw):
     
     
 
+if __name__ == "__main__":
 
+    # this is where the existing metadata lives
 
-# this is where the existing metadata lives
+    det_md_dir=pc.detections_metadata_dir
+    #det_md_dir = "/media/archive/metadata/detections"
+    b_det=[-1,-1]
+    det_md=None
+    if os.path.exists(det_md_dir):
+        print("metadata directory exists. searching for last timestamp")
+        try:
+            det_md = drf.DigitalMetadataReader(det_md_dir)
+            b_det = det_md.get_bounds()
+            print(b_det)
+        except:
+            print("couldn't read det metadata")
+    else:
+        os.system("mkdir -p %s"%(det_md_dir))
 
-det_md_dir=pc.detections_metadata_dir
-#det_md_dir = "/media/archive/metadata/detections"
-b_det=[-1,-1]
-det_md=None
-if os.path.exists(det_md_dir):
-    print("metadata directory exists. searching for last timestamp")
-    try:
-        det_md = drf.DigitalMetadataReader(det_md_dir)
-        b_det = det_md.get_bounds()
-        print(b_det)
-    except:
-        print("couldn't read det metadata")
-else:
-    os.system("mkdir -p %s"%(det_md_dir))
+    # setup the directory and file cadence.
+    # use 1 MHz, as this is the sample-rate and thus a
+    # natural resolution for timing.
+    subdirectory_cadence_seconds = 3600
+    file_cadence_seconds = 600
+    samples_per_second_numerator = 1000000
+    samples_per_second_denominator = 1
+    file_name = "det"
 
-# setup the directory and file cadence.
-# use 1 MHz, as this is the sample-rate and thus a
-# natural resolution for timing.
-subdirectory_cadence_seconds = 3600
-file_cadence_seconds = 600
-samples_per_second_numerator = 1000000
-samples_per_second_denominator = 1
-file_name = "det"
+    dmw = drf.DigitalMetadataWriter(
+        det_md_dir,
+        subdirectory_cadence_seconds,
+        file_cadence_seconds,
+        samples_per_second_numerator,
+        samples_per_second_denominator,
+        file_name,
+    )
 
-dmw = drf.DigitalMetadataWriter(
-    det_md_dir,
-    subdirectory_cadence_seconds,
-    file_cadence_seconds,
-    samples_per_second_numerator,
-    samples_per_second_denominator,
-    file_name,
-)
+    mf_metadata_dir=pc.mf_metadata_dir
+    #mf_metadata_dir = "/media/archive/metadata/mf"
+    dm_mf = drf.DigitalMetadataReader(mf_metadata_dir)
+    db_mf = dm_mf.get_bounds()
 
-mf_metadata_dir=pc.mf_metadata_dir
-#mf_metadata_dir = "/media/archive/metadata/mf"
-dm_mf = drf.DigitalMetadataReader(mf_metadata_dir)
-db_mf = dm_mf.get_bounds()
+    dt=10000000
+    #n_min=int(n.floor((db_mf[1]-db_mf[0])/dt))
+    d=drf.DigitalRFReader("/media/archive/")
+    # tx channel bounds
+    b=d.get_bounds("ch007")
+    #start_idx=db_mf[1]-2*60*60*1000000
 
-dt=10000000
-#n_min=int(n.floor((db_mf[1]-db_mf[0])/dt))
-d=drf.DigitalRFReader("/media/archive/")
-# tx channel bounds
-b=d.get_bounds("ch007")
-#start_idx=db_mf[1]-2*60*60*1000000
+    start_idx=dt*int(n.floor(db_mf[0]/dt))
+    # start in the beginning
+    if b_det[1] != -1:
+        # start where detections end
+        start_idx=dt*int(n.ceil(b_det[1]/dt))
 
-start_idx=dt*int(n.floor(db_mf[0]/dt))
-# start in the beginning
-if b_det[1] != -1:
-    # start where detections end
-    start_idx=dt*int(n.ceil(b_det[1]/dt))
+    n_min=int(n.floor((db_mf[1]-start_idx)/dt))
+    for i in range(n_min):
+        i0=start_idx+i*dt
+        i1=start_idx+i*dt+dt
 
-n_min=int(n.floor((db_mf[1]-start_idx)/dt))
-for i in range(n_min):
-    i0=start_idx+i*dt
-    i1=start_idx+i*dt+dt
-
-    txpa,txidxa,rnga,dopa,snra,beam=read_mf_output(dm_mf,i0,i1)
-    find_clusters(txpa,txidxa,rnga,dopa,snra,beam,dmw)
-    
+        txpa,txidxa,rnga,dopa,snra,beam=read_mf_output(dm_mf,i0,i1)
+        find_clusters(txpa,txidxa,rnga,dopa,snra,beam,dmw)
+        
