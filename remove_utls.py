@@ -4,6 +4,8 @@ import os
 import stuffr
 import time
 
+import pansy_config as pc
+
 def clean_utls():
     # this is where the data is
     d=drf.DigitalRFReader("/media/archive/")
@@ -13,7 +15,8 @@ def clean_utls():
     ch=["ch000","ch001","ch002","ch003","ch004","ch005","ch006","ch007"]
 
     # transmit metadata
-    metadata_dir = "/media/archive/metadata/tx"
+    metadata_dir=pc.tx_metadata_dir
+    #metadata_dir = "/media/archive/metadata/tx"
     dmr = drf.DigitalMetadataReader(metadata_dir)
     db = dmr.get_bounds()
 
