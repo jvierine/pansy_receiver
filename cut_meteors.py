@@ -40,6 +40,15 @@ for i in range(n_block):
         snr=data["snr"]
         beam_idx=data["beam"]
         doppler_ms=data["doppler"]
+
+        
+        n_ipp=len(tx_idx)
+        RTI=n.zeros([n_ipp,1600],dtype=n.float32)
+        for ipp in range(n_ipp):
+            z=d.read_vector_c81d(tx_idx[ipp],1600,"ch000")
+            RTI[ipp,:]=n.abs(z)**2.0
+
+        
         plt.subplot(221)
         plt.plot(tx_idx/1e6,range_km,".")
         plt.ylabel("Range (km)")
@@ -55,6 +64,12 @@ for i in range(n_block):
         
         cb=plt.colorbar(location="top")
         cb.set_label("Beam index")
+
+        plt.subplot(224)
+        plt.pcolormesh(tx_idx/1e6,n.arange(1600),10.0*n.log10(RTI),cmap="plasma")
+        plt.colorbar(location="top")
+        plt.xlabel("Time (unix)")                
+        plt.colorbar()
         plt.tight_layout()
         plt.show()
     
