@@ -68,19 +68,23 @@ for i in range(n_block):
         t0=n.min(tx_idx)/1e6
 
         dur=(n.max(tx_idx)-n.min(tx_idx))/1e6
-        n_pad=int((dur*0.1)*1000000)
+        n_pad=int((dur*0.2)*1000000)
 
         m_txpa,m_txidxa,m_rnga,m_dopa,m_snra,m_beam=cmf.read_mf_output(dmf,n.min(tx_idx)-n_pad,n.max(tx_idx)+n_pad)
+
+        fit_r_std,fit_v_std,xhat,tmean,rmodel,vmodel = cmf.fit_obs(tx_idx,range_km,doppler_ms,return_model=True)
 
         if n.max(snr)>100:
             plt.subplot(221)
             plt.plot(tx_idx/1e6-t0,range_km,".")
+            plt.plot(m_txidxa/1e6-t0,rmodel(m_txidxa))
             plt.plot(m_txidxa/1e6-t0,m_rnga,"x")
             plt.ylabel("Range (km)")
             plt.xlabel("Time (s)")        
             plt.subplot(222)
             plt.plot(tx_idx/1e6-t0,doppler_ms/1e3,".")
             plt.plot(m_txidxa/1e6-t0,m_dopa/1e3,"x")
+            plt.plot(m_txidxa/1e6-t0,vmodel(m_txidxa))
             plt.ylabel("Doppler (km/s)")
             plt.xlabel("Time (s)")
             plt.subplot(223)

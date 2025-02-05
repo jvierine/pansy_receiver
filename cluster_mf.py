@@ -87,8 +87,17 @@ def fit_obs(tx_idx,rg,dop,fit_acc=False,return_model=False):
         plt.show()
     if return_model:
         import scipy.interpolate as sint
-        rmodel=sint.interp1d(t,r_std*model[0:n_m])
-        vmodel=sint.interp1d(t,v_std*model[n_m:(2*n_m)])
+        xhatp=n.zeros(4)
+        xhatp[0:len(xhat)]=xhat
+        def rmodel(tt):
+            tp=(tt-tmean)/1e6
+            return(xhat[0]+xhat[1]*tp+xhat[2]*tp**2.0+xhat[3]*tp**3.0)
+        def vmodel(tt):
+            tp=(tt-tmean)/1e6
+            return(xhat[1]+2*xhat[2]*tp+3*xhat[3]*tp**2.0)
+
+#        rmodel=sint.interp1d(t,r_std*model[0:n_m])
+ #       vmodel=sint.interp1d(t,v_std*model[n_m:(2*n_m)])
         return(fit_r_std,fit_v_std,xhat,tmean,rmodel,vmodel)
     else:
         return(fit_r_std,fit_v_std,xhat,tmean)
@@ -374,11 +383,6 @@ def find_clusters(txpa,txidxa,rnga,dopa,snra,beam,dmw):
             except:
                 import traceback
                 traceback.print_exc()
-#                print(
-#    else:
- #       print("not enough measurements")
-    
-    
 
 if __name__ == "__main__":
 
