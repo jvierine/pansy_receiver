@@ -49,7 +49,7 @@ for i in range(n_block):
         plt.ylabel("Doppler (km/s)")
         plt.xlabel("Time (unix)")
         plt.subplot(223)
-        plt.scatter(tx_idx/1e6,10.0*n.log10(snr),s=1,c=n.mod(beam_idx,5),cmap="turbo",vmin=0,vmax=4)
+        plt.scatter(tx_idx/1e6,10.0*n.log10(snr),s=1,c=n.mod(beam_idx,5),cmap="berlin",vmin=0,vmax=4)
         plt.ylabel("SNR (dB)")
         plt.xlabel("Time (unix)")        
         
