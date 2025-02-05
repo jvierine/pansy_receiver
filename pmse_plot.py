@@ -12,7 +12,7 @@ mf_metadata_dir=pc.mf_metadata_dir
 md = drf.DigitalMetadataReader(mf_metadata_dir)
 b = md.get_bounds()
 
-dt=15000000
+dt=15*60*1000000
 
 L=3600*1000000
 n_windows=int(n.floor(L/dt))
