@@ -21,6 +21,8 @@
         filter out specular trail echoes, satellites, and PMSE echoes.
         output goes into /media/archive/metadata/detections
     4. remove_utls.py - Cleanup of digital rf files not containing the mm1600 experiment. saves about 50% of data storage
+    5. mf_overview.py - Show the overview of match filter outputs on each day. Useful for figuring out if the radar is on or off
+        and determining how much PMSE clutter there is.
 
     TODO: - Cut and store meteor events
           - interferometry calibration 
