@@ -25,9 +25,9 @@ for i in range(n_windows):
     i1=b[0]+i*dt+dt
     data_dict = md.read(i0, i1, ("tx_pwr","max_range","tx_idxs","max_dopvel","max_snr","beam_pos_idx"))
     for k in data_dict.keys():
-        ridx=int(n.round(data_dict[k]["max_range"]))
+        ridx=int(n.round(data_dict[k]["max_range"][0]))
         print(ridx)
-        rti[i,ridx]+=data_dict[k]["max_snr"]
+        rti[i,ridx]+=data_dict[k]["max_snr"][0]
 plt.pcolormesh(rti,vmin=5,vmax=100)
 plt.colorbar()
 plt.show()
