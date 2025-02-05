@@ -47,7 +47,7 @@ for i in range(n_block):
         chs=["ch000","ch002","ch003","ch004","ch005","ch006"]
         drg=c.c/1e6/2/1e3
         for ipp in range(n_ipp):
-            rg=int(ranges_km[ipp]/drg)
+            rg=int(range_km[ipp]/drg)
             for ch in chs:
                 z=d.read_vector_c81d(tx_idx[ipp]+rg-128,256,ch)
                 RTI[ipp,:]+=n.abs(z)**2.0
