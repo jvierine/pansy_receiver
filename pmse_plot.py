@@ -33,6 +33,6 @@ for i in range(n_windows):
         rti[i,ridx]+=data_dict[k]["max_snr"][0]
         n_avg[i,ridx]+=1.0
 rti=rti/(n_avg+1.0)
-plt.pcolormesh(rti,vmin=5,vmax=100)
+plt.pcolormesh(rti.T,vmin=0,vmax=10)
 plt.colorbar()
 plt.show()
