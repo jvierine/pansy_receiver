@@ -12,6 +12,7 @@ import scipy.fftpack as fp
 import pyfftw 
 import h5py
 import pansy_config as pc
+import traceback
 
 fft = pyfftw.interfaces.scipy_fftpack.fft
 #fft=fp.fft
@@ -208,12 +209,15 @@ def meteor_search(debug=False):
             print("%d processing %s"%(rank,stuffr.unix2datestr(i0/1e6)))
             data_dict = dmr.read(i0, i1, "id")
 
-            # see if results already exist
-            dm_mf2 = drf.DigitalMetadataReader(mf_metadata_dir)
-            mf2out=dm_mf2.read(i0,i1,["beam_pos_idx"])
-            if len(mf2out.keys())>0:
-                print("rank %d already processed %d-%d %d results"%(rank,i0,i1,len(mf2out.keys())))
-                continue
+            try:
+                # see if results already exist
+                dm_mf2 = drf.DigitalMetadataReader(mf_metadata_dir)
+                mf2out=dm_mf2.read(i0,i1,["beam_pos_idx"])
+                if len(mf2out.keys())>0:
+                    print("rank %d already processed %d-%d %d results"%(rank,i0,i1,len(mf2out.keys())))
+                    continue
+            except:
+                traceback.print_exc()
             #print("not processed yet rank %d"%(rank))
             
 
@@ -276,16 +280,23 @@ def meteor_search(debug=False):
                     odata_dict["max_dopvel"]=[max_dops]
                     odata_dict["noise_floor"]=[noise_floors]
                     odata_dict["tx_idxs"]=[tx_idxs]
+
+                    # write timestamp of last detection in tmp file, so that we know how far the analysis has reached.
+                    last_fname="/tmp/meteor_mf_%d.h5"%(rank)
+                    ho=h5py.File(last_fname,"w")
+                    ho["latest"]=key
+                    ho.close()
+
                     try:
                         dmw.write([key],odata_dict)
-                        # write timestamp of last detection in tmp file, so that we know how far the analysis has reached.
-                        last_fname="/tmp/meteor_mf_%d.h5"%(rank)
-                        ho=h5py.File(last_fname,"w")
-                        ho["latest"]=key
-                        ho.close()
                     except:
-                        import traceback
-                        traceback.print_exc()
+                        try:
+                            time.sleep(0.1)
+                            print("trying to rewrite again")
+                            # try again
+                            dmw.write([key],odata_dict)
+                        except:
+                            traceback.print_exc()
                 else:
                     print("not writing. out of range.")
 
