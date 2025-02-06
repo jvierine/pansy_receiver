@@ -59,8 +59,8 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
 
     delays=[]
     beam_ids=[]
-
-    for key in tx_data_dict.keys().sort():
+    kl=list(tx_data_dict.keys()).sort()
+    for key in kl:
         for chi in range(len(rx_ch)):
             zrx[chi,:]=d.read_vector_c81d(key,1600*20,rx_ch[chi])
         zrx_re[:,:]=n.array(zrx.real,dtype=n.int16)
