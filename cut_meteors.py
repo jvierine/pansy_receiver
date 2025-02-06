@@ -211,7 +211,7 @@ for i in range(n_block):
                                 tx_ch="ch007",
                                 txlen=132,
                                 pad=64,
-                                plot=n.max(snr)>100
+                                plot=False
                                 )
         cut_res["c_snr"]=[snr]
         cut_res["c_tx_idx"]=[tx_idx]
