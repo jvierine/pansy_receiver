@@ -10,6 +10,7 @@ import stuffr
 import time
 import scipy.fftpack as fp
 import pyfftw 
+import h5py
 import pansy_config as pc
 
 fft = pyfftw.interfaces.scipy_fftpack.fft
@@ -283,6 +284,11 @@ def meteor_search(debug=False):
                     odata_dict["tx_idxs"]=[tx_idxs]
                     try:
                         dmw.write([key],odata_dict)
+                        # write timestamp of last detection in tmp file, so that we know how far the analysis has reached.
+                        last_fname="/tmp/meteor_mf_%d.h5"%(rank)
+                        ho=h5py.File(last_fname,"w")
+                        ho["latest"]=key
+                        ho.close()
                     except:
                         import traceback
                         traceback.print_exc()
