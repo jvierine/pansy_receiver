@@ -1,6 +1,6 @@
 # PANSY Meteor Extension
 
-Join project between NIPR Japan, IAP Kühlugsborn, and University of Tromsø. 
+Joint project between NIPR Japan, IAP Kühlugsborn, and University of Tromsø. 
 
 Software and engineering documantation related to the PANSY meteor head echo receiver. This is a software defined radio receiver that operates independently of the PANSY receiver, using the transmit pulse leakthrough as a phase and radar experiment sequence reference. 
 
