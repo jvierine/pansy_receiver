@@ -59,7 +59,7 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
 
     delays=[]
     beam_ids=[]
-    kl=list(tx_data_dict.keys())
+    kl=n.sort(list(tx_data_dict.keys()))
     print(kl)
     for key in kl:
         for chi in range(len(rx_ch)):
