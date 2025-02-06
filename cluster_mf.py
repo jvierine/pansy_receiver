@@ -401,6 +401,11 @@ if __name__ == "__main__":
             det_md = drf.DigitalMetadataReader(det_md_dir)
             b_det = det_md.get_bounds()
             print(b_det)
+        except:
+            import traceback
+            traceback.print_exc()
+            print("couldn't read det metadata")
+
 
             # look for mf search output to determine where it has reached. only analyze that far
             fl=glob.glob("/tmp/meteor_mf_*.h5")
