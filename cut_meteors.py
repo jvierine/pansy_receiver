@@ -98,10 +98,11 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
         TXI=n.zeros([n_ipp,txlen],dtype=n.float32)
         for i in range(n_ipp):
             TXI[i,:]+=ztx_pulses_re[i]#**2.0+ztx_pulses_im[i]**2.0
+            rx_re=zrx_echoes_re[i]
+            rx_im=zrx_echoes_im[i]
+
             for ci in range(len(rx_ch)):
- #               print(len(zrx_echoes_re[i][ci,:]))
-#                print(2*pad+txlen)
-                RTI[i,delays[i]:(delays[i]+2*pad+txlen)]+=(n.array(zrx_echoes_re[i][ci,:],dtype=n.float32)**2+n.array(zrx_echoes_im[i][ci,:],dtype=n.float32)**2.0
+                RTI[i,delays[i]:(delays[i]+2*pad+txlen)]+=(n.array(rx_re[ci,:],dtype=n.float32)**2+n.arrayrx_im[ci,:],dtype=n.float32)**2.0
         plt.pcolormesh(RTI.T)
         plt.colorbar()
         plt.show()
