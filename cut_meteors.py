@@ -30,7 +30,7 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
     drg=c.c/1e6/2/1e3    
     n_ch=len(rx_ch)
 
-    tx_data_dict = dmt.read(txi0, txi1, "id")
+    tx_data_dict = dmt.read(i0, i1, "id")
 
     # how many 20 ipp segments do we have
     n_seq=len(tx_data_dict.keys())
@@ -86,6 +86,22 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
                 zrx_echoes_im.append(zrx_im[:,(i*1600+delay-pad):(i*1600+txlen+delay+pad)])
 
                 beam_ids.append(this_beam_idx)
+    plot=True
+    if plot:
+        n_ipp = len(delays)
+        RTI=n.zeros([n_ipp,1600],dtype=n.float32)
+        TXI=n.zeros([n_ipp,txlen],dtype=n.float32)
+        for i in range(n_ipp):
+            TXI[i,:]+=ztx_re[i]**2.0+ztx_im[i]**2.0
+            for ci in range(len(rx_ch)):
+                RTI[i,delays[i]:(delays[i]+2*pad+txlen)]+=n.abs(zrx_echoes_re[i][ci,:]+zrx_echoes_im[i][ci,:]*1j)**2.0
+        plt.pcolormesh(RTI.T)
+        plt.colorbar()
+        plt.show()
+
+        plt.pcolormesh(TXI.T)
+        plt.colorbar()
+        plt.show()
 
     return({"tx_idx":txidx, # these are the indices of the transmit pulses
             "beam_id":beam_ids,  # these are the beam directions
@@ -145,9 +161,11 @@ for i in range(n_block):
         beam_count=n.zeros(5,dtype=int)
         beam_i0=n.zeros(5,dtype=int)
         beam_i1=n.zeros(5,dtype=int)
+        beams=[]
         for bi in range(5):
             beam_count[bi]=len(n.where(beamnum==bi)[0])
             if beam_count[bi] >= 5:
+                beams.append(bi)
                 beam_i0[bi]=n.min(tx_idx[n.where(beamnum==bi)[0]])
                 beam_i1[bi]=n.max(tx_idx[n.where(beamnum==bi)[0]])
                 print("beam %d i0 %d i1 %d count %d"%(bi,beam_i0[bi],beam_i1[bi],beam_count[bi]))
@@ -155,44 +173,51 @@ for i in range(n_block):
         # store between i0 and i1 plus padding ch000-ch006
         # store +/- 64 samples around the tx pulse of length 128 samples
         # pad by X samples
-        
+        cut_raw_voltage(n.min(tx_idx),n.max(tx_idx),rmodel,
+                        beams=beams,
+                        rx_ch=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"],
+                        tx_ch="ch007",
+                        txlen=132,
+                        pad=64)
 
-        # number of ipps 
-        n_ipp=len(tx_idx)
-        RTI=n.zeros([n_ipp,256],dtype=n.float32)
-        chs=["ch000","ch002","ch003","ch004","ch005","ch006"]
-        drg=c.c/1e6/2/1e3
-        w=n.repeat(1/4,4)
-        w2=n.repeat(1/16,16)
-        for ipp in range(n_ipp):
-            rg=int(range_km[ipp]/drg)
-            for ch in chs:
-                z=n.convolve(d.read_vector_c81d(tx_idx[ipp]+rg-64,256,ch),w,mode="same")
-                RTI[ipp,:]+=n.convolve(n.abs(z)**2.0,w2,mode="same")
+        if False:
 
-        t0=n.min(tx_idx)/1e6
+            # number of ipps 
+            n_ipp=len(tx_idx)
+            RTI=n.zeros([n_ipp,256],dtype=n.float32)
+            chs=["ch000","ch002","ch003","ch004","ch005","ch006"]
+            drg=c.c/1e6/2/1e3
+            w=n.repeat(1/4,4)
+            w2=n.repeat(1/16,16)
+            for ipp in range(n_ipp):
+                rg=int(range_km[ipp]/drg)
+                for ch in chs:
+                    z=n.convolve(d.read_vector_c81d(tx_idx[ipp]+rg-64,256,ch),w,mode="same")
+                    RTI[ipp,:]+=n.convolve(n.abs(z)**2.0,w2,mode="same")
 
-        if n.max(snr)>10:
-            plt.subplot(221)
-            plt.plot(tx_idx/1e6-t0,range_km,".")
-            plt.ylabel("Range (km)")
-            plt.xlabel("Time (s)")        
-            plt.subplot(222)
-            plt.plot(tx_idx/1e6-t0,doppler_ms/1e3,".")
-            plt.ylabel("Doppler (km/s)")
-            plt.xlabel("Time (s)")
-            plt.subplot(223)
-            plt.scatter(tx_idx/1e6-t0,10.0*n.log10(snr),s=1,c=n.mod(beam_idx,5),cmap="berlin",vmin=0,vmax=4)
-            plt.ylabel("SNR (dB)")
-            plt.xlabel("Time (s)")                    
-            cb=plt.colorbar(location="top")
-            cb.set_label("Beam index")
-            plt.subplot(224)
-            plt.pcolormesh(tx_idx/1e6-t0,n.arange(256),10.0*n.log10(RTI.T),cmap="plasma")
-            plt.colorbar(location="top")
-            plt.xlabel("Time (s)")                
-            plt.tight_layout()
-            plt.show()
+            t0=n.min(tx_idx)/1e6
+
+            if n.max(snr)>10:
+                plt.subplot(221)
+                plt.plot(tx_idx/1e6-t0,range_km,".")
+                plt.ylabel("Range (km)")
+                plt.xlabel("Time (s)")        
+                plt.subplot(222)
+                plt.plot(tx_idx/1e6-t0,doppler_ms/1e3,".")
+                plt.ylabel("Doppler (km/s)")
+                plt.xlabel("Time (s)")
+                plt.subplot(223)
+                plt.scatter(tx_idx/1e6-t0,10.0*n.log10(snr),s=1,c=n.mod(beam_idx,5),cmap="berlin",vmin=0,vmax=4)
+                plt.ylabel("SNR (dB)")
+                plt.xlabel("Time (s)")                    
+                cb=plt.colorbar(location="top")
+                cb.set_label("Beam index")
+                plt.subplot(224)
+                plt.pcolormesh(tx_idx/1e6-t0,n.arange(256),10.0*n.log10(RTI.T),cmap="plasma")
+                plt.colorbar(location="top")
+                plt.xlabel("Time (s)")                
+                plt.tight_layout()
+                plt.show()
         
 
 
