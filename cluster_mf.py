@@ -461,6 +461,9 @@ def analyze_until_now():
 
     # only go up to the point where the slowest thread is at (analysis_end)
     if analysis_end == -1:
+        # don't know how long to analyze!
+        print("don't know how to analyze. quick_search_meteor.py not running?")
+        exit(0)
         analysis_end=db_mf[1]
 
     n_min=int(n.floor((analysis_end-start_idx)/dt))
