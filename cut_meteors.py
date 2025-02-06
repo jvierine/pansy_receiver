@@ -9,6 +9,7 @@ import pansy_config as pc
 import cluster_mf as cmf
 import traceback
 
+os.system("mkdir -p %s"%(pc.cut_metadata_dir))
 # transmit pulse metadata
 dmt = drf.DigitalMetadataReader(pc.tx_metadata_dir)
 bt = dmt.get_bounds()
