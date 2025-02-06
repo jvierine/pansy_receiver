@@ -134,6 +134,9 @@ def meteor_search(debug=False):
         file_name,
     )
 
+    # see if results already exist
+    dm_mf2 = drf.DigitalMetadataReader(mf_metadata_dir)
+
     # this is where the data is
     d=drf.DigitalRFReader("/media/archive/")
     # tx channel bounds
@@ -209,15 +212,10 @@ def meteor_search(debug=False):
             print("%d processing %s"%(rank,stuffr.unix2datestr(i0/1e6)))
             data_dict = dmr.read(i0, i1, "id")
 
-            try:
-                # see if results already exist
-                dm_mf2 = drf.DigitalMetadataReader(mf_metadata_dir)
-                mf2out=dm_mf2.read(i0,i1,["beam_pos_idx"])
-                if len(mf2out.keys())>0:
-                    print("rank %d already processed %d-%d %d results"%(rank,i0,i1,len(mf2out.keys())))
-                    continue
-            except:
-                traceback.print_exc()
+            mf2out=dm_mf2.read(i0,i1,["beam_pos_idx"])
+            if len(mf2out.keys())>0:
+                print("rank %d already processed %d-%d %d results"%(rank,i0,i1,len(mf2out.keys())))
+                continue
             #print("not processed yet rank %d"%(rank))
             
 
@@ -271,22 +269,24 @@ def meteor_search(debug=False):
                 odata_dict={}
                 
                 tx_idxs=n.array(tx_idxs)
-                if (key >= i0) & (key<i1):                
-                    odata_dict["beam_pos_idx"]=[n.arange(20,dtype=n.int8)]
-                    odata_dict["tx_std"]=[n.repeat(n.std(tx_pwrs),20)]
-                    odata_dict["tx_pwr"]=[tx_pwrs]
-                    odata_dict["max_snr"]=[max_snrs]
-                    odata_dict["max_range"]=[max_ranges]
-                    odata_dict["max_dopvel"]=[max_dops]
-                    odata_dict["noise_floor"]=[noise_floors]
-                    odata_dict["tx_idxs"]=[tx_idxs]
+                #if (key >= i0) & (key<i1):                
+                odata_dict["beam_pos_idx"]=[n.arange(20,dtype=n.int8)]
+                odata_dict["tx_std"]=[n.repeat(n.std(tx_pwrs),20)]
+                odata_dict["tx_pwr"]=[tx_pwrs]
+                odata_dict["max_snr"]=[max_snrs]
+                odata_dict["max_range"]=[max_ranges]
+                odata_dict["max_dopvel"]=[max_dops]
+                odata_dict["noise_floor"]=[noise_floors]
+                odata_dict["tx_idxs"]=[tx_idxs]
 
-                    # write timestamp of last detection in tmp file, so that we know how far the analysis has reached.
-                    last_fname="/tmp/meteor_mf_%d.h5"%(rank)
-                    ho=h5py.File(last_fname,"w")
-                    ho["latest"]=key
-                    ho.close()
+                # write timestamp of last detection in tmp file, so that we know how far the analysis has reached.
+                last_fname="/tmp/meteor_mf_%d.h5"%(rank)
+                ho=h5py.File(last_fname,"w")
+                ho["latest"]=key
+                ho.close()
 
+                mf2out=dm_mf2.read(key-100,key+100,["beam_pos_idx"])
+                if len(mf2out.keys())==0:
                     try:
                         dmw.write([key],odata_dict)
                     except:
@@ -298,7 +298,7 @@ def meteor_search(debug=False):
                         except:
                             traceback.print_exc()
                 else:
-                    print("not writing. out of range.")
+                    print("%d %s looks like this is already processes."%(rank,stuffr.unix2datestr(key/1e6)))
 
         cput1=time.time()
         if n_keys > 0:
