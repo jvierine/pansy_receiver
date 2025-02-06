@@ -95,9 +95,9 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
     if plot:
         n_ipp = len(delays)
         RTI=n.zeros([n_ipp,1600],dtype=n.float32)
-        TXI=n.zeros([n_ipp,txlen],dtype=n.float32)
+        TXI=n.zeros([n_ipp,txlen],dtype=n.complex64)
         for i in range(n_ipp):
-            TXI[i,:]+=ztx_pulses_re[i]#**2.0+ztx_pulses_im[i]**2.0
+            TXI[i,:]=ztx_pulses_re[i]+ztx_pulses_im[i]*1j
             rx_re=zrx_echoes_re[i]
             rx_im=zrx_echoes_im[i]
 
@@ -107,7 +107,7 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
         plt.colorbar()
         plt.show()
 
-        plt.pcolormesh(TXI.T)
+        plt.pcolormesh(n.angle(TXI.T))
         plt.colorbar()
         plt.show()
 
