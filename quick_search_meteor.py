@@ -205,13 +205,14 @@ def meteor_search(debug=False):
 
         # only process if we have raw voltage data in ringbuffer
         if (i0 > b[0]) & (i1 < b[1]):
+            print("%d processing %s"%(stuffr.unix2datestr(i0/1e6)))
             data_dict = dmr.read(i0, i1, "id")
 
             # see if results already exist
             dm_mf2 = drf.DigitalMetadataReader(mf_metadata_dir)
             mf2out=dm_mf2.read(i0,i1,["beam_pos_idx"])
             if len(mf2out.keys())>0:
-            #    print("rank %d already processed %d-%d %d results"%(rank,i0,i1,len(mf2out.keys())))
+                print("rank %d already processed %d-%d %d results"%(rank,i0,i1,len(mf2out.keys())))
                 continue
             #print("not processed yet rank %d"%(rank))
             
