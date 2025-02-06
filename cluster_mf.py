@@ -413,6 +413,7 @@ if __name__ == "__main__":
             print("couldn't read det metadata")
     else:
         os.system("mkdir -p %s"%(det_md_dir))
+    print("%s"%(stuffr.unix2datestr(analysis_end/1e6)))
 
     # setup the directory and file cadence.
     # use 1 MHz, as this is the sample-rate and thus a
@@ -453,6 +454,7 @@ if __name__ == "__main__":
     # only go up to the point where the slowest thread is at (analysis_end)
     if analysis_end == -1:
         analysis_end=db_mf[1]
+
     n_min=int(n.floor((analysis_end-start_idx)/dt))
     for i in range(n_min):
         i0=start_idx+i*dt

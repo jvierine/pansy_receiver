@@ -8,6 +8,10 @@ import time
 import pansy_config as pc
 import cluster_mf as cmf
 
+# transmit pulse metadata
+dmt = drf.DigitalMetadataReader(pc.tx_metadata_dir)
+bt = dmt.get_bounds()
+
 # meteor detections
 dm = drf.DigitalMetadataReader(pc.detections_metadata_dir)
 bm = dm.get_bounds()
@@ -17,42 +21,142 @@ dmf = drf.DigitalMetadataReader(pc.mf_metadata_dir)
 bmf = dmf.get_bounds()
 
 # raw voltage
-d=drf.DigitalRFReader("/media/archive/")
+d=drf.DigitalRFReader(pc.raw_voltage_dir)
 b=d.get_bounds("ch007")
+
+def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"],tx_ch="ch007",txlen=132,pad=64):
+
+    # one sample in range (km)
+    drg=c.c/1e6/2/1e3    
+    n_ch=len(rx_ch)
+
+    tx_data_dict = dmt.read(txi0, txi1, "id")
+
+    # how many 20 ipp segments do we have
+    n_seq=len(tx_data_dict.keys())
+    if len(n_seq)==0:
+        print("no data found!")
+        return({})
+    
+    # this is the beam number
+    beam_idx=n.array(n.mod(n.arange(20,dtype=n.int64),5),dtype=n.int8)
+
+    zrx=n.zeros([n_ch,20*1600],dtype=n.complex64)
+
+    zrx_re=n.zeros([n_ch,20*1600],dtype=n.int16)
+    zrx_im=n.zeros([n_ch,20*1600],dtype=n.int16)
+
+    ztx_re=n.zeros(txlen,dtype=n.int16)
+    ztx_im=n.zeros(txlen,dtype=n.int16)
+
+    #z_tx=n.zeros([20,txlen],dtype=n.complex64)
+    txidx=[]
+    ztx_pulses_re=[]
+    ztx_pulses_im=[]
+
+    zrx_echoes_re=[]
+    zrx_echoes_im=[]
+
+    delays=[]
+    beam_ids=[]
+
+    for key in tx_data_dict.keys().sort():
+        for chi,ch in enumerate(tx_ch):
+            zrx[chi,:]=d.read_vector_c81d(key,1600*20,ch)
+        zrx_re[:,:]=n.array(zrx.real,dtype=n.int16)
+        zrx_im[:,:]=n.array(zrx.imag,dtype=n.int16)
+
+        z_tx=d.read_vector_c81d(key,1600*20,tx_ch)
+        ztx_re[:]=n.array(z_tx.real,dtype=n.int16)
+        ztx_im[:]=n.array(z_tx.imag,dtype=n.int16)
+
+        for i in range(20):
+            this_beam_idx=i%5
+            delay=int(n.round(rmodel(key+i*1600)/drg))
+            if this_beam_idx in beams:
+                # index of transmit pulse start
+                txidx.append(key+i*1600)
+                # this is the expected range delay for the meteor
+                delays.append(delay-pad)
+                ztx_pulses_re.append(ztx_re[(i*1600):(i*1600+txlen)])
+                ztx_pulses_im.append(ztx_im[(i*1600):(i*1600+txlen)])
+
+                # echo matrix for all channels
+                zrx_echoes_re.append(zrx_re[:,(i*1600+delay-pad):(i*1600+txlen+delay+pad)])
+                zrx_echoes_im.append(zrx_im[:,(i*1600+delay-pad):(i*1600+txlen+delay+pad)])
+
+                beam_ids.append(this_beam_idx)
+
+    return({"tx_idx":txidx,"beam_id":beam_ids,
+            "ztx_pulses_re":ztx_pulses_re,
+            "ztx_pulses_im":ztx_pulses_im,
+            "zrx_echoes_re":zrx_echoes_re,
+            "zrx_echoes_im":zrx_echoes_im,
+            "delays":delays,
+            "pad":pad,
+            "txlen":txlen,
+            "channels":rx_chan,
+            "tx_channel":tx_ch})
 
 dt=60
 sr=1000000
 
 n_block=int(n.floor((bm[1]-bm[0])/dt))
 
+# go through all blocks of data
 for i in range(n_block):
     i0=bm[0]+i*dt*sr
     i1=bm[0]+i*dt*sr + dt*sr
     
-    #odata_dict["xhat"]=det["xhat"]
-    #odata_dict["tx_idx"]=txidxa[det["idx"]]
-    #odata_dict["range"]=rnga[det["idx"]]
-
+    # find all detections in interval
     data_dict = dm.read(i0, i1, ("tx_idx","xhat","range","doppler","snr","beam"))
 
-    # for each detection
+    # for each detection in this window
     for k in data_dict.keys():
         data=data_dict[k]
-        print(data)
+
+        # radial trajectory model
         xhat=data["xhat"]
+        # timestamps of transmit pulses
         tx_idx=data["tx_idx"]
+        # detection range
         range_km=data["range"]
+        # signal to noise ratio
         snr=data["snr"]
+        # transmit beam number
         beam_idx=data["beam"]
+        # doppler shift
         doppler_ms=data["doppler"]
 
+        # sort detection related measurements in time
         idxidx=n.argsort(tx_idx)
         tx_idx=tx_idx[idxidx]
         snr=snr[idxidx]
         beam_idx=beam_idx[idxidx]
         range_km=range_km[idxidx]
         doppler_ms=doppler_ms[idxidx]
+
+        # get model for range
+        fit_r_std,fit_v_std,xhat,tmean,rmodel,vmodel=cmf.fit_obs(tx_idx,range_km,doppler_ms,return_model=True)
+
+        # which beams are included. we want at least 5 detections in each beam for it to count
+        beamnum=n.array(n.mod(beam_idx,5),dtype=int)
+        beam_count=n.zeros(5,dtype=int)
+        beam_i0=n.zeros(5,dtype=int)
+        beam_i1=n.zeros(5,dtype=int)
+        for bi in range(5):
+            beam_count[bi]=len(n.where(beamnum==bi)[0])
+            if beam_count[bi] >= 5:
+                beam_i0[bi]=n.min(tx_idx[n.where(beamnum==bi)[0]])
+                beam_i1[bi]=n.max(tx_idx[n.where(beamnum==bi)[0]])
+                print("beam %d i0 %d i1 %d count %d"%(bi,beam_i0[bi],beam_i1[bi],beam_count[bi]))
         
+        # store between i0 and i1 plus padding ch000-ch006
+        # store +/- 64 samples around the tx pulse of length 128 samples
+        # pad by X samples
+        
+
+        # number of ipps 
         n_ipp=len(tx_idx)
         RTI=n.zeros([n_ipp,256],dtype=n.float32)
         chs=["ch000","ch002","ch003","ch004","ch005","ch006"]
@@ -67,35 +171,19 @@ for i in range(n_block):
 
         t0=n.min(tx_idx)/1e6
 
-        dur=(n.max(tx_idx)-n.min(tx_idx))/1e6
-        n_pad=int((dur*0.2)*1000000)
-
-        m_txpa,m_txidxa,m_rnga,m_dopa,m_snra,m_beam=cmf.read_mf_output(dmf,n.min(tx_idx)-n_pad,n.max(tx_idx)+n_pad)
-
-        fit_r_std,fit_v_std,xhat,tmean,rmodel,vmodel = cmf.fit_obs(tx_idx,range_km,doppler_ms,return_model=True)
-
-        gidx=n.where( (n.abs(rmodel(m_txidxa)-m_rnga)<0.5) & (n.abs(vmodel(m_txidxa)-m_dopa/1e3)<3) )[0]
-
         if n.max(snr)>10:
             plt.subplot(221)
             plt.plot(tx_idx/1e6-t0,range_km,".")
-            plt.plot(m_txidxa/1e6-t0,rmodel(m_txidxa))
-            plt.plot(m_txidxa[gidx]/1e6-t0,m_rnga[gidx],"x")
             plt.ylabel("Range (km)")
             plt.xlabel("Time (s)")        
             plt.subplot(222)
             plt.plot(tx_idx/1e6-t0,doppler_ms/1e3,".")
-            plt.plot(m_txidxa[gidx]/1e6-t0,m_dopa[gidx]/1e3,"x")
-            plt.plot(m_txidxa/1e6-t0,vmodel(m_txidxa))
             plt.ylabel("Doppler (km/s)")
             plt.xlabel("Time (s)")
             plt.subplot(223)
             plt.scatter(tx_idx/1e6-t0,10.0*n.log10(snr),s=1,c=n.mod(beam_idx,5),cmap="berlin",vmin=0,vmax=4)
-            plt.scatter(m_txidxa/1e6-t0,10.0*n.log10(m_snra),s=1,c=n.mod(m_beam,5),cmap="berlin",vmin=0,vmax=4)
-
             plt.ylabel("SNR (dB)")
-            plt.xlabel("Time (s)")        
-            
+            plt.xlabel("Time (s)")                    
             cb=plt.colorbar(location="top")
             cb.set_label("Beam index")
             plt.subplot(224)
