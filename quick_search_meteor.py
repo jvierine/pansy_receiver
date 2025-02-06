@@ -312,5 +312,5 @@ if __name__ == "__main__":
         meteor_search()
         print("wait for all threads to finnish")
         comm.Barrier()
-    #    time.sleep(60)
+        time.sleep(60)
     
