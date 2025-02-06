@@ -46,8 +46,8 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
     zrx_re=n.zeros([n_ch,20*1600],dtype=n.int16)
     zrx_im=n.zeros([n_ch,20*1600],dtype=n.int16)
 
-    ztx_re=n.zeros(txlen,dtype=n.int16)
-    ztx_im=n.zeros(txlen,dtype=n.int16)
+    ztx_re=n.zeros(20*1600,dtype=n.int16)
+    ztx_im=n.zeros(20*1600,dtype=n.int16)
 
     #z_tx=n.zeros([20,txlen],dtype=n.complex64)
     txidx=[]
