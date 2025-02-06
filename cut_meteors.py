@@ -105,7 +105,8 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
 
             for ci in range(len(rx_ch)):
                 RTI[i,delays[i]:(delays[i]+2*pad+txlen)]+=n.array(rx_re[ci,:],dtype=n.float32)**2+n.array(rx_im[ci,:],dtype=n.float32)**2.0
-        plt.pcolormesh(10.0*n.log10(RTI.T+1))
+        noise=n.median(RTI[RTI!=0.0])
+        plt.pcolormesh(10.0*n.log10(RTI.T+1),vmin=10.0*n.log10(noise))
         plt.colorbar()
         plt.show()
 
