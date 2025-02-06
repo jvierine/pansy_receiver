@@ -107,6 +107,7 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
                 RTI[i,delays[i]:(delays[i]+2*pad+txlen)]+=n.array(rx_re[ci,:],dtype=n.float32)**2+n.array(rx_im[ci,:],dtype=n.float32)**2.0
         noise=n.median(RTI[RTI!=0.0])
         plt.pcolormesh(10.0*n.log10(RTI.T+1),vmin=10.0*n.log10(noise))
+        plt.title("%s beams"%(stuffr.unix2datestr(i0/1e6))+len(beams))
         plt.ylim([n.min(delays),n.max(delays)+txlen+2*pad])
         plt.xlabel("IPP")
         plt.ylabel("Range-gate")
