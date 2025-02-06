@@ -79,9 +79,6 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
                 txidx.append(key+i*1600)
                 # this is the expected range delay for the meteor
                 delays.append(delay-pad)
-                plt.plot(ztx_re[(i*1600):(i*1600+txlen)])
-                plt.plot(ztx_im[(i*1600):(i*1600+txlen)])
-                plt.show()
                          
                 ztx_pulses_re.append(ztx_re[(i*1600):(i*1600+txlen)])
                 ztx_pulses_im.append(ztx_im[(i*1600):(i*1600+txlen)])
@@ -97,7 +94,7 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
         RTI=n.zeros([n_ipp,1600],dtype=n.float32)
         TXI=n.zeros([n_ipp,txlen],dtype=n.float32)
         for i in range(n_ipp):
-            TXI[i,:]+=ztx_re[i]**2.0+ztx_im[i]**2.0
+            TXI[i,:]+=ztx_pulses_re[i]**2.0+ztx_pulses_im[i]**2.0
             for ci in range(len(rx_ch)):
                 RTI[i,delays[i]:(delays[i]+2*pad+txlen)]+=n.abs(zrx_echoes_re[i][ci,:]+zrx_echoes_im[i][ci,:]*1j)**2.0
         plt.pcolormesh(RTI.T)
