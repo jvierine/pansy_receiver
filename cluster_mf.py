@@ -386,8 +386,7 @@ def find_clusters(txpa,txidxa,rnga,dopa,snra,beam,dmw):
                 import traceback
                 traceback.print_exc()
 
-if __name__ == "__main__":
-
+def analyze_until_now():
     # this is where the existing metadata lives
 
     det_md_dir=pc.detections_metadata_dir
@@ -472,3 +471,7 @@ if __name__ == "__main__":
         txpa,txidxa,rnga,dopa,snra,beam=read_mf_output(dm_mf,i0,i1)
         find_clusters(txpa,txidxa,rnga,dopa,snra,beam,dmw)
         
+if __name__ == "__main__":
+    while True:
+        analyze_until_now()
+        time.sleep(3600)
