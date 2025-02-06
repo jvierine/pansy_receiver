@@ -406,15 +406,18 @@ if __name__ == "__main__":
             latest_idx=[]
             for f in fl:
                 h=h5py.File(f,"r")
+                print(f)
                 latest_idx.append(h["latest"][()])
                 h.close()
             analysis_end=n.min(latest_idx)
         except:
+            import traceback
+            traceback.print_exc()
             print("couldn't read det metadata")
     else:
         os.system("mkdir -p %s"%(det_md_dir))
     print("%s"%(stuffr.unix2datestr(analysis_end/1e6)))
-
+    exit(0)
     # setup the directory and file cadence.
     # use 1 MHz, as this is the sample-rate and thus a
     # natural resolution for timing.
