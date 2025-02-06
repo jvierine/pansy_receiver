@@ -79,6 +79,10 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
                 txidx.append(key+i*1600)
                 # this is the expected range delay for the meteor
                 delays.append(delay-pad)
+                plt.plot(ztx_re[(i*1600):(i*1600+txlen)])
+                plt.plot(ztx_im[(i*1600):(i*1600+txlen)])
+                plt.show()
+                         
                 ztx_pulses_re.append(ztx_re[(i*1600):(i*1600+txlen)])
                 ztx_pulses_im.append(ztx_im[(i*1600):(i*1600+txlen)])
 
