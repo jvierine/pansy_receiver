@@ -26,4 +26,15 @@ int main(int argc, char **argv)
 
   const auto sensor_value3 = clock->get_sensor("gps_time");
   std::cout << sensor_value3.to_pp_string() <<  std::endl;  
+
+  const auto sensor_value3 = clock->get_sensor("gps_gpgga");
+  std::cout << sensor_value3.to_pp_string() <<  std::endl;  
+
+  const auto sensor_value3 = clock->get_sensor("gps_gprmc");
+  std::cout << sensor_value3.to_pp_string() <<  std::endl;  
+
+  const auto sensor_value3 = clock->get_sensor("gps_servo");
+  std::cout << sensor_value3.to_pp_string() <<  std::endl;  
+
+
 }
