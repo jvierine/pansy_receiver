@@ -187,7 +187,7 @@ for i in range(n_block):
         # store between i0 and i1 plus padding ch000-ch006
         # store +/- 64 samples around the tx pulse of length 128 samples
         # pad by X samples
-        cut_raw_voltage(n.min(tx_idx)-21*1600,n.max(tx_idx),
+        cut_raw_voltage(n.min(tx_idx)-21*1600,n.max(tx_idx)+21*1600,
                         rmodel,
                         beams=beams,
                         rx_ch=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"],
