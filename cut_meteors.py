@@ -102,7 +102,7 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
  #               print(len(zrx_echoes_re[i][ci,:]))
 #                print(2*pad+txlen)
                 RTI[i,delays[i]:(delays[i]+2*pad+txlen)]+=n.abs(n.array(zrx_echoes_re[i][ci,:],dtype=n.float32)+n.array(zrx_echoes_im[i][ci,:],dtype=n.float32)*1j)**2.0
-        plt.pcolormesh((txidx-txidx[0])/1e6,n.arange(1600)*0.15,RTI.T)
+        plt.pcolormesh(RTI.T)
         plt.colorbar()
         plt.show()
 
@@ -180,7 +180,8 @@ for i in range(n_block):
         # store between i0 and i1 plus padding ch000-ch006
         # store +/- 64 samples around the tx pulse of length 128 samples
         # pad by X samples
-        cut_raw_voltage(n.min(tx_idx)-21*1600,n.max(tx_idx),rmodel,
+        cut_raw_voltage(n.min(tx_idx)-21*1600,n.max(tx_idx),
+                        rmodel,
                         beams=beams,
                         rx_ch=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"],
                         tx_ch="ch007",
