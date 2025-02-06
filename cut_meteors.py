@@ -45,11 +45,6 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
 
     zrx=n.zeros([n_ch,20*1600],dtype=n.complex64)
 
-    zrx_re=n.zeros([n_ch,20*1600],dtype=n.int16)
-    zrx_im=n.zeros([n_ch,20*1600],dtype=n.int16)
-
-    ztx_re=n.zeros(20*1600,dtype=n.int16)
-    ztx_im=n.zeros(20*1600,dtype=n.int16)
 
     #z_tx=n.zeros([20,txlen],dtype=n.complex64)
     txidx=[]
@@ -65,6 +60,12 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
     print(kl)
     for key in kl:
         print(key)
+        # create new 20 ipps
+        zrx_re=n.zeros([n_ch,20*1600],dtype=n.int16)
+        zrx_im=n.zeros([n_ch,20*1600],dtype=n.int16)
+        ztx_re=n.zeros(20*1600,dtype=n.int16)
+        ztx_im=n.zeros(20*1600,dtype=n.int16)
+
         for chi in range(len(rx_ch)):
             zrx[chi,:]=d.read_vector_c81d(key,1600*20,rx_ch[chi])
         zrx_re[:,:]=n.array(zrx.real,dtype=n.int16)
@@ -72,9 +73,9 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
         z_tx=d.read_vector_c81d(key,1600*20,tx_ch)
         ztx_re[:]=n.array(z_tx.real,dtype=n.int16)
         ztx_im[:]=n.array(z_tx.imag,dtype=n.int16)
-        plt.plot(ztx_re[0:132])
-        plt.plot(ztx_im[0:132])
-        plt.show()
+#        plt.plot(ztx_re[0:132])
+ #       plt.plot(ztx_im[0:132])
+  #      plt.show()
         for i in range(20):
             this_beam_idx=i%5
             delay=int(n.round(rmodel(key+i*1600)/drg))
