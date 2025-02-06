@@ -205,7 +205,7 @@ def meteor_search(debug=False):
 
         # only process if we have raw voltage data in ringbuffer
         if (i0 > b[0]) & (i1 < b[1]):
-            print("%d processing %s"%(stuffr.unix2datestr(i0/1e6)))
+            print("%d processing %s"%(rank,stuffr.unix2datestr(i0/1e6)))
             data_dict = dmr.read(i0, i1, "id")
 
             # see if results already exist
