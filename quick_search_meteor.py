@@ -308,7 +308,9 @@ def meteor_search(debug=False):
     
     
 if __name__ == "__main__":
-    #while True:
-    meteor_search()
+    while True:
+        meteor_search()
+        print("wait for all threads to finnish")
+        comm.Barrier()
     #    time.sleep(60)
     
