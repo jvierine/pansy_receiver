@@ -418,7 +418,7 @@ if __name__ == "__main__":
     else:
         os.system("mkdir -p %s"%(det_md_dir))
     print("%s"%(stuffr.unix2datestr(analysis_end/1e6)))
-    exit(0)
+#    exit(0)
     # setup the directory and file cadence.
     # use 1 MHz, as this is the sample-rate and thus a
     # natural resolution for timing.
