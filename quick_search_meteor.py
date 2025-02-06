@@ -200,15 +200,8 @@ def meteor_search(debug=False):
         cput0=time.time()                        
         i0=start_minute*60*1000000 + bi*60*1000000
         i1=start_minute*60*1000000 + bi*60*1000000 + 60*1000000
-#        print("rank %d processing minute %d/%d"%(rank,bi,n_minutes))
-        #db_mf = dm_mf.get_bounds()
-        #       if db_mf[1] >= i0:
-        #          print("skipping block %d, because it is already processed"%(bi))
-        #         continue
-        #    print("processing %d"%(bi))
             
         b=d.get_bounds("ch000")
-        # if we have raw voltage
 
         # only process if we have raw voltage data in ringbuffer
         if (i0 > b[0]) & (i1 < b[1]):
