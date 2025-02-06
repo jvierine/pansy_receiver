@@ -13,6 +13,7 @@ import scipy.fftpack as fp
 import itertools
 import pansy_config as pc
 import glob
+import h5py 
 
 def fit_obs(tx_idx,rg,dop,fit_acc=False,return_model=False):
     """
