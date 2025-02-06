@@ -174,8 +174,8 @@ def meteor_search(debug=False):
     b=d.get_bounds("ch000")
 
     d_analysis=file_cadence_seconds*1000000
-
-    start_idx=d_analysis*int(n.ceil(b[0]/d_analysis))
+    # start analysis one day in the past
+    start_idx=d_analysis*int(n.ceil((b[1]-24*3600*1000000)/d_analysis))
     # stay 6 minutes behind realtime to avoid underfull metadata files
     end_idx=d_analysis*int(n.ceil(db[1]/d_analysis))-6*d_analysis
 
@@ -225,7 +225,7 @@ def meteor_search(debug=False):
 
             keys=data_dict.keys()
             n_keys=len(keys)
-            print("%d processing %d pulses"%(rank,20*n_keys))
+            #print("%d processing %d pulses"%(rank,20*n_keys))
             for key in keys:
                 keyi=int(key)
 #                if keyi <= db_mf[1]:
