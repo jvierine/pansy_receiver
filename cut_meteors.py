@@ -7,6 +7,7 @@ import stuffr
 import time
 import pansy_config as pc
 import cluster_mf as cmf
+import traceback
 
 # transmit pulse metadata
 dmt = drf.DigitalMetadataReader(pc.tx_metadata_dir)
@@ -19,6 +20,21 @@ bm = dm.get_bounds()
 # match function outputs
 dmf = drf.DigitalMetadataReader(pc.mf_metadata_dir)
 bmf = dmf.get_bounds()
+
+subdirectory_cadence_seconds = 3600
+file_cadence_seconds = 60
+samples_per_second_numerator = 1000000
+samples_per_second_denominator = 1
+file_name = "cut"
+
+dmw = drf.DigitalMetadataWriter(
+    pc.cut_metadata_dir,
+    subdirectory_cadence_seconds,
+    file_cadence_seconds,
+    samples_per_second_numerator,
+    samples_per_second_denominator,
+    file_name,
+)
 
 # raw voltage
 d=drf.DigitalRFReader(pc.raw_voltage_dir)
@@ -59,7 +75,7 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
     kl=n.sort(list(tx_data_dict.keys()))
     print(kl)
     for key in kl:
-        print(key)
+#        print(key)
         # create new 20 ipps
         zrx_re=n.zeros([n_ch,20*1600],dtype=n.int16)
         zrx_im=n.zeros([n_ch,20*1600],dtype=n.int16)
@@ -118,17 +134,17 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
         #plt.colorbar()
         #plt.show()
 
-    return({"tx_idx":txidx, # these are the indices of the transmit pulses
-            "beam_id":beam_ids,  # these are the beam directions
-            "ztx_pulses_re":ztx_pulses_re, # 16-bit int real tx
-            "ztx_pulses_im":ztx_pulses_im, # 16-bit int imag tx
-            "zrx_echoes_re":zrx_echoes_re, # 16-bit int real echo
-            "zrx_echoes_im":zrx_echoes_im, # 16-bit int imag eho 
-            "delays":delays, # delay between tx_idx and echo start sample (tx_idx+delays)
-            "pad":pad, # how much did we pad the echo in addition to txlen
-            "txlen":txlen, # what is the tx pulse length
-            "channels":rx_ch, # what channels are stored
-            "tx_channel":tx_ch}) # what is the tx channel name
+    return({"tx_idx":[txidx], # these are the indices of the transmit pulses
+            "beam_id":[beam_ids],  # these are the beam directions
+            "ztx_pulses_re":[ztx_pulses_re], # 16-bit int real tx
+            "ztx_pulses_im":[ztx_pulses_im], # 16-bit int imag tx
+            "zrx_echoes_re":[zrx_echoes_re], # 16-bit int real echo
+            "zrx_echoes_im":[zrx_echoes_im], # 16-bit int imag eho 
+            "delays":[delays], # delay between tx_idx and echo start sample (tx_idx+delays)
+            "pad":[pad], # how much did we pad the echo in addition to txlen
+            "txlen":[txlen], # what is the tx pulse length
+            "channels":[rx_ch], # what channels are stored
+            "tx_channel":[tx_ch]}) # what is the tx channel name
 
 dt=60
 sr=1000000
@@ -188,15 +204,37 @@ for i in range(n_block):
         # store between i0 and i1 plus padding ch000-ch006
         # store +/- 64 samples around the tx pulse of length 128 samples
         # pad by X samples
-        cut_raw_voltage(n.min(tx_idx)-61*1600,n.max(tx_idx)+61*1600,
-                        rmodel,
-                        beams=beams,
-                        rx_ch=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"],
-                        tx_ch="ch007",
-                        txlen=132,
-                        pad=64,
-                        plot=n.max(snr)>100
-                        )
+        cut_res=cut_raw_voltage(n.min(tx_idx)-61*1600,n.max(tx_idx)+61*1600,
+                                rmodel,
+                                beams=beams,
+                                rx_ch=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"],
+                                tx_ch="ch007",
+                                txlen=132,
+                                pad=64,
+                                plot=n.max(snr)>100
+                                )
+        cut_res["c_snr"]=[snr]
+        cut_res["c_tx_idx"]=[tx_idx]
+        cut_res["c_beam_idx"]=[beam_idx]
+        cut_res["c_doppler"]=[doppler_ms]
+        cut_res["c_range_km"]=[range_km]
+        okey=n.min(tx_idx)
+        try:
+            dmw.write([okey],cut_res)
+        except:
+            traceback.print_exc()
+
+#    return({"tx_idx":txidx, # these are the indices of the transmit pulses
+#            "beam_id":beam_ids,  # these are the beam directions
+#            "ztx_pulses_re":ztx_pulses_re, # 16-bit int real tx
+#            "ztx_pulses_im":ztx_pulses_im, # 16-bit int imag tx
+#            "zrx_echoes_re":zrx_echoes_re, # 16-bit int real echo
+#            "zrx_echoes_im":zrx_echoes_im, # 16-bit int imag eho 
+#            "delays":delays, # delay between tx_idx and echo start sample (tx_idx+delays)
+#            "pad":pad, # how much did we pad the echo in addition to txlen
+#            "txlen":txlen, # what is the tx pulse length
+#            "channels":rx_ch, # what channels are stored
+#            "tx_channel":tx_ch}) # what is the tx channel name
 
         if False:
 
