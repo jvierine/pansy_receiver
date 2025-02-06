@@ -284,7 +284,7 @@ def meteor_search(debug=False):
                 ho=h5py.File(last_fname,"w")
                 ho["latest"]=key
                 ho.close()
-
+                # check if we have done this already?
                 mf2out=dm_mf2.read(key-100,key+100,["beam_pos_idx"])
                 if len(mf2out.keys())==0:
                     try:
@@ -308,7 +308,7 @@ def meteor_search(debug=False):
     
     
 if __name__ == "__main__":
-    while True:
-        meteor_search()
-        time.sleep(60)
+    #while True:
+    meteor_search()
+    #    time.sleep(60)
     
