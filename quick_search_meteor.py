@@ -195,15 +195,18 @@ def meteor_search(debug=False):
     rds=range_doppler_search()
     N=20*1600
     beam_pos_idx=n.arange(20,dtype=n.int8)%5
+
     # analyze in parallel. one minute for each thread
-    for bi in range(n_minutes):
+    for bi in range(start_minute,end_minute):
         if bi%size != rank:
 #            print("rank %d skipping minute for rank %d"%(rank,bi%size))
             continue
         
-        cput0=time.time()                        
-        i0=start_minute*60*1000000 + bi*60*1000000
-        i1=start_minute*60*1000000 + bi*60*1000000 + 60*1000000
+        cput0=time.time()                      
+#        i0=start_minute*60*1000000 + bi*60*1000000
+ #       i1=start_minute*60*1000000 + bi*60*1000000 + 60*1000000
+        i0=bi*60*1000000 
+        i1=bi*60*1000000 + 60*1000000
             
         b=d.get_bounds("ch000")
 
