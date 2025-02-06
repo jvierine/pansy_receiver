@@ -47,4 +47,5 @@ def clean_utls():
 if __name__ == "__main__":
     while True:
         clean_utls()
-        time.sleep(3600)
+        # sleep for a long time!
+        time.sleep(12*3600)
