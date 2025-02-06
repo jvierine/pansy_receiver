@@ -405,7 +405,7 @@ def analyze_until_now():
             traceback.print_exc()
             print("couldn't read det metadata")
 
-
+        try:
             # look for mf search output to determine where it has reached. only analyze that far
             fl=glob.glob("/tmp/meteor_mf_*.h5")
             latest_idx=[]
