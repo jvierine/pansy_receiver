@@ -102,7 +102,7 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
             rx_im=zrx_echoes_im[i]
 
             for ci in range(len(rx_ch)):
-                RTI[i,delays[i]:(delays[i]+2*pad+txlen)]+=(n.array(rx_re[ci,:],dtype=n.float32)**2+n.arrayrx_im[ci,:],dtype=n.float32)**2.0
+                RTI[i,delays[i]:(delays[i]+2*pad+txlen)]+=n.array(rx_re[ci,:],dtype=n.float32)**2+n.array(rx_im[ci,:],dtype=n.float32)**2.0
         plt.pcolormesh(RTI.T)
         plt.colorbar()
         plt.show()
