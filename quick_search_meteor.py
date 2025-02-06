@@ -218,9 +218,9 @@ def meteor_search(debug=False):
             dm_mf2 = drf.DigitalMetadataReader(mf_metadata_dir)
             mf2out=dm_mf2.read(i0,i1,["beam_pos_idx"])
             if len(mf2out.keys())>0:
-                print("rank %d already processed %d-%d %d results"%(rank,i0,i1,len(mf2out.keys())))
+            #    print("rank %d already processed %d-%d %d results"%(rank,i0,i1,len(mf2out.keys())))
                 continue
-            print("not processed yet rank %d"%(rank))
+            #print("not processed yet rank %d"%(rank))
             
 
             keys=data_dict.keys()
