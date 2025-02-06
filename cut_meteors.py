@@ -33,10 +33,10 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
     tx_data_dict = dmt.read(i0, i1, "id")
 
     # how many 20 ipp segments do we have
-    n_seq=len(tx_data_dict.keys())
-    if len(n_seq)==0:
-        print("no data found!")
-        return({})
+#    n_seq=len(tx_data_dict.keys())
+ #   if len(n_seq)==0:
+  #      print("no data found!")
+   #     return({})
     
     # this is the beam number
     beam_idx=n.array(n.mod(n.arange(20,dtype=n.int64),5),dtype=n.int8)
