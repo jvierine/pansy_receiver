@@ -24,7 +24,9 @@ bmf = dmf.get_bounds()
 d=drf.DigitalRFReader(pc.raw_voltage_dir)
 b=d.get_bounds("ch007")
 
-def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"],tx_ch="ch007",txlen=132,pad=64):
+def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"],tx_ch="ch007",txlen=132,
+                    plot=False,
+                    pad=64):
 
     # one sample in range (km)
     drg=c.c/1e6/2/1e3    
@@ -88,7 +90,7 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
                 zrx_echoes_im.append(zrx_im[:,(i*1600+delay-pad):(i*1600+txlen+delay+pad)])
 
                 beam_ids.append(this_beam_idx)
-    plot=True
+    #plot=True
     if plot:
         n_ipp = len(delays)
         RTI=n.zeros([n_ipp,1600],dtype=n.float32)
@@ -180,7 +182,9 @@ for i in range(n_block):
                         rx_ch=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"],
                         tx_ch="ch007",
                         txlen=132,
-                        pad=64)
+                        pad=64,
+                        plot=n.max(snr)>100
+                        )
 
         if False:
 
