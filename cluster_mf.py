@@ -12,6 +12,7 @@ import time
 import scipy.fftpack as fp
 import itertools
 import pansy_config as pc
+import glob
 
 def fit_obs(tx_idx,rg,dop,fit_acc=False,return_model=False):
     """
@@ -392,12 +393,22 @@ if __name__ == "__main__":
     #det_md_dir = "/media/archive/metadata/detections"
     b_det=[-1,-1]
     det_md=None
+    analysis_end=-1
     if os.path.exists(det_md_dir):
         print("metadata directory exists. searching for last timestamp")
         try:
             det_md = drf.DigitalMetadataReader(det_md_dir)
             b_det = det_md.get_bounds()
             print(b_det)
+
+            # look for mf search output to determine where it has reached. only analyze that far
+            fl=glob.glob("/tmp/meteor_mf_*.h5")
+            latest_idx=[]
+            for f in fl:
+                h=h5py.File(f,"r")
+                latest_idx.append(h["latest"][()])
+                h.close()
+            analysis_end=n.min(latest_idx)
         except:
             print("couldn't read det metadata")
     else:
@@ -433,13 +444,16 @@ if __name__ == "__main__":
     b=d.get_bounds("ch007")
     #start_idx=db_mf[1]-2*60*60*1000000
 
-    start_idx=dt*int(n.floor(db_mf[0]/dt))
     # start in the beginning
+    start_idx=dt*int(n.floor(db_mf[0]/dt))
     if b_det[1] != -1:
-        # start where detections end
+        # start where detections end, if we have already analyzed
         start_idx=dt*int(n.ceil(b_det[1]/dt))
 
-    n_min=int(n.floor((db_mf[1]-start_idx)/dt))
+    # only go up to the point where the slowest thread is at (analysis_end)
+    if analysis_end == -1:
+        analysis_end=db_mf[1]
+    n_min=int(n.floor((analysis_end-start_idx)/dt))
     for i in range(n_min):
         i0=start_idx+i*dt
         i1=start_idx+i*dt+dt
