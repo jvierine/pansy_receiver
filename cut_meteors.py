@@ -61,8 +61,8 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
     beam_ids=[]
 
     for key in tx_data_dict.keys().sort():
-        for chi,ch in enumerate(tx_ch):
-            zrx[chi,:]=d.read_vector_c81d(key,1600*20,ch)
+        for chi in range(len(rx_ch)):
+            zrx[chi,:]=d.read_vector_c81d(key,1600*20,rx_ch[chi])
         zrx_re[:,:]=n.array(zrx.real,dtype=n.int16)
         zrx_im[:,:]=n.array(zrx.imag,dtype=n.int16)
 
@@ -87,16 +87,17 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
 
                 beam_ids.append(this_beam_idx)
 
-    return({"tx_idx":txidx,"beam_id":beam_ids,
-            "ztx_pulses_re":ztx_pulses_re,
-            "ztx_pulses_im":ztx_pulses_im,
-            "zrx_echoes_re":zrx_echoes_re,
-            "zrx_echoes_im":zrx_echoes_im,
-            "delays":delays,
-            "pad":pad,
-            "txlen":txlen,
-            "channels":rx_chan,
-            "tx_channel":tx_ch})
+    return({"tx_idx":txidx, # these are the indices of the transmit pulses
+            "beam_id":beam_ids,  # these are the beam directions
+            "ztx_pulses_re":ztx_pulses_re, # 16-bit int real tx
+            "ztx_pulses_im":ztx_pulses_im, # 16-bit int imag tx
+            "zrx_echoes_re":zrx_echoes_re, # 16-bit int real echo
+            "zrx_echoes_im":zrx_echoes_im, # 16-bit int imag eho 
+            "delays":delays, # delay between tx_idx and echo start sample (tx_idx+delays)
+            "pad":pad, # how much did we pad the echo in addition to txlen
+            "txlen":txlen, # what is the tx pulse length
+            "channels":rx_ch, # what channels are stored
+            "tx_channel":tx_ch}) # what is the tx channel name
 
 dt=60
 sr=1000000
