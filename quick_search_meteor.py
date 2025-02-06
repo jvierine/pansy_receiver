@@ -293,13 +293,7 @@ def meteor_search(debug=False):
                     try:
                         dmw.write([key],odata_dict)
                     except:
-                        try:
-                            time.sleep(0.1)
-                            print("trying to rewrite again")
-                            # try again
-                            dmw.write([key],odata_dict)
-                        except:
-                            traceback.print_exc()
+                        traceback.print_exc()
                 else:
                     print("%d %s looks like this is already processes."%(rank,stuffr.unix2datestr(key/1e6)))
 
