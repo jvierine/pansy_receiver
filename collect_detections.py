@@ -53,6 +53,16 @@ cb.set_label("Doppler (km/s)")
 ax.set_xlabel("Time (unix)")
 plt.show()
 
+fig, ax = plt.subplots()
+m=ax.scatter(v0s,r0s,c=10.0*n.log10(snrs),s=1,cmap="turbo",vmin=10,vmax=42)
+#fig.autofmt_xdate()
+ax.set_title("%d meteors"%(len(tv)))
+cb=fig.colorbar(m,ax=ax)
+cb.set_label("SNR (dB)")
+ax.set_xlabel("Radial velocity (km/s)")
+plt.show()
+
+
 if False:
     plt.scatter(tv,r0s,c=v0s,vmin=0,vmax=72,s=1,cmap="turbo")
     plt.title("%d meteors"%(len(tv)))
