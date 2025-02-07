@@ -10,6 +10,7 @@ import pansy_config as pc
 import itertools
 import os
 import traceback
+import h5py
 
 from mpi4py import MPI
 comm = MPI.COMM_WORLD
