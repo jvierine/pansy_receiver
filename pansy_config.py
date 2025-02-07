@@ -3,6 +3,7 @@ mf_metadata_dir="/media/analysis/metadata/mf"
 tx_metadata_dir="/media/analysis/metadata/tx"
 detections_metadata_dir="/media/analysis/metadata/detections"
 cut_metadata_dir="/media/analysis/metadata/cut"
+mesomode_metadata_dir="/media/analysis/metadata/mesomode"
 
 raw_voltage_dir="/media/archive/"
 
