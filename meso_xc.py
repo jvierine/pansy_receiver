@@ -8,42 +8,87 @@ import stuffr
 import time
 import pansy_config as pc
 
-def find_blocks():
+def analyze_block(i0,i1,
+                  rx_ch=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"],
+                  tx_ch="ch007",
+                  r0=60,r1=110, # range interval to store
+                  max_dop=64.0, # largest Doppler shift (Hz) stored
+                  txlen=132,
+                  n_cycles=64): # how many 20 ipp cycles are stored in one spectrum
     """
     find contiguous blocks of mesosphere mode
     """
-    dmr = drf.DigitalMetadataReader(pc.tx_metadata_dir)
-    db = dmr.get_bounds()
-    max_gap = 20*1600+1600
-    block=10*60*1000000
-    i0=db[0]
-    meso_blocks=[]
-    meso_start=-1
-    meso_prev=-1
-    while i0<(db[1]-2*block):
-        i1=i0+block
-        data_dict = dmr.read(i0, i1, "id")
-        if len(data_dict.keys()) == 0:
-            print("no meso-mode")
-        else:
-            for k in data_dict.keys():
-                if meso_start == -1:
-                    meso_start = k
-                    meso_prev=k
-                if ((k-meso_prev) > 0) and ((k-meso_prev) < max_gap):
-                    meso_prev=k
-                if ((k-meso_prev) > 0) and ((k-meso_prev) > max_gap):
-                    meso_end=meso_prev
-                    meso_blocks.append({"start":meso_start,"end":meso_end})
-                    print("%s found meso mode %1.2f (s)"%(stuffr.unix2datestr(meso_start/1e6), (meso_end-meso_start)/1e6))
-                    # start new
-                    meso_start=k
-                    meso_prev=k
-        i0+=block
+    dmt = drf.DigitalMetadataReader(pc.tx_metadata_dir)
+    dd=dmt.read(i0,i1)
+    
+    n_ch=len(rx_ch)
+    # how many ipps 
+    n_ipp=4*n_cycles
+    # how many tx beams 
+    n_beams=5
+    # xc and self correlations
+    
+    # what pairs do we store
+    ch_pairs=list(itertools.combinations(n.arange(7),2))
+    for i in range(n_ch):
+        ch_pairs.append((i,i))
 
+    n_xc=len(ch_pairs)
+        
+    drg=c.c/1e6/2/1e3
+    ipp=1600
+    rvec=n.arange(ipp)*drg
+    wfun=sw.hann(n_ipp)
+    fvec=n.fft.fftshift(n.fft.fftfreq(n_ipp,d=1/(5*ipp/1e6)))
+    Z=n.zeros([n_ch,n_beams,n_ipp,ipp],dtype=n.complex64)
+    XC=n.zeros([n_ch,n_xc,n_ipp,ipp],dtype=n.complex64)
+
+    txpulse=n.zeros(1600,dtype=n.complex64)
+    z_echo=n.zeros(1600,dtype=n.complex64)
+    for k in dd.keys():
+        ipp_idx0=0
+        ztx=d.read_vector_c81d(k,1600*20,tx_ch)
+        
+        for chi in range(n_ch):
+            z=d.read_vector_c81d(k,1600*20,rx_ch[chi])
+            for bi in range(n_beams):
+                for ti in range(4):
+                    si0=ti*5*1600 + bi*1600
+                    txpulse[0:txlen]=ztx[si0:(si0+txlen)]
+                    z_echo[:]=z[si0:(si0+txlen)]
+                    # gc remove
+                    z_echo[0:(txlen+100)]=0.0
+                    Z[chi,bi,ti+ipp_idx0,:]=n.ifft.ifft(n.fft.fft(n.conj(txpulse))*n.fft.fft(z_echo))
+        # we get for ipps for each 20 pulse cycle
+        ipp_idx0+=4
+        for chi in range(n_ch):
+            for bi in range(n_beams):
+                plt.pcolormesh(n.real(Z[chi,bi,:,:]))
+                plt.colorbar()
+                plt.show()
+        
+                    
+                
+            
+
+
+    
+    #mesomode_metadata_dir="/media/analysis/metadata/mesomode"
 
 if __name__ == "__main__":
-    find_blocks()
+    dmm = drf.DigitalMetadataReader(pc.mesomode_metadata_dir)
+    b=dmm.get_bounds()
+    dd=d.read(b[0],b[0]+3600*1000000)
+    for k in dd.keys():
+        i0=dd[k]["start"]
+        i1=dd[k]["end"]
+        if (i1-i0)>60*1000000:
+            print("long enough")
+            analyze_block(i0,i1)
+
+    
+    #mesomode_metadata_dir="/media/analysis/metadata/mesomode"
+    
 
 def analyze_m_mode(d,
                    dt=10,
