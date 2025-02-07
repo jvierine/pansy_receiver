@@ -35,7 +35,7 @@ def find_blocks():
                 if ((k-meso_prev) > 0) and ((k-meso_prev) > max_gap):
                     meso_end=meso_prev
                     meso_blocks.append({"start":meso_start,"end":meso_end})
-                    print("found meso mode %1.2f (s)"%( (meso_end-meso_start)/1e6))
+                    print("%s found meso mode %1.2f (s)"%(stuffr.unix2datestr(meso_start/1e6), (meso_end-meso_start)/1e6))
                     # start new
                     meso_start=k
                     meso_prev=k
