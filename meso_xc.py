@@ -81,10 +81,14 @@ def analyze_block(i0,i1,
             ipp_idx0=0
 
 
-            plt.pcolormesh(n.abs(XC[0,0,:,:].T))
+            plt.pcolormesh(fvec,rvec,n.abs(XC[0,0,:,:].T))
+            plt.ylim([r0,r1])
+            plt.xlim([-max_dop,max_dop])
             plt.colorbar()
             plt.show()
-            plt.pcolormesh(n.angle(XC[7,0,:,:].T),cmap="hsv")
+            plt.pcolormesh(fvec,rvec,n.angle(XC[7,0,:,:].T),cmap="hsv")
+            plt.ylim([r0,r1])
+            plt.xlim([-max_dop,max_dop])            
             plt.colorbar()
             plt.show()
 
