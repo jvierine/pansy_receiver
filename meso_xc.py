@@ -39,6 +39,8 @@ def find_blocks():
                     # start new
                     meso_start=k
                     meso_prev=k
+        i0+=block
+
 
 if __name__ == "__main__":
     find_blocks()
