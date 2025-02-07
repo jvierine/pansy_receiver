@@ -149,8 +149,9 @@ def analyze_block(i0,
     data_out["fvec"]=[rvec[fi0:fi1]]
     data_out["ch_pairs"]=[ch_pairs]
     data_out["rx_ch"]=[rx_ch]
-    data_out["i0"]=[i0]
-    data_out["i1"]=[i1]
+    data_out["dur"]=[i1-i0]
+#    data_out["i0"]=[i0]
+ #   data_out["i1"]=[i1]
     data_out["beams"]=[beams]
     try:
         dmw.write([i0],data_out)
