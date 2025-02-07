@@ -79,11 +79,9 @@ def analyze_block(i0,i1,
                     ch1=ch_pairs[pi][1]                
                     XC[pi,bi,:,:]+=S[ch0,bi,:,:]*n.conj(S[ch1,bi,:,:])
             ipp_idx0=0
-
-    for pi in range(n_xc):
-        for bi in range(n_beams):
+            
             plt.subplot(121)
-            plt.pcolormesh(fvec,rvec,n.abs(XC[pi,0,:,:].T))
+            plt.pcolormesh(fvec,rvec,n.abs(XC[0,1,:,:].T))
             plt.title("%s"%(stuffr.unix2datestr(i0/1e6)))
             plt.ylim([r0,r1])
             plt.xlim([-max_dop,max_dop])
@@ -91,7 +89,29 @@ def analyze_block(i0,i1,
             plt.ylabel("Range (km)")
             plt.colorbar()
             plt.subplot(122)            
-            plt.pcolormesh(fvec,rvec,n.angle(XC[pi,0,:,:].T),cmap="hsv")
+            plt.pcolormesh(fvec,rvec,n.angle(XC[7,1,:,:].T),cmap="hsv")
+            plt.title("beam %d (%d,%d)"%(1,ch_pairs[7][0],ch_pairs[7][1]))
+            plt.ylim([r0,r1])
+            plt.xlim([-max_dop,max_dop])
+            plt.xlabel("Doppler (Hz)")
+            plt.ylabel("Range (km)")
+            plt.colorbar()
+            plt.tight_layout()
+            plt.show()
+            
+
+    for pi in range(n_xc):
+        for bi in range(n_beams):
+            plt.subplot(121)
+            plt.pcolormesh(fvec,rvec,n.abs(XC[pi,bi,:,:].T))
+            plt.title("%s"%(stuffr.unix2datestr(i0/1e6)))
+            plt.ylim([r0,r1])
+            plt.xlim([-max_dop,max_dop])
+            plt.xlabel("Doppler (Hz)")
+            plt.ylabel("Range (km)")
+            plt.colorbar()
+            plt.subplot(122)            
+            plt.pcolormesh(fvec,rvec,n.angle(XC[pi,bi,:,:].T),cmap="hsv")
             plt.title("beam %d (%d,%d)"%(bi,ch_pairs[pi][0],ch_pairs[pi][1]))
             plt.ylim([r0,r1])
             plt.xlim([-max_dop,max_dop])
