@@ -43,7 +43,7 @@ def analyze_block(i0,i1,
     ipp=1600
     rvec=n.arange(ipp)*drg
     wfun=sw.hann(n_ipp)
-    fvec=n.fft.fftshift(n.fft.fftfreq(n_ipp,d=1/(5*ipp/1e6)))
+    fvec=n.fft.fftshift(n.fft.fftfreq(n_ipp,d=(5*ipp/1e6)))
     Z=n.zeros([n_ch,n_beams,n_ipp,ipp],dtype=n.complex64)
     S=n.zeros([n_ch,n_beams,n_ipp,ipp],dtype=n.complex64)
     XC=n.zeros([n_xc,n_beams,n_ipp,ipp],dtype=n.complex64)
