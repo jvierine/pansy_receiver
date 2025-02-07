@@ -150,7 +150,7 @@ def analyze_block(i0,i1,
     data_out["i0"]=i0
     data_out["i1"]=i1
     try:
-        dmw.write(key,data_out)
+        dmw.write(i0,data_out)
     except:
         traceback.print_exc()
     
