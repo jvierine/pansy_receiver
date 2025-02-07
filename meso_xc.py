@@ -82,7 +82,7 @@ def analyze_block(i0,i1,
                     ch0=ch_pairs[pi][0]
                     ch1=ch_pairs[pi][1]
                     W[pi,bi,:]=n.sum(n.abs(S[ch0,bi,:,:]*n.conj(S[ch1,bi,:,:]))**2.0,axis=0)
-                    XC[pi,bi,:,:]+=S[ch0,bi,:,:]*n.conj(S[ch1,bi,:,:])/W[pi,bi,:,None]
+                    XC[pi,bi,:,:]+=S[ch0,bi,:,:]*n.conj(S[ch1,bi,:,:])/W[pi,bi,None,:]
                     WS[pi,bi,:]+=1.0/W[pi,bi,:]
             ipp_idx0=0
             if False:
@@ -109,7 +109,7 @@ def analyze_block(i0,i1,
     for pi in range(n_xc):
         for bi in range(n_beams):
 
-            XC[pi,bi,:,:]=XC[pi,bi,:,:]/WS[pi,bi,:,None]
+            XC[pi,bi,:,:]=XC[pi,bi,:,:]/WS[pi,bi,None,:]
             
             plt.subplot(121)
             plt.pcolormesh(fvec,rvec,n.abs(XC[pi,bi,:,:].T))
