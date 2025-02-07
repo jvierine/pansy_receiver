@@ -1,0 +1,223 @@
+import numpy as n
+import digital_rf as drf
+import matplotlib.pyplot as plt
+import pansy_modes as pm
+import scipy.signal.windows as sw
+import scipy.constants as c
+import stuffr
+import time
+import pansy_config as pc
+
+def find_blocks():
+    """
+    find contiguous blocks of mesosphere mode
+    """
+    dmr = drf.DigitalMetadataReader(pc.tx_metadata_dir)
+    db = dmr.get_bounds()
+    max_gap = 20*1600+1600
+    block=10*60*1000000
+    i0=db[0]
+    meso_blocks=[]
+    meso_start=-1
+    meso_prev=-1
+    while i0<(db[1]-2*block):
+        i1=i0+block
+        data_dict = dmr.read(i0, i1, "id")
+        if len(data_dict.keys()) == 0:
+            print("no meso-mode")
+        else:
+            for k in data_dict.keys():
+                if meso_start == -1:
+                    meso_start = k
+                    meso_prev=k
+                if ((k-meso_prev) > 0) and ((k-meso_prev) < max_gap):
+                    meso_prev=k
+                if ((k-meso_prev) > 0) and ((k-meso_prev) > max_gap):
+                    meso_end=meso_prev
+                    meso_blocks.append({"start":meso_start,"end":meso_end})
+                    print("found meso mode %1.2f (s)"%( (meso_end-meso_start)/1e6))
+                    # start new
+                    meso_start=k
+                    meso_prev=k
+
+if __name__ == "__main__":
+    find_blocks()
+
+def analyze_m_mode(d,
+                   dt=10,
+                   debug=False,
+                   b0=None,
+                   b1=None,
+                   channels=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"],
+                   alias=False):
+    # The mesospheric mode is a special sequence of
+    # 20 16-bit complementary codes
+    # two codes are sent in each direction
+    # 
+    
+    # simple range-Doppler power spectrum for the M-mode
+    b=d.get_bounds("ch000")
+    if b0 == None:
+        b0=b[0]
+    if b1==None:
+        b1=b[1]
+
+    stm=pm.get_m_mode()
+    ncodes=20
+    codes=pm.get_vector(stm,ncodes=len(stm["codes"]))
+    codes.shape=(ncodes,1600) 
+    C=n.copy(codes)
+    
+    for i in range(codes.shape[0]):
+        if debug:
+            plt.plot(codes[i,:].real)
+            plt.show()
+
+        C[i,:]=n.conj(n.fft.fft(codes[i,:]))
+
+    # how many integration periods
+    n_ints=int(n.floor((b1-b0)/1e6/dt))
+    for i in range(rank,n_ints,size):
+        i0=b0+i*dt*1000000
+        i1=b0+(i+1)*dt*1000000
+        m_start_idxs=find_m_mode_start(d,i0,i1)
+        n_beam=len(stm["beam_pos_az_za"])
+        n_rg=1600
+        n_pulse=4
+        n_reps=32
+        wf=sw.hann(n_reps
+                   *n_pulse)
+        
+        n_channels=len(channels)
+        
+        Z=n.zeros([n_channels,n_beam,n_rg,n_pulse*n_reps],dtype=n.complex64)
+        S=n.zeros([n_channels,n_beam,n_rg,n_pulse*n_reps],dtype=n.float32)
+        
+        for chi in range(len(channels)):
+            ch=channels[chi]
+            rvec=n.arange(n_rg)*0.15
+            if alias:
+                rvec+=2*1600*0.15
+            # 2*f*v/c = df
+            # df*c/f/2 = v
+            fvec=n.fft.fftshift(n.fft.fftfreq(n_reps*n_pulse,d=n_beam*1600/1e6))*c.c/47.5e6/2.0
+            if len(m_start_idxs) > 1:
+                print("%1.1f found %d sequences"%(i*dt,len(m_start_idxs)))
+                n_cycles=int(n.floor(len(m_start_idxs)/n_reps))
+                print(n_cycles)
+                for ci in range(n_cycles):
+                    print("cycle %d %s"%(ci,ch))
+                    for ri in range(n_reps):
+                        i0=m_start_idxs[ci*n_reps + ri]
+                        for pi in range(n_pulse):
+                            for bi in range(n_beam):
+                                iread = i0 + pi*1600*n_beam + bi*1600 #+ 20
+                                z=d.read_vector_c81d(iread,1600,ch)
+                                if alias:
+                                    z2=d.read_vector_c81d(iread+2*1600,1600,ch)
+                                    z[200:1600]=z2[200:1600]
+                                codei = (pi*n_beam + bi)%20
+                                Z[chi,bi,:,ri*n_pulse + pi]=n.fft.ifft(n.fft.fft(z)*C[codei,:])
+                                #plt.plot(Z[bi,:,ri*n_pulse + pi].real)
+                                #plt.plot(Z[bi,:,ri*n_pulse + pi].imag)
+                                #plt.show()
+                                # phase shift based on transmit pulse phase 
+                                phase = n.angle(Z[chi,bi,0,ri*n_pulse + pi])
+                                Z[chi,bi,:,ri*n_pulse + pi]=Z[chi,bi,:,ri*n_pulse + pi]*n.exp(-1j*phase)
+        #                        if True:
+        #                           plt.plot(Z[bi,:,pi].real)
+        #                          plt.plot(Z[bi,:,pi].imag)
+        #                         plt.show()
+
+                    for bi in range(n_beam):
+                        if False:
+                            plt.pcolormesh(Z[chi,bi,:,:].real)
+                            plt.title("beam %d"%(bi))
+                            plt.colorbar()
+                            plt.show()
+                        for ri in range(n_rg):
+                            S[chi,bi,ri,:]+=n.abs(n.fft.fftshift(n.fft.fft(wf*Z[chi,bi,ri,:])))**2.0
+    #            for bi in range(n_beam):
+     #               for ri in range(n_rg):
+      #                  S[bi,ri,:]=S[bi,ri,:]/n.median(n.abs(S[bi,ri,:]-n.median(S[bi,ri,:])))
+
+                plt.figure(figsize=(16,9))
+                plt.subplot(231)
+                dB=10.0*n.log10(S[chi,0,:,:])
+                plt.title("Beam 1")
+                dB=dB-n.nanmedian(dB)
+                plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
+                plt.ylabel("Range (km)")
+                plt.xlabel("Doppler (Hz)")
+                plt.xlim([-200,200])
+
+                plt.subplot(232)
+                dB=10.0*n.log10(S[chi,1,:,:])
+                dB=dB-n.nanmedian(dB)
+             #   plt.ylim([0,40])
+                plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
+                plt.ylabel("Range (km)")
+                plt.xlabel("Doppler (Hz)")
+
+                plt.title("Beam 2")
+                plt.xlim([-200,200])
+
+                plt.subplot(233)
+                dB=10.0*n.log10(S[chi,2,:,:])
+                dB=dB-n.nanmedian(dB)
+              #  plt.ylim([0,40])
+                plt.title("Beam 3")
+                plt.xlim([-200,200])
+
+                plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
+                plt.ylabel("Range (km)")
+                plt.xlabel("Doppler (Hz)")
+
+                plt.subplot(234)
+                dB=10.0*n.log10(S[chi,3,:,:])
+                dB=dB-n.nanmedian(dB)
+            #    plt.ylim([0,40])
+                plt.title("Beam 4")
+                plt.xlim([-200,200])
+
+
+                plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
+                plt.ylabel("Range (km)")
+                plt.xlabel("Doppler (Hz)")
+
+                plt.subplot(235)
+                dB=10.0*n.log10(S[chi,4,:,:])
+                dB=dB-n.nanmedian(dB)
+                plt.pcolormesh(fvec,rvec,dB,vmin=-3,vmax=20)
+                plt.ylabel("Range (km)")
+                plt.xlabel("Doppler (Hz)")
+
+                plt.xlim([-200,200])
+
+    #            plt.ylim([0,40])
+                plt.title("Beam 5")
+
+                plt.subplot(236)
+                plt.title(stuffr.unix2datestr(m_start_idxs[0]/1e6))
+                A=n.zeros([Z.shape[2],Z.shape[3]],dtype=n.float32)
+                for bi in range(5):
+                    A+=n.abs(Z[chi,bi,:,:])**2.0
+                # range average a bit to get all details
+                for ti in range(A.shape[1]):
+                    A[:,ti] = n.convolve(n.repeat(1,20),A[:,ti],mode="same")
+                nf=n.nanmedian(A[200:1400,:])
+                A=(A-nf)/nf
+                plt.pcolormesh(A,vmin=0,vmax=5)
+    #            plt.ylabel("Range (km)")
+    #            plt.xlabel("Doppler (Hz)")
+
+    #            plt.pcolormesh(Z[0,:,:].real)
+                plt.tight_layout()
+                if alias:
+                    plt.savefig("amrd-%d-%s.png"%(int(m_start_idxs[0]/1e6),ch))
+                else:
+                    plt.savefig("mrd-%d-%s.png"%(int(m_start_idxs[0]/1e6),ch))
+
+                #plt.show()    
+                plt.close()
+                plt.clf()
