@@ -16,7 +16,8 @@ comm = MPI.COMM_WORLD
 size = comm.Get_size()
 rank = comm.Get_rank()
 
-def analyze_block(i0,i1,
+def analyze_block(i0,
+                  i1,
                   rx_ch=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"],
                   tx_ch="ch007",
                   r0=75,r1=110, # range interval to store
@@ -239,7 +240,8 @@ if __name__ == "__main__":
         rb=d.get_bounds("ch000")
         if (i1-i0)>60*1000000 and (rb[0]< i0):
             print("long enough")
-            analyze_block(i0,i1)
+            print("rank %d %s - %s"%(rank,stuff.unix2datestr(i0/1e6),stuff.unix2datestr(i1/1e6)))
+#            analyze_block(i0,i1)
 
     
 
