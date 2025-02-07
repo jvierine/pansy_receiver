@@ -288,6 +288,6 @@ def cut_block():
                     plt.tight_layout()
                     plt.show()
         
-
-cut_block()
-#    time.sleep(3600)
+while True:
+    cut_block()
+    time.sleep(3600)
