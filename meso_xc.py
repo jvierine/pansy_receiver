@@ -77,12 +77,14 @@ def analyze_block(i0,i1,
 
 if __name__ == "__main__":
     dmm = drf.DigitalMetadataReader(pc.mesomode_metadata_dir)
+    d = drf.DigitalRFReader(pc.raw_voltage_dir)
     b=dmm.get_bounds()
     dd=dmm.read(b[0],b[0]+3600*1000000)
     for k in dd.keys():
         i0=dd[k]["start"]
         i1=dd[k]["end"]
-        if (i1-i0)>60*1000000:
+        rb=d.get_bounds("ch000")
+        if (i1-i0)>60*1000000 and (rb[0]< i0):
             print("long enough")
             analyze_block(i0,i1)
 
