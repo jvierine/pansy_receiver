@@ -8,17 +8,37 @@ import stuffr
 import time
 import pansy_config as pc
 import itertools
+import os
+import traceback
 
 def analyze_block(i0,i1,
                   rx_ch=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"],
                   tx_ch="ch007",
-                  r0=60,r1=130, # range interval to store
+                  r0=75,r1=110, # range interval to store
                   max_dop=10.0, # largest Doppler shift (Hz) stored
                   txlen=132,
+                  plot=True,
                   n_cycles=312): # how many 20 ipp cycles are stored in one spectrum
     """
     find contiguous blocks of mesosphere mode
     """
+
+    subdirectory_cadence_seconds = 3600
+    file_cadence_seconds = 600
+    samples_per_second_numerator = 1000000
+    samples_per_second_denominator = 1
+    file_name = "wc"
+    os.system("mkdir -p %s"%(pc.xc_metadata_dir))
+
+    dmw = drf.DigitalMetadataWriter(
+        pc.xc_metadata_dir,
+        subdirectory_cadence_seconds,
+        file_cadence_seconds,
+        samples_per_second_numerator,
+        samples_per_second_denominator,
+        file_name,
+    )
+
     dmt = drf.DigitalMetadataReader(pc.tx_metadata_dir)
     dd=dmt.read(i0,i1)
     
@@ -42,8 +62,15 @@ def analyze_block(i0,i1,
     drg=c.c/1e6/2/1e3
     ipp=1600
     rvec=n.arange(ipp)*drg
+
+    ridx=n.where( (rvec > r0) & (rvec < r1))[0]
+    ri0=n.min(ridx)
+    ri1=n.max(ridx)
     wfun=sw.hann(n_ipp)
     fvec=n.fft.fftshift(n.fft.fftfreq(n_ipp,d=(5*ipp/1e6)))
+    fidx=n.where( n.abs(fvec)<max_dop)[0]
+    fi0=n.min(fidx)
+    fi1=n.max(fidx)
     Z=n.zeros([n_ch,n_beams,n_ipp,ipp],dtype=n.complex64)
     S=n.zeros([n_ch,n_beams,n_ipp,ipp],dtype=n.complex64)
     XC=n.zeros([n_xc,n_beams,n_ipp,ipp],dtype=n.complex64)
@@ -54,9 +81,9 @@ def analyze_block(i0,i1,
     txpulse=n.zeros(1600,dtype=n.complex64)
     z_echo=n.zeros(1600,dtype=n.complex64)
     ipp_idx0=0
-
+    print("%s"%(stuffr.unix2datestr(i0/1e6)))
     for k in dd.keys():
-        print("%d %s"%(ipp_idx0,stuffr.unix2datestr(k/1e6)))
+
         ztx=d.read_vector_c81d(k,1600*20,tx_ch)
         
         for chi in range(n_ch):
@@ -108,32 +135,50 @@ def analyze_block(i0,i1,
 
     for pi in range(n_xc):
         for bi in range(n_beams):
-
             XC[pi,bi,:,:]=XC[pi,bi,:,:]/WS[pi,bi,None,:]
-            dB=10.0*n.log10(n.abs(XC[pi,bi,:,:].T))
-            if bi < 8:
-                noise_floor=n.nanmedian(dB)
-            else:
-                noise_floor=-3
-            #10.0*n.log10(n.abs(XC[pi,bi,:,:].T))
-            plt.subplot(121)
-            plt.pcolormesh(fvec,rvec,dB,vmin=noise_floor,vmax=noise_floor+20)
-            plt.title("%s"%(stuffr.unix2datestr(i0/1e6)))
-            plt.ylim([r0,r1])
-            plt.xlim([-max_dop,max_dop])
-            plt.xlabel("Doppler (Hz)")
-            plt.ylabel("Range (km)")
-            plt.colorbar()
-            plt.subplot(122)            
-            plt.pcolormesh(fvec,rvec,n.angle(XC[pi,bi,:,:].T),cmap="hsv")
-            plt.title("beam %d (%d,%d)"%(bi,ch_pairs[pi][0],ch_pairs[pi][1]))
-            plt.ylim([r0,r1])
-            plt.xlim([-max_dop,max_dop])
-            plt.xlabel("Doppler (Hz)")
-            plt.ylabel("Range (km)")
-            plt.colorbar()
-            plt.tight_layout()
-            plt.show()
+    data_out={}
+    data_out["xc"]=XC[:,:,fi0:fi1,ri0:ri1]
+    data_out["rvec"]=rvec[ri0:ri1]#XC[:,:,fi0:fi1,ri0:ri1]
+    data_out["fvec"]=rvec[fi0:fi1]
+    data_out["ch_pairs"]=ch_pairs
+    data_out["rx_ch"]=rx_ch
+    data_out["i0"]=i0
+    data_out["i1"]=i1
+    try:
+        dmw.write(key,data_out)
+    except:
+        traceback.print_exc()
+    
+
+    if plot:
+        for pi in range(n_xc):
+            for bi in range(n_beams):
+                dB=10.0*n.log10(n.abs(XC[pi,bi,:,:].T))
+                if bi < 8:
+                    noise_floor=n.nanmedian(dB)
+                else:
+                    noise_floor=-3
+                #10.0*n.log10(n.abs(XC[pi,bi,:,:].T))
+                plt.subplot(121)
+                plt.pcolormesh(fvec,rvec,dB,vmin=noise_floor,vmax=noise_floor+20)
+                plt.title("%s"%(stuffr.unix2datestr(i0/1e6)))
+                plt.ylim([r0,r1])
+                plt.xlim([-max_dop,max_dop])
+                plt.xlabel("Doppler (Hz)")
+                plt.ylabel("Range (km)")
+                plt.colorbar()
+                plt.subplot(122)            
+                plt.pcolormesh(fvec,rvec,n.angle(XC[pi,bi,:,:].T),cmap="hsv")
+                plt.title("beam %d (%d,%d)"%(bi,ch_pairs[pi][0],ch_pairs[pi][1]))
+                plt.ylim([r0,r1])
+                plt.xlim([-max_dop,max_dop])
+                plt.xlabel("Doppler (Hz)")
+                plt.ylabel("Range (km)")
+                plt.colorbar()
+                plt.tight_layout()
+                plt.savefig("xc-%03d-%03d-%d.png"%(pi,bi,i0))
+                plt.close()
+#                plt.show()
 
 
                     
