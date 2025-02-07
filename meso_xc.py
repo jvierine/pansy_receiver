@@ -143,16 +143,16 @@ def analyze_block(i0,i1,
         for bi in range(n_beams):
             XC[pi,bi,:,:]=XC[pi,bi,:,:]/WS[pi,bi,None,:]
     data_out={}
-    data_out["xc"]=n.array(XC[:,:,fi0:fi1,ri0:ri1],dtype=n.complex64)
-    data_out["rvec"]=rvec[ri0:ri1]#XC[:,:,fi0:fi1,ri0:ri1]
-    data_out["fvec"]=rvec[fi0:fi1]
-    data_out["ch_pairs"]=ch_pairs
-    data_out["rx_ch"]=rx_ch
-    data_out["i0"]=i0
-    data_out["i1"]=i1
-    data_out["beams"]=beams
+    data_out["xc"]=[n.array(XC[:,:,fi0:fi1,ri0:ri1],dtype=n.complex64)]
+    data_out["rvec"]=[rvec[ri0:ri1]#XC[:,:,fi0:fi1,ri0:ri1]]
+    data_out["fvec"]=[rvec[fi0:fi1]]
+    data_out["ch_pairs"]=[ch_pairs]
+    data_out["rx_ch"]=[rx_ch]
+    data_out["i0"]=[i0]
+    data_out["i1"]=[i1]
+    data_out["beams"]=[beams]
     try:
-        dmw.write(i0,data_out)
+        dmw.write([i0],data_out)
     except:
         traceback.print_exc()
     
@@ -161,7 +161,7 @@ def analyze_block(i0,i1,
         pi=7
         bi=1
         dB=10.0*n.log10(n.abs(XC[pi,bi,:,:].T))
-        if bi < 8:
+        if bi < 7:
             noise_floor=n.nanmedian(dB)
         else:
             noise_floor=-3
@@ -229,7 +229,7 @@ if __name__ == "__main__":
     dmm = drf.DigitalMetadataReader(pc.mesomode_metadata_dir)
     d = drf.DigitalRFReader(pc.raw_voltage_dir)
     b=dmm.get_bounds()
-    t0=stuffr.date2unix(2025,1,31,0,0,00)*1000000
+    t0=stuffr.date2unix(2025,1,30,0,0,00)*1000000
     dd=dmm.read(t0,t0+24*3600*1000000)
     kl=list(dd.keys())
     for ki in range(rank,len(kl),size):#dd.keys():
