@@ -7,6 +7,7 @@ import scipy.constants as c
 import stuffr
 import time
 import pansy_config as pc
+import os
 
 def find_blocks():
     """
