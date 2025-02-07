@@ -74,7 +74,7 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
     delays=[]
     beam_ids=[]
     kl=n.sort(list(tx_data_dict.keys()))
-    print(kl)
+    #print(kl)
     for key in kl:
 #        print(key)
         # create new 20 ipps
@@ -211,7 +211,7 @@ def cut_block():
                     beams.append(bi)
                     beam_i0[bi]=n.min(tx_idx[n.where(beamnum==bi)[0]])
                     beam_i1[bi]=n.max(tx_idx[n.where(beamnum==bi)[0]])
-                    print("beam %d i0 %d i1 %d count %d"%(bi,beam_i0[bi],beam_i1[bi],beam_count[bi]))
+                    print("%s beam %d i0 %d i1 %d count %d"%(stuffr.unix2datestr(k/1e6),bi,beam_i0[bi],beam_i1[bi],beam_count[bi]))
             
             # store between i0 and i1 plus padding ch000-ch006
             # store +/- 64 samples around the tx pulse of length 128 samples
