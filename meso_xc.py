@@ -84,7 +84,7 @@ def analyze_block(i0,i1,
             plt.pcolormesh(n.abs(XC[0,0,:,:].T))
             plt.colorbar()
             plt.show()
-            plt.pcolormesh(n.angle(XC[7,0,:,:].T))
+            plt.pcolormesh(n.angle(XC[7,0,:,:].T),cmap="hsv")
             plt.colorbar()
             plt.show()
 
