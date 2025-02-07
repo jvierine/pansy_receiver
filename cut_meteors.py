@@ -10,41 +10,22 @@ import cluster_mf as cmf
 import traceback
 
 os.system("mkdir -p %s"%(pc.cut_metadata_dir))
-# transmit pulse metadata
-dmt = drf.DigitalMetadataReader(pc.tx_metadata_dir)
-bt = dmt.get_bounds()
 
-# meteor detections
-dm = drf.DigitalMetadataReader(pc.detections_metadata_dir)
-bm = dm.get_bounds()
 
-# match function outputs
-dmf = drf.DigitalMetadataReader(pc.mf_metadata_dir)
-bmf = dmf.get_bounds()
 
-subdirectory_cadence_seconds = 3600
-file_cadence_seconds = 60
-samples_per_second_numerator = 1000000
-samples_per_second_denominator = 1
-file_name = "cut"
-
-dmw = drf.DigitalMetadataWriter(
-    pc.cut_metadata_dir,
-    subdirectory_cadence_seconds,
-    file_cadence_seconds,
-    samples_per_second_numerator,
-    samples_per_second_denominator,
-    file_name,
-)
-
-# raw voltage
-d=drf.DigitalRFReader(pc.raw_voltage_dir)
-b=d.get_bounds("ch007")
 
 def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"],tx_ch="ch007",txlen=132,
                     plot=False,
                     pad=64):
 
+    # transmit pulse metadata
+    dmt = drf.DigitalMetadataReader(pc.tx_metadata_dir)
+    bt = dmt.get_bounds()
+
+    # raw voltage
+    d=drf.DigitalRFReader(pc.raw_voltage_dir)
+    b=d.get_bounds("ch007")
+    
     # one sample in range (km)
     drg=c.c/1e6/2/1e3    
     n_ch=len(rx_ch)
@@ -150,6 +131,31 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
 
 
 def cut_block():
+
+    # meteor detections
+    dm = drf.DigitalMetadataReader(pc.detections_metadata_dir)
+    bm = dm.get_bounds()
+
+    # match function outputs
+#    dmf = drf.DigitalMetadataReader(pc.mf_metadata_dir)
+ #   bmf = dmf.get_bounds()
+
+    subdirectory_cadence_seconds = 3600
+    file_cadence_seconds = 60
+    samples_per_second_numerator = 1000000
+    samples_per_second_denominator = 1
+    file_name = "cut"
+
+    dmw = drf.DigitalMetadataWriter(
+        pc.cut_metadata_dir,
+        subdirectory_cadence_seconds,
+        file_cadence_seconds,
+        samples_per_second_numerator,
+        samples_per_second_denominator,
+        file_name,
+    )
+
+    
     dt=60
     sr=1000000
 
