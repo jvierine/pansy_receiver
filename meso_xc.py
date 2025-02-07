@@ -84,11 +84,16 @@ def analyze_block(i0,i1,
             plt.pcolormesh(fvec,rvec,n.abs(XC[0,0,:,:].T))
             plt.ylim([r0,r1])
             plt.xlim([-max_dop,max_dop])
+            plt.xlabel("Doppler (Hz)")
+            plt.ylabel("Range (km)")
             plt.colorbar()
             plt.show()
             plt.pcolormesh(fvec,rvec,n.angle(XC[7,0,:,:].T),cmap="hsv")
             plt.ylim([r0,r1])
-            plt.xlim([-max_dop,max_dop])            
+            plt.xlim([-max_dop,max_dop])
+            plt.xlabel("Doppler (Hz)")
+            plt.ylabel("Range (km)")
+            
             plt.colorbar()
             plt.show()
 
