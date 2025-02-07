@@ -24,6 +24,7 @@ def find_blocks():
         start_idx=mmb[1]
     except:
         print("no mm metadata")
+        exit(0)
 
     subdirectory_cadence_seconds = 3600
     file_cadence_seconds = 600
@@ -44,7 +45,7 @@ def find_blocks():
     db = dmr.get_bounds()
     max_gap = 20*1600+1600
     block=10*60*1000000
-    i0=db[0]
+    i0=start_idx
 #    meso_blocks=[]
     meso_start=-1
     meso_prev=-1
