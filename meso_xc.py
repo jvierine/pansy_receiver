@@ -87,8 +87,6 @@ def analyze_block(i0,i1,
             ipp_idx0=0
             if False:
                 plt.subplot(121)
-                dB=10.0*n.log10(n.abs(XC[0,1,:,:].T))
-                noise_floor=n.nanmedian(dB)
                 plt.pcolormesh(fvec,rvec,10.0*n.log10(n.abs(XC[0,1,:,:].T)),vmin=noise_floor,vmax=noise_floor+20)
                 plt.title("%s"%(stuffr.unix2datestr(i0/1e6)))
                 plt.ylim([r0,r1])
@@ -112,9 +110,14 @@ def analyze_block(i0,i1,
         for bi in range(n_beams):
 
             XC[pi,bi,:,:]=XC[pi,bi,:,:]/WS[pi,bi,None,:]
-            
+            dB=10.0*n.log10(n.abs(XC[pi,bi,:,:].T))
+            if bi < 8:
+                noise_floor=n.nanmedian(dB)
+            else:
+                noise_floor=-3
+            #10.0*n.log10(n.abs(XC[pi,bi,:,:].T))
             plt.subplot(121)
-            plt.pcolormesh(fvec,rvec,10.0*n.log10(n.abs(XC[pi,bi,:,:].T)))
+            plt.pcolormesh(fvec,rvec,dB,vmin=noise_floor,vmax=noise_floor+20)
             plt.title("%s"%(stuffr.unix2datestr(i0/1e6)))
             plt.ylim([r0,r1])
             plt.xlim([-max_dop,max_dop])
