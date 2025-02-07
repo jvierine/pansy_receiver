@@ -63,11 +63,13 @@ def analyze_block(i0,i1,
                     Z[chi,bi,ti+ipp_idx0,:]=n.fft.ifft(n.fft.fft(n.conj(txpulse))*n.fft.fft(z_echo))
         # we get for ipps for each 20 pulse cycle
         ipp_idx0+=4
-        for chi in range(n_ch):
-            for bi in range(n_beams):
-                plt.pcolormesh(n.real(Z[chi,bi,:,:].T))
-                plt.colorbar()
-                plt.show()
+        if ipp_idx0 >= n_ipp:
+            for chi in range(n_ch):
+                for bi in range(n_beams):
+                    plt.pcolormesh(n.real(Z[chi,bi,:,:].T))
+                    plt.colorbar()
+                    plt.show()
+            ipp_idx0=0
         
                     
                 
