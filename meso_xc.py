@@ -32,7 +32,7 @@ def analyze_block(i0,i1,
     file_cadence_seconds = 600
     samples_per_second_numerator = 1000000
     samples_per_second_denominator = 1
-    file_name = "wc"
+    file_name = "xc"
     os.system("mkdir -p %s"%(pc.xc_metadata_dir))
 
     dmw = drf.DigitalMetadataWriter(
@@ -52,6 +52,7 @@ def analyze_block(i0,i1,
     n_ipp=4*n_cycles
     # how many tx beams 
     n_beams=5
+    beams=n.arange(5)
     # xc and self correlations
     
     # what pairs do we store
@@ -142,13 +143,14 @@ def analyze_block(i0,i1,
         for bi in range(n_beams):
             XC[pi,bi,:,:]=XC[pi,bi,:,:]/WS[pi,bi,None,:]
     data_out={}
-    data_out["xc"]=XC[:,:,fi0:fi1,ri0:ri1]
+    data_out["xc"]=n.array(XC[:,:,fi0:fi1,ri0:ri1],dtype=n.complex64)
     data_out["rvec"]=rvec[ri0:ri1]#XC[:,:,fi0:fi1,ri0:ri1]
     data_out["fvec"]=rvec[fi0:fi1]
     data_out["ch_pairs"]=ch_pairs
     data_out["rx_ch"]=rx_ch
     data_out["i0"]=i0
     data_out["i1"]=i1
+    data_out["beams"]=beams
     try:
         dmw.write(i0,data_out)
     except:
@@ -181,7 +183,7 @@ def analyze_block(i0,i1,
         plt.ylabel("Range (km)")
         plt.colorbar()
         plt.tight_layout()
-        plt.savefig("xc-%03d-%03d-%d.png"%(pi,bi,i0))
+        plt.savefig("xc-%03d-%03d-%d.png"%(pi,bi,i0/1e6))
         plt.close()
                 #                plt.show()
         if False:
