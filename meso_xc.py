@@ -83,7 +83,8 @@ if __name__ == "__main__":
     dmm = drf.DigitalMetadataReader(pc.mesomode_metadata_dir)
     d = drf.DigitalRFReader(pc.raw_voltage_dir)
     b=dmm.get_bounds()
-    dd=dmm.read(b[0],b[0]+3600*1000000)
+    t0=stuffr.date2unix(2025,1,31,11,00,00)*1000000
+    dd=dmm.read(t0,t0+3600*1000000)
     for k in dd.keys():
         i0=dd[k]["start"]
         i1=dd[k]["end"]
