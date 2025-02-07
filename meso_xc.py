@@ -147,12 +147,12 @@ def analyze_block(i0,
     data_out["xc"]=[n.array(XC[:,:,fi0:fi1,ri0:ri1],dtype=n.complex64)]
     data_out["rvec"]=[rvec[ri0:ri1]]
     data_out["fvec"]=[rvec[fi0:fi1]]
-    data_out["ch_pairs"]=[ch_pairs]
-    data_out["rx_ch"]=[rx_ch]
+    data_out["ch_pairs"]=[n.array(ch_pairs),dtype=n.int8]
+    data_out["rx_ch"]=[n.array(rx_ch)]
     data_out["dur"]=[i1-i0]
 #    data_out["i0"]=[i0]
  #   data_out["i1"]=[i1]
-    data_out["beams"]=[beams]
+    data_out["beams"]=[n.array(beams,dtype=n.int8)]
     try:
         dmw.write([i0],data_out)
     except:
