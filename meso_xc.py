@@ -17,6 +17,10 @@ comm = MPI.COMM_WORLD
 size = comm.Get_size()
 rank = comm.Get_rank()
 
+"""
+ phase calibration data
+"""
+
 def analyze_block(i0,
                   i1,
                   rx_ch=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"],
