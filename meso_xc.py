@@ -143,7 +143,7 @@ def analyze_block(i0,
     for pi in range(n_xc):
         for bi in range(n_beams):
             XC[pi,bi,:,:]=XC[pi,bi,:,:]/WS[pi,bi,None,:]
-#    data_out={}
+    data_out={}
     data_out["xc"]=n.array(XC[:,:,fi0:fi1,ri0:ri1],dtype=n.complex64)
     data_out["rvec"]=rvec[ri0:ri1]
     data_out["fvec"]=rvec[fi0:fi1]
