@@ -68,9 +68,11 @@ def analyze_block(i0,i1,
                 for bi in range(n_beams):
                     for ri in range(1600):
                         Z[chi,bi,:,ri]=n.convolve(Z[chi,bi,:,ri],n.repeat(1/8,8),mode="same")
-                    plt.pcolormesh(n.real(Z[chi,bi,:,:].T))
-                    plt.colorbar()
-                    plt.show()
+                    if bi==0:
+                        plt.title(bi)
+                        plt.pcolormesh(n.real(Z[chi,bi,:,:].T))
+                        plt.colorbar()
+                        plt.show()
             ipp_idx0=0
         
                     
