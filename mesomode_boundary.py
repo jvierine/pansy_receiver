@@ -79,6 +79,7 @@ def find_blocks():
 
 
 if __name__ == "__main__":
-    find_blocks()
-    time.sleep(3600)
+    while True:
+        find_blocks()
+        time.sleep(3600)
 
