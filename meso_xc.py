@@ -52,7 +52,7 @@ def analyze_block(i0,i1,
     z_echo=n.zeros(1600,dtype=n.complex64)
     ipp_idx0=0
     for k in dd.keys():
-        
+        print(k)
         ztx=d.read_vector_c81d(k,1600*20,tx_ch)
         
         for chi in range(n_ch):
