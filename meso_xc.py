@@ -29,7 +29,7 @@ def analyze_block(i0,i1,
     """
 
     subdirectory_cadence_seconds = 3600
-    file_cadence_seconds = 600
+    file_cadence_seconds = 60
     samples_per_second_numerator = 1000000
     samples_per_second_denominator = 1
     file_name = "xc"
