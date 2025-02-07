@@ -78,7 +78,7 @@ def analyze_block(i0,i1,
 if __name__ == "__main__":
     dmm = drf.DigitalMetadataReader(pc.mesomode_metadata_dir)
     b=dmm.get_bounds()
-    dd=d.read(b[0],b[0]+3600*1000000)
+    dd=dmm.read(b[0],b[0]+3600*1000000)
     for k in dd.keys():
         i0=dd[k]["start"]
         i1=dd[k]["end"]
