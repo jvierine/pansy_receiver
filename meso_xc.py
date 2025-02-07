@@ -64,7 +64,7 @@ def analyze_block(i0,i1,
                     z_echo[:]=z[si0:(si0+1600)]
                     # gc remove
                     z_echo[0:(txlen+100)]=0.0
-                    Z[chi,bi,ti+ipp_idx0,:]=n.fft.ifft(n.fft.fft(n.conj(txpulse))*n.fft.fft(z_echo))
+                    Z[chi,bi,ti+ipp_idx0,:]=n.fft.ifft(n.conj(n.fft.fft(txpulse))*n.fft.fft(z_echo))
         # we get for ipps for each 20 pulse cycle
         ipp_idx0+=4
         if ipp_idx0 >= n_ipp:
