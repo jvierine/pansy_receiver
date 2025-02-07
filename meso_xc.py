@@ -30,9 +30,12 @@ def analyze_block(i0,i1,
     # xc and self correlations
     
     # what pairs do we store
-    ch_pairs=list(itertools.combinations(n.arange(7),2))
+    ch_pairs=[]
     for i in range(n_ch):
         ch_pairs.append((i,i))
+    ch_pairs2=list(itertools.combinations(n.arange(7),2))
+    for i in range(len(ch_pairs2)):
+        ch_pairs.append(ch_pairs2[i])
 
     n_xc=len(ch_pairs)
         
@@ -42,7 +45,8 @@ def analyze_block(i0,i1,
     wfun=sw.hann(n_ipp)
     fvec=n.fft.fftshift(n.fft.fftfreq(n_ipp,d=1/(5*ipp/1e6)))
     Z=n.zeros([n_ch,n_beams,n_ipp,ipp],dtype=n.complex64)
-    XC=n.zeros([n_ch,n_xc,n_ipp,ipp],dtype=n.complex64)
+    S=n.zeros([n_ch,n_beams,n_ipp,ipp],dtype=n.complex64)
+    XC=n.zeros([n_xc,n_beams,n_ipp,ipp],dtype=n.complex64)
 
     txpulse=n.zeros(1600,dtype=n.complex64)
     z_echo=n.zeros(1600,dtype=n.complex64)
@@ -67,14 +71,24 @@ def analyze_block(i0,i1,
             for chi in range(n_ch):
                 for bi in range(n_beams):
                     for ri in range(1600):
-                        Z[chi,bi,:,ri]=n.convolve(Z[chi,bi,:,ri],n.repeat(1/8,8),mode="same")
-                    if bi==0 and chi==0:
-                        plt.title(bi)
-                        plt.pcolormesh(n.real(Z[chi,bi,:,:].T))
-                        plt.colorbar()
-                        plt.show()
+                        S[chi,bi,:,ri]=n.fft.fftshift(n.fft.fft(wf*Z[chi,bi,:,ri]))
+                        
+            for pi in range(n_xc):
+                for bi in range(n_beams):
+                    ch0=ch_pairs[pi][0]
+                    ch1=ch_pairs[pi][1]                
+                    XC[pi,bi,:,:]+=S[ch0,bi,:,:]*n.conj(S[ch1,bi,:,:])
             ipp_idx0=0
-        
+
+
+            plt.pcolormesh(n.abs(XC[0,0,:,:].T))
+            plt.colorbar()
+            plt.show()
+            plt.pcolormesh(n.angle(XC[7,0,:,:].T))
+            plt.colorbar()
+            plt.show()
+
+
                     
                 
             
