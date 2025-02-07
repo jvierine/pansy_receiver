@@ -12,7 +12,7 @@ import itertools
 def analyze_block(i0,i1,
                   rx_ch=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"],
                   tx_ch="ch007",
-                  r0=60,r1=110, # range interval to store
+                  r0=60,r1=130, # range interval to store
                   max_dop=64.0, # largest Doppler shift (Hz) stored
                   txlen=132,
                   n_cycles=64): # how many 20 ipp cycles are stored in one spectrum
@@ -81,7 +81,7 @@ def analyze_block(i0,i1,
             ipp_idx0=0
 
 
-            plt.pcolormesh(n.abs(XC[0,0,:,:].T))
+            plt.pcolormesh(fvec,rvec,n.abs(XC[0,0,:,:].T))
   #          plt.pcolormesh(fvec,rvec,n.abs(XC[0,0,:,:].T))            
 #            plt.ylim([r0,r1])
  #           plt.xlim([-max_dop,max_dop])
@@ -90,7 +90,7 @@ def analyze_block(i0,i1,
             plt.colorbar()
             plt.show()
 #            plt.pcolormesh(fvec,rvec,n.angle(XC[7,0,:,:].T),cmap="hsv")
-            plt.pcolormesh(n.angle(XC[7,0,:,:].T),cmap="hsv")            
+            plt.pcolormesh(fvec,rvec,n.angle(XC[7,0,:,:].T),cmap="hsv")            
 #            plt.ylim([r0,r1])
  #           plt.xlim([-max_dop,max_dop])
             plt.xlabel("Doppler (Hz)")
