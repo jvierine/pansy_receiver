@@ -241,7 +241,7 @@ if __name__ == "__main__":
         rb=d.get_bounds("ch000")
         if (i1-i0)>60*1000000 and (rb[0]< i0):
             print("long enough")
-            print("rank %d %s - %s"%(rank,stuff.unix2datestr(i0/1e6),stuff.unix2datestr(i1/1e6)))
+            print("rank %d %s - %s"%(rank,stuffr.unix2datestr(i0/1e6),stuffr.unix2datestr(i1/1e6)))
 #            analyze_block(i0,i1)
 
     
