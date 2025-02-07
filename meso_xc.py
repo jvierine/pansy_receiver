@@ -87,7 +87,7 @@ def analyze_block(i0,i1,
             ipp_idx0=0
             if False:
                 plt.subplot(121)
-                plt.pcolormesh(fvec,rvec,n.abs(XC[0,1,:,:].T))
+                plt.pcolormesh(fvec,rvec,10.0*n.log10(n.abs(XC[0,1,:,:].T)))
                 plt.title("%s"%(stuffr.unix2datestr(i0/1e6)))
                 plt.ylim([r0,r1])
                 plt.xlim([-max_dop,max_dop])
