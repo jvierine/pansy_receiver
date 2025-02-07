@@ -159,7 +159,8 @@ def cut_block():
         b_cut = dmcut.get_bounds()
         start_idx=b_cut[1]
     except:
-        print("found no cut end")
+        print("found no cut end. using start of detections")
+        start_idx=bm[0]
 
     n_block=int(n.floor((bm[1]-start_idx)/dt))
 
