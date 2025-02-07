@@ -46,8 +46,9 @@ def analyze_block(i0,i1,
 
     txpulse=n.zeros(1600,dtype=n.complex64)
     z_echo=n.zeros(1600,dtype=n.complex64)
+    ipp_idx0=0
     for k in dd.keys():
-        ipp_idx0=0
+        
         ztx=d.read_vector_c81d(k,1600*20,tx_ch)
         
         for chi in range(n_ch):
@@ -64,7 +65,7 @@ def analyze_block(i0,i1,
         ipp_idx0+=4
         for chi in range(n_ch):
             for bi in range(n_beams):
-                plt.pcolormesh(n.real(Z[chi,bi,:,:]))
+                plt.pcolormesh(n.real(Z[chi,bi,:,:].T))
                 plt.colorbar()
                 plt.show()
         
