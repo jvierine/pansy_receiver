@@ -156,34 +156,63 @@ def analyze_block(i0,i1,
     
 
     if plot:
-        for pi in range(n_xc):
-            for bi in range(n_beams):
-                dB=10.0*n.log10(n.abs(XC[pi,bi,:,:].T))
-                if bi < 8:
-                    noise_floor=n.nanmedian(dB)
-                else:
-                    noise_floor=-3
-                #10.0*n.log10(n.abs(XC[pi,bi,:,:].T))
-                plt.subplot(121)
-                plt.pcolormesh(fvec,rvec,dB,vmin=noise_floor,vmax=noise_floor+20)
-                plt.title("%s"%(stuffr.unix2datestr(i0/1e6)))
-                plt.ylim([r0,r1])
-                plt.xlim([-max_dop,max_dop])
-                plt.xlabel("Doppler (Hz)")
-                plt.ylabel("Range (km)")
-                plt.colorbar()
-                plt.subplot(122)            
-                plt.pcolormesh(fvec,rvec,n.angle(XC[pi,bi,:,:].T),cmap="hsv")
-                plt.title("beam %d (%d,%d)"%(bi,ch_pairs[pi][0],ch_pairs[pi][1]))
-                plt.ylim([r0,r1])
-                plt.xlim([-max_dop,max_dop])
-                plt.xlabel("Doppler (Hz)")
-                plt.ylabel("Range (km)")
-                plt.colorbar()
-                plt.tight_layout()
-                plt.savefig("xc-%03d-%03d-%d.png"%(pi,bi,i0))
-                plt.close()
-#                plt.show()
+        pi=7
+        bi=1
+        dB=10.0*n.log10(n.abs(XC[pi,bi,:,:].T))
+        if bi < 8:
+            noise_floor=n.nanmedian(dB)
+        else:
+            noise_floor=-3
+        #10.0*n.log10(n.abs(XC[pi,bi,:,:].T))
+        plt.subplot(121)
+        plt.pcolormesh(fvec,rvec,dB,vmin=noise_floor,vmax=noise_floor+20)
+        plt.title("%s"%(stuffr.unix2datestr(i0/1e6)))
+        plt.ylim([r0,r1])
+        plt.xlim([-max_dop,max_dop])
+        plt.xlabel("Doppler (Hz)")
+        plt.ylabel("Range (km)")
+        plt.colorbar()
+        plt.subplot(122)            
+        plt.pcolormesh(fvec,rvec,n.angle(XC[pi,bi,:,:].T),cmap="hsv")
+        plt.title("beam %d (%d,%d)"%(bi,ch_pairs[pi][0],ch_pairs[pi][1]))
+        plt.ylim([r0,r1])
+        plt.xlim([-max_dop,max_dop])
+        plt.xlabel("Doppler (Hz)")
+        plt.ylabel("Range (km)")
+        plt.colorbar()
+        plt.tight_layout()
+        plt.savefig("xc-%03d-%03d-%d.png"%(pi,bi,i0))
+        plt.close()
+                #                plt.show()
+        if False:
+            for pi in range(n_xc):
+                for bi in range(n_beams):
+                    dB=10.0*n.log10(n.abs(XC[pi,bi,:,:].T))
+                    if bi < 8:
+                        noise_floor=n.nanmedian(dB)
+                    else:
+                        noise_floor=-3
+                    #10.0*n.log10(n.abs(XC[pi,bi,:,:].T))
+                    plt.subplot(121)
+                    plt.pcolormesh(fvec,rvec,dB,vmin=noise_floor,vmax=noise_floor+20)
+                    plt.title("%s"%(stuffr.unix2datestr(i0/1e6)))
+                    plt.ylim([r0,r1])
+                    plt.xlim([-max_dop,max_dop])
+                    plt.xlabel("Doppler (Hz)")
+                    plt.ylabel("Range (km)")
+                    plt.colorbar()
+                    plt.subplot(122)            
+                    plt.pcolormesh(fvec,rvec,n.angle(XC[pi,bi,:,:].T),cmap="hsv")
+                    plt.title("beam %d (%d,%d)"%(bi,ch_pairs[pi][0],ch_pairs[pi][1]))
+                    plt.ylim([r0,r1])
+                    plt.xlim([-max_dop,max_dop])
+                    plt.xlabel("Doppler (Hz)")
+                    plt.ylabel("Range (km)")
+                    plt.colorbar()
+                    plt.tight_layout()
+                    plt.savefig("xc-%03d-%03d-%d.png"%(pi,bi,i0))
+                    plt.close()
+    #                plt.show()
 
 
                     
