@@ -143,20 +143,19 @@ def analyze_block(i0,
     for pi in range(n_xc):
         for bi in range(n_beams):
             XC[pi,bi,:,:]=XC[pi,bi,:,:]/WS[pi,bi,None,:]
-    data_out={}
-    data_out["xc"]=[n.array(XC[:,:,fi0:fi1,ri0:ri1],dtype=n.complex64)]
-    data_out["rvec"]=[rvec[ri0:ri1]]
-    data_out["fvec"]=[rvec[fi0:fi1]]
-    data_out["ch_pairs"]=[n.array(ch_pairs,dtype=n.int8)]
-    data_out["rx_ch"]=[n.array(rx_ch)]
-    data_out["dur"]=[i1-i0]
-#    data_out["i0"]=[i0]
- #   data_out["i1"]=[i1]
-    data_out["beams"]=[n.array(beams,dtype=n.int8)]
-    try:
-        dmw.write([i0],data_out)
-    except:
-        traceback.print_exc()
+#    data_out={}
+    data_out["xc"]=n.array(XC[:,:,fi0:fi1,ri0:ri1],dtype=n.complex64)
+    data_out["rvec"]=rvec[ri0:ri1]
+    data_out["fvec"]=rvec[fi0:fi1]
+    data_out["ch_pairs"]=n.array(ch_pairs,dtype=n.int8)
+    data_out["rx_ch"]=n.array(rx_ch)
+    data_out["i0"]=i0
+    data_out["i1"]=i1    
+    data_out["beams"]=n.array(beams,dtype=n.int8)
+    ho=h5py.File("/media/analysis/pmse/xc-%d.h5"%(i0/1e6),"w")
+    for okey in data_out.keys():
+        ho[okey]=data_out[okey]
+    ho.close()
     
 
     if plot:
