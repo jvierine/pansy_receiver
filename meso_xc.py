@@ -48,9 +48,13 @@ def analyze_block(i0,i1,
     S=n.zeros([n_ch,n_beams,n_ipp,ipp],dtype=n.complex64)
     XC=n.zeros([n_xc,n_beams,n_ipp,ipp],dtype=n.complex64)
 
+    W=n.zeros([n_xc,n_beams,ipp])
+    WS=n.zeros([n_xc,n_beams,ipp])    
+
     txpulse=n.zeros(1600,dtype=n.complex64)
     z_echo=n.zeros(1600,dtype=n.complex64)
     ipp_idx0=0
+
     for k in dd.keys():
         print("%d %s"%(ipp_idx0,stuffr.unix2datestr(k/1e6)))
         ztx=d.read_vector_c81d(k,1600*20,tx_ch)
@@ -76,8 +80,10 @@ def analyze_block(i0,i1,
             for pi in range(n_xc):
                 for bi in range(n_beams):
                     ch0=ch_pairs[pi][0]
-                    ch1=ch_pairs[pi][1]                
-                    XC[pi,bi,:,:]+=S[ch0,bi,:,:]*n.conj(S[ch1,bi,:,:])
+                    ch1=ch_pairs[pi][1]
+                    W[pi,bi,:]=n.sum(n.abs(S[ch0,bi,:,:]*n.conj(S[ch1,bi,:,:]))**2.0,axis=0)
+                    XC[pi,bi,:,:]+=S[ch0,bi,:,:]*n.conj(S[ch1,bi,:,:])/W[pi,bi,:,None]
+                    WS[pi,bi,:]+=1.0/W[pi,bi,:]
             ipp_idx0=0
             if False:
                 plt.subplot(121)
@@ -102,6 +108,9 @@ def analyze_block(i0,i1,
 
     for pi in range(n_xc):
         for bi in range(n_beams):
+
+            XC[pi,bi,:,:]=XC[pi,bi,:,:]/WS[pi,bi,:,None]
+            
             plt.subplot(121)
             plt.pcolormesh(fvec,rvec,n.abs(XC[pi,bi,:,:].T))
             plt.title("%s"%(stuffr.unix2datestr(i0/1e6)))
