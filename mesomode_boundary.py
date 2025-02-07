@@ -8,6 +8,7 @@ import stuffr
 import time
 import pansy_config as pc
 import os
+import traceback
 
 def find_blocks():
     """
@@ -66,7 +67,10 @@ def find_blocks():
                     data_dict={}
                     data_dict["start"]=[meso_start]
                     data_dict["end"]=[meso_end]
-                    dmw.write([meso_end],data_dict)
+                    try:
+                        dmw.write([meso_end],data_dict)
+                    except:
+                        traceback.print_exc()
                     # start new
                     meso_start=k
                     meso_prev=k
