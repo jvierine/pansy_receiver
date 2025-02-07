@@ -81,7 +81,7 @@ def analyze_block(i0,i1,
                 for bi in range(n_beams):
                     ch0=ch_pairs[pi][0]
                     ch1=ch_pairs[pi][1]
-                    W[pi,bi,:]=n.sum(n.abs(S[ch0,bi,:,:]*n.conj(S[ch1,bi,:,:]))**2.0,axis=0)
+                    W[pi,bi,:]=n.sum(n.abs(S[ch0,bi,:,:]*n.conj(S[ch1,bi,:,:])),axis=0)
                     XC[pi,bi,:,:]+=S[ch0,bi,:,:]*n.conj(S[ch1,bi,:,:])/W[pi,bi,None,:]
                     WS[pi,bi,:]+=1.0/W[pi,bi,:]
             ipp_idx0=0
