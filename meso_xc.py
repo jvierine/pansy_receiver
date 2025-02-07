@@ -56,7 +56,7 @@ def analyze_block(i0,i1,
                 for ti in range(4):
                     si0=ti*5*1600 + bi*1600
                     txpulse[0:txlen]=ztx[si0:(si0+txlen)]
-                    z_echo[:]=z[si0:(si0+txlen)]
+                    z_echo[:]=z[si0:(si0+1600)]
                     # gc remove
                     z_echo[0:(txlen+100)]=0.0
                     Z[chi,bi,ti+ipp_idx0,:]=n.ifft.ifft(n.fft.fft(n.conj(txpulse))*n.fft.fft(z_echo))
