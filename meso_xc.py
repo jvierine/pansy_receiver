@@ -71,7 +71,7 @@ def analyze_block(i0,i1,
             for chi in range(n_ch):
                 for bi in range(n_beams):
                     for ri in range(1600):
-                        S[chi,bi,:,ri]=n.fft.fftshift(n.fft.fft(wf*Z[chi,bi,:,ri]))
+                        S[chi,bi,:,ri]=n.fft.fftshift(n.fft.fft(wfun*Z[chi,bi,:,ri]))
                         
             for pi in range(n_xc):
                 for bi in range(n_beams):
