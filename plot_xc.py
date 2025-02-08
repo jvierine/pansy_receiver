@@ -13,8 +13,10 @@ b = dm.get_bounds()
 dt=60*1000000
 n_b=int((b[1]-b[0])/dt)
 pprofs=[]
+dprofs=[]
 for i in range(5):
     pprofs.append([])
+    dprofs.append([])
 r0=0
 r1=1
 tvs=[]
@@ -23,15 +25,31 @@ for bi in range(n_b):
     for k in data_dict.keys():
         r0=data_dict[k]["r0"]
         r1=data_dict[k]["r1"]
+        f0=data_dict[k]["f0"]
+        f1=data_dict[k]["f1"]
+        n_fft=data_dict[k]["n_fft"]
+        fvec=n.fft.fftshift(n.fft.fftfreq(n_fft,d=1600/1e6))[f0:f1]
         tvs.append(stuffr.unix2date(data_dict[k]["i0"]/1e6))
         for i in range(5):
-            pprofs[i].append(n.max(n.sum(n.abs(data_dict[k]["xc_arr"][0:7,i,:,:]),axis=0),axis=0))
+            mean_pwr=n.sum(n.abs(data_dict[k]["xc_arr"][0:7,i,:,:]),axis=0)
+            dop_idx=n.argmax(mean_pwr,axis=0)
+            pprofs[i].append(n.max(mean_pwr,axis=0))
+            dprofs[i].append(fvec[dop_idx])#n.max(n.sum(n.abs(data_dict[k]["xc_arr"][0:7,i,:,:]),axis=0),axis=0))
+
 pprofs=n.array(pprofs)
+dprofs=n.array(dprofs)
+
 print(pprofs.shape)
 #print(pprofs[i,:,:])
 rvec=n.arange(1600)*0.15
 rvec=rvec[r0:r1]
 fig, axs = plt.subplots(nrows=5,ncols=1)
+for i in range(5):
+    ax=axs[i]    
+    m=ax.pcolormesh(tvs,rvec,dprofs[i,:,:].T)
+    fig.autofmt_xdate()
+    cb=fig.colorbar(m,ax=ax)
+plt.show()
 
 for i in range(5):
     ax=axs[i]    
