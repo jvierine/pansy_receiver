@@ -33,9 +33,9 @@ for bi in range(n_b):
         for i in range(5):
 
             mean_pwr=n.sum(n.abs(data_dict[k]["xc_arr"][0:7,i,:,:]),axis=0)
-            plt.pcolormesh(10.0*n.log10(mean_pwr))
-            plt.colorbar()
-            plt.show()
+            #plt.pcolormesh(10.0*n.log10(mean_pwr))
+            #plt.colorbar()
+            #plt.show()
             dop_idx=n.argmax(mean_pwr,axis=0)
             pprofs[i].append(n.max(mean_pwr,axis=0))
             dprofs[i].append(fvec[dop_idx])#n.max(n.sum(n.abs(data_dict[k]["xc_arr"][0:7,i,:,:]),axis=0),axis=0))
@@ -46,7 +46,7 @@ dprofs=n.array(dprofs)
 print(pprofs.shape)
 #print(pprofs[i,:,:])
 rvec=n.arange(1600)*0.15
-rvec=rvec[r0:r1]
+rvec=rvec[r0:r1:4]
 fig, axs = plt.subplots(nrows=5,ncols=1)
 for i in range(5):
     ax=axs[i]    
