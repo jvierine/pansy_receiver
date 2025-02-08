@@ -21,7 +21,7 @@ r0=0
 r1=1
 tvs=[]
 for bi in range(n_b):
-    data_dict = dm.read(b[0]+bi*dt, b[0]+bi*dt+dt, ("xc_arr","i0","i1","r0","r1","f0","f1"))
+    data_dict = dm.read(b[0]+bi*dt, b[0]+bi*dt+dt, ("xc_arr","i0","i1","r0","r1","f0","f1","n_fft"))
     for k in data_dict.keys():
         r0=data_dict[k]["r0"]
         r1=data_dict[k]["r1"]
