@@ -27,8 +27,9 @@ def analyze_block(i0,
                   tx_ch="ch007",
                   r0=78,r1=100, # range interval to store
                   max_dop=10.0, # largest Doppler shift (Hz) stored
+                  rdec=4,
                   txlen=132,
-                  plot=True,
+                  plot=False,
                   n_cycles=312): # how many 20 ipp cycles are stored in one spectrum
     """
     find contiguous blocks of mesosphere mode
@@ -149,9 +150,10 @@ def analyze_block(i0,
         for bi in range(n_beams):
             XC[pi,bi,:,:]=XC[pi,bi,:,:]/WS[pi,bi,None,:]
     data_out={}
-    data_out["xc_arr"]=[n.array(XC[:,:,fi0:fi1,ri0:ri1],dtype=n.complex64)]
+    data_out["xc_arr"]=[n.array(XC[:,:,fi0:fi1,ri0:ri1:rdec],dtype=n.complex64)]
     data_out["r0"]=[ri0]
     data_out["r1"]=[ri1]
+    data_out["rdec"]=[rdec]
     data_out["f0"]=[fi0]
     data_out["f1"]=[fi1]
     data_out["n_fft"]=[n_ipp]

@@ -5,7 +5,7 @@ detections_metadata_dir="/media/analysis/metadata/detections"
 cut_metadata_dir="/media/analysis/metadata/cut"
 mesomode_metadata_dir="/media/analysis/metadata/mesomode"
 
-xc_metadata_dir="/media/analysis/metadata/xc"
+xc_metadata_dir="/media/analysis/metadata/xc2"
 
 raw_voltage_dir="/media/archive/"
 
