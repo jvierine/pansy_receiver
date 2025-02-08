@@ -40,6 +40,7 @@ for bi in range(n_b):
         gidx=n.where(dcpwr > 100)[0]
         for cid in gidx:
             print("adding cal data")
+            print(n.angle(xc[:,zidx,cid]))
             cals.append(xc[:,zidx,cid])
 
 cals=n.array(cals)
