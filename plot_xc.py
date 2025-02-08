@@ -30,7 +30,7 @@ print(pprofs.shape)
 rvec=n.arange(1600)*0.15
 rvec=rvec[r0:r1]
 for i in range(5):
-    plt.pcolormesh(n.arange(pprofs.shape[0]),rvec,10.0*n.log10(pprofs[i,:,:].T))
+    plt.pcolormesh(n.arange(pprofs.shape[1]),rvec,10.0*n.log10(pprofs[i,:,:].T))
     plt.colorbar()
     plt.show()
     
