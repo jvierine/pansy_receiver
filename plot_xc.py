@@ -20,10 +20,10 @@ for bi in range(n_b):
     data_dict = dm.read(b[0]+bi*dt, b[0]+bi*dt+dt, ("xc_arr","i0","i1"))
     for k in data_dict.keys():
         for i in range(5):
-            pprofs[i].append(n.max(n.abs(data_dict[k]["xc_arr"][i,0,:,:],axis=0)))
+            pprofs[i].append(n.max(n.abs(data_dict[k]["xc_arr"][i,0,:,:]),axis=0))
 pprofs=n.array(pprofs)
 print(pprofs.shape)
-print(pprofs[i,:,:])
+#print(pprofs[i,:,:])
 for i in range(5):
     plt.pcolormesh(pprofs[i,:,:])
     plt.colorbar()
