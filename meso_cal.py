@@ -11,7 +11,6 @@ dm = drf.DigitalMetadataReader("/media/analysis/metadata/xc/")
 b = dm.get_bounds()
 
 dt=60*1000000
-n_b=int((b[1]-b[0])/dt)
 pprofs=[]
 dprofs=[]
 for i in range(5):
@@ -21,8 +20,11 @@ r0=0
 r1=1
 tvs=[]
 cals=[]
+start_idx=stuffr.date2unix("2025-01-30T00:00")*1000000
+n_b=int((b[1]-start_idx)/dt)
+
 for bi in range(n_b):
-    data_dict = dm.read(b[0]+bi*dt, b[0]+bi*dt+dt, ("xc_arr","i0","i1","r0","r1","f0","f1","n_fft"))
+    data_dict = dm.read(start_idx+bi*dt, start_idx+bi*dt+dt, ("xc_arr","i0","i1","r0","r1","f0","f1","n_fft"))
     for k in data_dict.keys():
         r0=data_dict[k]["r0"]
         r1=data_dict[k]["r1"]
