@@ -44,8 +44,10 @@ plt.hist(r0s,bins=50)
 plt.xlabel("Height (km)")
 plt.show()
 
+gidx=n.where(v0s>10)[0]
+r0s=n.array(r0s)
 fig, ax = plt.subplots()
-m=ax.scatter(tv,r0s,c=v0s,s=1,cmap="turbo",vmax=72,vmin=-5)
+m=ax.scatter(tv[gidx],r0s[gidx],c=v0s[gidx],s=1,cmap="turbo",vmax=72,vmin=-5)
 fig.autofmt_xdate()
 ax.set_title("%d meteors"%(len(tv)))
 cb=fig.colorbar(m,ax=ax)
