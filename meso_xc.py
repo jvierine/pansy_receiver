@@ -240,9 +240,9 @@ if __name__ == "__main__":
     dmm = drf.DigitalMetadataReader(pc.mesomode_metadata_dir)
     d = drf.DigitalRFReader(pc.raw_voltage_dir)
     #b=dmm.get_bounds()
-    b=d.get_bounds()
+    b=d.get_bounds("ch000")
     t0=b[0]#stuffr.date2unix(2025,1,30,0,0,00)*1000000
-    dd=dmm.read(b[0],b[1])
+    dd=dmm.read(b[0]+60*1000000,b[1])
     kl=list(dd.keys())
     for ki in range(rank,len(kl),size):#dd.keys():
         k=kl[ki]
