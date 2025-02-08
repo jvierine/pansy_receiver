@@ -50,7 +50,7 @@ for i in range(5):
     fig.autofmt_xdate()
     cb=fig.colorbar(m,ax=ax)
 plt.show()
-
+fig, axs = plt.subplots(nrows=5,ncols=1)
 for i in range(5):
     ax=axs[i]    
     m=ax.pcolormesh(tvs,rvec,10.0*n.log10(pprofs[i,:,:].T))
