@@ -25,8 +25,8 @@ def analyze_block(i0,
                   i1,
                   rx_ch=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"],
                   tx_ch="ch007",
-                  r0=75,r1=110, # range interval to store
-                  max_dop=27.0, # largest Doppler shift (Hz) stored
+                  r0=78,r1=100, # range interval to store
+                  max_dop=10.0, # largest Doppler shift (Hz) stored
                   txlen=132,
                   plot=True,
                   n_cycles=312): # how many 20 ipp cycles are stored in one spectrum
@@ -157,11 +157,15 @@ def analyze_block(i0,
     data_out["i0"]=i0
     data_out["i1"]=i1    
     data_out["beams"]=n.array(beams,dtype=n.int8)
-    ho=h5py.File("/media/analysis/pmse/xc-%d.h5"%(i0/1e6),"w")
-    for okey in data_out.keys():
-        print(okey)
-        ho[okey]=data_out[okey]
-    ho.close()
+    try:
+        dmw.write(i0,data_out)
+    except:
+        traceback.print_exc()
+#    ho=h5py.File("/media/analysis/pmse/xc-%d.h5"%(i0/1e6),"w")
+ #   for okey in data_out.keys():
+  #      print(okey)
+   #     ho[okey]=data_out[okey]
+    #ho.close()
     
 
     if plot:
@@ -235,9 +239,10 @@ def analyze_block(i0,
 if __name__ == "__main__":
     dmm = drf.DigitalMetadataReader(pc.mesomode_metadata_dir)
     d = drf.DigitalRFReader(pc.raw_voltage_dir)
-    b=dmm.get_bounds()
-    t0=stuffr.date2unix(2025,1,30,0,0,00)*1000000
-    dd=dmm.read(t0,t0+24*3600*1000000)
+    #b=dmm.get_bounds()
+    b=d.get_bounds()
+    t0=b[0]#stuffr.date2unix(2025,1,30,0,0,00)*1000000
+    dd=dmm.read(b[0],b[1])
     kl=list(dd.keys())
     for ki in range(rank,len(kl),size):#dd.keys():
         k=kl[ki]
@@ -246,7 +251,7 @@ if __name__ == "__main__":
         rb=d.get_bounds("ch000")
         if (i1-i0)>60*1000000 and (rb[0]< i0):
             print("long enough")
-#            print("rank %d %s - %s"%(rank,stuffr.unix2datestr(i0/1e6),stuffr.unix2datestr(i1/1e6)))
+            #            print("rank %d %s - %s"%(rank,stuffr.unix2datestr(i0/1e6),stuffr.unix2datestr(i1/1e6)))
             analyze_block(i0,i1)
 
     
