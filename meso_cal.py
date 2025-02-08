@@ -40,7 +40,7 @@ for bi in range(n_b):
         xc=data_dict[k]["xc_arr"][:,0,:,:]
         mean_pwr=n.sum(n.abs(data_dict[k]["xc_arr"][0:7,0,:,:]),axis=0)
         #mi,mj=n.unravel_index(n.argmax(mean_pwr),shape=mean_pwr.shape)
-        #noise_floor=n.median(mean_pwr)
+        noise_floor=n.median(mean_pwr)
         dcpwr=(mean_pwr[zidx,:]-noise_floor)/noise_floor
         gidx=n.where(dcpwr > 25)[0]
         for gi in gidx:
