@@ -46,7 +46,11 @@ rvec=rvec[r0:r1]
 fig, axs = plt.subplots(nrows=5,ncols=1)
 for i in range(5):
     ax=axs[i]    
-    m=ax.pcolormesh(tvs,rvec,dprofs[i,:,:].T,cmap="seismic")
+    if i == 0:
+        m=ax.pcolormesh(tvs,rvec,dprofs[i,:,:].T,cmap="seismic",vmin=-5,vmax=5)
+    else:
+        m=ax.pcolormesh(tvs,rvec,dprofs[i,:,:].T,cmap="seismic")
+
     fig.autofmt_xdate()
     cb=fig.colorbar(m,ax=ax)
 plt.show()
