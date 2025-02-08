@@ -22,8 +22,9 @@ for bi in range(n_b):
         for i in range(5):
             pprofs[i].append(n.max(data_dict[k]["xc_arr"][i,0,:,:],axis=0))
 pprofs=n.array(pprofs)
+print(pprofs.shape)
 for i in range(5):
-    plt.pcolormesh(pprofs[i])
+    plt.pcolormesh(pprofs[i,:,:])
     plt.colorbar()
     plt.show()
     
