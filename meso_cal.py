@@ -41,18 +41,19 @@ for bi in range(n_b):
         mean_pwr=n.sum(n.abs(data_dict[k]["xc_arr"][0:7,0,:,:]),axis=0)
         noise_floor=n.median(mean_pwr)
         dcpwr=(mean_pwr[zidx,:]-noise_floor)/noise_floor
-        gidx=n.where(dcpwr > 100)[0]
-        for cid in gidx:
-            print("adding cal data")
-            print(n.angle(xc[:,zidx,cid]))
-            cals.append(xc[:,zidx,cid])
+        peak_pp=n.argmax(dcpwr)
+        #gidx=n.where(dcpwr > 100)[0]
+        #for cid in gidx:
+        #print("adding cal data")
+        #print(n.angle(xc[:,zidx,cid]))
+        cals.append(xc[:,zidx,peak_pp])
 
 cals=n.array(cals)
 print(cals.shape)
-for i in range(cals.shape[0]):
+for i in range(7,cals.shape[0]):
     plt.plot(n.angle(cals[:,i]),".")
     plt.show()
-    plt.hist(n.angle(cals[:,i]),bins=180)
+    plt.hist(n.angle(cals[:,i]),bins=50)
     plt.show()
 #for i in range(cals.shape)
 
