@@ -36,11 +36,11 @@ for bi in range(n_b):
         xc=data_dict[k]["xc_arr"][:,0,:,:]
         mean_pwr=n.sum(n.abs(data_dict[k]["xc_arr"][0:7,0,:,:]),axis=0)
         noise_floor=n.median(mean_pwr)
-        dcpwr=(mean_pwr[fidx,:]-noise_floor)/noise_floor
+        dcpwr=(mean_pwr[zidx,:]-noise_floor)/noise_floor
         gidx=n.where(dcpwr > 100)[0]
         for cid in gidx:
             print("adding cal data")
-            cals.append(xc[:,fidx,cid])
+            cals.append(xc[:,zidx,cid])
 
 cals=n.array(cals)
 print(cals.shape)
