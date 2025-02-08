@@ -41,12 +41,9 @@ for bi in range(n_b):
         mean_pwr=n.sum(n.abs(data_dict[k]["xc_arr"][0:7,0,:,:]),axis=0)
         noise_floor=n.median(mean_pwr)
         dcpwr=(mean_pwr[zidx,:]-noise_floor)/noise_floor
-        peak_pp=n.argmax(dcpwr)
-        #gidx=n.where(dcpwr > 100)[0]
-        #for cid in gidx:
-        #print("adding cal data")
-        #print(n.angle(xc[:,zidx,cid]))
-        cals.append(xc[:,zidx,peak_pp])
+        gidx=n.where(dcpwr > 100)[0]
+        if len(gidx)>0:
+            cals.append(xc[:,zidx,gidx[0]])
 
 cals=n.array(cals)
 print(cals.shape)
