@@ -21,7 +21,7 @@ r1=1
 tvs=[]
 cals=[]
 start_idx=stuffr.date2unix(2025,1,30,0,0,0)*1000000
-end_idx=stuffr.date2unix(2025,1,30,12,0,0)*1000000
+end_idx=b[1]#stuffr.date2unix(2025,1,30,12,0,0)*1000000
 
 n_b=int((end_idx-start_idx)/dt)
 
@@ -47,7 +47,7 @@ for bi in range(n_b):
 
 cals=n.array(cals)
 print(cals.shape)
-for i in range(7,cals.shape[0]):
+for i in range(7,cals.shape[1]):
     plt.plot(n.angle(cals[:,i]),".")
     plt.show()
     plt.hist(n.angle(cals[:,i]),bins=50)
