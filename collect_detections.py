@@ -27,7 +27,7 @@ for k in data_dict.keys():
     r0=xhat[0]
     v0=xhat[1]
     t0=k
-    tv.append(stuffr.unix2date(t0/1e6))
+    tv.append(n.datetime64(stuffr.unix2date(t0/1e6)))
     v0s.append(v0)
     r0s.append(r0)
     durs.append(dur)
@@ -44,6 +44,7 @@ plt.hist(r0s,bins=50)
 plt.xlabel("Height (km)")
 plt.show()
 
+tv=n.array(tv)
 gidx=n.where(v0s>10)[0]
 r0s=n.array(r0s)
 fig, ax = plt.subplots()
