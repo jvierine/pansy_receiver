@@ -31,10 +31,25 @@ print(pprofs.shape)
 #print(pprofs[i,:,:])
 rvec=n.arange(1600)*0.15
 rvec=rvec[r0:r1]
+fig, axs = plt.subplots([5,1])
+
 for i in range(5):
-    plt.pcolormesh(tvs,rvec,10.0*n.log10(pprofs[i,:,:].T))
-    plt.colorbar()
-    plt.show()
+    ax=axs[i]    
+    m=ax.pcolormesh(tvs,rvec,10.0*n.log10(pprofs[i,:,:].T))
+    fig.autofmt_xdate()
+    cb=fig.colorbar(m,ax=ax)
+plt.show()
+#    ax=axs[1]    
+ #   m=ax.pcolormesh(tvs,rvec,10.0*n.log10(pprofs[i,:,:].T))
+  ## cb=fig.colorbar(m,ax=ax)
+
+#cb.set_label("Doppler (km/s)")
+#ax.set_xlabel("Time (unix)")
+#plt.show()
+
+#plt.pcolormesh(tvs,rvec,10.0*n.log10(pprofs[i,:,:].T))
+#plt.colorbar()
+#plt.show()
     
 
 
