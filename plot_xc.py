@@ -25,7 +25,7 @@ for bi in range(n_b):
         r1=data_dict[k]["r1"]
         tvs.append(stuffr.unix2date(data_dict[k]["i0"]/1e6))
         for i in range(5):
-            pprofs[i].append(n.max(n.sum(n.abs(data_dict[k]["xc_arr"][i,0:7,:,:]),axis=0),axis=0))
+            pprofs[i].append(n.max(n.sum(n.abs(data_dict[k]["xc_arr"][0:7,i,:,:]),axis=0),axis=0))
 pprofs=n.array(pprofs)
 print(pprofs.shape)
 #print(pprofs[i,:,:])
