@@ -50,7 +50,9 @@ for bi in range(n_b):
 cals=n.array(cals)
 print(cals.shape)
 for i in range(cals.shape[0]):
-    plt.hist(n.angle(cals[i,:]),bins=180)
+    plt.plot(n.angle(cals[:,i]),".")
+    plt.show()
+    plt.hist(n.angle(cals[:,i]),bins=180)
     plt.show()
 #for i in range(cals.shape)
 
