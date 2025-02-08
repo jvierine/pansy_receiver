@@ -25,7 +25,7 @@ rank = comm.Get_rank()
 class range_doppler_search:
     def __init__(self,
                  txlen=132,
-                 rg=n.arange(400,950,2,dtype=n.int64),
+                 rg=n.arange(400,1100,2,dtype=n.int64),
                  fdec=8, # how much do we decimate before fft. can save a lot of compute
                  fftlen=256
                  ):
