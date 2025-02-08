@@ -1,0 +1,48 @@
+import numpy as n
+import digital_rf as drf
+import matplotlib.pyplot as plt
+import stuffr
+
+import pansy_config as pc
+
+# assume beam pointing, and use echoes to determine what the phase calibration is
+
+dm = drf.DigitalMetadataReader(pc.xc_metadata_dir)
+b = dm.get_bounds()
+
+dt=60*1000000
+n_b=int((b[1]-b[0])/dt)
+pprofs=[]
+dprofs=[]
+for i in range(5):
+    pprofs.append([])
+    dprofs.append([])
+r0=0
+r1=1
+tvs=[]
+cals=[]
+for bi in range(n_b):
+    data_dict = dm.read(b[0]+bi*dt, b[0]+bi*dt+dt, ("xc_arr","i0","i1","r0","r1","f0","f1","n_fft"))
+    for k in data_dict.keys():
+        r0=data_dict[k]["r0"]
+        r1=data_dict[k]["r1"]
+        f0=data_dict[k]["f0"]
+        f1=data_dict[k]["f1"]
+        n_fft=data_dict[k]["n_fft"]
+        fvec=n.fft.fftshift(n.fft.fftfreq(n_fft,d=5*1600/1e6))[f0:f1]
+        zidx=n.argmin(n.abs(fvec))
+        tvs.append(stuffr.unix2date(data_dict[k]["i0"]/1e6))
+        # zenith beam
+        xc=data_dict[k]["xc_arr"][:,0,:,:]
+        mean_pwr=n.sum(n.abs(data_dict[k]["xc_arr"][0:7,0,:,:]),axis=0)
+        noise_floor=n.median(mean_pwr)
+        dcpwr=(mean_pwr[fidx,:]-noise_floor)/noise_floor
+        gidx=n.where(dcpwr > 100)[0]
+        for cid in gidx:
+            print("adding cal data")
+            cals.append(xc[:,fidx,cid])
+
+cals=n.array(cals)
+print(cals.shape)
+#for i in range(cals.shape)
+
