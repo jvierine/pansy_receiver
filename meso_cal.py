@@ -21,7 +21,9 @@ r1=1
 tvs=[]
 cals=[]
 start_idx=stuffr.date2unix(2025,1,30,0,0,0)*1000000
-n_b=int((b[1]-start_idx)/dt)
+end_idx=stuffr.date2unix(2025,1,30,12,0,0)*1000000
+
+n_b=int((end_idx-start_idx)/dt)
 
 for bi in range(n_b):
     data_dict = dm.read(start_idx+bi*dt, start_idx+bi*dt+dt, ("xc_arr","i0","i1","r0","r1","f0","f1","n_fft"))
