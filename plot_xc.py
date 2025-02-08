@@ -31,7 +31,7 @@ print(pprofs.shape)
 #print(pprofs[i,:,:])
 rvec=n.arange(1600)*0.15
 rvec=rvec[r0:r1]
-fig, axs = plt.subplots([5,1])
+fig, axs = plt.subplots(nrows=5,ncols=1)
 
 for i in range(5):
     ax=axs[i]    
