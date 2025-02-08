@@ -52,10 +52,10 @@ for i in range(7,cals.shape[1]):
     rho=n.mean(cals[:,i])
     plt.subplot(211)
     plt.plot(n.angle(cals[:,i]),".")
-    plt.axhline(n.angle(rho))
+    plt.axhline(n.angle(rho),color="red")
     plt.subplot(212)
     plt.hist(n.angle(cals[:,i]),bins=50)
-    plt.axvline(n.angle(rho))
+    plt.axvline(n.angle(rho),color="red")
     plt.show()
 #for i in range(cals.shape)
 
