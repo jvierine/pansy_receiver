@@ -28,7 +28,7 @@ for bi in range(n_b):
         f0=data_dict[k]["f0"]
         f1=data_dict[k]["f1"]
         n_fft=data_dict[k]["n_fft"]
-        fvec=n.fft.fftshift(n.fft.fftfreq(n_fft,d=1600/1e6))[f0:f1]
+        fvec=n.fft.fftshift(n.fft.fftfreq(n_fft,d=5*1600/1e6))[f0:f1]
         tvs.append(stuffr.unix2date(data_dict[k]["i0"]/1e6))
         for i in range(5):
             mean_pwr=n.sum(n.abs(data_dict[k]["xc_arr"][0:7,i,:,:]),axis=0)
