@@ -21,5 +21,5 @@ pprof4=[]
 for bi in range(n_b):
     data_dict = dm.read(b[0]+bi*dt, b[0]+bi*dt+dt, ("xc_arr","i0","i1"))
     for k in data_dict.keys():
-        plt.plot(n.max(data_dict[k][xc_arr][0,0,:,:],axis=0))
+        plt.plot(n.max(data_dict[k]["xc_arr"][0,0,:,:],axis=0))
         plt.show()
