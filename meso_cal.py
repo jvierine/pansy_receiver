@@ -24,14 +24,15 @@ start_idx=stuffr.date2unix(2025,1,30,0,0,0)*1000000
 end_idx=b[1]#stuffr.date2unix(2025,1,30,12,0,0)*1000000
 
 n_b=int((end_idx-start_idx)/dt)
-
+ch_pairs=None
 for bi in range(n_b):
-    data_dict = dm.read(start_idx+bi*dt, start_idx+bi*dt+dt, ("xc_arr","i0","i1","r0","r1","f0","f1","n_fft"))
+    data_dict = dm.read(start_idx+bi*dt, start_idx+bi*dt+dt, ("xc_arr","i0","i1","r0","r1","f0","f1","n_fft","ch_pairs"))
     for k in data_dict.keys():
         r0=data_dict[k]["r0"]
         r1=data_dict[k]["r1"]
         f0=data_dict[k]["f0"]
         f1=data_dict[k]["f1"]
+        ch_pairs=data_dict[k]["ch_pairs"]
         n_fft=data_dict[k]["n_fft"]
         fvec=n.fft.fftshift(n.fft.fftfreq(n_fft,d=5*1600/1e6))[f0:f1]
         zidx=n.argmin(n.abs(fvec))
@@ -52,6 +53,7 @@ for i in range(7,cals.shape[1]):
     rho=n.mean(cals[:,i])
     plt.subplot(211)
     plt.plot(n.angle(cals[:,i]),".")
+    plt.title(ch_pairs[i])
     plt.axhline(n.angle(rho),color="red")
     plt.subplot(212)
     plt.hist(n.angle(cals[:,i]),bins=50)
