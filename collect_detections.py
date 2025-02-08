@@ -46,7 +46,7 @@ plt.show()
 
 tv=n.array(tv)
 #gidx=n.where(v0s>10)[0]
-gidx=n.arange(le(tv),dtype=n.int64)
+gidx=n.arange(len(tv),dtype=n.int64)
 
 r0s=n.array(r0s)
 fig, ax = plt.subplots()
