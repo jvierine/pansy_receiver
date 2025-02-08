@@ -7,7 +7,7 @@ import pansy_config as pc
 
 # assume beam pointing, and use echoes to determine what the phase calibration is
 
-dm = drf.DigitalMetadataReader(pc.xc_metadata_dir)
+dm = drf.DigitalMetadataReader("/media/analysis/metadata/xc/")
 b = dm.get_bounds()
 
 dt=60*1000000
