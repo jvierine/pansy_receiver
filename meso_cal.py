@@ -20,7 +20,7 @@ r0=0
 r1=1
 tvs=[]
 cals=[]
-start_idx=stuffr.date2unix("2025-01-30T00:00")*1000000
+start_idx=stuffr.date2unix(2025,1,30,0,0,0)*1000000
 n_b=int((b[1]-start_idx)/dt)
 
 for bi in range(n_b):
