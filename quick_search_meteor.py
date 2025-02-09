@@ -86,7 +86,9 @@ class range_doppler_search:
 
             Z=z[rxi,self.idx_mat]*z_tx[None,:]
             # decimate
-            ZD=self.decim(Z,fdec=self.fdec)
+            ZD=Z
+            if self.fdec>1:            
+                ZD=self.decim(Z,fdec=self.fdec)
             ZF=n.fft.fftshift(fft(ZD,self.fftlen,axis=1),axes=1)
             MF+=ZF.real**2.0 + ZF.imag**2.0#n.real(ZF*n.conj(ZF))
         noise_floor=n.median(MF)
