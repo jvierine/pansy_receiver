@@ -1,5 +1,5 @@
 import numpy as n
-
+import scipy.constants as c
 mf_metadata_dir="/media/analysis/metadata/mf"
 tx_metadata_dir="/media/analysis/metadata/tx"
 detections_metadata_dir="/media/analysis/metadata/detections"
@@ -14,16 +14,33 @@ raw_voltage_dir="/media/archive/"
 lat=-69.010833
 lon=39.599722
 
+freq=47.5e6
+wavelength=c.c/freq
+
 # parse antenna connections
 f=open("cfg/connections.txt","r")
-channel_ids=[]
+connections=[]
 for l in f.readlines():
-    channel_ids.append(l.split(",")[0])
+    connections.append(l.split(",")[0])
 f.close()
+
 # parse antenna positions
 f=open("cfg/antpos.csv","r")
 f.readline()
+module_names=[]
+for l in f.readlines():
+    module_names.append(l.split(",")[1])
+f.close()
+#print(n.unique(module_names))
+
+f=open("cfg/antpos.csv","r")
+f.readline()
 antenna={}
+modules={}
+module_center={}
+for mn in module_names:
+    modules[mn]=[]
+
 for l in f.readlines():
     r=l.split(",")
     serial=r[0]
@@ -33,12 +50,29 @@ for l in f.readlines():
     x=float(r[4])
     y=float(r[5])
     z=float(r[6])
+    modules[name].append(n.array([x,y,z]))
     antenna[serial]={"serial":serial,"id":id,"name":name,"x":x,"y":y,"z":z,"ready":ready}
+f.close()
+for mn in module_names:
+    modules[mn]=n.array(modules[mn])
+    module_center[mn]=n.mean(modules[mn],axis=0)
 
-
-if __name__ == "__main__":
-    print(channel_ids)
-    for cid in channel_ids:
-        print(cid)
+def print_antenna():
+    import matplotlib.pyplot as plt
+    for cid in antenna.keys():
+#        print("cid")
         if cid != "RFTX":
-            print(antenna[cid])
+            plt.plot(antenna[cid]["x"],antenna[cid]["y"],".",color="blue")
+
+    for mn in module_names:
+        plt.plot(module_center[mn][0],module_center[mn][1],".",color="red")
+    for ci,conn in enumerate(connections):
+        if conn in module_center.keys():
+            t=plt.text(module_center[conn][0],module_center[conn][1],"%d-%s"%(ci,conn),color="black")
+            t.set_bbox(dict(facecolor='white', alpha=0.7, edgecolor='red',linewidth=0))
+        
+    plt.xlabel("x (m)")
+    plt.xlabel("y (m)")
+    plt.gca().set_aspect('equal')
+#q    plt.axes().set_aspect("equal")
+    plt.show()
