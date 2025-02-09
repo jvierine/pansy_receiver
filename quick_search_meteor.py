@@ -181,7 +181,7 @@ def meteor_search(debug=False):
 
     d_analysis=file_cadence_seconds*1000000
     # start analysis where the previous one left off
-    start_idx=d_analysis*int(n.ceil((db_mf[1]-3600*1000000)/d_analysis))
+    start_idx=d_analysis*int(n.ceil((db_mf[1]-12*3600*1000000)/d_analysis))
     # stay 6 minutes behind realtime to avoid underfull metadata files
     end_idx=d_analysis*int(n.ceil(db[1]/d_analysis))-6*d_analysis
 
