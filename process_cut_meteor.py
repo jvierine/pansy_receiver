@@ -9,7 +9,9 @@ import pansy_config as pc
 import cluster_mf as cmf
 import traceback
 import scipy.fftpack as fp
+import itertools
 fft=fp.fft
+
 class range_doppler_search:
     def __init__(self,
                  txlen,
@@ -19,7 +21,7 @@ class range_doppler_search:
         self.txlen=txlen*interp
         
         self.fdec=8*interp
-        self.fftlen=int(self.txlen*2/self.fdec)
+        self.fftlen=int(self.txlen*64/self.fdec)
         self.echolen=echolen*interp
         
         self.n_channels=n_channels
@@ -39,6 +41,9 @@ class range_doppler_search:
         self.fvec=n.fft.fftshift(n.fft.fftfreq(self.fftlen,d=self.fdec/(interp*1e6)))
         self.dopv=self.fvec*c.c/2.0/self.frad
 
+        # interferometry
+        self.ch_pairs=list(itertools.combinations(n.arange(n_channels),2))
+        self.n_pairs=len(self.ch_pairs)
         
         
     def decim(self,Z):
@@ -58,33 +63,62 @@ class range_doppler_search:
         for chi in range(self.n_channels):
             self.z_rx[chi,:]=n.repeat(echo[chi,:],self.interp)
 #            self.z_rx[chi,:]=echo[chi,:]
-        
+        #print("zrx",self.z_rx.shape)
         z_tx=n.conj(txi)
         
         MF=n.zeros([self.n_rg,self.fftlen],dtype=n.float32)
+        XC=n.zeros([self.n_pairs,self.n_rg,self.fftlen],dtype=n.complex64)
+        XC2=n.zeros([self.n_pairs,self.n_rg],dtype=n.complex64)
         for chi in range(self.n_channels):
-            Z=self.z_rx[chi,self.idx_mat]*txi[None,:]
-#            plt.pcolormesh(Z.real)
-#            plt.show()
-            
+            Z=self.z_rx[chi,self.idx_mat]*txi[None,:]            
             # decimate
             ZD=self.decim(Z)
             ZF=n.fft.fftshift(fft(ZD,self.fftlen,axis=1),axes=1)
             MF+=ZF.real**2.0 + ZF.imag**2.0
+     #   plt.pcolormesh(MF)
+      #  plt.show()
+
+        for chip in range(self.n_pairs):
+            Z1=self.z_rx[self.ch_pairs[chip][0],self.idx_mat]*txi[None,:]            
+            Z2=self.z_rx[self.ch_pairs[chip][1],self.idx_mat]*txi[None,:]            
+            # decimate
+            ZD1=self.decim(Z1)
+            ZD2=self.decim(Z2)
+            ZF1=n.fft.fftshift(fft(ZD1,self.fftlen,axis=1),axes=1)
+            ZF2=n.fft.fftshift(fft(ZD2,self.fftlen,axis=1),axes=1)
+            XC[chip,:,:]=ZF1*n.conj(ZF2)
+#            plt.pcolormesh(n.angle(XC[chip,:,:]),cmap="hsv")
+ #           plt.show()
+
+#        print(XC.shape)
+ #       print("nrg",self.n_rg)
         noise_floor=n.median(MF)
         pprof=n.max(MF,axis=1)
+  #      print("pprof",len(pprof))
+        dop_idx=n.argmax(MF,axis=1)
+        xc=[]
+        for i in range(self.n_rg):
+            XC2[:,i]=XC[:,i,dop_idx[i]]
+   #     print(dop_idx)
+    #    print("dop",len(dop_idx))
+        
         peak_dopv=self.dopv[n.argmax(MF,axis=1)]
         
-        if False:
-            plt.pcolormesh(self.dopv,self.rangev,n.abs(ZF)**2.0)
-            plt.show()
-        return(MF,pprof,peak_dopv,noise_floor)
+        return(MF,pprof,peak_dopv,noise_floor,XC2)
 
+#
+# Here is the program:
+# z_ant^tx_beam
+# 
+# z_0^0 z_1^0* = e^{i (p_0-p_1)}
+# z_0^1 = z_0^0 e^{i c_0^1}
+# z_0^1 z_1^1* = e^{i (p_0-p_1)}e^{i (c_0^1-c_1^1)}
 
-
-
-
-mddir="/home/j/src/pansy_receiver/test_data/metadata/cut"
+#
+#
+#
+#
+mddir="../pansy_test_data/metadata/cut"
 dm = drf.DigitalMetadataReader(mddir)
 b = dm.get_bounds()
 dt=10000000
@@ -97,35 +131,55 @@ for bi in range(n_block):
         delays=data[k]["delays"]
         beam_id=data[k]["beam_id"]
         tx_idx=data[k]["tx_idx"]
-        
-
-#@        print(z_rx.shape)
-  #      plt.pcolormesh(n.angle(z_rx[:,0,:]*n.conj(z_rx[:,1,:])).T,cmap="hsv")
-   #     plt.colorbar()
-    #    plt.show()
-
-        interp=5
+        c_snr=data[k]["c_snr"]
+        print(n.max(c_snr))
+        if n.max(c_snr) < 400 or len(n.unique(beam_id))==1:
+            print(n.max(c_snr))
+            continue
+        print("mf")
+        #print(len(tx_idx))
+        #print(z_tx.shape)
+        interp=2
         txlen=z_tx.shape[1]
         echolen=z_rx.shape[2]        
 
         rds=range_doppler_search(txlen=txlen,echolen=echolen,interp=interp,n_channels=z_rx.shape[1])
         RTI=n.zeros([z_rx.shape[0],rds.n_rg],dtype=n.float32)
+        XCT=n.zeros([rds.n_pairs,z_rx.shape[0],rds.n_rg],dtype=n.complex64)
+        xct=n.zeros([rds.n_pairs,z_rx.shape[0]],dtype=n.complex64)
 
-   #     for i in range(7):
-  #          plt.pcolormesh(z_rx[:,i,:].real)
- #           plt.colorbar()
-#            plt.show()
-        print(z_rx.shape)
+        #print(z_rx.shape)
+        peak_rg=[]
+        peak_dop=[]
+        drg=c.c/1e6/2/1e3
+        snr=[]
         for ti in range(z_rx.shape[0]):
-            MF,pprof,peak_dopv,noise_floor=rds.mf(z_tx[ti,:],z_rx[ti,:,:])
-            RTI[ti,:]=pprof
-        plt.pcolormesh(RTI.T)
-        plt.colorbar()
-        plt.show()
-            
+            MF,pprof,peak_dopv,noise_floor,XC=rds.mf(z_tx[ti,:],z_rx[ti,:,:])
+            #print(XC.shape)
+            max_rg=n.argmax(pprof)
+            peak_rg.append((delays[ti]+max_rg/interp)*drg)
+            peak_dop.append(peak_dopv[max_rg])
+            RTI[ti,:]=(pprof-noise_floor)/noise_floor
+            XCT[:,ti,:]=XC
+            xct[:,ti]=XC[:,max_rg]
+            snr.append((pprof[max_rg]-noise_floor)/noise_floor)
+        snr=n.array(snr)
+        peak_rg=n.array(peak_rg)
+        peak_dop=n.array(peak_dop)
+        idx=n.where(snr>7)[0]
 
-        
-        
+        for i in range(rds.n_pairs):
+            plt.subplot(311)
+            plt.plot(tx_idx[idx],peak_rg[idx],".")
+            plt.title(n.unique(beam_id))
+            plt.xlim([n.min(tx_idx),n.max(tx_idx)])
+            plt.subplot(312)
+            plt.plot(tx_idx[idx],peak_dop[idx],".")
+            plt.xlim([n.min(tx_idx),n.max(tx_idx)])
+            plt.subplot(313)
+            plt.scatter(tx_idx[idx],n.angle(xct[i,idx]),c=beam_id[idx],s=1,cmap="turbo")
+            plt.xlim([n.min(tx_idx),n.max(tx_idx)])
+            plt.show()
         print(data[k])
 
 

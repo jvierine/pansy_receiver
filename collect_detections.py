@@ -32,13 +32,14 @@ for k in data_dict.keys():
     r0s.append(r0)
     durs.append(dur)
 v0s=-1*n.array(v0s)
+plt.subplot(131)
 plt.hist(10.0*n.log10(snrs),bins=50)
-plt.xlabel("Signa-to-noise ratio (dB)")
-plt.show()
+plt.xlabel("Signal-to-noise ratio (dB)")
+plt.subplot(132)
 
 plt.hist(durs,bins=50)
 plt.xlabel("Event duration (s)")
-plt.show()
+plt.subplot(133)
 
 plt.hist(r0s,bins=50)
 plt.xlabel("Height (km)")

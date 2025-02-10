@@ -37,22 +37,13 @@ def fit_obs(tx_idx,rg,dop,fit_acc=False,return_model=False):
         A[0:n_m,0]=(1.0)/r_std
         A[0:n_m,1]=(t)/r_std
         A[n_m:(2*n_m),1]=1/v_std
-        #AA[0:n_m,0]=(1.0)
-        #AA[0:n_m,1]=(t)
-        #AA[n_m:(2*n_m),1]=1
     if dur < 0.25:
         A=n.zeros([2*n_m,3],dtype=n.float32)
-#        AA=n.zeros([2*n_m,3],dtype=n.float32)
         A[0:n_m,0]=(1.0)/r_std
         A[0:n_m,1]=(t)/r_std
         A[0:n_m,2]=(t**2.0)/r_std
         A[n_m:(2*n_m),1]=1/v_std
         A[n_m:(2*n_m),2]=(2*t)/v_std
- #       AA[0:n_m,0]=(1.0)
-  #      AA[0:n_m,1]=(t)
-   #     AA[0:n_m,2]=(t**2.0)
-    #    AA[n_m:(2*n_m),1]=1
-     #   AA[n_m:(2*n_m),2]=(2*t)        
     else:
         A=n.zeros([2*n_m,4],dtype=n.float32)
         A[0:n_m,0]=(1.0)/r_std
@@ -132,7 +123,7 @@ def cluster(tx_idx,
         ddop = dop[i]-dop[idx]
         #print(dr)
         # has to be close in time, but also close enough in range and doppler
-        fit_idx=n.where( (n.abs(dt) < 10e-3) & (n.abs(dr)<0.5) & (n.abs(ddop)<10e3))[0]
+        fit_idx=n.where( (n.abs(dt) < 10e-3) & (n.abs(dr)<0.5) & (n.abs(ddop)<13e3))[0]
         pair_idx=idx[fit_idx]
         if len(pair_idx) > 1:
 #            print(pair_idx)
