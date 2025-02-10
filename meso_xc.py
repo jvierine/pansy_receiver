@@ -251,7 +251,7 @@ if __name__ == "__main__":
 
     #b=dmm.get_bounds()
     b=d.get_bounds("ch000")
-    t0=dmxc[1]
+    t0=xcb[1]
     dd=dmm.read(t0,dmb[1])
     kl=list(dd.keys())
     for ki in range(rank,len(kl),size):#dd.keys():
