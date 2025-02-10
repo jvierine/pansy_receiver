@@ -27,7 +27,7 @@ class range_doppler_search:
                  txlen=132,
                  rg=n.arange(400,1000,2,dtype=n.int64),
                  fdec=8, # how much do we decimate before fft. can save a lot of compute
-                 fftlen=512
+                 fftlen=1024
                  ):
         
         self.idx=n.arange(132,dtype=n.int64)
