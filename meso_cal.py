@@ -69,6 +69,7 @@ ho["cals"]=n.mean(cals,axis=0)
 ho["pwr"]=n.mean(noise_powers,axis=0)
 ho.close()
 exit(0)
+# stop
 print(cals.shape)
 for i in range(7,cals.shape[1]):
     rho=n.mean(cals[:,i])
