@@ -1,13 +1,12 @@
 import numpy as n
 import scipy.constants as c
+
 mf_metadata_dir="/media/analysis/metadata/mf"
 tx_metadata_dir="/media/analysis/metadata/tx"
 detections_metadata_dir="/media/analysis/metadata/detections"
 cut_metadata_dir="/media/analysis/metadata/cut"
 mesomode_metadata_dir="/media/analysis/metadata/mesomode"
-
 xc_metadata_dir="/media/analysis/metadata/xc2"
-
 raw_voltage_dir="/media/archive/"
 
 # antenna position
@@ -74,5 +73,8 @@ def print_antenna():
     plt.xlabel("x (m)")
     plt.xlabel("y (m)")
     plt.gca().set_aspect('equal')
-#q    plt.axes().set_aspect("equal")
     plt.show()
+
+
+if __name__ == "__main__":
+    print_antenna()

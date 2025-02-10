@@ -2,21 +2,31 @@ import numpy as n
 import matplotlib.pyplot as plt
 import pansy_config as pc
 import itertools
+import h5py
 
 # index pairs
 ch_pairs=n.array(list(itertools.combinations(n.arange(7),2)))
 def uv_coverage(N=100):
+    """
+    unit vectors
+    """
     u=n.linspace(-1,1,num=N)
     v=n.linspace(-1,1,num=N)
     uu,vv=n.meshgrid(u,v)
     mag=n.sqrt(uu**2.0+vv**2)
-    ww=n.sqrt(1-uu**2-vv**2)
-    ww[mag>=1]=n.nan
-    uu[mag>=1]=n.nan
-    vv[mag>=1]=n.nan
+    ww=-n.sqrt(1-uu**2-vv**2)
+#    ww[mag>=1]=n.nan
+ #   uu[mag>=1]=n.nan
+  #  vv[mag>=1]=n.nan
     return(uu,vv,ww)
 
+def zenang(u,v,w):
+    return(180*n.arctan(n.sqrt(u**2+v**2)/w)/n.pi)
+
 def pair_mat(ch_pairs,antpos):
+    """
+    Each row of the matrix is a vector from antenna 0 to antenna 1
+    """
     dmat=n.zeros([ch_pairs.shape[0],3],dtype=n.float32)
     for i in range(ch_pairs.shape[0]):
         dmat[i,:]=antpos[ch_pairs[i,1],:]-antpos[ch_pairs[i,0],:]
@@ -34,6 +44,26 @@ def u_phases(dmat,u0):
             phases[i]=n.exp(1j*k0*n.dot(d,u0))  
     return(phases0)
 
+def mf(meas,dmat,u,v,w):
+    """
+    given a measurement, calculate the match function (beam forming) response
+    for different pointing directions
+    """
+    M=n.zeros([u.shape[0],u.shape[1]],dtype=n.complex64)
+    
+    # for each pair
+    k0=2*n.pi/pc.wavelength
+    for i in range(meas.shape[0]):
+        M+=meas[i]*n.exp(-1j*k0*(dmat[i,0]*u+dmat[i,1]*v+dmat[i,2]*w))
+        
+    return(M)
+#    plt.pcolormesh(n.abs(mf))
+ #   plt.show()
+    
+    #dmat[:,0]*u
+
+    
+    
 def get_antpos():
     antpos=[]
     for cid in pc.connections:
@@ -43,14 +73,77 @@ def get_antpos():
     antpos=n.array(antpos)
     return(antpos)
 
-if __name__ =="__main__":
-    print(pc.wavelength)
+
+def find_meso_zen_cal():
+    """
+    use zenith direction echoes to figure out the phase delay of each module
+    """
+    ch_pairs=n.array(list(itertools.combinations(n.arange(7),2)))
+    
+    # A bunch of measurements of PMSE in the zenith direction
+    h=h5py.File("data/mesocal.h5","r")
+    meas_phase=h["cals"][()]
+    h.close()
+    meas_phase=n.exp(1j*n.angle(meas_phase))
+    # the first 7 are self correlations!
+    meas_phase=meas_phase[7:len(meas_phase)]
+    # these are the antenna module positions
+    antpos=get_antpos()
+    # matrix of antenna pair distances
+    dmat=pair_mat(ch_pairs,antpos)
+    
+    # expected phase differences for zenith direction (EM plane wave in -z direction)
+    # assuming the sky is not falling on us, the up direction should be the same as the zero doppler shift
+    # pmse echo direction (on average)
+    model_phase=u_phases(dmat,n.array([0,0,-1]))
+
+    # zenith direction phase differences with model zenith direction phases subtracted
+    meas=meas_phase*n.conj(model_phase)
+    
+    nm=len(model_phase)
+    model=n.zeros(nm,dtype=n.complex64)
+    def ss(x):
+        phi=x
+        for chi,chp in enumerate(ch_pairs):
+            model[chi]=n.exp(1j*(phi[chp[0]]-phi[chp[1]]))
+        s=n.sum(n.abs(meas-model)**2.0)
+        return(s)
+    import scipy.optimize as sio
+    xhat=sio.fmin(ss,n.zeros(7))
+    xhat=sio.fmin(ss,xhat)
+    xhat=sio.fmin(ss,xhat)
+    xhat=sio.fmin(ss,xhat)            
+    print(xhat)
+    
+    for chi,chp in enumerate(ch_pairs):
+        print("%d %1.2f %1.2f"%(chi,n.angle(meas_phase[chi]*n.conj(model_phase[chi])),n.angle(n.exp(1j*(xhat[chp[0]]-xhat[chp[1]])))))
+
+    h=h5py.File("data/phases.h5","w")
+    h["zenith"]=xhat
+    h.close()
+        
+
+def psf():
+    u,v,w=uv_coverage(N=500)
+    ch_pairs=n.array(list(itertools.combinations(n.arange(7),2)))    
     antpos=get_antpos()
     dmat=pair_mat(ch_pairs,antpos)
-    phases=u_phases(dmat,n.array([0,0,-1]))
-    print(phases)
-    exit(0)
+    zangs=n.linspace(-30,30,num=100)
+    for i in range(len(zangs)):
+        zang=zangs[i]
+        zenith_point=u_phases(dmat,n.array([0,n.sin(n.pi*zang/180),-n.cos(n.pi*zang/180)]))
+        M=mf(zenith_point,dmat,u,v,w)
+        za=zenang(u,v,w)
+        fig,ax=plt.subplots()
+        ax.pcolormesh(u,v,n.abs(M))
+        plt.title("zenith angle %1.1f (deg)"%(zangs[i]))
+        ax.plot([0],[n.sin(n.pi*zang/180.0)],"x",color="black")
+        cs=ax.contour(u,v,za)
+        ax.clabel(cs)
+        plt.savefig("psf-%03d.png"%(i))
+        plt.close()
+#        plt.show()
 
-    for i in range(ch_pairs.shape[0]):
-        print(ch_pairs[i,:])
-        print(n.angle(phases[i]))
+if __name__ =="__main__":
+    psf()
+    find_meso_zen_cal()#ch_pairs, model_phase, meas_phase)
