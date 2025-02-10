@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import pansy_modes as pm
 import scipy.signal.windows as sw
 import scipy.constants as c
+import pansy_config as pc
 import digital_rf as drf
 import os
 import stuffr
@@ -98,13 +99,13 @@ if False:
             beam=beam[gidx]
         return(txpa,txidxa,rnga,dopa,snra,beam)
 
-mf_metadata_dir = "/media/archive/metadata/mf"
+mf_metadata_dir = pc.mf_metadata_dir# "/media/archive/metadata/mf"
 dm_mf = drf.DigitalMetadataReader(mf_metadata_dir)
 db_mf = dm_mf.get_bounds()
 
 dt=10000000
 #n_min=int(n.floor((db_mf[1]-db_mf[0])/dt))
-d=drf.DigitalRFReader("/media/archive/")
+d=drf.DigitalRFReader(pc.raw_voltage_dir)
 # tx channel bounds
 b=d.get_bounds("ch007")
 #start_idx=b[0]#db_mf[1]-2*60*60*1000000
@@ -146,7 +147,7 @@ for i in range(n_min):
     plt.xlim([0,dt/1e6])
     cb=plt.colorbar()
     cb.set_label("SNR (dB)")
-    plt.ylim([-70,5])
+    #plt.ylim([-70,5])
     plt.ylabel("Doppler velocity (km/s)")
     plt.subplot(313)
     plt.scatter((txidxa-i0)/1e6,10.0*n.log10(snra),s=1,c=beam%5,vmin=0,vmax=4,cmap="turbo")
