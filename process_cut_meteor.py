@@ -10,6 +10,23 @@ import cluster_mf as cmf
 import traceback
 import scipy.fftpack as fp
 import itertools
+import pansy_interferometry as pint
+import h5py
+
+# each antenna needs to be multiplied with these phases (n.exp(-1j*phasecal))
+h=h5py.File("data/phases.h5","r")
+phasecal=h["zenith"][()]
+h.close()
+# each antenna needs to be multiplied with these amplitudes
+h=h5py.File("data/mesocal.h5","r")
+amps=h["pwr"][()]
+amps=1/n.sqrt(amps[0:7])
+
+u,v,w=pint.uv_coverage(N=500,max_zenith_angle=20.0)
+antpos=pint.get_antpos()
+ch_pairs=n.array(list(itertools.combinations(n.arange(7),2)))
+dmat=pint.pair_mat(ch_pairs,antpos)
+
 fft=fp.fft
 
 class range_doppler_search:
@@ -17,11 +34,11 @@ class range_doppler_search:
                  txlen,
                  echolen,
                  n_channels,
-                 interp=20):
+                 interp=2):
         self.txlen=txlen*interp
         
         self.fdec=8*interp
-        self.fftlen=int(self.txlen*64/self.fdec)
+        self.fftlen=int(self.txlen*32/self.fdec)
         self.echolen=echolen*interp
         
         self.n_channels=n_channels
@@ -114,6 +131,8 @@ class range_doppler_search:
 # z_0^1 = z_0^0 e^{i c_0^1}
 # z_0^1 z_1^1* = e^{i (p_0-p_1)}e^{i (c_0^1-c_1^1)}
 
+
+
 #
 #
 #
@@ -124,7 +143,11 @@ b = dm.get_bounds()
 dt=10000000
 n_block=int((b[1]-b[0])/dt)
 for bi in range(n_block):
-    data=dm.read(b[0]+bi*dt,b[0]+bi*dt+dt)
+#    1737980347850366
+#1737980349093566
+    #data=dm.read(b[0]+bi*dt,b[0]+bi*dt+dt)
+    data=dm.read(1737980347850366-1000000,1737980349093566+1000000)
+
     for k in data.keys():
         z_rx=n.array(data[k]["zrx_echoes_re"],dtype=n.complex64)+n.array(data[k]["zrx_echoes_im"],dtype=n.complex64)*1j
         z_tx=n.array(data[k]["ztx_pulses_re"],dtype=n.complex64)+n.array(data[k]["ztx_pulses_im"],dtype=n.complex64)*1j
@@ -133,7 +156,7 @@ for bi in range(n_block):
         tx_idx=data[k]["tx_idx"]
         c_snr=data[k]["c_snr"]
         print(n.max(c_snr))
-        if n.max(c_snr) < 400 or len(n.unique(beam_id))==1:
+        if n.max(c_snr) < 100 or (0 not in beam_id):
             print(n.max(c_snr))
             continue
         print("mf")
@@ -166,20 +189,63 @@ for bi in range(n_block):
         snr=n.array(snr)
         peak_rg=n.array(peak_rg)
         peak_dop=n.array(peak_dop)
-        idx=n.where(snr>7)[0]
+        idx=n.where( (snr>7) & (beam_id == 0))[0]
+        print(tx_idx[0])
+        print(tx_idx[-1])
 
-        for i in range(rds.n_pairs):
-            plt.subplot(311)
-            plt.plot(tx_idx[idx],peak_rg[idx],".")
-            plt.title(n.unique(beam_id))
-            plt.xlim([n.min(tx_idx),n.max(tx_idx)])
-            plt.subplot(312)
-            plt.plot(tx_idx[idx],peak_dop[idx],".")
-            plt.xlim([n.min(tx_idx),n.max(tx_idx)])
-            plt.subplot(313)
-            plt.scatter(tx_idx[idx],n.angle(xct[i,idx]),c=beam_id[idx],s=1,cmap="turbo")
-            plt.xlim([n.min(tx_idx),n.max(tx_idx)])
-            plt.show()
+        #for i in range(rds.n_pairs):
+        plt.subplot(311)
+        plt.plot(tx_idx[idx],peak_rg[idx],".")
+        plt.title(n.unique(beam_id[idx]))
+        plt.xlim([n.min(tx_idx),n.max(tx_idx)])
+        plt.subplot(312)
+        plt.plot(tx_idx[idx],peak_dop[idx],".")
+        plt.xlim([n.min(tx_idx),n.max(tx_idx)])
+        plt.subplot(313)
+        plt.scatter(tx_idx[idx],n.angle(xct[0,idx]),c=beam_id[idx],s=1,cmap="turbo")
+        plt.xlim([n.min(tx_idx),n.max(tx_idx)])
+        plt.show()
+
+        mu=[]
+        mv=[]
+
+        for ii in idx:
+            print(ii)
+            xc=xct[:,ii]
+            xc=n.exp(1j*n.angle(xc))
+            #for ci in range(ch_pairs.shape[0]):
+            #    xc[ci]=xc[ci]*n.exp(-1j*(phasecal[ch_pairs[ci][0]]-phasecal[ch_pairs[ci][1]]))
+
+            M=pint.mf(xc,dmat,u,v,w)
+#            plt.pcolormesh(n.abs(M))
+ #           plt.show()
+
+            mi,mj=n.unravel_index(n.argmax(M),shape=M.shape)
+            mu.append(u[mi,mj])
+            mv.append(v[mi,mj])
+
+        mu=n.array(mu)
+        mv=n.array(mv)
+        mw=n.sqrt(1-mu**2.0-mv**2.0)
+#        peak_rg
+        plt.subplot(131)
+        plt.plot((tx_idx[idx]-tx_idx[0])/1e6,peak_rg[idx]*mv,".")
+        plt.xlabel("Time (s)")
+        plt.ylabel("North-South (km)")
+        plt.subplot(132)
+        plt.plot((tx_idx[idx]-tx_idx[0])/1e6,peak_rg[idx]*mu,".")
+        plt.xlabel("Time (s)")
+        plt.ylabel("East-West (km)")
+        plt.subplot(133)
+        plt.plot((tx_idx[idx]-tx_idx[0])/1e6,peak_rg[idx]*mw,".")
+        plt.xlabel("Time (s)")
+        plt.ylabel("Up (km)")
+
+        plt.show()
+
+#        for i in range(rds.n_pairs):
+ #               xct[i,ti]=n.exp(1j*n.angle(xct[i,ti]))*n.exp(-1j*(phasecal[chp[i][0]]-phasecal[chp[i][1]]))
+
         print(data[k])
 
 
