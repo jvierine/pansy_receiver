@@ -56,48 +56,48 @@ if False:
             idx=n.setdiff1d(idx,gidx)
         return(meteor_idxs)
 
-    def read_mf_output(dm_mf,i0,i1,snr_threshold=7,tx_pwr_threshold=1e9):
-        txpa=n.array([],dtype=n.float32)
-        txidxa=n.array([],dtype=n.uint64)
-        rnga=n.array([],dtype=n.float32)
-        dopa=n.array([],dtype=n.float32)
-        snra=n.array([],dtype=n.float32)
-        beam=n.array([],dtype=n.int32)         
-        # read 20 pulse sequences   
-        try:
-            data_dict = dm_mf.read(i0, i1, ("tx_pwr","max_range","tx_idxs","max_dopvel","max_snr","beam_pos_idx"))
-        except:
-            import traceback
-            traceback.print_exc()
-        
+def read_mf_output(dm_mf,i0,i1,snr_threshold=7,tx_pwr_threshold=1e9):
+    txpa=n.array([],dtype=n.float32)
+    txidxa=n.array([],dtype=n.uint64)
+    rnga=n.array([],dtype=n.float32)
+    dopa=n.array([],dtype=n.float32)
+    snra=n.array([],dtype=n.float32)
+    beam=n.array([],dtype=n.int32)         
+    # read 20 pulse sequences   
+    try:
+        data_dict = dm_mf.read(i0, i1, ("tx_pwr","max_range","tx_idxs","max_dopvel","max_snr","beam_pos_idx"))
+    except:
+        import traceback
+        traceback.print_exc()
+    
 
-        if len(data_dict.keys()) == 0:
-            print("no data")
-        else:
-            for k in data_dict.keys():
-                data=data_dict[k]
-                
-                txp=data["tx_pwr"]
-    #            print(txp)
-                # use this threshold for tx power. check that it is okay!!!
-                if n.min(txp) > tx_pwr_threshold:
-                    txpa=n.concatenate((txpa,txp))
-                    txidxa=n.concatenate((txidxa,data["tx_idxs"]))
-                    rnga=n.concatenate((rnga,data["max_range"]))
-                    dopa=n.concatenate((dopa,data["max_dopvel"]))
-                    snra=n.concatenate((snra,data["max_snr"]))
-                    beam=n.concatenate((beam,data["beam_pos_idx"]))            
-                else:
-                    print("low txpower. skipping")
+    if len(data_dict.keys()) == 0:
+        print("no data")
+    else:
+        for k in data_dict.keys():
+            data=data_dict[k]
+            
+            txp=data["tx_pwr"]
+#            print(txp)
+            # use this threshold for tx power. check that it is okay!!!
+            if n.min(txp) > tx_pwr_threshold:
+                txpa=n.concatenate((txpa,txp))
+                txidxa=n.concatenate((txidxa,data["tx_idxs"]))
+                rnga=n.concatenate((rnga,data["max_range"]))
+                dopa=n.concatenate((dopa,data["max_dopvel"]))
+                snra=n.concatenate((snra,data["max_snr"]))
+                beam=n.concatenate((beam,data["beam_pos_idx"]))            
+            else:
+                print("low txpower. skipping")
 
-            gidx=n.where(snra>snr_threshold)[0]
-            txpa=txpa[gidx]
-            txidxa=txidxa[gidx]
-            rnga=rnga[gidx]
-            dopa=dopa[gidx]
-            snra=snra[gidx]
-            beam=beam[gidx]
-        return(txpa,txidxa,rnga,dopa,snra,beam)
+        gidx=n.where(snra>snr_threshold)[0]
+        txpa=txpa[gidx]
+        txidxa=txidxa[gidx]
+        rnga=rnga[gidx]
+        dopa=dopa[gidx]
+        snra=snra[gidx]
+        beam=beam[gidx]
+    return(txpa,txidxa,rnga,dopa,snra,beam)
 
 mf_metadata_dir = pc.mf_metadata_dir# "/media/archive/metadata/mf"
 dm_mf = drf.DigitalMetadataReader(mf_metadata_dir)
