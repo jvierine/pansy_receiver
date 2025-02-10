@@ -50,14 +50,15 @@ for bi in range(n_b):
         dcpwr=(mean_pwr[zidx,:]-noise_floor)/noise_floor
         gidx=n.where(dcpwr > 30)[0]
         
-        if len(gidx)>0:
-            power_ratios=n.zeros(7,dtype=n.float32)
-            for i in range(7):
-                power_ratios[i]=n.abs(xc[i,zidx,ri])/n.abs(xc[0,zidx,ri])
-            noise_powers.append(power_ratios)
+#        if len(gidx)>0:
+ #           power_ratios=n.zeros(7,dtype=n.float32)
+  #          for i in range(7):
+   #             power_ratios[i]=
+    #        noise_powers.append(power_ratios)
         
         for gi in gidx:
             cals.append(xc[:,zidx,gi])
+            noise_powers.append(n.abs(xc[:,zidx,ri])/n.abs(xc[0,zidx,ri]))
 noise_powers=n.array(noise_powers)
 #for i in range(7):
   #  plt.plot(noise_powers[:,i],".")
