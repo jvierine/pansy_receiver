@@ -43,8 +43,8 @@ for bi in range(n_b):
         xc=data_dict[k]["xc_arr"][:,0,:,:]
         mean_pwr=n.sum(n.abs(data_dict[k]["xc_arr"][0:7,0,:,:]),axis=0)
         
-        ri=n.argmax(mean_pwr)
-        
+        ri=n.argmax(mean_pwr[zidx])
+
         #mi,mj=n.unravel_index(n.argmax(mean_pwr),shape=mean_pwr.shape)
         noise_floor=n.median(mean_pwr)
         dcpwr=(mean_pwr[zidx,:]-noise_floor)/noise_floor
@@ -53,7 +53,7 @@ for bi in range(n_b):
         if len(gidx)>0:
             power_ratios=n.zeros(7,dtype=n.float32)
             for i in range(7):
-                power_ratios[i]=n.abs(xc[i,ri])/n.abs(xc[0,ri])
+                power_ratios[i]=n.abs(xc[i,zidx,ri])/n.abs(xc[0,zidx,ri])
             noise_powers.append(power_ratios)
         
         for gi in gidx:
