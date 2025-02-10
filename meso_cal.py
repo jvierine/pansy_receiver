@@ -44,7 +44,7 @@ for bi in range(n_b):
         #mi,mj=n.unravel_index(n.argmax(mean_pwr),shape=mean_pwr.shape)
         noise_floor=n.median(mean_pwr)
         dcpwr=(mean_pwr[zidx,:]-noise_floor)/noise_floor
-        gidx=n.where(dcpwr > 50)[0]
+        gidx=n.where(dcpwr > 100)[0]
         for gi in gidx:
             cals.append(xc[:,zidx,gi])
 
