@@ -50,7 +50,7 @@ for bi in range(n_b):
 
 cals=n.array(cals)
 ho=h5py.File("mesocal.h5","w")
-ho["cals"]=cals
+ho["cals"]=n.mean(cals,axis=0)
 ho.close()
 print(cals.shape)
 for i in range(7,cals.shape[1]):
