@@ -244,11 +244,15 @@ def analyze_block(i0,
 
 if __name__ == "__main__":
     dmm = drf.DigitalMetadataReader(pc.mesomode_metadata_dir)
+    dmb=dmm.get_bounds()
     d = drf.DigitalRFReader(pc.raw_voltage_dir)
+    dmxc = drf.DigitalMetadataReader(pc.xc_metadata_dir)
+    xcb=dmxc.get_bounds()
+
     #b=dmm.get_bounds()
     b=d.get_bounds("ch000")
-    t0=b[0]#stuffr.date2unix(2025,1,30,0,0,00)*1000000
-    dd=dmm.read(b[0]+60*1000000,b[1])
+    t0=dmxc[1]
+    dd=dmm.read(t0,dmb[1])
     kl=list(dd.keys())
     for ki in range(rank,len(kl),size):#dd.keys():
         k=kl[ki]
