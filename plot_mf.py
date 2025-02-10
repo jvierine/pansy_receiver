@@ -109,7 +109,7 @@ d=drf.DigitalRFReader(pc.raw_voltage_dir)
 # tx channel bounds
 b=d.get_bounds("ch007")
 #start_idx=b[0]#db_mf[1]-2*60*60*1000000
-start_idx=dt*int(n.floor((db_mf[1]-2*3600*1000000)/dt))#-2*60*60*1000000
+start_idx=dt*int(n.floor((db_mf[1]-15*60*1000000)/dt))#-2*60*60*1000000
 #start_idx=db_mf[0]
 n_min=int(n.floor((db_mf[1]-start_idx)/dt))
 for i in range(n_min):
@@ -158,9 +158,9 @@ for i in range(n_min):
     plt.xlabel("Time (s)")
     plt.ylim([7,50])
     plt.tight_layout()
-    plt.savefig("meteors-%d.png"%(i0/1e6))
-    plt.close()
-#    plt.show()
+#    plt.savefig("meteors-%d.png"%(i0/1e6))
+ #   plt.close()
+    plt.show()
         
 #        print(data.keys())
         
