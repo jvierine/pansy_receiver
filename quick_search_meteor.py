@@ -26,8 +26,8 @@ class range_doppler_search:
     def __init__(self,
                  txlen=132,
                  rg=n.arange(400,1000,2,dtype=n.int64),
-                 fdec=4, # how much do we decimate before fft. can save a lot of compute
-                 fftlen=256
+                 fdec=8, # how much do we decimate before fft. can save a lot of compute
+                 fftlen=512
                  ):
         
         self.idx=n.arange(132,dtype=n.int64)
@@ -181,7 +181,7 @@ def meteor_search(debug=False):
 
     d_analysis=file_cadence_seconds*1000000
     # start analysis where the previous one left off
-    start_idx=d_analysis*int(n.ceil((db_mf[1]-12*3600*1000000)/d_analysis))
+    start_idx=d_analysis*int(n.ceil((db_mf[1]-24*3600*1000000)/d_analysis))
     # stay 6 minutes behind realtime to avoid underfull metadata files
     end_idx=d_analysis*int(n.ceil(db[1]/d_analysis))-6*d_analysis
 
@@ -312,5 +312,5 @@ if __name__ == "__main__":
         meteor_search()
         print("wait for all threads to finnish")
         comm.Barrier()
-        time.sleep(60)
+        time.sleep(30*60)
     
