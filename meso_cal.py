@@ -2,7 +2,7 @@ import numpy as n
 import digital_rf as drf
 import matplotlib.pyplot as plt
 import stuffr
-
+import h5py
 import pansy_config as pc
 
 # assume beam pointing, and use echoes to determine what the phase calibration is
