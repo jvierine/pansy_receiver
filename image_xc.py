@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import digital_rf as drf
 import pansy_config as pc # type: ignore
 import h5py
+import pansy_interferometry as pint
 
 # each antenna needs to be multiplied with these phases (n.exp(-1j*phasecal))
 h=h5py.File("data/phases.h5","r")
@@ -20,6 +21,12 @@ b = dmd.get_bounds()
 dt=60*1000000
 
 n_blocks=int((b[1]-b[0])/dt)
+
+u,v,w=pint.uv_coverage(N=500,max_zenith_angle=10.0)
+antpos=pint.get_antpos()
+ch_pairs=n.array(list(itertools.combinations(n.arange(7),2)))
+dmat=pint.pair_mat(ch_pairs,antpos)
+
 
 for bi in range(n_blocks):
     dd=dmd.read(b[0]+bi*dt,b[0]+bi*dt+dt,["xc_arr","r0","r1","rdec","f0","f1","n_fft","ipp","ch_pairs"])
@@ -40,7 +47,10 @@ for bi in range(n_blocks):
         for i in range(len(gidx[0])):
             fi=gidx[0][i]
             ri=gidx[1][i]
-            plt.pcolormesh(n.angle(xcc[i,:,:]),cmap="hsv")
+
+            M=pint.mf(xc[:,fi,ri],dmat,u,v,w)
+            plt.pcolormesh(M)
+            plt.colorbar()
             plt.show()
             print(snr[fi,ri])
             print(xc.shape)
