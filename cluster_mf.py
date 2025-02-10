@@ -123,7 +123,7 @@ def cluster(tx_idx,
         ddop = dop[i]-dop[idx]
         #print(dr)
         # has to be close in time, but also close enough in range and doppler
-        fit_idx=n.where( (n.abs(dt) < 10e-3) & (n.abs(dr)<2.0) & (n.abs(ddop)<13e3))[0]
+        fit_idx=n.where( (n.abs(dt) < 10e-3) & (n.abs(dr)<2.0) & (n.abs(ddop)<3.5e3))[0]
         pair_idx=idx[fit_idx]
         if len(pair_idx) > 1:
 #            print(pair_idx)
@@ -216,7 +216,7 @@ def cluster(tx_idx,
                     if n.min(n.abs(n.mean(tv[p])-tv[idx_this])) < 0.15:
                         try_idx=n.concatenate((idx_this,p))
                         r_resid, v_resid, xhat, tmean=fit_obs(tx_idx[try_idx],rg[try_idx],dop[try_idx],fit_acc=True)
-                        if (r_resid < 0.5) and (v_resid < 7):
+                        if (r_resid < 0.5) and (v_resid < 3):
                             # adding
 #                            print("added pair %1.2f %1.2f"%(r_resid,v_resid))
                             idx_this=try_idx
