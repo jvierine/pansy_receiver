@@ -1,0 +1,11 @@
+2025-02-10 lots of frequency loss of lock events (every other minute)
+
+The $GPGGA message indicates that there are sometimes 11 satellites seen, but then a few minutes later none. 
+
+Maybe the antenna is no longer mounted well on the roof?
+
+cd ~/src/git/pansy_receiver
+export LD_LIBRARY_PATH:$LD_LIBRARY_PATH:/home/radar/.syowa/lib
+./test_gps 
+
+https://docs.novatel.com/OEM7/Content/Logs/GPGGA.htm
