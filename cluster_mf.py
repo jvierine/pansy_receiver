@@ -100,7 +100,7 @@ def cluster(tx_idx,
             dop,
             snr,
             min_dur=0.06,
-            min_det=6,
+            min_det=4,
             plot=True
             ):
 
@@ -245,8 +245,8 @@ def cluster(tx_idx,
             if plot:
 #                plt.plot(tv[p],rgmodel,".",color="blue")
                 model_t = n.linspace(n.min(tx_idx[p])-40*1600,n.max(tx_idx[p])+40*1600,num=200)
-                print(rmodel(model_t))
-                plt.plot((model_t-tx_idx[0])/1e6,rmodel(model_t),color="blue")
+#                print(rmodel(model_t))
+                plt.plot((model_t-tx_idx[0])/1e6,rmodel(model_t),color="blue",alpha=0.7)
 
             dur=n.max(tvlocal)-n.min(tvlocal)
             if plot:
