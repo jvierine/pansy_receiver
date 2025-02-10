@@ -243,7 +243,9 @@ def cluster(tx_idx,
             tvlocal=(tx_idx[p]-tmean)/1e6
             rgmodel=rmodel(tvlocal)#xhat[0]+xhat[1]*tvlocal+0.5*xhat[2]*tvlocal**2.0
             if plot:
-                plt.plot(tv[p],rgmodel,".",color="blue")
+#                plt.plot(tv[p],rgmodel,".",color="blue")
+                model_t = n.linspace(n.min(tx_idx[p])-40*1600,n.max(tx_idx[p])+40*1600,num=200)
+                plt.plot((model_t-tx_idx[0])/1e6,rmodel(model_t),color="blue")
             dur=n.max(tvlocal)-n.min(tvlocal)
             if plot:
                 plt.axvline(n.min(tv[p]),color="green")
