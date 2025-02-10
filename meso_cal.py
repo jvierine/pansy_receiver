@@ -53,7 +53,7 @@ for bi in range(n_b):
         if len(gidx)>0:
             power_ratios=n.zeros(7,dtype=n.float32)
             for i in range(7):
-                power_ratios[i]=n.abs(xc[0,zidx,ri])/n.abs(xc[i,zidx,ri])
+                power_ratios[i]=n.abs(xc[i,zidx,ri])/n.abs(xc[0,zidx,ri])
             noise_powers.append(power_ratios)
         
         for gi in gidx:
@@ -67,6 +67,7 @@ ho=h5py.File("mesocal.h5","w")
 ho["cals"]=n.mean(cals,axis=0)
 ho["pwr"]=n.mean(noise_powers,axis=0)
 ho.close()
+exit(0)
 print(cals.shape)
 for i in range(7,cals.shape[1]):
     rho=n.mean(cals[:,i])
