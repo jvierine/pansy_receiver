@@ -58,7 +58,7 @@ for bi in range(n_b):
         
         for gi in gidx:
             cals.append(xc[:,zidx,gi])
-            noise_powers.append(n.abs(xc[:,zidx,ri])/n.abs(xc[0,zidx,ri]))
+            noise_powers.append(n.abs(xc[:,zidx,gi])/n.abs(xc[0,zidx,gi]))
 noise_powers=n.array(noise_powers)
 #for i in range(7):
   #  plt.plot(noise_powers[:,i],".")
