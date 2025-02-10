@@ -9,3 +9,33 @@ export LD_LIBRARY_PATH:$LD_LIBRARY_PATH:/home/radar/.syowa/lib
 ./test_gps 
 
 https://docs.novatel.com/OEM7/Content/Logs/GPGGA.htm
+
+The GPS_SERVO message is decoded as:
+
+[date][1PPS Count][Fine DAC][UTC offset ns][Frequency Error Estimate][Sats Visible][Sats
+Tracked][Lock State][Health Status]
+
+(base) radar@syowa-meteor:~/src/git/pansy_receiver$ ./test_gps
+[INFO] [UHD] linux; GNU C++ version 10.4.0; Boost_107800; UHD_3.15.0.HEAD-release
+[INFO] [OCTOCLOCK] Opening an OctoClock device...
+[INFO] [OCTOCLOCK] Detecting internal GPSDO...
+[INFO] [GPS] Found an internal GPSDO: LC_XO, Firmware Rev 0.929b
+[WARNING] [GPS] update_cache: Malformed GPSDO string: EEPROM Write Failed!
+[WARNING] [GPS] update_cache: Malformed GPSDO string: LC_XO, Firmware Rev 0.929b
+[INFO] [OCTOCLOCK] Detecting external reference...false
+[INFO] [OCTOCLOCK] Detecting switch position...Prefer internal
+[INFO] GPSDO detected: true
+[OCTOCLOCK] Device is using internal reference
+GPS lock status: locked
+GPS epoch time: 1739218894 seconds
+GPS_GPGGA: $GPGGA,202134.00,6900.3955,S,03935.5869,E,1,09,1.2,20.3,M,22.3,M,,*44 
+GPS_GPRMC: $GPRMC,202134.00,A,6900.3955,S,03935.5869,E,0.2,0.0,100225,,*25 
+GPS_SERVO: 25-02-10 1250203 98140 2.60 -8.55E-13 13 10 6 0x0 
+
+
+https://www.jackson-labs.com/assets/uploads/main/LC_XO_Manual.pdf
+
+It seems like there are satellites tracked, even when the GPSDO is not locked. 
+
+
+One possibility in the future might be to avoid restarting the receiver as long as the stability is not too bad. 
