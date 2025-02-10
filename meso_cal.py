@@ -25,6 +25,7 @@ end_idx=b[1]#stuffr.date2unix(2025,1,30,12,0,0)*1000000
 
 n_b=int((end_idx-start_idx)/dt)
 ch_pairs=None
+noise_powers=[]
 for bi in range(n_b):
     data_dict = dm.read(start_idx+bi*dt, start_idx+bi*dt+dt, ("xc_arr","i0","i1","r0","r1","f0","f1","n_fft","ch_pairs"))
     for k in data_dict.keys():
@@ -41,13 +42,26 @@ for bi in range(n_b):
         # zenith beam
         xc=data_dict[k]["xc_arr"][:,0,:,:]
         mean_pwr=n.sum(n.abs(data_dict[k]["xc_arr"][0:7,0,:,:]),axis=0)
+        
+        ri=n.argmax(mean_pwr)
+        
         #mi,mj=n.unravel_index(n.argmax(mean_pwr),shape=mean_pwr.shape)
         noise_floor=n.median(mean_pwr)
         dcpwr=(mean_pwr[zidx,:]-noise_floor)/noise_floor
         gidx=n.where(dcpwr > 30)[0]
+        
+        if len(gidx)>0:
+            power_ratios=n.zeros(7,dtype=n.float32)
+            for i in range(7):
+                power_ratios[i]=n.abs(xc[i,ri])/n.abs(xc[0,ri])
+            noise_powers.append(power_ratios)
+        
         for gi in gidx:
             cals.append(xc[:,zidx,gi])
-
+noise_powers=n.array(noise_powers)
+for i in range(7):
+    plt.plot(noise_powers[:,i],".")
+    plt.show()
 cals=n.array(cals)
 ho=h5py.File("mesocal.h5","w")
 ho["cals"]=n.mean(cals,axis=0)
