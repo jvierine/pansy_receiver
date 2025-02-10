@@ -6,12 +6,13 @@ import h5py
 
 # index pairs
 ch_pairs=n.array(list(itertools.combinations(n.arange(7),2)))
-def uv_coverage(N=100):
+def uv_coverage(N=100,max_zenith_angle=10):
     """
     unit vectors
     """
-    u=n.linspace(-1,1,num=N)
-    v=n.linspace(-1,1,num=N)
+    max_u=n.arcsin(n.pi*max_zenith_angle/180.0)
+    u=n.linspace(-max_u,max_u,num=N)
+    v=n.linspace(-max_u,max_u,num=N)
     uu,vv=n.meshgrid(u,v)
     mag=n.sqrt(uu**2.0+vv**2)
     ww=-n.sqrt(1-uu**2-vv**2)
