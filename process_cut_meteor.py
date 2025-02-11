@@ -125,6 +125,8 @@ b = dm.get_bounds()
 dt=10000000
 n_block=int((b[1]-b[0])/dt)
 os.system("mkdir -p caldata")
+#start_idx=b[0]
+start_idx=1737912526407585
 for bi in range(n_block):
     data=dm.read(b[0]+bi*dt,b[0]+bi*dt+dt)
     for k in data.keys():
@@ -140,41 +142,46 @@ for bi in range(n_block):
             continue
 #        print("mf")
         interp=1
-        txlen=z_tx.shape[1]
-        echolen=z_rx.shape[2]        
-        rds=range_doppler_search(txlen=txlen,echolen=echolen,interp=interp,n_channels=z_rx.shape[1])
+        print(z_tx.shape)
+        try:
+            txlen=z_tx.shape[1]
+            echolen=z_rx.shape[2]        
+            rds=range_doppler_search(txlen=txlen,echolen=echolen,interp=interp,n_channels=z_rx.shape[1])
 
-        RTI=n.zeros([z_rx.shape[0],rds.n_rg],dtype=n.float32)
-        XCT=n.zeros([rds.n_pairs,z_rx.shape[0],rds.n_rg],dtype=n.complex64)
-        xct=n.zeros([rds.n_pairs,z_rx.shape[0]],dtype=n.complex64)
+            RTI=n.zeros([z_rx.shape[0],rds.n_rg],dtype=n.float32)
+            XCT=n.zeros([rds.n_pairs,z_rx.shape[0],rds.n_rg],dtype=n.complex64)
+            xct=n.zeros([rds.n_pairs,z_rx.shape[0]],dtype=n.complex64)
 
-        peak_rg=[]
-        peak_dop=[]
-        drg=c.c/1e6/2/1e3
-        snr=[]
-        for ti in range(z_rx.shape[0]):
-            MF,pprof,peak_dopv,noise_floor,XC=rds.mf(z_tx[ti,:],z_rx[ti,:,:])
-            max_rg=n.argmax(pprof)
-            peak_rg.append((delays[ti]+max_rg/interp)*drg)
-            peak_dop.append(peak_dopv[max_rg])
-            RTI[ti,:]=(pprof-noise_floor)/noise_floor
-            XCT[:,ti,:]=XC
-            xct[:,ti]=XC[:,max_rg]
-            snr.append((pprof[max_rg]-noise_floor)/noise_floor)
-        snr=n.array(snr)
-        peak_rg=n.array(peak_rg)
-        peak_dop=n.array(peak_dop)
+            peak_rg=[]
+            peak_dop=[]
+            drg=c.c/1e6/2/1e3
+            snr=[]
+            for ti in range(z_rx.shape[0]):
+                MF,pprof,peak_dopv,noise_floor,XC=rds.mf(z_tx[ti,:],z_rx[ti,:,:])
+                max_rg=n.argmax(pprof)
+                peak_rg.append((delays[ti]+max_rg/interp)*drg)
+                peak_dop.append(peak_dopv[max_rg])
+                RTI[ti,:]=(pprof-noise_floor)/noise_floor
+                XCT[:,ti,:]=XC
+                xct[:,ti]=XC[:,max_rg]
+                snr.append((pprof[max_rg]-noise_floor)/noise_floor)
+            snr=n.array(snr)
+            peak_rg=n.array(peak_rg)
+            peak_dop=n.array(peak_dop)
 
-        for bi in range(5):
-            idx=n.where( (snr>7) & (beam_id == bi) & (n.abs(peak_dop) > 10e3) )[0]        
-            if len(idx)>5:
-                fidx0=tx_idx[idx[0]]
-                ofname="caldata/meteor-%d-%d.h5"%(bi,fidx0)
-                print(ofname)
-                ho=h5py.File(ofname,"w")
-                ho["xc"]=xct[:,idx]
-                ho["bi"]=bi
-                ho.close()
+            for bi in range(5):
+                idx=n.where( (snr>7) & (beam_id == bi) & (n.abs(peak_dop) > 10e3) )[0]        
+                if len(idx)>5:
+                    fidx0=tx_idx[idx[0]]
+                    ofname="caldata/meteor-%d-%d.h5"%(bi,fidx0)
+                    print(ofname)
+                    ho=h5py.File(ofname,"w")
+                    ho["xc"]=xct[:,idx]
+                    ho["bi"]=bi
+                    ho.close()
+        except:
+            import traceback
+            traceback.print_exc()
         #xct[:,idx]
         #pc.meteor_cal_metadata_dir
 
