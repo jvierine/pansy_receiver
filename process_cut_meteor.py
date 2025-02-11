@@ -38,7 +38,9 @@ class range_doppler_search:
         self.txlen=txlen*interp
         
         self.fdec=8*interp
-        self.fftlen=int(self.txlen*32/self.fdec)
+        self.fftlen=512#int(self.txlen*32/self.fdec)
+        if int(self.txlen*interp/self.fdec)>self.fftlen:
+            self.fftlen=int(self.txlen*interp/self.fdec)
         self.echolen=echolen*interp
         
         self.n_channels=n_channels
@@ -104,50 +106,27 @@ class range_doppler_search:
             ZF1=n.fft.fftshift(fft(ZD1,self.fftlen,axis=1),axes=1)
             ZF2=n.fft.fftshift(fft(ZD2,self.fftlen,axis=1),axes=1)
             XC[chip,:,:]=ZF1*n.conj(ZF2)
-#            plt.pcolormesh(n.angle(XC[chip,:,:]),cmap="hsv")
- #           plt.show()
 
-#        print(XC.shape)
- #       print("nrg",self.n_rg)
         noise_floor=n.median(MF)
         pprof=n.max(MF,axis=1)
-  #      print("pprof",len(pprof))
         dop_idx=n.argmax(MF,axis=1)
-        xc=[]
+
+        # collect xc for peak doppler bin
         for i in range(self.n_rg):
             XC2[:,i]=XC[:,i,dop_idx[i]]
-   #     print(dop_idx)
-    #    print("dop",len(dop_idx))
         
         peak_dopv=self.dopv[n.argmax(MF,axis=1)]
         
         return(MF,pprof,peak_dopv,noise_floor,XC2)
 
-#
-# Here is the program:
-# z_ant^tx_beam
-# 
-# z_0^0 z_1^0* = e^{i (p_0-p_1)}
-# z_0^1 = z_0^0 e^{i c_0^1}
-# z_0^1 z_1^1* = e^{i (p_0-p_1)}e^{i (c_0^1-c_1^1)}
-
-
-
-#
-#
-#
-#
-mddir="../pansy_test_data/metadata/cut"
-dm = drf.DigitalMetadataReader(mddir)
+#mddir="../pansy_test_data/metadata/cut"
+dm = drf.DigitalMetadataReader(pc.cut_metadata_dir)
 b = dm.get_bounds()
 dt=10000000
 n_block=int((b[1]-b[0])/dt)
+os.system("mkdir -p caldata")
 for bi in range(n_block):
-#    1737980347850366
-#1737980349093566
-    #data=dm.read(b[0]+bi*dt,b[0]+bi*dt+dt)
-    data=dm.read(1737980347850366-1000000,1737980349093566+1000000)
-
+    data=dm.read(b[0]+bi*dt,b[0]+bi*dt+dt)
     for k in data.keys():
         z_rx=n.array(data[k]["zrx_echoes_re"],dtype=n.complex64)+n.array(data[k]["zrx_echoes_im"],dtype=n.complex64)*1j
         z_tx=n.array(data[k]["ztx_pulses_re"],dtype=n.complex64)+n.array(data[k]["ztx_pulses_im"],dtype=n.complex64)*1j
@@ -155,30 +134,26 @@ for bi in range(n_block):
         beam_id=data[k]["beam_id"]
         tx_idx=data[k]["tx_idx"]
         c_snr=data[k]["c_snr"]
-        print(n.max(c_snr))
-        if n.max(c_snr) < 100 or (0 not in beam_id):
-            print(n.max(c_snr))
+        #print(n.max(c_snr))
+        if n.max(c_snr) < 100:# or (0 not in beam_id):
+#            print(n.max(c_snr))
             continue
-        print("mf")
-        #print(len(tx_idx))
-        #print(z_tx.shape)
-        interp=2
+#        print("mf")
+        interp=1
         txlen=z_tx.shape[1]
         echolen=z_rx.shape[2]        
-
         rds=range_doppler_search(txlen=txlen,echolen=echolen,interp=interp,n_channels=z_rx.shape[1])
+
         RTI=n.zeros([z_rx.shape[0],rds.n_rg],dtype=n.float32)
         XCT=n.zeros([rds.n_pairs,z_rx.shape[0],rds.n_rg],dtype=n.complex64)
         xct=n.zeros([rds.n_pairs,z_rx.shape[0]],dtype=n.complex64)
 
-        #print(z_rx.shape)
         peak_rg=[]
         peak_dop=[]
         drg=c.c/1e6/2/1e3
         snr=[]
         for ti in range(z_rx.shape[0]):
             MF,pprof,peak_dopv,noise_floor,XC=rds.mf(z_tx[ti,:],z_rx[ti,:,:])
-            #print(XC.shape)
             max_rg=n.argmax(pprof)
             peak_rg.append((delays[ti]+max_rg/interp)*drg)
             peak_dop.append(peak_dopv[max_rg])
@@ -189,63 +164,62 @@ for bi in range(n_block):
         snr=n.array(snr)
         peak_rg=n.array(peak_rg)
         peak_dop=n.array(peak_dop)
-        idx=n.where( (snr>7) & (beam_id == 0))[0]
-        print(tx_idx[0])
-        print(tx_idx[-1])
 
-        #for i in range(rds.n_pairs):
-        plt.subplot(311)
-        plt.plot(tx_idx[idx],peak_rg[idx],".")
-        plt.title(n.unique(beam_id[idx]))
-        plt.xlim([n.min(tx_idx),n.max(tx_idx)])
-        plt.subplot(312)
-        plt.plot(tx_idx[idx],peak_dop[idx],".")
-        plt.xlim([n.min(tx_idx),n.max(tx_idx)])
-        plt.subplot(313)
-        plt.scatter(tx_idx[idx],n.angle(xct[0,idx]),c=beam_id[idx],s=1,cmap="turbo")
-        plt.xlim([n.min(tx_idx),n.max(tx_idx)])
-        plt.show()
+        for bi in range(5):
+            idx=n.where( (snr>7) & (beam_id == bi) & (n.abs(peak_dop) > 10e3) )[0]        
+            if len(idx)>5:
+                fidx0=tx_idx[idx[0]]
+                ofname="caldata/meteor-%d-%d.h5"%(bi,fidx0)
+                print(ofname)
+                ho=h5py.File(ofname,"w")
+                ho["xc"]=xct[:,idx]
+                ho["bi"]=bi
+                ho.close()
+        #xct[:,idx]
+        #pc.meteor_cal_metadata_dir
 
-        mu=[]
-        mv=[]
+        if False:
+            #for i in range(rds.n_pairs):
+            plt.subplot(311)
+            plt.plot(tx_idx[idx],peak_rg[idx],".")
+            plt.title(n.unique(beam_id[idx]))
+            plt.xlim([n.min(tx_idx),n.max(tx_idx)])
+            plt.subplot(312)
+            plt.plot(tx_idx[idx],peak_dop[idx],".")
+            plt.xlim([n.min(tx_idx),n.max(tx_idx)])
+            plt.subplot(313)
+            plt.scatter(tx_idx[idx],n.angle(xct[0,idx]),c=beam_id[idx],s=1,cmap="turbo")
+            plt.xlim([n.min(tx_idx),n.max(tx_idx)])
+            plt.show()
 
-        for ii in idx:
-            print(ii)
-            xc=xct[:,ii]
-            xc=n.exp(1j*n.angle(xc))
-            #for ci in range(ch_pairs.shape[0]):
-            #    xc[ci]=xc[ci]*n.exp(-1j*(phasecal[ch_pairs[ci][0]]-phasecal[ch_pairs[ci][1]]))
+            mu=[]
+            mv=[]
 
-            M=pint.mf(xc,dmat,u,v,w)
-#            plt.pcolormesh(n.abs(M))
- #           plt.show()
+            for ii in idx:
+                print(ii)
+                xc=xct[:,ii]
+                xc=n.exp(1j*n.angle(xc))
+                M=pint.mf(xc,dmat,u,v,w)
+                mi,mj=n.unravel_index(n.argmax(M),shape=M.shape)
+                mu.append(u[mi,mj])
+                mv.append(v[mi,mj])
 
-            mi,mj=n.unravel_index(n.argmax(M),shape=M.shape)
-            mu.append(u[mi,mj])
-            mv.append(v[mi,mj])
-
-        mu=n.array(mu)
-        mv=n.array(mv)
-        mw=n.sqrt(1-mu**2.0-mv**2.0)
-#        peak_rg
-        plt.subplot(131)
-        plt.plot((tx_idx[idx]-tx_idx[0])/1e6,peak_rg[idx]*mv,".")
-        plt.xlabel("Time (s)")
-        plt.ylabel("North-South (km)")
-        plt.subplot(132)
-        plt.plot((tx_idx[idx]-tx_idx[0])/1e6,peak_rg[idx]*mu,".")
-        plt.xlabel("Time (s)")
-        plt.ylabel("East-West (km)")
-        plt.subplot(133)
-        plt.plot((tx_idx[idx]-tx_idx[0])/1e6,peak_rg[idx]*mw,".")
-        plt.xlabel("Time (s)")
-        plt.ylabel("Up (km)")
-
-        plt.show()
-
-#        for i in range(rds.n_pairs):
- #               xct[i,ti]=n.exp(1j*n.angle(xct[i,ti]))*n.exp(-1j*(phasecal[chp[i][0]]-phasecal[chp[i][1]]))
-
-        print(data[k])
+            mu=n.array(mu)
+            mv=n.array(mv)
+            mw=n.sqrt(1-mu**2.0-mv**2.0)
+    #        peak_rg
+            plt.subplot(131)
+            plt.plot((tx_idx[idx]-tx_idx[0])/1e6,peak_rg[idx]*mv,".")
+            plt.xlabel("Time (s)")
+            plt.ylabel("North-South (km)")
+            plt.subplot(132)
+            plt.plot((tx_idx[idx]-tx_idx[0])/1e6,peak_rg[idx]*mu,".")
+            plt.xlabel("Time (s)")
+            plt.ylabel("East-West (km)")
+            plt.subplot(133)
+            plt.plot((tx_idx[idx]-tx_idx[0])/1e6,peak_rg[idx]*mw,".")
+            plt.xlabel("Time (s)")
+            plt.ylabel("Up (km)")
+            plt.show()
 
 
