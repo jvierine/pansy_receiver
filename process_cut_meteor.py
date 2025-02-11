@@ -128,7 +128,7 @@ os.system("mkdir -p caldata")
 #start_idx=b[0]
 start_idx=1737912526407585
 for bi in range(n_block):
-    data=dm.read(start_idx+bi*dt,b[0]+bi*dt+dt)
+    data=dm.read(start_idx+bi*dt,start_idx+bi*dt+dt)
     for k in data.keys():
         z_rx=n.array(data[k]["zrx_echoes_re"],dtype=n.complex64)+n.array(data[k]["zrx_echoes_im"],dtype=n.complex64)*1j
         z_tx=n.array(data[k]["ztx_pulses_re"],dtype=n.complex64)+n.array(data[k]["ztx_pulses_im"],dtype=n.complex64)*1j
