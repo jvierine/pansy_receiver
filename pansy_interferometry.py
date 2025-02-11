@@ -128,7 +128,10 @@ def psf():
     u,v,w=uv_coverage(N=500)
     ch_pairs=n.array(list(itertools.combinations(n.arange(7),2)))    
     antpos=get_antpos()
-    dmat=pair_mat(ch_pairs,antpos)
+    print(antpos)
+    plt.plot(antpos[0:3,0],antpos[0:3,1],".")
+    plt.show()
+    dmat=pair_mat(ch_pairs[0:3,:],antpos)
     zangs=n.linspace(-30,30,num=100)
     for i in range(len(zangs)):
         zang=zangs[i]
@@ -144,8 +147,9 @@ def psf():
         ax.set_xlabel("u")
         ax.set_ylabel("m")        
         plt.gca().set_aspect('equal')        
-        plt.savefig("psf-%03d.png"%(i))
-        plt.close()
+        plt.show()
+#        plt.savefig("psf-%03d.png"%(i))
+ #       plt.close()
 #        plt.show()
 
 if __name__ =="__main__":

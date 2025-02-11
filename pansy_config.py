@@ -7,6 +7,9 @@ detections_metadata_dir="/media/analysis/metadata/detections"
 cut_metadata_dir="/media/analysis/metadata/cut"
 mesomode_metadata_dir="/media/analysis/metadata/mesomode"
 xc_metadata_dir="/media/analysis/metadata/xc2"
+
+meteor_cal_metadata_dir="/media/analysis/metadata/meteor_cal"
+
 raw_voltage_dir="/media/archive/"
 
 # antenna position

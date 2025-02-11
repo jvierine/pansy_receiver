@@ -4,6 +4,8 @@ import digital_rf as drf
 import pansy_config as pc # type: ignore
 import h5py
 import pansy_interferometry as pint
+import itertools
+import rgbim
 
 # each antenna needs to be multiplied with these phases (n.exp(-1j*phasecal))
 h=h5py.File("data/phases.h5","r")
@@ -31,11 +33,20 @@ dmat=pint.pair_mat(ch_pairs,antpos)
 for bi in range(n_blocks):
     dd=dmd.read(b[0]+bi*dt,b[0]+bi*dt+dt,["xc_arr","r0","r1","rdec","f0","f1","n_fft","ipp","ch_pairs"])
     for k in dd:
+        f0=dd[k]["f0"]
+        f1=dd[k]["f1"]
+        fv=n.arange(f0,f1)
+        n_f=len(fv)
+        I=n.zeros([u.shape[0],u.shape[1]])#,n_f])
+        #I[:,:]=0.0
         xca=dd[k]["xc_arr"]
         chp=dd[k]["ch_pairs"]
         xc=xca[7:xca.shape[0],0,:,:]
         xcc=n.copy(xc)
+        print(chp)
+
         chp=chp[7:chp.shape[0],:]
+        print(chp)
         #print(xcc.shape)
         print(chp.shape)
         for i in range(chp.shape[0]):
@@ -43,15 +54,23 @@ for bi in range(n_blocks):
 
         noise_floor=n.median(n.abs(xca[0,0,:,:]))
         snr=(n.abs(xca[0,0,:,:])-noise_floor)/noise_floor
-        gidx=n.where(snr>100)
-        for i in range(len(gidx[0])):
-            fi=gidx[0][i]
-            ri=gidx[1][i]
-
-            M=pint.mf(xc[:,fi,ri],dmat,u,v,w)
-            plt.pcolormesh(M)
-            plt.colorbar()
-            plt.show()
-            print(snr[fi,ri])
-            print(xc.shape)
+#        gidx=n.where(snr>100)
+        plt.pcolormesh(snr.T,vmin=0,vmax=100)
+        plt.show()
+        plt.pcolormesh(n.angle(xcc[0,:,:].T),cmap="hsv")
+        plt.show()
+        for fi in range(xc.shape[1]):
+            if snr[fi,15]>30:
+                M=pint.mf(xc[:,fi,15],dmat,u,v,w)
+                plt.pcolormesh(n.abs(M))
+                plt.show()
+        #rgbim.rgb_image(I,peak_fraction=1.0)
+        #plt.show()
+#        plt.pcolormesh(n.abs(I))
+ #       plt.colorbar()
+  #      plt.savefig("img-%d.png"%(k/1e6))
+   #     plt.close()
+#        plt.show()
+#        print(snr[fi,ri])
+ #       print(xc.shape)
 #        print(len(gidx))
