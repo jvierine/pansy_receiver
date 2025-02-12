@@ -30,7 +30,7 @@ u,v,w=pint.uv_coverage(N=500,max_zenith_angle=15.0)
 antpos=pint.get_antpos()
 ch_pairs=n.array(list(itertools.combinations(n.arange(7),2)))
 dmat=pint.pair_mat(ch_pairs,antpos)
-print(u)
+
 fft=fp.fft
 
 class range_doppler_search:
@@ -291,6 +291,7 @@ for bi in range(n_block):
     kl=list(data.keys())
     for ki in range(rank,len(kl),size):
         k=kl[ki]
+        print("%d %s"%(rank,stuffr.unix2datestr(k/1e6)))
         process_cut(data[k],dmw)
 
 
