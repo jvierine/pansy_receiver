@@ -76,8 +76,6 @@ for i in range(n_block):
         az=180*n.arccos(v1[1]/v_h)/n.pi
         
         r,sc_lat,sc_lon,sun_lon=get_radiant(r0*1e3,k/1e6,v0/n.linalg.norm(v0))
-        slats.append(sc_lat)
-        slons.append(sc_lon)
         print("slon %1.1f slat %1.1f"%(sc_lon,sc_lat))
  #       print(sc_lat)
 #        print(sc_lon)
@@ -89,6 +87,9 @@ for i in range(n_block):
             t0s.append(stuffr.unix2date(k/1e6))
             els.append(el)
             azs.append(az)
+            slats.append(sc_lat)
+            slons.append(sc_lon)
+            
 
 plt.scatter(slons,slats,c=vgs,vmin=0,vmax=73)
 plt.colorbar()
