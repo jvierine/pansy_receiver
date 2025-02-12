@@ -6,7 +6,7 @@ import digital_rf as drf
 
 
 
-dm = drf.DigitalMetadataReader(mddir=pc.simple_fit_metadata_dir)
+dm = drf.DigitalMetadataReader(pc.simple_fit_metadata_dir)
 b = dm.get_bounds()
 dt=100000000
 n_block=int((b[1]-b[0])/dt)
