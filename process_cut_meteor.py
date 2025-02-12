@@ -201,7 +201,8 @@ def process_cut(data,
             dout["r0"]=r0
             dout["v0"]=v0            
             dout["std"]=[eres,nres,ures]
-            print("%d %1.2f km %1.2f km/s %1.2f %1.2f %1.2f"%(rank,n.linalg.norm(r0),n.linalg.norm(v0),eres*1e3,nres*1e3,ures*1e3))
+            print("%d %s %1.2f km %1.2f km/s %1.2f %1.2f %1.2f"%(rank,stuffr.unix2datestr(tx_idx[gidx[0]]/1e6),
+                                                                 n.linalg.norm(r0),n.linalg.norm(v0),eres*1e3,nres*1e3,ures*1e3))
             try:
                 dmw.write(tx_idx[gidx[0]],dout)
             except:
@@ -293,7 +294,6 @@ for bi in range(n_block):
     kl=list(data.keys())
     for ki in range(rank,len(kl),size):
         k=kl[ki]
-        print("%d %s"%(rank,stuffr.unix2datestr(k/1e6)))
         process_cut(data[k],dmw)
 
 
