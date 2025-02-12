@@ -32,7 +32,7 @@ plt.scatter(t0s,hgts,c=vgs,s=2)
 plt.colorbar()
 plt.show()
 
-plt.plot(vgs,hgts)
+plt.plot(vgs,hgts,".")
 plt.show()
 
 
