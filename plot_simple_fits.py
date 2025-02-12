@@ -28,11 +28,15 @@ for i in range(n_block):
             vgs.append(n.linalg.norm(v0))
             t0s.append(k/1e6)
 
-plt.scatter(t0s,hgts,c=vgs,s=2)
+plt.scatter(t0s,hgts,c=vgs,s=2,vmin=0,vmax=73)
+plt.xlabel("Time (unix)")
+plt.ylabel("Height (km)")
 plt.colorbar()
 plt.show()
 
 plt.plot(vgs,hgts,".")
+plt.xlabel("Geocentric velocity (km/s)")
+plt.ylabel("Height (km)")
 plt.show()
 
 
