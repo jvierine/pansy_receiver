@@ -2,7 +2,7 @@ import numpy as n
 import pansy_config as pc
 import matplotlib.pyplot as plt
 import digital_rf as drf
-
+import stuffr
 
 
 
