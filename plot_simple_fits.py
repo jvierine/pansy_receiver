@@ -97,7 +97,7 @@ slons[idx]=slons[idx]+360.0
 plt.scatter(slons,slats,c=vgs,vmin=0,vmax=73,s=1)
 plt.colorbar()
 plt.show()
-plt.scatter(t0s,azs,c=vgs,s=2,vmin=0,vmax=73,s=1)
+plt.scatter(t0s,azs,c=vgs,s=2,vmin=0,vmax=73)
 plt.xlabel("Time (unix)")
 plt.ylabel("Azimuth (deg)")
 cb=plt.colorbar()
