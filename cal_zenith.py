@@ -108,6 +108,13 @@ def ss(x):
     print(s)
     return(s)
 
+# 
+# 1. optimize for a phase calibration that provides a good match function
+# 2. rotate to correct pointing direction
+# 3. optimize for good match function
+#
+
+# tbd, add code to spit out the initial phasecal
 # phase calibration guess
 xhat=[ 1.14248621,  0.15371235,  2.5528059,  -0.35319514,  3.19109113,  3.58991391]
 phcal=n.zeros(7,dtype=n.float32)
@@ -148,7 +155,7 @@ phcal=direction_shift(dir_orig=n.array([0.05,-0.008,n.sqrt(1-0.05**2-0.008**2)])
                       phcal_orig=phcal,
                       dmat=dmat,
                       ch_pairs=ch_pairs)
-
+import time
 ho=h5py.File("data/phases.h5","w")
 ho["phasecal"]=phcal
 ho["beamid"]=0
