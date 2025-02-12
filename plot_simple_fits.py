@@ -78,7 +78,7 @@ for i in range(n_block):
         r,sc_lat,sc_lon,sun_lon=get_radiant(r0*1e3,k/1e6,v0/n.linalg.norm(v0))
         slats.append(sc_lat)
         slons.append(sc_lon)
-        
+        print("slon %1.1f slat %1.1f"%(sc_lon,sc_lat))
  #       print(sc_lat)
 #        print(sc_lon)
                 
