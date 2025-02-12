@@ -26,7 +26,9 @@ def get_radiant(p0,t0,u0):
     
     # tbd: convert to astropy
     llh=jcoord.ecef2geodetic(p0[0], p0[1], p0[2])
+    print(llh)
     llh2=jcoord.ecef2geodetic(p0[0]-0.1*u0[0], p0[1]-0.1*u0[1], p0[2]-0.1*u0[2])
+    print(llh2)
     aar=jcoord.geodetic_to_az_el_r(llh[0],llh[1],llh[2], llh2[0], llh2[1], llh2[2])
 #    print(llh[2]/1e3)
     
@@ -70,7 +72,7 @@ for i in range(n_block):
         el=180*n.arctan(n.abs(v1[2])/v_h)/n.pi
         az=180*n.arccos(v1[1]/v_h)/n.pi
         
-        r,sc_lat,sc_lon,sun_lon=get_radiant(r0,k/1e6,v1/n.linalg.norm(v1))
+        r,sc_lat,sc_lon,sun_lon=get_radiant(r0*1e3,k/1e6,v0/n.linalg.norm(v0))
         print(sc_lat)
         print(sc_lon)
                 
