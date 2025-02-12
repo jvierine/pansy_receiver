@@ -90,11 +90,14 @@ for i in range(n_block):
             slats.append(sc_lat)
             slons.append(sc_lon)
             
-
-plt.scatter(slons,slats,c=vgs,vmin=0,vmax=73)
+slats=n.array(slats)
+slons=n.array(slons)
+idx=n.where(slons<0)[0]
+slons[idx]=slons[idx]+360.0
+plt.scatter(slons,slats,c=vgs,vmin=0,vmax=73,s=1)
 plt.colorbar()
 plt.show()
-plt.scatter(t0s,azs,c=vgs,s=2,vmin=0,vmax=73)
+plt.scatter(t0s,azs,c=vgs,s=2,vmin=0,vmax=73,".")
 plt.xlabel("Time (unix)")
 plt.ylabel("Azimuth (deg)")
 cb=plt.colorbar()
