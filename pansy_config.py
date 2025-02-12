@@ -10,6 +10,9 @@ xc_metadata_dir="/media/analysis/metadata/xc2"
 
 meteor_cal_metadata_dir="/media/analysis/metadata/meteor_cal"
 
+
+simple_fit_metadata_dir="/media/analysis/metadata/simple_meteor_fit"
+
 raw_voltage_dir="/media/archive/"
 
 # antenna position

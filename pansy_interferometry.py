@@ -4,6 +4,42 @@ import pansy_config as pc
 import itertools
 import h5py
 
+def image_points(phcal,xc,ch_pairs,u,v,w,dmat):
+    """
+    image all points
+    use phcal applied to the phase of each channel
+    xc is the cross correlation
+    ch_pair is the antenna pair index structure
+    u,v,w is the 
+    """
+    mu=[]
+    mv=[]
+    mis=[]
+    mjs=[]
+    mfs=[]
+    for i in range(xc.shape[0]):
+        z=n.exp(1j*(n.angle(xc[i,:]) + phcal[ch_pairs[:,0]] - phcal[ch_pairs[:,1]]))
+        M=n.abs(mf(z,dmat,u,v,w))
+        mi,mj=n.unravel_index(n.argmax(M),shape=M.shape)
+        if False:
+            print(M[mi,mj])
+            plt.pcolormesh(u,v,M)
+            plt.colorbar()
+            plt.plot(u[mi,mj],v[mi,mj],"x")
+            plt.show()
+        mfs.append(M[mi,mj])
+        mu.append(u[mi,mj])
+        mv.append(v[mi,mj])
+        mis.append(mi)
+        mjs.append(mj)
+    mu=n.array(mu)
+    mv=n.array(mv)
+    mfs=n.array(mfs)
+    mis=n.array(mis)
+    mjs=n.array(mjs)
+
+    return(mu,mv,mfs,mis,mjs)
+
 # index pairs
 ch_pairs=n.array(list(itertools.combinations(n.arange(7),2)))
 def uv_coverage(N=100,max_zenith_angle=10):

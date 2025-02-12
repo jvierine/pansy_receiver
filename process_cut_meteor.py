@@ -13,20 +13,24 @@ import itertools
 import pansy_interferometry as pint
 import h5py
 
+import meteor_fit as metfit
+
+from mpi4py import MPI
+comm = MPI.COMM_WORLD
+size = comm.Get_size()
+rank = comm.Get_rank()
+
+
 # each antenna needs to be multiplied with these phases (n.exp(-1j*phasecal))
 h=h5py.File("data/phases.h5","r")
-phasecal=h["zenith"][()]
+phasecal=h["phasecal"][()]
 h.close()
-# each antenna needs to be multiplied with these amplitudes
-h=h5py.File("data/mesocal.h5","r")
-amps=h["pwr"][()]
-amps=1/n.sqrt(amps[0:7])
 
-u,v,w=pint.uv_coverage(N=500,max_zenith_angle=20.0)
+u,v,w=pint.uv_coverage(N=500,max_zenith_angle=15.0)
 antpos=pint.get_antpos()
 ch_pairs=n.array(list(itertools.combinations(n.arange(7),2)))
 dmat=pint.pair_mat(ch_pairs,antpos)
-
+print(u)
 fft=fp.fft
 
 class range_doppler_search:
@@ -76,27 +80,29 @@ class range_doppler_search:
         return(Z2)
 
     def mf(self,tx,echo,debug=False):
-            
+        # interpolate transmit pulse
         txi=n.repeat(tx,self.interp)
-#        txi=tx#,self.interp)        
+        # interpolate echo
         for chi in range(self.n_channels):
             self.z_rx[chi,:]=n.repeat(echo[chi,:],self.interp)
-#            self.z_rx[chi,:]=echo[chi,:]
-        #print("zrx",self.z_rx.shape)
+        # conjugate transmit pulse sample
         z_tx=n.conj(txi)
-        
+
+        # match function output
         MF=n.zeros([self.n_rg,self.fftlen],dtype=n.float32)
+        # cross-spectrum
         XC=n.zeros([self.n_pairs,self.n_rg,self.fftlen],dtype=n.complex64)
-        XC2=n.zeros([self.n_pairs,self.n_rg],dtype=n.complex64)
+        
+        # cross-spectrum at peak doppler and range-gate
+        #XC2=n.zeros([self.n_pairs,self.n_rg],dtype=n.complex64)
         for chi in range(self.n_channels):
             Z=self.z_rx[chi,self.idx_mat]*txi[None,:]            
             # decimate
             ZD=self.decim(Z)
             ZF=n.fft.fftshift(fft(ZD,self.fftlen,axis=1),axes=1)
             MF+=ZF.real**2.0 + ZF.imag**2.0
-     #   plt.pcolormesh(MF)
-      #  plt.show()
-
+        
+            
         for chip in range(self.n_pairs):
             Z1=self.z_rx[self.ch_pairs[chip][0],self.idx_mat]*txi[None,:]            
             Z2=self.z_rx[self.ch_pairs[chip][1],self.idx_mat]*txi[None,:]            
@@ -112,121 +118,180 @@ class range_doppler_search:
         dop_idx=n.argmax(MF,axis=1)
 
         # collect xc for peak doppler bin
-        for i in range(self.n_rg):
-            XC2[:,i]=XC[:,i,dop_idx[i]]
+        rgmax=n.argmax(pprof)
+        xc=XC[:,rgmax,dop_idx[rgmax]]
         
         peak_dopv=self.dopv[n.argmax(MF,axis=1)]
         
-        return(MF,pprof,peak_dopv,noise_floor,XC2)
+        return(MF,pprof,peak_dopv,noise_floor,xc,rgmax)
 
+def process_cut(data,
+                dmw,
+                interp=4,
+                plot=True):
+
+
+    # read phase calibration
+    ho=h5py.File("data/phases.h5","r")
+    phcal=ho["phasecal"][()]
+    ho.close()
+
+    # create a uniform grid of u,v,w values
+    u,v,w=pint.uv_coverage(N=500,max_zenith_angle=10.0)
+    # antenna positions
+    antpos=pint.get_antpos()
+    # channel pairs used for interferometry
+    ch_pairs=n.array(list(itertools.combinations(n.arange(7),2)))
+    # matrix of antenna direction vector pairs 
+    # one row is a vector for each interferometry channel pair
+    dmat=pint.pair_mat(ch_pairs[:,:],antpos)
+    
+    
+    z_rx=n.array(data["zrx_echoes_re"],dtype=n.complex64)+n.array(data["zrx_echoes_im"],dtype=n.complex64)*1j
+    z_tx=n.array(data["ztx_pulses_re"],dtype=n.complex64)+n.array(data["ztx_pulses_im"],dtype=n.complex64)*1j
+    delays=data["delays"]
+    beam_id=data["beam_id"]
+    tx_idx=data["tx_idx"]
+    c_snr=data["c_snr"]
+#    print(n.max(c_snr))
+    if n.max(c_snr) < 20 or (0 not in beam_id):
+        
+#        print("low snr and no zenith beam")
+        return
+
+#    interp=1
+    if True:#try:
+        txlen=z_tx.shape[1]
+        echolen=z_rx.shape[2]        
+        rds=range_doppler_search(txlen=txlen,echolen=echolen,interp=interp,n_channels=z_rx.shape[1])
+
+        n_ipp=z_rx.shape[0]
+        RTI=n.zeros([n_ipp, rds.n_rg],dtype=n.float32)
+        xct=n.zeros([n_ipp,rds.n_pairs],dtype=n.complex64)
+
+        peak_rg=[]
+        peak_dop=[]
+        drg=c.c/1e6/2/1e3
+        snr=[]
+        for ti in range(z_rx.shape[0]):
+            MF,pprof,peak_dopv,noise_floor,xc,rgmax=rds.mf(z_tx[ti,:],z_rx[ti,:,:])
+            max_rg=n.argmax(pprof)
+            peak_rg.append((delays[ti]+max_rg/interp)*drg)
+            peak_dop.append(peak_dopv[max_rg])
+            RTI[ti,:]=(pprof-noise_floor)/noise_floor
+            xct[ti,:]=xc
+            snr.append((pprof[max_rg]-noise_floor)/noise_floor)
+            
+        snr=n.array(snr)
+        peak_rg=n.array(peak_rg)
+        peak_dop=n.array(peak_dop)
+
+        gidx=n.where( (beam_id == 0) & (snr > 10))[0]
+        if len(gidx)>2:
+            mu,mv,mfs,mis,mjs=pint.image_points(phcal,xct[gidx,:],ch_pairs,u,v,w,dmat)
+            mw=n.sqrt(1-mu**2-mv**2)
+            
+            ew=peak_rg[gidx]*mu
+            ns=peak_rg[gidx]*mv
+            up=peak_rg[gidx]*mw
+
+
+            r0,v0,model,eres,nres,ures=metfit.simple_fit_meteor(tx_idx[gidx]/1e6,ew,ns,up)
+            dout={}
+            dout["r0"]=r0
+            dout["v0"]=v0            
+            dout["std"]=[eres,nres,ures]
+            try:
+                dmw.write(tx_idx[gidx[0]],dout)
+            except:
+                import traceback
+                traceback.print_exc()
+
+            if plot:
+                nm=len(ew)
+                plt.figure(figsize=(12,8))
+                plt.subplot(231)
+                plt.scatter(tx_idx[gidx]/1e6,ew,c=mfs/21)
+                plt.plot(tx_idx[gidx]/1e6,model[0:nm],color="blue")
+                plt.title(r"$|v_g|$=%1.1f km/s"%(n.linalg.norm(v0)))
+     #           cb=plt.colorbar()
+    #            cb.set_label("Coherence")
+
+    #            plt.plot(tx_idx[gidx]/1e6,ew,".")
+                plt.xlabel("Time (s)")
+                plt.ylabel("EW (km)")            
+
+                plt.subplot(232)
+                plt.scatter(tx_idx[gidx]/1e6,ns,c=mfs/21)
+                plt.title(r"$\sigma_e=%1.1f$ $\sigma_n=%1.1f$, $\sigma_u=%1.1f$ m"%(1e3*eres,1e3*nres,1e3*ures))
+                plt.plot(tx_idx[gidx]/1e6,model[nm:(2*nm)],color="blue")            
+    #            cb=plt.colorbar()
+     #           cb.set_label("Coherence")
+
+    #            plt.plot(tx_idx[gidx]/1e6,ns,".")
+                plt.xlabel("Time (s)")
+                plt.ylabel("NS (km)")                        
+                plt.subplot(233)
+                plt.scatter(tx_idx[gidx]/1e6,up,c=mfs/21)
+                plt.plot(tx_idx[gidx]/1e6,model[(2*nm):(3*nm)],color="blue")                        
+      #          cb=plt.colorbar()
+       #         cb.set_label("Coherence")
+    #            plt.plot(tx_idx[gidx]/1e6,up,".")
+                plt.xlabel("Time (s)")
+                plt.ylabel("Up (km)")            
+                plt.subplot(234)            
+                plt.scatter(ew,ns,c=mfs/21)
+                cb=plt.colorbar()
+                cb.set_label("Coherence")
+                plt.xlabel("EW (km)")
+                plt.ylabel("NW (km)")            
+                plt.subplot(235)
+                plt.scatter(tx_idx[gidx]/1e6,10.0*n.log10(snr[gidx]),c=mfs/21)
+                plt.xlabel("Time (s)")
+                plt.ylabel("SNR (dB)")                        
+                plt.subplot(236)
+                plt.scatter(tx_idx[gidx]/1e6,peak_dop[gidx]/1e3,c=mfs/21)
+                plt.xlabel("Time (s)")
+                plt.ylabel("Doppler (km/s)")
+                plt.tight_layout()
+                plt.savefig("/media/analysis/fits/meteor-%1.1f.png"%(float(tx_idx[gidx[0]]/1e6)))
+                plt.close()
+
+
+
+mddir=pc.cut_metadata_dir
 #mddir="../pansy_test_data/metadata/cut"
-dm = drf.DigitalMetadataReader(pc.cut_metadata_dir)
+dm = drf.DigitalMetadataReader(mddir)
 b = dm.get_bounds()
 dt=10000000
 n_block=int((b[1]-b[0])/dt)
 os.system("mkdir -p caldata")
-#start_idx=b[0]
-start_idx=1737912526407585
+start_idx=b[0]
+#start_idx=1737912526407585
+
+
+subdirectory_cadence_seconds = 3600
+file_cadence_seconds = 60
+samples_per_second_numerator = 1000000
+samples_per_second_denominator = 1
+file_name = "fit"
+os.system("mkdir -p %s"%(pc.simple_fit_metadata_dir))
+dmw = drf.DigitalMetadataWriter(
+    pc.simple_fit_metadata_dir,
+    subdirectory_cadence_seconds,
+    file_cadence_seconds,
+    samples_per_second_numerator,
+    samples_per_second_denominator,
+    file_name,
+)
+
+
 for bi in range(n_block):
     data=dm.read(start_idx+bi*dt,start_idx+bi*dt+dt)
-    for k in data.keys():
-        z_rx=n.array(data[k]["zrx_echoes_re"],dtype=n.complex64)+n.array(data[k]["zrx_echoes_im"],dtype=n.complex64)*1j
-        z_tx=n.array(data[k]["ztx_pulses_re"],dtype=n.complex64)+n.array(data[k]["ztx_pulses_im"],dtype=n.complex64)*1j
-        delays=data[k]["delays"]
-        beam_id=data[k]["beam_id"]
-        tx_idx=data[k]["tx_idx"]
-        c_snr=data[k]["c_snr"]
-        #print(n.max(c_snr))
-        if n.max(c_snr) < 100:# or (0 not in beam_id):
-#            print(n.max(c_snr))
-            continue
-#        print("mf")
-        interp=1
-        print(z_tx.shape)
-        try:
-            txlen=z_tx.shape[1]
-            echolen=z_rx.shape[2]        
-            rds=range_doppler_search(txlen=txlen,echolen=echolen,interp=interp,n_channels=z_rx.shape[1])
+    kl=list(data.keys())
+    for ki in range(rank,len(kl),size):
+        k=kl[ki]
+        process_cut(data[k],dmw)
 
-            RTI=n.zeros([z_rx.shape[0],rds.n_rg],dtype=n.float32)
-            XCT=n.zeros([rds.n_pairs,z_rx.shape[0],rds.n_rg],dtype=n.complex64)
-            xct=n.zeros([rds.n_pairs,z_rx.shape[0]],dtype=n.complex64)
-
-            peak_rg=[]
-            peak_dop=[]
-            drg=c.c/1e6/2/1e3
-            snr=[]
-            for ti in range(z_rx.shape[0]):
-                MF,pprof,peak_dopv,noise_floor,XC=rds.mf(z_tx[ti,:],z_rx[ti,:,:])
-                max_rg=n.argmax(pprof)
-                peak_rg.append((delays[ti]+max_rg/interp)*drg)
-                peak_dop.append(peak_dopv[max_rg])
-                RTI[ti,:]=(pprof-noise_floor)/noise_floor
-                XCT[:,ti,:]=XC
-                xct[:,ti]=XC[:,max_rg]
-                snr.append((pprof[max_rg]-noise_floor)/noise_floor)
-            snr=n.array(snr)
-            peak_rg=n.array(peak_rg)
-            peak_dop=n.array(peak_dop)
-
-            for bi in range(5):
-                idx=n.where( (snr>7) & (beam_id == bi) & (n.abs(peak_dop) > 10e3) )[0]        
-                if len(idx)>5:
-                    fidx0=tx_idx[idx[0]]
-                    ofname="caldata/meteor-%d-%d.h5"%(bi,fidx0)
-                    print(ofname)
-                    ho=h5py.File(ofname,"w")
-                    ho["xc"]=xct[:,idx]
-                    ho["bi"]=bi
-                    ho.close()
-        except:
-            import traceback
-            traceback.print_exc()
-        #xct[:,idx]
-        #pc.meteor_cal_metadata_dir
-
-        if False:
-            #for i in range(rds.n_pairs):
-            plt.subplot(311)
-            plt.plot(tx_idx[idx],peak_rg[idx],".")
-            plt.title(n.unique(beam_id[idx]))
-            plt.xlim([n.min(tx_idx),n.max(tx_idx)])
-            plt.subplot(312)
-            plt.plot(tx_idx[idx],peak_dop[idx],".")
-            plt.xlim([n.min(tx_idx),n.max(tx_idx)])
-            plt.subplot(313)
-            plt.scatter(tx_idx[idx],n.angle(xct[0,idx]),c=beam_id[idx],s=1,cmap="turbo")
-            plt.xlim([n.min(tx_idx),n.max(tx_idx)])
-            plt.show()
-
-            mu=[]
-            mv=[]
-
-            for ii in idx:
-                print(ii)
-                xc=xct[:,ii]
-                xc=n.exp(1j*n.angle(xc))
-                M=pint.mf(xc,dmat,u,v,w)
-                mi,mj=n.unravel_index(n.argmax(M),shape=M.shape)
-                mu.append(u[mi,mj])
-                mv.append(v[mi,mj])
-
-            mu=n.array(mu)
-            mv=n.array(mv)
-            mw=n.sqrt(1-mu**2.0-mv**2.0)
-    #        peak_rg
-            plt.subplot(131)
-            plt.plot((tx_idx[idx]-tx_idx[0])/1e6,peak_rg[idx]*mv,".")
-            plt.xlabel("Time (s)")
-            plt.ylabel("North-South (km)")
-            plt.subplot(132)
-            plt.plot((tx_idx[idx]-tx_idx[0])/1e6,peak_rg[idx]*mu,".")
-            plt.xlabel("Time (s)")
-            plt.ylabel("East-West (km)")
-            plt.subplot(133)
-            plt.plot((tx_idx[idx]-tx_idx[0])/1e6,peak_rg[idx]*mw,".")
-            plt.xlabel("Time (s)")
-            plt.ylabel("Up (km)")
-            plt.show()
 
 
