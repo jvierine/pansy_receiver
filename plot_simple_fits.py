@@ -14,7 +14,7 @@ hgts=[]
 t0s=[]
 vgs=[]
 for i in range(n_block):
-    data=dm.read(b[0]+bi*dt,b[0]+bi*dt + dt)
+    data=dm.read(b[0]+i*dt,b[0]+i*dt + dt)
     for k in data.keys():
 #                    dout["r0"]=r0
  #           dout["v0"]=v0            
