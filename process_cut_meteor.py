@@ -127,7 +127,7 @@ class range_doppler_search:
 
 def process_cut(data,
                 dmw,
-                interp=4,
+                interp=1,
                 plot=True):
 
 
