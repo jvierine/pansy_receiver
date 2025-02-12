@@ -149,6 +149,12 @@ phcal=direction_shift(dir_orig=n.array([0.05,-0.008,n.sqrt(1-0.05**2-0.008**2)])
                       dmat=dmat,
                       ch_pairs=ch_pairs)
 
+ho=h5py.File("data/phases.h5","w")
+ho["phasecal"]=phcal
+ho["beamid"]=0
+ho["creation_time"]=time.time()
+ho.close()
+
 mu,mv,mfs,mis,mjs=image_points(phcal,xc,ch_pairs,u,v,w,dmat)
 gidx=n.where(mfs/21.0 > 0.95)[0]
 xc=xc[gidx,:]
