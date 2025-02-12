@@ -56,6 +56,9 @@ t0s=[]
 vgs=[]
 els=[]
 azs=[]
+slats=[]
+slons=[]
+
 for i in range(n_block):
     data=dm.read(b[0]+i*dt,b[0]+i*dt + dt)
     for k in data.keys():
@@ -73,8 +76,11 @@ for i in range(n_block):
         az=180*n.arccos(v1[1]/v_h)/n.pi
         
         r,sc_lat,sc_lon,sun_lon=get_radiant(r0*1e3,k/1e6,v0/n.linalg.norm(v0))
-        print(sc_lat)
-        print(sc_lon)
+        slats.append(sc_lat)
+        slons.append(sc_lon)
+        
+ #       print(sc_lat)
+#        print(sc_lon)
                 
         std=data[k]["std"]
         if n.max(std*1e3) < 500.0:
@@ -84,7 +90,9 @@ for i in range(n_block):
             els.append(el)
             azs.append(az)
 
-
+plt.scatter(slons,slats,c=vgs,vmin=0,vmax=73)
+plt.colorbar()
+plt.show()
 plt.scatter(t0s,azs,c=vgs,s=2,vmin=0,vmax=73)
 plt.xlabel("Time (unix)")
 plt.ylabel("Azimuth (deg)")
