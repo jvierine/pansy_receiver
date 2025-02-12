@@ -233,6 +233,7 @@ def process_cut(data,
                 plt.ylabel("NS (km)")                        
                 plt.subplot(233)
                 plt.scatter(tx_idx[gidx]/1e6,up,c=mfs/21)
+                plt.title(stuffr.unix2datestr(tx_idx[gidx[0]]/1e6))
                 plt.plot(tx_idx[gidx]/1e6,model[(2*nm):(3*nm)],color="blue")                        
       #          cb=plt.colorbar()
        #         cb.set_label("Coherence")
