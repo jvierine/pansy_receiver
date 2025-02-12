@@ -26,12 +26,13 @@ for i in range(n_block):
         if n.max(std*1e3) < 500.0:
             hgts.append(r0[2])
             vgs.append(n.linalg.norm(v0))
-            t0s.append(k/1e6)
+            t0s.append(stuffr.unix2date(k/1e6))
 
 plt.scatter(t0s,hgts,c=vgs,s=2,vmin=0,vmax=73)
 plt.xlabel("Time (unix)")
 plt.ylabel("Height (km)")
-plt.colorbar()
+cb=plt.colorbar()
+cb.set_label("$v_g$ (km/s)")
 plt.show()
 
 plt.plot(vgs,hgts,".")
