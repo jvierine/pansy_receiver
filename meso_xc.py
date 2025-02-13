@@ -42,6 +42,10 @@ def analyze_block(i0,
     file_name = "xc"
     os.system("mkdir -p %s"%(pc.xc_metadata_dir))
 
+    # raw voltage 
+    d = drf.DigitalRFReader(pc.raw_voltage_dir)
+
+
     dmw = drf.DigitalMetadataWriter(
         pc.xc_metadata_dir,
         subdirectory_cadence_seconds,
