@@ -242,19 +242,21 @@ def analyze_block(i0,
     
     #mesomode_metadata_dir="/media/analysis/metadata/mesomode"
 
-if __name__ == "__main__":
+def analyze_xc():
+    # mesospheric mode boundaries
     dmm = drf.DigitalMetadataReader(pc.mesomode_metadata_dir)
     dmb=dmm.get_bounds()
+    # raw voltage 
     d = drf.DigitalRFReader(pc.raw_voltage_dir)
+    # cross-spectral metadata
     dmxc = drf.DigitalMetadataReader(pc.xc_metadata_dir)
     xcb=dmxc.get_bounds()
 
-    #b=dmm.get_bounds()
     b=d.get_bounds("ch000")
     t0=xcb[1]
     dd=dmm.read(t0,dmb[1])
     kl=list(dd.keys())
-    for ki in range(rank,len(kl),size):#dd.keys():
+    for ki in range(rank,len(kl),size):
         k=kl[ki]
         i0=dd[k]["start"]
         i1=dd[k]["end"]
@@ -265,4 +267,7 @@ if __name__ == "__main__":
             analyze_block(i0,i1)
 
     
-
+if __name__ == "__main__":
+    while True:
+        analyze_xc()
+        time.sleep(3600)
