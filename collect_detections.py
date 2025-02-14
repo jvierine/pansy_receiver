@@ -43,6 +43,7 @@ plt.subplot(133)
 
 plt.hist(r0s,bins=50)
 plt.xlabel("Height (km)")
+plt.tight_layout()
 plt.show()
 
 tv=n.array(tv)
@@ -57,6 +58,7 @@ ax.set_title("%d meteors"%(len(tv)))
 cb=fig.colorbar(m,ax=ax)
 cb.set_label("Doppler (km/s)")
 ax.set_xlabel("Time (unix)")
+ax.set_ylabel("Range (km)")
 plt.show()
 
 fig, ax = plt.subplots()
