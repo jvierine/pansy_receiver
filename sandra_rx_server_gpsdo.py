@@ -17,6 +17,11 @@ CMD_SANDRA += PATH_SANDRA_CLIENT
 CMD_SANDRA_STOP = CMD_SANDRA+" stop"
 CMD_SANDRA_START = CMD_SANDRA+" start"
 
+# when was gps lock last seen.
+when_last_locked=-1
+when_last_restarted=-1
+when_last_stopped=-1
+
 while True:
 
     gps_status = subprocess.run(
@@ -45,16 +50,26 @@ while True:
         is_acq_active = True
 
     if is_gps_locked:
+        when_last_locked=time.time()
         if is_acq_active:
             print("GPS locked {}, ACQ active {}, ACQ running!".format(is_gps_locked,is_acq_active),flush=True)
         else:
+            when_last_started=time.time()
             print("GPS locked {}, ACQ active {}, ACQ start!".format(is_gps_locked,is_acq_active),flush=True)
             os.system(CMD_SANDRA_START)
     else:
-        if is_acq_active:
+        time_now=time.time()
+        holdover_time = time_now-when_last_locked
+        time_since_stopped=time_now-when_last_stopped
+        # 
+        # There is a loss of lock. We stop recording if:
+        # 1. loss of gpslock for more than two hours or
+        # 2. there has been more than 24 hours since restart
+        if is_acq_active and ((holdover_time > 2*3600) or (time_since_stopped > 24*3600)):
+            when_last_stopped=time.time()
             print("GPS locked {}, ACQ active {}, ACQ stop!".format(is_gps_locked,is_acq_active),flush=True)
             os.system(CMD_SANDRA_STOP)
         else:
             print("GPS locked {}, ACQ active {}, ACQ wait!".format(is_gps_locked,is_acq_active),flush=True)
-
-    time.sleep(1.0)
+    # 
+    time.sleep(10.0)
