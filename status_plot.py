@@ -24,7 +24,7 @@ d5=drf.DigitalMetadataReader(pc.xc_metadata_dir)#meteor_cal_metadata_dir="/media
 d6=drf.DigitalMetadataReader(pc.simple_fit_metadata_dir)
 dr=drf.DigitalRFReader(pc.raw_voltage_dir)
 
-
+tnow=time.time()*1e6
 mfb=d0.get_bounds()
 latest_mf=stuffr.unix2datestr(mfb[1]/1e6)
 
@@ -49,11 +49,11 @@ latest_fit=stuffr.unix2datestr(fitb[1]/1e6)
 b=dr.get_bounds("ch000")
 latest_raw=stuffr.unix2datestr(b[1]/1e6)
 
-print("latest raw voltage %s"%(latest_raw))
-print("latest tx %s"%(latest_tx))
-print("latest mf %s"%(latest_mf))
-print("latest det %s"%(latest_det))
-print("latest cut %s"%(latest_cut))
-print("latest mode %s"%(latest_mode))
-print("latest xc %s"%(latest_xc))
-print("latest fit %s"%(latest_fit))
+print("latest raw voltage %s (%1.0f s behind)"%(latest_raw,(tnow-b[1])/1e6))
+print("latest tx %s (%1.0f s behind)"%(latest_tx,(tnow-txb[1])/1e6))
+print("latest mf %s (%1.0f s behind)"%(latest_mf,(tnow-mfb[1])/1e6))
+print("latest det %s (%1.0f s behind)"%(latest_det,(tnow-detb[1])/1e6))
+print("latest cut %s (%1.0f s behind)"%(latest_cut,(tnow-cutb[1]/1e6)))
+print("latest mode %s (%1.0f s behind)"%(latest_mode,(tnow-modeb[1])/1e6))
+print("latest xc %s (%1.0f s behind)"%(latest_xc,(tnow-xcb[1])/1e6))
+print("latest fit %s (%1.0f s behind)"%(latest_fit,(tnow-fitb[1])/1e6))
