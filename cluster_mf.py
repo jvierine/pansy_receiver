@@ -471,5 +471,9 @@ def analyze_until_now():
         
 if __name__ == "__main__":
     while True:
-        analyze_until_now()
+        try:
+            analyze_until_now()
+        except:
+            import traceback
+            traceback.print_exc()
         time.sleep(3600)
