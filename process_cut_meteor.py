@@ -261,40 +261,40 @@ def process_cut(data,
                 plt.close()
 
 
-
-mddir=pc.cut_metadata_dir
-#mddir="../pansy_test_data/metadata/cut"
-dm = drf.DigitalMetadataReader(mddir)
-b = dm.get_bounds()
-dt=10000000
-n_block=int((b[1]-b[0])/dt)
-os.system("mkdir -p caldata")
-start_idx=b[0]
-#start_idx=1737912526407585
-
-
-subdirectory_cadence_seconds = 3600
-file_cadence_seconds = 60
-samples_per_second_numerator = 1000000
-samples_per_second_denominator = 1
-file_name = "fit"
-os.system("mkdir -p %s"%(pc.simple_fit_metadata_dir))
-dmw = drf.DigitalMetadataWriter(
-    pc.simple_fit_metadata_dir,
-    subdirectory_cadence_seconds,
-    file_cadence_seconds,
-    samples_per_second_numerator,
-    samples_per_second_denominator,
-    file_name,
-)
+if __name__ == "__main__":
+    mddir=pc.cut_metadata_dir
+    #mddir="../pansy_test_data/metadata/cut"
+    dm = drf.DigitalMetadataReader(mddir)
+    b = dm.get_bounds()
+    dt=10000000
+    n_block=int((b[1]-b[0])/dt)
+    os.system("mkdir -p caldata")
+    start_idx=b[0]
+    #start_idx=1737912526407585
 
 
-for bi in range(n_block):
-    data=dm.read(start_idx+bi*dt,start_idx+bi*dt+dt)
-    kl=list(data.keys())
-    for ki in range(rank,len(kl),size):
-        k=kl[ki]
-        process_cut(data[k],dmw)
+    subdirectory_cadence_seconds = 3600
+    file_cadence_seconds = 60
+    samples_per_second_numerator = 1000000
+    samples_per_second_denominator = 1
+    file_name = "fit"
+    os.system("mkdir -p %s"%(pc.simple_fit_metadata_dir))
+    dmw = drf.DigitalMetadataWriter(
+        pc.simple_fit_metadata_dir,
+        subdirectory_cadence_seconds,
+        file_cadence_seconds,
+        samples_per_second_numerator,
+        samples_per_second_denominator,
+        file_name,
+    )
+
+
+    for bi in range(n_block):
+        data=dm.read(start_idx+bi*dt,start_idx+bi*dt+dt)
+        kl=list(data.keys())
+        for ki in range(rank,len(kl),size):
+            k=kl[ki]
+            process_cut(data[k],dmw)
 
 
 
