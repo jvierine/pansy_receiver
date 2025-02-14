@@ -49,7 +49,7 @@ latest_fit=stuffr.unix2datestr(fitb[1]/1e6)
 b=dr.get_bounds("ch000")
 latest_raw=stuffr.unix2datestr(b[1]/1e6)
 
-print("latest raw voltage %s (%1.0f s behind)"%(latest_raw,(tnow-b[1])/1e6))
+print("raw voltage extent %s-%s (%1.0f s behind)"%(stuffr.unix2datestr(b[0]/1e6),latest_raw,(tnow-b[1])/1e6))
 print("latest tx %s (%1.0f s behind)"%(latest_tx,(tnow-txb[1])/1e6))
 print("latest mf %s (%1.0f s behind)"%(latest_mf,(tnow-mfb[1])/1e6))
 print("latest det %s (%1.0f s behind)"%(latest_det,(tnow-detb[1])/1e6))
