@@ -19,7 +19,7 @@ CMD_SANDRA_START = CMD_SANDRA+" start"
 
 # when was gps lock last seen.
 when_last_locked=-1
-when_last_restarted=-1
+# when did we restart last
 when_last_stopped=-1
 
 while True:
