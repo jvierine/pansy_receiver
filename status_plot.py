@@ -138,7 +138,7 @@ print("latest mode %s (%1.0f s behind)"%(latest_mode,(tnow-modeb[1])/1e6))
 print("latest xc %s (%1.0f s behind)"%(latest_xc,(tnow-xcb[1])/1e6))
 print("latest fit %s (%1.0f s behind)"%(latest_fit,(tnow-fitb[1])/1e6))
 
-fig,(ax0,ax1)=plt.subplots(1,2)
+fig,(ax0,ax1)=plt.subplots(2,1)
 get_xc(fig,ax0)
 get_meteors(fig,ax1)
 plt.show()
