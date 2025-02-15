@@ -296,5 +296,9 @@ def cut_block():
                     plt.show()
         
 while True:
-    cut_block()
+    try:
+        cut_block()
+    except:
+        import traceback
+        traceback.print_exc()
     time.sleep(3600)
