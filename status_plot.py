@@ -31,8 +31,11 @@ def get_meteors(fig,ax,dt=24*3600*1000000):
         r0s.append(r0)
         durs.append(dur)
     v0s=-1*n.array(v0s)
-    m=ax.scatter(tv,r0s,c=v0s,cmap="turbo",s=1)
+    m=ax.scatter(tv,r0s,c=v0s,cmap="turbo",s=1,vmin=0,vmax=73)
+    ax.set_xlabel("Date (UTC)")
+    ax.set_ylabel("Range (km)")
     cb=fig.colorbar(m,ax=ax)
+    cb.set_label("Doppler (km/s)")
     return(t0,v0s,r0s)
 
 
@@ -75,9 +78,15 @@ def get_xc(fig,ax,dt=24*3600*1000000):
  #       ax=axs[i]    
   #      if i == 0:
     i=0
-    m=ax.pcolormesh(tvs,rvec,10.0*n.log10(pprofs[i,:,:].T))
+    dB=10.0*n.log10(pprofs[i,:,:].T)
+    nfloor=n.nanmedian(dB)
+    dB=dB-nfloor
+    m=ax.pcolormesh(tvs,rvec,dB,vmin=0)
+    ax.set_xlabel("Date (UTC)")
+    ax.set_ylabel("Range (km)")
     fig.autofmt_xdate()
     cb=fig.colorbar(m,ax=ax)
+    cb.set_label("SNR (dB)")
     
 # how many receiver restarts in the log 
 # sandra-rx events
