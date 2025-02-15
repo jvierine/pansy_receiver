@@ -8,6 +8,77 @@ import time
 import pansy_config as pc
 import traceback
 
+def get_meteors(dt=24*3600*1000000,fig,ax):
+    dm = drf.DigitalMetadataReader(pc.detections_metadata_dir)
+    b = dm.get_bounds()
+    data_dict = dm.read(b[1]-dt, b[1], ("xhat","tx_idx","snr"))
+    tv=[]
+    v0s=[]
+    r0s=[]
+    durs=[]
+    snrs=[]
+    for k in data_dict.keys():
+        data=data_dict[k]
+        xhat=data["xhat"]
+        snr=data["snr"]
+        snrs.append(n.max(snr))
+        dur=(n.max(data["tx_idx"])-n.min(data["tx_idx"]))/1e6
+        r0=xhat[0]
+        v0=xhat[1]
+        t0=k
+        tv.append(n.datetime64(stuffr.unix2date(t0/1e6)))
+        v0s.append(v0)
+        r0s.append(r0)
+        durs.append(dur)
+    v0s=-1*n.array(v0s)
+    m=ax.scatter(tv,r0s,c=v0s,cmap="turbo",s=1)
+    cb=fig.colorbar(m,ax=ax)
+    return(t0,v0s,r0s)
+
+
+def get_xc(dt=24*3600*1000000,fig,ax):
+    dm = drf.DigitalMetadataReader(pc.xc_metadata_dir)
+    b = dm.get_bounds()
+    start_idx=b[1]-b[0]
+    n_b=int((b[1]-start_idx)/dt)
+    pprofs=[]
+    dprofs=[]
+    for i in range(5):
+        pprofs.append([])
+        dprofs.append([])
+    r0=0
+    r1=1
+    rdec=1
+    tvs=[]
+    for bi in range(n_b):
+        data_dict = dm.read(start_idx+bi*dt, b[0]+bi*dt+dt, ("xc_arr","i0","i1","r0","r1","f0","f1","n_fft","rdec"))
+        for k in data_dict.keys():
+            r0=data_dict[k]["r0"]
+            r1=data_dict[k]["r1"]
+            f0=data_dict[k]["f0"]
+            f1=data_dict[k]["f1"]
+            rdec=data_dict[k]["rdec"]        
+            n_fft=data_dict[k]["n_fft"]
+            fvec=n.fft.fftshift(n.fft.fftfreq(n_fft,d=5*1600/1e6))[f0:f1]
+            tvs.append(stuffr.unix2date(data_dict[k]["i0"]/1e6))
+            for i in range(5):
+                mean_pwr=n.sum(n.abs(data_dict[k]["xc_arr"][0:7,i,:,:]),axis=0)
+                dop_idx=n.argmax(mean_pwr,axis=0)
+                pprofs[i].append(n.max(mean_pwr,axis=0))
+                dprofs[i].append(fvec[dop_idx])
+    pprofs=n.array(pprofs)
+    dprofs=n.array(dprofs)
+    rvec=n.arange(1600)*0.15
+    rvec=rvec[r0:r1:rdec]
+#    fig, axs = plt.subplots(nrows=5,ncols=1)
+#    for i in range(5):
+ #       ax=axs[i]    
+  #      if i == 0:
+    i=0
+    m=ax.pcolormesh(tvs,rvec,10.0*n.log10(pprofs[i,:,:].T))
+    fig.autofmt_xdate()
+    cb=fig.colorbar(m,ax=ax)
+    
 # how many receiver restarts in the log 
 # sandra-rx events
 
@@ -57,3 +128,7 @@ print("latest cut %s (%1.0f s behind)"%(latest_cut,(tnow-cutb[1])/1e6))
 print("latest mode %s (%1.0f s behind)"%(latest_mode,(tnow-modeb[1])/1e6))
 print("latest xc %s (%1.0f s behind)"%(latest_xc,(tnow-xcb[1])/1e6))
 print("latest fit %s (%1.0f s behind)"%(latest_fit,(tnow-fitb[1])/1e6))
+
+fig,(ax0,ax1)=plt.subplots(1,2)
+get_xc(dt=24*3600*1000000,fig,ax0)
+get_meteors(dt=24*3600*1000000,fig,ax1)
