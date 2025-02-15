@@ -51,7 +51,7 @@ def get_xc(fig,ax,dt=24*3600*1000000):
     rdec=1
     tvs=[]
     for bi in range(n_b):
-        data_dict = dm.read(start_idx+bi*dt, b[0]+bi*dt+dt, ("xc_arr","i0","i1","r0","r1","f0","f1","n_fft","rdec"))
+        data_dict = dm.read(start_idx+bi*dt, start_idx+bi*dt+dt, ("xc_arr","i0","i1","r0","r1","f0","f1","n_fft","rdec"))
         for k in data_dict.keys():
             r0=data_dict[k]["r0"]
             r1=data_dict[k]["r1"]
