@@ -8,7 +8,7 @@ import time
 import pansy_config as pc
 import traceback
 
-def get_meteors(fig,ax,dt=24*3600*1000000):
+def get_meteors(fig,ax,dt=48*3600*1000000):
     dm = drf.DigitalMetadataReader(pc.detections_metadata_dir)
     b = dm.get_bounds()
     data_dict = dm.read(b[1]-dt, b[1], ("xhat","tx_idx","snr"))
@@ -39,7 +39,7 @@ def get_meteors(fig,ax,dt=24*3600*1000000):
     return(t0,v0s,r0s)
 
 
-def get_xc(fig,ax,dt=24*3600*1000000):
+def get_xc(fig,ax,dt=48*3600*1000000):
     dm = drf.DigitalMetadataReader(pc.xc_metadata_dir)
     b = dm.get_bounds()
     start_idx=b[1]-dt
