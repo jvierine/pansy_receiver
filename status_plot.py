@@ -32,6 +32,9 @@ def get_meteors(fig,ax,dt=48*3600*1000000):
         durs.append(dur)
     v0s=-1*n.array(v0s)
     m=ax.scatter(tv,r0s,c=v0s,cmap="turbo",s=1,vmin=0,vmax=73)
+    fig.autofmt_xdate()
+    n_days=dt/3600/1000000/24
+    ax.set_title("%1.1f meteors per day"%(len(r0s)/n_days))
     ax.set_xlabel("Date (UTC)")
     ax.set_ylabel("Range (km)")
     cb=fig.colorbar(m,ax=ax)
