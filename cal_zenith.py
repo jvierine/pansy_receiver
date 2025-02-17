@@ -5,19 +5,113 @@ import numpy as n
 import scipy.optimize as so
 import matplotlib.pyplot as plt
 import glob
+import os
+import re
 
-def get_xcs(beam_num=0):
+def fit_chirp(tx_idx,xc):
+    tv=(tx_idx-tx_idx[0])/1e6
+    w=n.abs(xc)
+    m=n.exp(1j*n.angle(xc))
+    def ss(x):
+        om=x[0]
+        om2=x[1]
+#        om3=x[2]
+        model=n.exp(1j*(om+om2*tv))#+0.5*om3*tv**2.0))
+        return(n.sum(w*n.abs(model-m)**2.0))
+    xhat=so.fmin(ss,[n.angle(m[0]),0])
+    om=xhat[0]
+    om2=xhat[1]
+#    om3=xhat[2]
+    model=n.exp(1j*(om+om2*tv))#+0.5*om3*tv**2.0))
+   # return(model)
+#    plt.plot(tv,n.angle(model))
+ #   plt.plot(tv,n.angle(m),".")
+  #  plt.show()
+    return(xhat,model)
+
+                 
+                    
+
+    return(mean_step2)
+
+def get_xcs2(max_per_event=30):
+    """
+    get n strongest cross-phases from each file (one meteor)
+    """
+    fl=glob.glob("caldata/meteor-0-*.h5")
+    fl.sort()
+    xc=[]
+    for f in fl:
+        h=h5py.File(f,"r")
+
+        pref=re.search("(caldata/meteor-).-(.*.h5)",f).group(1)
+        post=re.search("(caldata/meteor-).-(.*.h5)",f).group(2)
+        beams=[0]
+        beam_xc=[]
+        beam_txi=[]
+        for i in range(1,5):
+            beamf="%s%d-%s"%(pref,i,post)
+            print(beamf)
+            if os.path.exists(beamf):
+                h2=h5py.File(beamf,"r")
+                beam_xc.append(h2["xc"][()])
+                beam_txi.append(h2["tx_idx"][()])
+                beams.append(i)
+#                plt.plot(txib,n.angle(xcb[0,:]),".")
+                h2.close()
+            else:
+                print("%s doesn't exist"%(beamf))
+
+        if len(beams)>1:
+            print(beams)
+            xc=h["xc"][()]
+            txi=h["tx_idx"][()]
+            xhat,model=fit_chirp(txi,xc[0,:])
+            plt.plot(txi/1e6,n.angle(model))
+            plt.plot(txi/1e6,n.angle(xc[0,:]),".",label="beam 0",color="C0")
+    #        plt.plot(txi,n.angle(xc[0,:]),".")
+    #       plt.plot(txi,n.angle(n.exp(1j*mean_step*txi)))
+            pref=re.search("(caldata/meteor-).-(.*.h5)",f).group(1)
+            post=re.search("(caldata/meteor-).-(.*.h5)",f).group(2)
+            for i in range(1,5):
+                beamf="%s%d-%s"%(pref,i,post)
+                if os.path.exists(beamf):
+                    h2=h5py.File(beamf,"r")
+                    xcb=h2["xc"][()]
+                    txib=h2["tx_idx"][()]
+                    plt.plot(txib/1e6,n.angle(xcb[0,:]),".",label="beam %d"%(i),color="C%d"%(i))
+                    h2.close()
+
+            plt.legend()
+            plt.ylim([-n.pi,n.pi])
+            plt.title("Module 0-1")
+            plt.xlabel("Time (unix)")
+            plt.ylabel("Cross-phase (rad)")
+            plt.show()
+        print(pref)
+        print(post)
+
+        #for i in range(1,5):
+         #   if os.path.exists()
+        h.close()
+
+#    xc=n.vstack(xc)
+ #   print(xc.shape)
+  #  return(xc)
+
+def get_xcs(beam_num=0,max_per_event=30):
     """
     get n strongest cross-phases from each file (one meteor)
     """
     fl=glob.glob("caldata/meteor-%d-*.h5"%(beam_num))
+    fl.sort()
     xc=[]
-    for f in fl:
+    for f in fl[0:200]:
         h=h5py.File(f,"r")
         mi=n.argsort(n.abs(h["xc"][()][0,:]))[::-1]
         #print(mi)
-        for k in range(n.min((len(mi),10))):                
-                xc.append([h["xc"][()][:,mi[k]]])
+        for k in range(n.min((len(mi),max_per_event))):
+            xc.append([h["xc"][()][:,mi[k]]])
         h.close()
     xc=n.vstack(xc)
     print(xc.shape)
@@ -59,17 +153,13 @@ def image_points(phcal,xc2,ch_pairs,u,v,w,dmat):
 
     return(mu,mv,mfs,mis,mjs)
 
-# create a uniform grid of u,v,w values
-u,v,w=pint.uv_coverage(N=120,max_zenith_angle=10.0)
-# antenna positions
-antpos=pint.get_antpos()
-# channel pairs used for interferometry
-ch_pairs=n.array(list(itertools.combinations(n.arange(7),2)))
-# matrix of antenna direction vector pairs 
-# one row is a vector for each interferometry channel pair
-dmat=pint.pair_mat(ch_pairs[:,:],antpos)
-
+#
 # find phases that rotate pointing towards phac
+# phac can be e.g., zenith pointing obtained with:
+# phac_zenith=pint.u_phases(dmat,n.array([0,0,-1]))
+# 
+# tbd: this should go into pint
+#
 def find_phaserot(phac,ch_pairs):
     def ss(x):
         phcal=n.zeros(7)
@@ -85,6 +175,120 @@ def find_phaserot(phac,ch_pairs):
     xhat=so.fmin(ss,xhat)                    
     xhat=so.fmin(ss,xhat)                    
     return(xhat)
+
+
+def direction_shift(dir_orig,
+                    dir_new,
+                    phcal_orig,
+                    dmat,
+                    ch_pairs):
+    """
+     find calibration offset that rotates vector 
+     towards (um,vm,-wm) to -> (0,0,-1)
+    """
+    # we want to shift all interferometry solutions from this direction to zenith
+    # using a new calibration xhat+xhat2
+    um=0.05
+    vm=-0.008
+    wm=n.sqrt(1-um**2.0-vm**2.0)
+    # interferometer phases pointing towards um, vm, -wm
+    phac=pint.u_phases(dmat,n.array([um,vm,-wm]))
+    # interferometer phases pointing towards zenith
+    phacz=pint.u_phases(dmat,n.array([0,0,-1]))
+    dphac=n.conj(phac*n.conj(phacz))
+    xhat2=find_phaserot(dphac,ch_pairs)
+
+    # the phase cal now contains a part that
+    # focuses everything (xhat), 
+    # and the rotation (xhat2) towards wanted direction
+    phcal=n.zeros(7,dtype=n.float32)
+    phcal[1:len(phcal)]=xhat2
+    phcal += phcal_orig
+    return(phcal)
+
+def find_initial_phasecal():
+    """
+    """
+    # create a uniform grid of u,v,w values
+    u,v,w=pint.uv_coverage(N=100,max_zenith_angle=10.0)
+    # antenna positions
+    antpos=pint.get_antpos()
+    # channel pairs used for interferometry
+    ch_pairs=n.array(list(itertools.combinations(n.arange(7),2)))
+    # matrix of antenna direction vector pairs 
+    # one row is a vector for each interferometry channel pair
+    dmat=pint.pair_mat(ch_pairs[:,:],antpos)
+    print("reading xc")
+    xc=get_xcs(max_per_event=3)
+    mags=n.abs(xc[:,0])
+    idx=n.arange(xc.shape[0])
+    ridx=n.random.permutation(idx)[0:200]
+    phcal=n.zeros(7,dtype=n.float32)
+
+
+    xc2=get_xcs(max_per_event=30)
+    # plot detections and figure out what is the center
+    mu,mv,mfs,mis,mjs=image_points(phcal,xc2[0:1000,:],ch_pairs,u,v,w,dmat)
+    plt.scatter(mu,mv,c=mfs/21.0,s=2)
+    cb=plt.colorbar()
+    cb.set_label("Coherence")
+    plt.xlabel("u")
+    plt.ylabel("v")
+    plt.plot(0,0,"x")
+    plt.show()
+
+
+    def ss(x):
+        phcal[1:len(phcal)]=x
+        mu,mv,mfs,mis,mjs=image_points(phcal,xc[ridx,:],ch_pairs,u,v,w,dmat)
+        mean_off=n.mean(n.sqrt(mu**2.0+mv**2.0))
+        mean_mf=n.sum(mfs)/len(mfs)/ch_pairs.shape[0]
+        wg=mfs/ch_pairs.shape[0]
+        wgs=n.sum(wg)
+        wmu=n.sum(mu*wg)/wgs
+        wmv=n.sum(mv*wg)/wgs
+        print("mf %1.2f center %1.2f %1.2f phcal %1.2f %1.2f %1.2f %1.2f %1.2f %1.2f"%(mean_mf,wmu,wmv,x[0],x[1],x[2],x[3],x[4],x[5]))
+        s=-mean_mf#+wmu**2.0+wmv**2.0
+        print(s)
+        return(s)
+    print("optimize")
+    # find phases
+    phcal[1:7]=so.fmin(ss,phcal[1:7])
+    # remove outliers
+    mu,mv,mfs,mis,mjs=image_points(phcal,xc[ridx,:],ch_pairs,u,v,w,dmat)
+    gidx=n.where(mfs>0.9)[0]
+    ridx=ridx[gidx]
+    phcal[1:7]=so.fmin(ss,phcal[1:7])
+    print(len(ridx))
+
+    # pick the center from the plot
+    mu,mv,mfs,mis,mjs=image_points(phcal,xc2[:,:],ch_pairs,u,v,w,dmat)
+    plt.scatter(mu,mv,c=mfs/21.0,s=2)
+    cb=plt.colorbar()
+    cb.set_label("Coherence")
+    plt.xlabel("u")
+    plt.ylabel("v")
+    plt.plot(0,0,"x")
+    plt.show()
+
+get_xcs2()
+exit(0)
+#find_initial_phasecal()
+#exit(0)
+
+
+
+# create a uniform grid of u,v,w values
+u,v,w=pint.uv_coverage(N=200,max_zenith_angle=10.0)
+# antenna positions
+antpos=pint.get_antpos()
+# channel pairs used for interferometry
+ch_pairs=n.array(list(itertools.combinations(n.arange(7),2)))
+# matrix of antenna direction vector pairs 
+# one row is a vector for each interferometry channel pair
+dmat=pint.pair_mat(ch_pairs[:,:],antpos)
+
+
 
 xc=get_xcs()
 mags=n.abs(xc[:,0])
@@ -121,34 +325,7 @@ phcal=n.zeros(7,dtype=n.float32)
 phcal[1:len(phcal)]=xhat
 #mu,mv,mfs,mis,mjs=image_points(phcal,xc,ch_pairs,u,v,w,dmat)
 
-def direction_shift(dir_orig,
-                    dir_new,
-                    phcal_orig,
-                    dmat,
-                    ch_pairs):
-    """
-     find calibration offset that rotates vector 
-     towards (um,vm,-wm) to -> (0,0,-1)
-    """
-    # we want to shift all interferometry solutions from this direction to zenith
-    # using a new calibration xhat+xhat2
-    um=0.05
-    vm=-0.008
-    wm=n.sqrt(1-um**2.0-vm**2.0)
-    # interferometer phases pointing towards um, vm, -wm
-    phac=pint.u_phases(dmat,n.array([um,vm,-wm]))
-    # interferometer phases pointing towards zenith
-    phacz=pint.u_phases(dmat,n.array([0,0,-1]))
-    dphac=n.conj(phac*n.conj(phacz))
-    xhat2=find_phaserot(dphac,ch_pairs)
 
-    # the phase cal now contains a part that
-    # focuses everything (xhat), 
-    # and the rotation (xhat2) towards wanted direction
-    phcal=n.zeros(7,dtype=n.float32)
-    phcal[1:len(phcal)]=xhat2
-    phcal += phcal_orig
-    return(phcal)
 
 phcal=direction_shift(dir_orig=n.array([0.05,-0.008,n.sqrt(1-0.05**2-0.008**2)]),
                       dir_new=n.array([0,0,-1]),
