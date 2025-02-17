@@ -146,7 +146,7 @@ for bi in range(n_block):
             drg=c.c/1e6/2/1e3
             snr=[]
             for ti in range(z_rx.shape[0]):
-                MF,pprof,peak_dopv,noise_floor,XC=rds.mf(z_tx[ti,:],z_rx[ti,:,:])
+                MF,pprof,peak_dopv,noise_floor,XC,rgmax=rds.mf(z_tx[ti,:],z_rx[ti,:,:])
                 max_rg=n.argmax(pprof)
                 peak_rg.append((delays[ti]+max_rg/interp)*drg)
                 peak_dop.append(peak_dopv[max_rg])
