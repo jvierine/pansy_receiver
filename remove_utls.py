@@ -3,6 +3,7 @@ import digital_rf as drf
 import os
 import stuffr
 import time
+import h5py
 
 import pansy_config as pc
 
@@ -22,7 +23,13 @@ def clean_utls():
 
     dt=1000000
 
-    s0=int(n.max((n.floor(b[0]/dt),n.floor(db[0]/dt))))
+    start_idx=b[0]
+    if os.path.exists("/tmp/last_rem.h5"):
+        ho=h5py.File("/tmp/last_rem.h5","r")
+        start_idx=ho["last_rem"][()]
+        ho.close()
+
+    s0=int(n.max((n.floor(start_idx/dt),n.floor(db[0]/dt))))
 
     #print(s0)
     s1=int(n.floor(db[1]/dt))
@@ -40,6 +47,9 @@ def clean_utls():
                     fname="%s/%s/%s"%("/media/archive/",c,f)
     #                print(fname)
                     os.system("rm -f %s"%(fname))
+    ho=h5py.File("/tmp/last_rem.h5","w")
+    ho["last_del"]=s1*dt+dt
+    ho.close()
         #os.system("ls /media/archive/ch000/")
         #for k in data_dict.keys():
         #   print(k)
