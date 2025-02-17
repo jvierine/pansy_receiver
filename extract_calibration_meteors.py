@@ -161,7 +161,7 @@ for bi in range(n_block):
             for bi in range(5):
                 idx=n.where( (snr>7) & (beam_id == bi) & (n.abs(peak_dop) > 10e3) )[0]        
                 if len(idx)>5:
-                    fidx0=tx_idx[idx[0]]
+                    fidx0=tx_idx[0]
                     ofname="caldata/meteor-%d-%d.h5"%(bi,fidx0)
                     print(ofname)
                     ho=h5py.File(ofname,"w")
