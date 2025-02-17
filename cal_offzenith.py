@@ -47,16 +47,17 @@ def fit_beam_cal(xc0,xcn,ch_pairs):
   #  plt.show()
 
 h=h5py.File("caldata/cal_all.h5","r")
-xc0=h["beam1/xc0"][()]
-xcn=h["beam1/xcn"][()]
-h.close()
+
 #print(xcn.shape)
 #xcn2=n.median(n.exp(1j*n.angle(xcn)),axis=0)
 if False:
     for i in range(xcn.shape[1]):
         plt.plot(n.angle(xc0[:,i]*n.conj(xcn[:,i])),".")
         plt.show()
-
-print(xcn.shape)
 ch_pairs=n.array(list(itertools.combinations(n.arange(7,dtype=n.int64),2)))
-fit_beam_cal(xc0,xcn,ch_pairs)
+
+for i in range(1,5):
+    xc0=h["beam%d/xc0"%(i)][()]
+    xcn=h["beam%d/xcn"%(i)][()]
+
+    fit_beam_cal(xc0,xcn,ch_pairs)
