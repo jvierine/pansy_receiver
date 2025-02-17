@@ -138,7 +138,7 @@ for bi in range(n_block):
             rds=range_doppler_search(txlen=txlen,echolen=echolen,interp=interp,n_channels=z_rx.shape[1])
 
             RTI=n.zeros([z_rx.shape[0],rds.n_rg],dtype=n.float32)
-            XCT=n.zeros([rds.n_pairs,z_rx.shape[0],rds.n_rg],dtype=n.complex64)
+       #     XCT=n.zeros([rds.n_pairs,z_rx.shape[0],rds.n_rg],dtype=n.complex64)
             xct=n.zeros([rds.n_pairs,z_rx.shape[0]],dtype=n.complex64)
 
             peak_rg=[]
@@ -151,7 +151,7 @@ for bi in range(n_block):
                 peak_rg.append((delays[ti]+max_rg/interp)*drg)
                 peak_dop.append(peak_dopv[max_rg])
                 RTI[ti,:]=(pprof-noise_floor)/noise_floor
-                XCT[:,ti,:]=XC
+               # XCT[:,ti,:]=XC
                 xct[:,ti]=XC[:,max_rg]
                 snr.append((pprof[max_rg]-noise_floor)/noise_floor)
             snr=n.array(snr)
