@@ -13,18 +13,9 @@ import itertools
 import pansy_interferometry as pint
 import h5py
 
-# each antenna needs to be multiplied with these phases (n.exp(-1j*phasecal))
-h=h5py.File("data/phases.h5","r")
-phasecal=h["zenith"][()]
-h.close()
-
-u,v,w=pint.uv_coverage(N=500,max_zenith_angle=15.0)
-antpos=pint.get_antpos()
-ch_pairs=n.array(list(itertools.combinations(n.arange(7),2)))
-dmat=pint.pair_mat(ch_pairs,antpos)
-
 fft=fp.fft
 
+# TBD, move this to a common utility function!
 class range_doppler_search:
     def __init__(self,
                  txlen,
@@ -176,55 +167,8 @@ for bi in range(n_block):
                     ho=h5py.File(ofname,"w")
                     ho["xc"]=xct[:,idx]
                     ho["bi"]=bi
+                    ho["tx_idx"]=tx_idx[idx]
                     ho.close()
         except:
             import traceback
             traceback.print_exc()
-        #xct[:,idx]
-        #pc.meteor_cal_metadata_dir
-
-        if False:
-            #for i in range(rds.n_pairs):
-            plt.subplot(311)
-            plt.plot(tx_idx[idx],peak_rg[idx],".")
-            plt.title(n.unique(beam_id[idx]))
-            plt.xlim([n.min(tx_idx),n.max(tx_idx)])
-            plt.subplot(312)
-            plt.plot(tx_idx[idx],peak_dop[idx],".")
-            plt.xlim([n.min(tx_idx),n.max(tx_idx)])
-            plt.subplot(313)
-            plt.scatter(tx_idx[idx],n.angle(xct[0,idx]),c=beam_id[idx],s=1,cmap="turbo")
-            plt.xlim([n.min(tx_idx),n.max(tx_idx)])
-            plt.show()
-
-            mu=[]
-            mv=[]
-
-            for ii in idx:
-                print(ii)
-                xc=xct[:,ii]
-                xc=n.exp(1j*n.angle(xc))
-                M=pint.mf(xc,dmat,u,v,w)
-                mi,mj=n.unravel_index(n.argmax(M),shape=M.shape)
-                mu.append(u[mi,mj])
-                mv.append(v[mi,mj])
-
-            mu=n.array(mu)
-            mv=n.array(mv)
-            mw=n.sqrt(1-mu**2.0-mv**2.0)
-    #        peak_rg
-            plt.subplot(131)
-            plt.plot((tx_idx[idx]-tx_idx[0])/1e6,peak_rg[idx]*mv,".")
-            plt.xlabel("Time (s)")
-            plt.ylabel("North-South (km)")
-            plt.subplot(132)
-            plt.plot((tx_idx[idx]-tx_idx[0])/1e6,peak_rg[idx]*mu,".")
-            plt.xlabel("Time (s)")
-            plt.ylabel("East-West (km)")
-            plt.subplot(133)
-            plt.plot((tx_idx[idx]-tx_idx[0])/1e6,peak_rg[idx]*mw,".")
-            plt.xlabel("Time (s)")
-            plt.ylabel("Up (km)")
-            plt.show()
-
-
