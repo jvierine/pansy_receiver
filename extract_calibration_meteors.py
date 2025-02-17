@@ -152,7 +152,7 @@ for bi in range(n_block):
                 peak_dop.append(peak_dopv[max_rg])
                 RTI[ti,:]=(pprof-noise_floor)/noise_floor
                # XCT[:,ti,:]=XC
-                xct[:,ti]=XC[:,max_rg]
+                xct[:,ti]=XC#[:,max_rg]
                 snr.append((pprof[max_rg]-noise_floor)/noise_floor)
             snr=n.array(snr)
             peak_rg=n.array(peak_rg)
