@@ -153,7 +153,7 @@ latest_raw=stuffr.unix2datestr(b[1]/1e6)
 try:
     h=h5py.File("/tmp/last_rem.h5","r")
     last_del=h["last_del"][()]
-    print("Removed non-meso mode up to %s (%1.0f s behind)"%(stuffr.unix2datestr(last_del/1e6),(tnow-last_del)/1e6))
+    print("removed non-meso mode up to %s (%1.0f s behind)"%(stuffr.unix2datestr(last_del/1e6),(tnow-last_del)/1e6))
     h.close()
 except:
     pass

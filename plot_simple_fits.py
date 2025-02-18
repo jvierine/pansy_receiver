@@ -47,10 +47,11 @@ def get_radiant(p0,t0,u0):
 
     return(sky,sc_gc_lat,sc_gc_lon, sun_pos.lon.deg)
 
-dm = drf.DigitalMetadataReader(pc.simple_fit_metadata_dir)
+dm = drf.DigitalMetadataReader("../pansy_test_data/metadata/simple_meteor_fit")
 b = dm.get_bounds()
 dt=100000000
 n_block=int((b[1]-b[0])/dt)
+#n_block=int((b[0]+3600*1000000-b[0])/dt)
 hgts=[]
 t0s=[]
 vgs=[]
@@ -97,20 +98,25 @@ slons[idx]=slons[idx]+360.0
 plt.scatter(slons,slats,c=vgs,vmin=0,vmax=73,s=1)
 plt.colorbar()
 plt.show()
-ax = plt.subplot(111, projection="hammer")
-sp=ax.scatter(n.pi*slons/180.0,n.pi*slats/180.0,c=vgs,vmin=0,vmax=72,s=2)
-ax.set_xlabel("Sun-centered ecliptic longitude (deg)")
+ax = plt.subplot(111, projection="lambert")
+#bidx=n.where(slons<0)[0]
+#slons[bidx]=slons[bidx]+360
+sp=ax.scatter(n.angle(n.exp(1j*n.pi*slons/180.0)*n.exp(1j*n.pi/2)),n.pi*slats/180.0,c=vgs,vmin=10,vmax=72,s=2,cmap="turbo")
+cb=plt.colorbar(sp)
+cb.set_label("Geocentric velocity (km/s)")
+ax.grid(True)
+ax.set_xlabel("Apex-centered ecliptic longitude (deg)")
 ax.set_ylabel("Ecliptic latitude (deg)")
 plt.show()
     
-plt.scatter(t0s,azs,c=vgs,s=2,vmin=0,vmax=73)
+plt.scatter(t0s,azs,c=vgs,s=2,vmin=0,vmax=73,cmap="turbo")
 plt.xlabel("Time (unix)")
 plt.ylabel("Azimuth (deg)")
 cb=plt.colorbar()
 cb.set_label("$v_g$ (km/s)")
 plt.show()
 
-plt.scatter(t0s,els,c=vgs,s=2,vmin=0,vmax=73)
+plt.scatter(t0s,els,c=vgs,s=2,vmin=0,vmax=73,cmap="turbo")
 plt.xlabel("Time (unix)")
 plt.ylabel("El (deg)")
 cb=plt.colorbar()
@@ -118,14 +124,14 @@ cb.set_label("$v_g$ (km/s)")
 plt.show()
 
             
-plt.scatter(t0s,hgts,c=vgs,s=2,vmin=0,vmax=73)
+plt.scatter(t0s,hgts,c=vgs,s=2,vmin=0,vmax=73,cmap="turbo")
 plt.xlabel("Time (unix)")
 plt.ylabel("Height (km)")
 cb=plt.colorbar()
 cb.set_label("$v_g$ (km/s)")
 plt.show()
 
-plt.plot(vgs,hgts,".")
+plt.plot(vgs,hgts,".",alpha=0.2)
 plt.xlabel("Geocentric velocity (km/s)")
 plt.ylabel("Height (km)")
 plt.show()

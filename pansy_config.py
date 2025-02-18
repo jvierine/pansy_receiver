@@ -7,12 +7,9 @@ detections_metadata_dir="/media/analysis/metadata/detections"
 cut_metadata_dir="/media/analysis/metadata/cut"
 mesomode_metadata_dir="/media/analysis/metadata/mesomode"
 xc_metadata_dir="/media/analysis/metadata/xc2"
-
+xc_sparse_metadata_dir="/media/analysis/metadata/xc_sparse"
 meteor_cal_metadata_dir="/media/analysis/metadata/meteor_cal"
-
-
 simple_fit_metadata_dir="/media/analysis/metadata/simple_meteor_fit"
-
 raw_voltage_dir="/media/archive/"
 
 # antenna position
@@ -65,7 +62,6 @@ for mn in module_names:
 def print_antenna():
     import matplotlib.pyplot as plt
     for cid in antenna.keys():
-#        print("cid")
         if cid != "RFTX":
             plt.plot(antenna[cid]["x"],antenna[cid]["y"],".",color="blue")
 

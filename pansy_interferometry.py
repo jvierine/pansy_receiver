@@ -57,6 +57,28 @@ def uv_coverage(N=100,max_zenith_angle=10):
   #  vv[mag>=1]=n.nan
     return(uu,vv,ww)
 
+def uv_coverage2(N=100,max_angle=10,az0=0,el0=90.0):
+    """
+    unit vectors
+    az0, el0 is beam pointing direction
+    """
+    u0_h=n.cos(n.pi*el0/180.0)
+    w0=n.sin(n.pi*el0/180.0)
+    v0=u0_h*n.cos(-n.pi*az0/180)
+    u0=-u0_h*n.sin(-n.pi*az0/180)
+
+    # not entirely correct!
+    max_u=n.arcsin(n.pi*max_angle/180.0)
+    u=n.linspace(-max_u+u0,max_u+u0,num=N)
+    v=n.linspace(-max_u+v0,max_u+v0,num=N)
+    uu,vv=n.meshgrid(u,v)
+    mag=n.sqrt(uu**2.0+vv**2)
+    ww=-n.sqrt(1-uu**2-vv**2)
+#    ww[mag>=1]=n.nan
+ #   uu[mag>=1]=n.nan
+  #  vv[mag>=1]=n.nan
+    return(uu,vv,ww)
+
 def zenang(u,v,w):
     return(180*n.arctan(n.sqrt(u**2+v**2)/w)/n.pi)
 

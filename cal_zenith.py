@@ -9,30 +9,51 @@ import os
 import re
 
 def fit_chirp(tx_idx,xc):
+    """
+    if a linear chirp to phases. can be used to cross-calibrate 
+    phases for different transmit pointings
+    """
     tv=(tx_idx-tx_idx[0])/1e6
     w=n.abs(xc)
     m=n.exp(1j*n.angle(xc))
     def ss(x):
         om=x[0]
         om2=x[1]
-#        om3=x[2]
-        model=n.exp(1j*(om+om2*tv))#+0.5*om3*tv**2.0))
+        model=n.exp(1j*(om+om2*tv))
         return(n.sum(w*n.abs(model-m)**2.0))
-    xhat=so.fmin(ss,[n.angle(m[0]),0])
+    guess=n.linspace(-100,100,num=1000)
+    best=guess[0]
+    best_s=1e99
+    for i in range(len(guess)):
+        s=ss([n.angle(m[0]),guess[i]])
+        if s < best_s:
+            best_s=s
+            best=guess[i]
+
+    xhat=so.fmin(ss,[n.angle(m[0]),best],disp=False)
     om=xhat[0]
     om2=xhat[1]
-#    om3=xhat[2]
-    model=n.exp(1j*(om+om2*tv))#+0.5*om3*tv**2.0))
-   # return(model)
-#    plt.plot(tv,n.angle(model))
- #   plt.plot(tv,n.angle(m),".")
-  #  plt.show()
-    return(xhat,model)
+    model=n.exp(1j*(om+om2*tv))
+    return(xhat,model,tx_idx[0])
 
-                 
-                    
+def fit_beam_cal(xc0,xcn,weight,ch_pairs):
+    """
+    xc0 = xc on zenith beam
+    xcn = xc on a non-zenith beam
+    weight = goodness of xc
+    ch_pairs = pairs of antenna channels cross-correlated
 
-    return(mean_step2)
+    Assume that z_a^1 = z_a^0 e^{i\phi^1_a}.
+    """
+    def ss(phases):
+        phasecal=n.exp(1j*(phases[ch_pairs[:,0]]-phases[ch_pairs[:,1]]))
+        model = xc0*phasecal[None,:]
+        res=model-xcn
+        s=n.sum(res.real**2.0 + res.imag**2.0)
+        print(s)
+        return(s)
+    xhat=so.fmin(ss,n.zeros(7,n.float32))
+    print(xhat)
 
 def get_xcs2(max_per_event=30):
     """
@@ -41,6 +62,13 @@ def get_xcs2(max_per_event=30):
     fl=glob.glob("caldata/meteor-0-*.h5")
     fl.sort()
     xc=[]
+    ch_pairs=n.array(list(itertools.combinations(n.arange(7,dtype=n.int64),2)))
+    #print(ch_pairs)
+    #exit(0)
+    cal_xc=[]
+    for i in range(5):
+        cal_xc.append({"xc0":[],"xcn":[]})
+
     for f in fl:
         h=h5py.File(f,"r")
 
@@ -62,15 +90,15 @@ def get_xcs2(max_per_event=30):
             else:
                 print("%s doesn't exist"%(beamf))
 
+
         if len(beams)>1:
             print(beams)
             xc=h["xc"][()]
             txi=h["tx_idx"][()]
-            xhat,model=fit_chirp(txi,xc[0,:])
-            plt.plot(txi/1e6,n.angle(model))
-            plt.plot(txi/1e6,n.angle(xc[0,:]),".",label="beam 0",color="C0")
-    #        plt.plot(txi,n.angle(xc[0,:]),".")
-    #       plt.plot(txi,n.angle(n.exp(1j*mean_step*txi)))
+            # this is where there can be overlap
+            mintx=n.min(txi)
+            maxtx=n.max(txi)
+
             pref=re.search("(caldata/meteor-).-(.*.h5)",f).group(1)
             post=re.search("(caldata/meteor-).-(.*.h5)",f).group(2)
             for i in range(1,5):
@@ -79,17 +107,68 @@ def get_xcs2(max_per_event=30):
                     h2=h5py.File(beamf,"r")
                     xcb=h2["xc"][()]
                     txib=h2["tx_idx"][()]
-                    plt.plot(txib/1e6,n.angle(xcb[0,:]),".",label="beam %d"%(i),color="C%d"%(i))
                     h2.close()
 
-            plt.legend()
-            plt.ylim([-n.pi,n.pi])
-            plt.title("Module 0-1")
-            plt.xlabel("Time (unix)")
-            plt.ylabel("Cross-phase (rad)")
-            plt.show()
-        print(pref)
-        print(post)
+                    overlap_idx=n.where( (txib > mintx) & (txib < maxtx) )[0]
+
+                    n_overlap=len(overlap_idx)
+                    xc0=n.zeros([n_overlap,21],dtype=n.complex64)
+                    xcn=n.zeros([n_overlap,21],dtype=n.complex64)
+
+                    for ci in range(21):
+                        xhat,model,t0=fit_chirp(txi,xc[ci,:])
+
+                        def modelfun(tidx):
+                            return(n.exp(1j*xhat[0])*n.exp(1j*xhat[1]*(tidx-t0)/1e6))
+                        
+                        xc0[:,ci]=modelfun(txib[overlap_idx])
+                        xcn[:,ci]=xcb[ci,overlap_idx]# modelfun(txib[overlap_idx])
+                    # add to pile of calibrations
+                    cal_xc[i]["xc0"].append(xc0)
+                    cal_xc[i]["xcn"].append(xcn)
+        
+
+                    if False:
+                        plt.plot(txi/1e6,n.angle(xc[ci,:]),".")        
+                        plt.title("ci %d beam %d"%(ci,i))                
+                        plt.plot(txib[overlap_idx]/1e6,n.angle(xc0[:,ci]))
+                        plt.plot(txib[overlap_idx]/1e6,n.angle(xcn[:,ci]),".")
+                        plt.ylim([-n.pi,n.pi])
+                        plt.show()
+                    if False:
+                        plt.plot(txi/1e6,n.angle(modelfun(txi)))
+                        plt.plot(txi/1e6,n.angle(xc[ci,:]),".",label="beam 0",color="C0")
+
+                        plt.plot(txib/1e6,n.angle(xcb[ci,:]),".",label="beam %d"%(i),color="C%d"%(i))
+
+                        plt.legend()
+                        plt.ylim([-n.pi,n.pi])
+                        plt.title("XC %d"%(ci))
+                        plt.xlabel("Time (unix)")
+                        plt.ylabel("Cross-phase (rad)")
+                        plt.show()
+
+        #if n.random.rand(1)<0.05:    
+        ho=h5py.File("caldata/cal_all.h5","w")            
+        for i in range(5):
+            print(len(cal_xc[i]["xc0"]))
+            
+            if len(cal_xc[i]["xc0"])>0:
+                xc0=n.vstack(cal_xc[i]["xc0"])
+                xcn=n.vstack(cal_xc[i]["xcn"])
+                ho["beam%d/xc0"%(i)]=xc0
+                ho["beam%d/xcn"%(i)]=xcn
+        ho.close()
+
+                #for j in range(1):
+#                j=0
+ #               plt.plot(n.angle(xc0[:,j]*n.conj(xcn[:,j])),".",label="beam, %d (0,1)"%(i))
+#                plt.title("beam %d %d-%d"%(i,ch_pairs[j,0],ch_pairs[j,1]))
+  #      plt.ylim([-n.pi,n.pi])
+   #     plt.legend()
+    #    plt.show()
+
+#            cal_xc.append({"xc0":[],"xcn":[]})
 
         #for i in range(1,5):
          #   if os.path.exists()

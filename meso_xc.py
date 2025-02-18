@@ -25,8 +25,8 @@ def analyze_block(i0,
                   i1,
                   rx_ch=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"],
                   tx_ch="ch007",
-                  r0=78,r1=100, # range interval to store
-                  max_dop=10.0, # largest Doppler shift (Hz) stored
+                  r0=60,r1=100, # range interval to store
+                  max_dop=27.0, # largest Doppler shift (Hz) stored
                   rdec=4,
                   txlen=132,
                   plot=False,
