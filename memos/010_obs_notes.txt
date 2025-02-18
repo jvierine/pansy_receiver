@@ -29,6 +29,21 @@
           - trajectory estimates
           - Keplerian estimates
         
+2025-02-18 GPS lock lost, running without lock until problem resolved. Should not be a
+	   big issue, unless the PC clock is off by multiple seconds.
 
+	   Interferometer calibration is now done on all beams. The calibration strategy
+	   uses meteors detected on multiple transmit beams. All beams are calibrated with
+	   respect to the zenith beam.
+	   
+	   Things look to be working as expected. Meteors are detected on all beams.
+	   Some further work is needed to disambiguate the interferometry in some edge cases,
+	   but to first order, the majority of events are resolved as expected.
+
+	   The multi-beam detections offer information on aliasing. If a meteor is detected
+	   in the zenith beam and another beam, the SNR will provide an indication on where
+	   the meteor is.
+	   
     
+
 
