@@ -22,6 +22,8 @@ when_last_locked=-1
 # when did we restart last
 when_last_stopped=-1
 
+sandra_control=False
+
 while True:
 
     gps_status = subprocess.run(
@@ -56,7 +58,8 @@ while True:
         else:
             when_last_started=time.time()
             print("GPS locked {}, ACQ active {}, ACQ start!".format(is_gps_locked,is_acq_active),flush=True)
-            os.system(CMD_SANDRA_START)
+            if sandra_control:
+                os.system(CMD_SANDRA_START)
     else:
         time_now=time.time()
         holdover_time = time_now-when_last_locked
@@ -68,7 +71,8 @@ while True:
         if is_acq_active and ((holdover_time > 2*3600) or (time_since_stopped > 24*3600)):
             when_last_stopped=time.time()
             print("GPS locked {}, ACQ active {}, ACQ stop!".format(is_gps_locked,is_acq_active),flush=True)
-            os.system(CMD_SANDRA_STOP)
+            if sandra_control:
+                os.system(CMD_SANDRA_STOP)
         else:
             print("GPS locked {}, ACQ active {}, ACQ wait!".format(is_gps_locked,is_acq_active),flush=True)
     # 
