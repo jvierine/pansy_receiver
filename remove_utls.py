@@ -26,7 +26,7 @@ def clean_utls():
     start_idx=b[0]
     if os.path.exists("/tmp/last_rem.h5"):
         ho=h5py.File("/tmp/last_rem.h5","r")
-        start_idx=ho["last_rem"][()]
+        start_idx=ho["last_del"][()]
         ho.close()
 
     s0=int(n.max((n.floor(start_idx/dt),n.floor(db[0]/dt))))
