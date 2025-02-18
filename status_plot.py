@@ -7,8 +7,12 @@ import stuffr
 import time
 import pansy_config as pc
 import traceback
+import h5py
 
 def get_meteors(fig,ax,dt=48*3600*1000000):
+    """
+    plot latest meteors
+    """
     dm = drf.DigitalMetadataReader(pc.detections_metadata_dir)
     b = dm.get_bounds()
     data_dict = dm.read(b[1]-dt, b[1], ("xhat","tx_idx","snr"))
@@ -41,8 +45,22 @@ def get_meteors(fig,ax,dt=48*3600*1000000):
     cb.set_label("Doppler (km/s)")
     return(t0,v0s,r0s)
 
+def plot_pmse_modes(fig,ax,dt=48*3600*1000000):
+    dm = drf.DigitalMetadataReader(pc.mesomode_metadata_dir)
+    b = dm.get_bounds()
+    start_idx=b[1]-dt
+    dt2=1800*1000000
+    n_t=int(n.floor((b[1]-start_idx)/dt2))
+    for ti in range(n_t):
+        dd=dmm.read(start_idx+ti*dt2,start_idx+ti*dt2+dt2)
+        for k in kl:
+            on.append(dd[k]["start"])
+            off.append(dd[k]["end"])
 
 def get_xc(fig,ax,dt=48*3600*1000000):
+    """
+    plot latest pmse
+    """
     dm = drf.DigitalMetadataReader(pc.xc_metadata_dir)
     b = dm.get_bounds()
     start_idx=b[1]-dt
@@ -131,6 +149,15 @@ latest_fit=stuffr.unix2datestr(fitb[1]/1e6)
 
 b=dr.get_bounds("ch000")
 latest_raw=stuffr.unix2datestr(b[1]/1e6)
+
+try:
+    h=h5py.File("/tmp/last_rem.h5","r")
+    last_del=h["last_del"][()]
+    tnow=time.time()
+    print("Removed non-meso mode up to %s (%1.0f s behind)"%(stuffr.unix2datestr(last_del/1e6),tnow-last_del/1e6))
+    h.close()
+except:
+    pass
 
 print("raw voltage extent %s-%s (%1.0f s behind)"%(stuffr.unix2datestr(b[0]/1e6),latest_raw,(tnow-b[1])/1e6))
 print("latest tx %s (%1.0f s behind)"%(latest_tx,(tnow-txb[1])/1e6))
