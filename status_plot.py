@@ -188,7 +188,7 @@ def plot_status():
     plt.close()
     #plt.show()
 
-    fig,ax=plt.subplots(1,1)
+    fig,ax=plt.subplots(1,1,figsize=(8,4))
     ax.bar(labels,delays,0.6)
     ax.set_xticklabels(labels, rotation=45)
     ax.set_ylabel("Processing delay (hours)")
