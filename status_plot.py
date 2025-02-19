@@ -204,4 +204,4 @@ while True:
     except:
         import traceback
         traceback.print_exc()
-    time.sleep(3600)
+    time.sleep(1800)
