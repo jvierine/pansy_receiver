@@ -9,7 +9,7 @@ import pansy_config as pc
 import traceback
 import h5py
 
-def get_meteors(fig,ax,dt=48*3600*1000000):
+def get_meteors(fig,ax,dt=24*3600*1000000):
     """
     plot latest meteors
     """
@@ -41,11 +41,11 @@ def get_meteors(fig,ax,dt=48*3600*1000000):
     ax.set_title("%1.1f meteors per day"%(len(r0s)/n_days))
     ax.set_xlabel("Date (UTC)")
     ax.set_ylabel("Range (km)")
-    cb=fig.colorbar(m,ax=ax)
-    cb.set_label("Doppler (km/s)")
+#    cb=fig.colorbar(m,ax=ax)
+ #   cb.set_label("Doppler (km/s)")
     return(t0,v0s,r0s)
 
-def plot_pmse_modes(fig,ax,dt=48*3600*1000000):
+def plot_pmse_modes(fig,ax,dt=24*3600*1000000):
     dm = drf.DigitalMetadataReader(pc.mesomode_metadata_dir)
     b = dm.get_bounds()
     start_idx=b[1]-dt
@@ -57,7 +57,7 @@ def plot_pmse_modes(fig,ax,dt=48*3600*1000000):
             on.append(dd[k]["start"])
             off.append(dd[k]["end"])
 
-def get_xc(fig,ax,dt=48*3600*1000000):
+def get_xc(fig,ax,dt=24*3600*1000000):
     """
     plot latest pmse
     """
@@ -176,12 +176,12 @@ fit_delay=(tnow-fitb[1])/1e6
 print("latest fit %s (%1.0f s behind)"%(latest_fit,fit_delay))
 
 labels=["Raw voltage","Transmit pulse detect","Match function","Clustering","Cutting","Mode boundaries","Cross-spectra"]
-delays=[raw_delay,tx_delay,mf_delay,det_delay,cut_delay,mode_delay,xc_delay]
+delays=n.array([raw_delay,tx_delay,mf_delay,det_delay,cut_delay,mode_delay,xc_delay])/3600.0
 
 fig,((ax0,ax1),(ax2,ax3))=plt.subplots(2,2)
 get_xc(fig,ax0)
 get_meteors(fig,ax1)
 ax2.bar(labels,delays,0.6)
-ax2.set_ylabel("Processing delay (s)")
+ax2.set_ylabel("Processing delay (hours)")
 fig.tight_layout()
 plt.show()
