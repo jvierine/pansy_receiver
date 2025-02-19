@@ -180,7 +180,7 @@ def plot_status():
     labels=["Raw voltage","Transmit pulse detect","Match function","Clustering","Cutting","Mode boundaries","Cross-spectra"]
     delays=n.array([raw_delay,tx_delay,mf_delay,det_delay,cut_delay,mode_delay,xc_delay])/3600.0
 
-    fig,(ax0,ax1)=plt.subplots(2,1,sharex=True)
+    fig,(ax0,ax1)=plt.subplots(2,1,sharex=True,figsize=(8,8))
     get_xc(fig,ax0)
     get_meteors(fig,ax1)
     fig.tight_layout()
