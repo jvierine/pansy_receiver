@@ -26,6 +26,35 @@ phasecal = n.zeros([5,7])
 imaging=[]
 mmdict=pmm.get_m_mode()
 
+
+def beam_pixmap():
+    u0,v0,w0=pint.uv_coverage(N=200,max_zenith_angle=20.0)
+    ew=u0*100
+    ns=v0*100
+    #plt.pcolormesh(u0)
+    #plt.show()
+    bitmap=n.zeros(u0.shape)
+    bitmap[:,:]=0
+    for i in range(5):
+        az0=mmdict["beam_pos_az_za"][i][0]
+        el0=90-mmdict["beam_pos_az_za"][i][1]
+        print(az0)
+        print(el0)
+        p_h=n.cos(n.pi*el0/180.0)
+        pw0=-n.sin(n.pi*el0/180.0)
+        pv0=p_h*n.cos(-n.pi*az0/180)
+        pu0=-p_h*n.sin(-n.pi*az0/180)
+        print(pv0)
+        print(pu0)
+        print(pw0)
+        angle=180*n.arccos(u0*pu0 + v0*pv0 + pw0*w0)/n.pi
+        bitmap[angle<10]+=1
+        #plt.pcolormesh(ew,ns,bitmap,cmap="gist_yarg")
+        #plt.colorbar()
+        #plt.show()
+    return(ew,ns,bitmap)
+ewbm,nsbm,bitmap=beam_pixmap()
+
 for i in range(5):
     # each antenna needs to be multiplied with these phases (n.exp(-1j*phasecal))
     h=h5py.File("data/phases%d.h5"%(i),"r")
@@ -275,18 +304,20 @@ def process_cut(data,
             plt.plot(txidxs/1e6,model[(2*nm):(3*nm)],color="blue")
             plt.xlabel("Time (s)")
             plt.ylabel("Up (km)")            
-            plt.subplot(234)            
-            plt.scatter(ews,nss,c=beam_idss,s=1,cmap="rainbow",vmin=0,vmax=4)
+            plt.subplot(234)
 
-            cb=plt.colorbar()
-            cb.set_label("beam")
+            plt.pcolormesh(ewbm,nsbm,bitmap,cmap="gist_yarg",vmax=5)
+            plt.scatter(ews,nss,c=beam_idss,s=1,cmap="rainbow",vmin=0,vmax=4)
             plt.xlabel("EW (km)")
             plt.ylabel("NS (km)")     
-            plt.ylim([-25,25])
-            plt.xlim([-25,25])
+            plt.ylim([-35,35])
+            plt.xlim([-35,35])
 
             plt.subplot(235)
             plt.scatter(txidxs/1e6,10.0*n.log10(snrs),c=beam_idss,cmap="rainbow",vmin=0,vmax=4)
+            cb=plt.colorbar()
+            cb.set_label("beam")
+
             plt.xlabel("Time (s)")
             plt.ylabel("SNR (dB)")                        
             plt.subplot(236)
