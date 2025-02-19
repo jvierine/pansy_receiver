@@ -26,6 +26,35 @@ phasecal = n.zeros([5,7])
 imaging=[]
 mmdict=pmm.get_m_mode()
 
+
+def beam_pixmap():
+    u0,v0,w0=pint.uv_coverage(N=400,max_zenith_angle=20.0)
+    ew=u0*100
+    ns=v0*100
+    #plt.pcolormesh(u0)
+    #plt.show()
+    bitmap=n.zeros(u0.shape)
+    bitmap[:,:]=0
+    for i in range(5):
+        az0=mmdict["beam_pos_az_za"][i][0]
+        el0=90-mmdict["beam_pos_az_za"][i][1]
+        print(az0)
+        print(el0)
+        p_h=n.cos(n.pi*el0/180.0)
+        pw0=-n.sin(n.pi*el0/180.0)
+        pv0=p_h*n.cos(-n.pi*az0/180)
+        pu0=-p_h*n.sin(-n.pi*az0/180)
+        print(pv0)
+        print(pu0)
+        print(pw0)
+        angle=180*n.arccos(u0*pu0 + v0*pv0 + pw0*w0)/n.pi
+        bitmap[angle<10]+=1
+        #plt.pcolormesh(ew,ns,bitmap,cmap="gist_yarg")
+        #plt.colorbar()
+        #plt.show()
+    return(ew,ns,bitmap)
+ewbm,nsbm,bitmap=beam_pixmap()
+
 for i in range(5):
     # each antenna needs to be multiplied with these phases (n.exp(-1j*phasecal))
     h=h5py.File("data/phases%d.h5"%(i),"r")
@@ -222,10 +251,13 @@ def process_cut(data,
             gidx=n.where( (snr > 10) & (beam_id == bi) )[0]
 
             if len(gidx)>2:
-                mu,mv,mfs,mis,mjs=pint.image_points(phasecal[bi,:],xct[gidx,:],ch_pairs,
+                mu,mv,mfs,mis,mjs=pint.image_points(phasecal[bi,:],
+                                                    xct[gidx,:],
+                                                    ch_pairs,
                                                     imaging[bi]["u"],
                                                     imaging[bi]["v"],
-                                                    imaging[bi]["w"],dmat)
+                                                    imaging[bi]["w"],
+                                                    dmat)
                 mw=n.sqrt(1-mu**2-mv**2)
                     
                 ew=peak_rg[gidx]*mu
@@ -275,10 +307,14 @@ def process_cut(data,
             plt.plot(txidxs/1e6,model[(2*nm):(3*nm)],color="blue")
             plt.xlabel("Time (s)")
             plt.ylabel("Up (km)")            
-            plt.subplot(234)            
+
+            plt.subplot(234)
+
+            plt.pcolormesh(ewbm,nsbm,bitmap,cmap="gist_yarg",vmax=5)
             plt.scatter(ews,nss,c=beam_idss,s=1,cmap="rainbow",vmin=0,vmax=4)
             sidx=n.argmin(txidxs)
             plt.text(ews[sidx],nss[sidx],r"$t_0$")
+
             plt.xlabel("EW (km)")
             plt.ylabel("NS (km)")     
             plt.ylim([-35,35])
@@ -288,6 +324,7 @@ def process_cut(data,
             plt.scatter(txidxs/1e6,10.0*n.log10(snrs),c=beam_idss,cmap="rainbow",vmin=0,vmax=4)
             cb=plt.colorbar()
             cb.set_label("beam")
+
             plt.xlabel("Time (s)")
             plt.ylabel("SNR (dB)")                        
             plt.subplot(236)
@@ -301,14 +338,44 @@ def process_cut(data,
             plt.close()
 
 
+            #fig=plt.figure(figsize=(16,9))
+            fig,ax=plt.subplots(figsize=(16,9))
+#            m=ax.pcolormesh(u,v,dB-nfloor,vmin=0,vmax=n.nanmax(dB-nfloor))
+ #           cb=fig.colorbar(m,ax=ax)
+  #          cb.set_label("Mean power (dB)")
+   #         cs=ax.contour(u,v,za,colors="black")
+    #        ax.clabel(cs,fmt=r"%1.0f$^{\circ}$",colors="black")
+     #       ax.set_xlabel("u")
+      #      ax.set_ylabel("v")
+            
+       #     ax=fig.subplots(111)
+            ax.pcolormesh(ewbm,nsbm,bitmap,cmap="gist_yarg",vmax=6)
+            ax.set_title("PANSY Meteor Head Echoes %s"%(stuffr.unix2datestr(tx_idx[0]/1e6)))
+            m=ax.scatter(ews,nss,c=10.0*n.log10(snrs),cmap="plasma",vmin=10,vmax=30)
+            cb=fig.colorbar(m,ax=ax)
+            cb.set_label("SNR (dB)")
+            
+            ax.set_aspect("equal")#,s=1
+            #plt.axes().set_aspect('equal')
+            sidx=n.argmin(txidxs)
+            ax.text(ews[sidx],nss[sidx],r"$t_0$")
+            ax.set_xlabel("EW (km)")
+            ax.set_ylabel("NS (km)")     
+            ax.set_ylim([-35,35])
+            ax.set_xlim([-35,35])
+            plt.tight_layout()
+            plt.savefig("/data1/pansy/hor-%1.1f.png"%(float(tx_idx[0]/1e6)))
+            plt.close()
+
+
 if __name__ == "__main__":
     #mddir=pc.cut_metadata_dir
     mddir="../pansy_test_data/metadata/cut"
     dm = drf.DigitalMetadataReader(mddir)
     b = dm.get_bounds()
-    dt=10000000
+    dt=120000000
     n_block=int((b[1]-b[0])/dt)
-    os.system("mkdir -p caldata")
+#    os.system("mkdir -p caldata")
     start_idx=b[0]
     #start_idx=1737912526407585
 
@@ -334,9 +401,14 @@ if __name__ == "__main__":
     for bi in range(rank,n_block,size):
         data=dm.read(start_idx+bi*dt,start_idx+bi*dt+dt)
         kl=list(data.keys())
-        for ki in range(rank,len(kl),size):
+        for ki in range(len(kl)):
             k=kl[ki]
-            process_cut(data[k],dmw)
+            try:
+                process_cut(data[k],dmw)
+            except:
+                import traceback
+                traceback.print_exc()
+            
 
 
 
