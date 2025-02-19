@@ -178,10 +178,18 @@ print("latest fit %s (%1.0f s behind)"%(latest_fit,fit_delay))
 labels=["Raw voltage","Transmit pulse detect","Match function","Clustering","Cutting","Mode boundaries","Cross-spectra"]
 delays=n.array([raw_delay,tx_delay,mf_delay,det_delay,cut_delay,mode_delay,xc_delay])/3600.0
 
-fig,((ax0,ax1),(ax2,ax3))=plt.subplots(2,2)
+fig,(ax0,ax1)=plt.subplots(2,1,sharex=True)
 get_xc(fig,ax0)
 get_meteors(fig,ax1)
-ax2.bar(labels,delays,0.6)
-ax2.set_ylabel("Processing delay (hours)")
 fig.tight_layout()
-plt.show()
+plt.savefig("status.png")
+plt.close()
+#plt.show()
+
+fig,ax=plt.subplots(1,1)
+ax.bar(labels,delays,0.6)
+ax.set_ylabel("Processing delay (hours)")
+fig.tight_layout()
+plt.savefig("processing.png")
+plt.close()
+os.system("scp processing.png status.png j@4.235.86.214:/var/www/html/pansy/")
