@@ -178,7 +178,7 @@ print("latest fit %s (%1.0f s behind)"%(latest_fit,fit_delay))
 labels=["Raw voltage","Transmit pulse detect","Match function","Clustering","Cutting","Mode boundaries","Cross-spectra"]
 delays=[raw_delay,tx_delay,mf_delay,det_delay,cut_delay,mode_delay,xc_delay]
 
-fig,((ax0,ax1),(ax2,ax3))=plt.subplots(2,2,sharex=True)
+fig,((ax0,ax1),(ax2,ax3))=plt.subplots(2,2)
 get_xc(fig,ax0)
 get_meteors(fig,ax1)
 ax2.bar(labels,delays,0.6)
