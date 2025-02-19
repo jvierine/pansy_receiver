@@ -22,7 +22,7 @@ when_last_locked=-1
 # when did we restart last
 when_last_stopped=-1
 
-sandra_control=False
+sandra_control=True
 
 while True:
 
@@ -76,4 +76,4 @@ while True:
         else:
             print("GPS locked {}, ACQ active {}, ACQ wait!".format(is_gps_locked,is_acq_active),flush=True)
     # 
-    time.sleep(10.0)
+    time.sleep(1.0)
