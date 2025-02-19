@@ -115,13 +115,7 @@ def mf(meas,dmat,u,v,w):
     for i in range(meas.shape[0]):
         M+=meas[i]*n.exp(-1j*k0*(dmat[i,0]*u+dmat[i,1]*v+dmat[i,2]*w))
         
-    return(M)
-#    plt.pcolormesh(n.abs(mf))
- #   plt.show()
-    
-    #dmat[:,0]*u
-
-    
+    return(M)    
     
 def get_antpos():
     antpos=[]

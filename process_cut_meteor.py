@@ -251,10 +251,13 @@ def process_cut(data,
             gidx=n.where( (snr > 10) & (beam_id == bi) )[0]
 
             if len(gidx)>2:
-                mu,mv,mfs,mis,mjs=pint.image_points(phasecal[bi,:],xct[gidx,:],ch_pairs,
+                mu,mv,mfs,mis,mjs=pint.image_points(phasecal[bi,:],
+                                                    xct[gidx,:],
+                                                    ch_pairs,
                                                     imaging[bi]["u"],
                                                     imaging[bi]["v"],
-                                                    imaging[bi]["w"],dmat)
+                                                    imaging[bi]["w"],
+                                                    dmat)
                 mw=n.sqrt(1-mu**2-mv**2)
                     
                 ew=peak_rg[gidx]*mu
@@ -336,9 +339,9 @@ if __name__ == "__main__":
     mddir="../pansy_test_data/metadata/cut"
     dm = drf.DigitalMetadataReader(mddir)
     b = dm.get_bounds()
-    dt=10000000
+    dt=120000000
     n_block=int((b[1]-b[0])/dt)
-    os.system("mkdir -p caldata")
+%    os.system("mkdir -p caldata")
     start_idx=b[0]
     #start_idx=1737912526407585
 
@@ -361,10 +364,10 @@ if __name__ == "__main__":
         file_name,
     )
 
-    for bi in range(n_block):
+    for bi in range(rank,n_block,size):
         data=dm.read(start_idx+bi*dt,start_idx+bi*dt+dt)
         kl=list(data.keys())
-        for ki in range(rank,len(kl),size):
+        for ki in range(len(kl)):
             k=kl[ki]
             process_cut(data[k],dmw)
 
