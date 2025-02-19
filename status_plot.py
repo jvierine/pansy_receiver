@@ -158,38 +158,49 @@ try:
 except:
     pass
 
-raw_delay=(tnow-b[1])/1e6
-print("raw voltage extent %s-%s (%1.0f s behind)"%(stuffr.unix2datestr(b[0]/1e6),latest_raw,raw_delay))
-tx_delay=(tnow-txb[1])/1e6
-print("latest tx %s (%1.0f s behind)"%(latest_tx,tx_delay))
-mf_delay=(tnow-mfb[1])/1e6
-print("latest mf %s (%1.0f s behind)"%(latest_mf,mf_delay))
-det_delay=(tnow-detb[1])/1e6
-print("latest det %s (%1.0f s behind)"%(latest_det,det_delay))
-cut_delay=(tnow-cutb[1])/1e6
-print("latest cut %s (%1.0f s behind)"%(latest_cut,cut_delay))
-mode_delay=(tnow-modeb[1])/1e6
-print("latest mode %s (%1.0f s behind)"%(latest_mode,mode_delay))
-xc_delay=(tnow-xcb[1])/1e6
-print("latest xc %s (%1.0f s behind)"%(latest_xc,xc_delay))
-fit_delay=(tnow-fitb[1])/1e6
-print("latest fit %s (%1.0f s behind)"%(latest_fit,fit_delay))
 
-labels=["Raw voltage","Transmit pulse detect","Match function","Clustering","Cutting","Mode boundaries","Cross-spectra"]
-delays=n.array([raw_delay,tx_delay,mf_delay,det_delay,cut_delay,mode_delay,xc_delay])/3600.0
+def plot_status():
+    raw_delay=(tnow-b[1])/1e6
+    print("raw voltage extent %s-%s (%1.0f s behind)"%(stuffr.unix2datestr(b[0]/1e6),latest_raw,raw_delay))
+    tx_delay=(tnow-txb[1])/1e6
+    print("latest tx %s (%1.0f s behind)"%(latest_tx,tx_delay))
+    mf_delay=(tnow-mfb[1])/1e6
+    print("latest mf %s (%1.0f s behind)"%(latest_mf,mf_delay))
+    det_delay=(tnow-detb[1])/1e6
+    print("latest det %s (%1.0f s behind)"%(latest_det,det_delay))
+    cut_delay=(tnow-cutb[1])/1e6
+    print("latest cut %s (%1.0f s behind)"%(latest_cut,cut_delay))
+    mode_delay=(tnow-modeb[1])/1e6
+    print("latest mode %s (%1.0f s behind)"%(latest_mode,mode_delay))
+    xc_delay=(tnow-xcb[1])/1e6
+    print("latest xc %s (%1.0f s behind)"%(latest_xc,xc_delay))
+    fit_delay=(tnow-fitb[1])/1e6
+    print("latest fit %s (%1.0f s behind)"%(latest_fit,fit_delay))
 
-fig,(ax0,ax1)=plt.subplots(2,1,sharex=True)
-get_xc(fig,ax0)
-get_meteors(fig,ax1)
-fig.tight_layout()
-plt.savefig("status.png")
-plt.close()
-#plt.show()
+    labels=["Raw voltage","Transmit pulse detect","Match function","Clustering","Cutting","Mode boundaries","Cross-spectra"]
+    delays=n.array([raw_delay,tx_delay,mf_delay,det_delay,cut_delay,mode_delay,xc_delay])/3600.0
 
-fig,ax=plt.subplots(1,1)
-ax.bar(labels,delays,0.6)
-ax.set_ylabel("Processing delay (hours)")
-fig.tight_layout()
-plt.savefig("processing.png")
-plt.close()
-os.system("scp processing.png status.png j@4.235.86.214:/var/www/html/pansy/")
+    fig,(ax0,ax1)=plt.subplots(2,1,sharex=True)
+    get_xc(fig,ax0)
+    get_meteors(fig,ax1)
+    fig.tight_layout()
+    plt.savefig("status.png")
+    plt.close()
+    #plt.show()
+
+    fig,ax=plt.subplots(1,1)
+    ax.bar(labels,delays,0.6)
+    ax.set_ylabel("Processing delay (hours)")
+    fig.tight_layout()
+    plt.savefig("processing.png")
+    plt.close()
+    os.system("scp processing.png status.png j@4.235.86.214:/var/www/html/pansy/")
+
+
+while True:
+    try:
+        plot_status()
+    except:
+        import traceback
+        traceback.print_exc()
+        time.sleep(3600)
