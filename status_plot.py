@@ -182,7 +182,7 @@ def plot_status():
 
     fig,(ax0,ax1)=plt.subplots(2,1,sharex=True,figsize=(8,8))
     get_xc(fig,ax0)
-    ax0.title(stuffr.unix2datestr(time.time()))
+    ax0.set_title(stuffr.unix2datestr(time.time()))
     get_meteors(fig,ax1)
     fig.tight_layout()
     plt.savefig("status.png")
@@ -191,7 +191,7 @@ def plot_status():
 
     fig,ax=plt.subplots(1,1,figsize=(8,4))
     ax.bar(labels,delays,0.6)
-    ax.title(stuffr.unix2datestr(time.time()))
+    ax.set_title(stuffr.unix2datestr(time.time()))
     ax.set_xticklabels(labels, rotation=45)
     ax.set_ylabel("Processing delay (hours)")
     fig.tight_layout()
