@@ -190,6 +190,7 @@ def plot_status():
 
     fig,ax=plt.subplots(1,1)
     ax.bar(labels,delays,0.6)
+    ax.set_xticklabels(labels, rotation=45)
     ax.set_ylabel("Processing delay (hours)")
     fig.tight_layout()
     plt.savefig("processing.png")
