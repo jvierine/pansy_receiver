@@ -277,16 +277,17 @@ def process_cut(data,
             plt.ylabel("Up (km)")            
             plt.subplot(234)            
             plt.scatter(ews,nss,c=beam_idss,s=1,cmap="rainbow",vmin=0,vmax=4)
-
-            cb=plt.colorbar()
-            cb.set_label("beam")
+            sidx=n.argmin(txidxs)
+            plt.text(ews[sidx],nss[sidx],r"$t_0$")
             plt.xlabel("EW (km)")
             plt.ylabel("NS (km)")     
-            plt.ylim([-25,25])
-            plt.xlim([-25,25])
+            plt.ylim([-35,35])
+            plt.xlim([-35,35])
 
             plt.subplot(235)
             plt.scatter(txidxs/1e6,10.0*n.log10(snrs),c=beam_idss,cmap="rainbow",vmin=0,vmax=4)
+            cb=plt.colorbar()
+            cb.set_label("beam")
             plt.xlabel("Time (s)")
             plt.ylabel("SNR (dB)")                        
             plt.subplot(236)
@@ -296,8 +297,8 @@ def process_cut(data,
             plt.xlabel("Time (s)")
             plt.ylabel("Doppler (km/s)")
             plt.tight_layout()
-            plt.show()#plt.savefig("/media/analysis/fits/meteor-%1.1f.png"%(float(tx_idx[gidx[0]]/1e6)))
-            #plt.close()
+            plt.savefig("/data1/pansy/meteor-%1.1f.png"%(float(tx_idx[0]/1e6)))
+            plt.close()
 
 
 if __name__ == "__main__":
@@ -330,7 +331,7 @@ if __name__ == "__main__":
         file_name,
     )
 
-    for bi in range(n_block):
+    for bi in range(rank,n_block,size):
         data=dm.read(start_idx+bi*dt,start_idx+bi*dt+dt)
         kl=list(data.keys())
         for ki in range(rank,len(kl),size):
