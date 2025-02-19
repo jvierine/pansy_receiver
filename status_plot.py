@@ -106,8 +106,8 @@ def get_xc(fig,ax,dt=24*3600*1000000):
     ax.set_xlabel("Date (UTC)")
     ax.set_ylabel("Range (km)")
     fig.autofmt_xdate()
-    cb=fig.colorbar(m,ax=ax)
-    cb.set_label("SNR (dB)")
+#    cb=fig.colorbar(m,ax=ax)
+ #   cb.set_label("SNR (dB)")
     
 # how many receiver restarts in the log 
 # sandra-rx events
