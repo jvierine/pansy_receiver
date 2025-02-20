@@ -185,7 +185,7 @@ def plot_status():
     print("latest xc %s (%1.0f s behind)"%(latest_xc,xc_delay))
     fit_delay=(tnow-fitb[1])/1e6
     print("latest fit %s (%1.0f s behind)"%(latest_fit,fit_delay))
-    print("gpslock %s (%1.0f s holdover)"%(stuffr.unix2datestr(holdoverk/1e6),holdover))
+    print("gpslock %s (%1.0f s holdover)"%(stuffr.unix2datestr(holdovert/1e6),holdover))
 
     labels=["Raw voltage","Transmit pulse detect","Match function","Clustering","Cutting","Mode boundaries","Cross-spectra","GPS holdover"]
     delays=n.array([raw_delay,tx_delay,mf_delay,det_delay,cut_delay,mode_delay,xc_delay,holdover])/3600.0
