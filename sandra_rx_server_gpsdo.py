@@ -53,7 +53,7 @@ while True:
     time_now=time.time()
     if require_gps:
         if is_gps_locked:
-            time_last_locked=time_now
+            when_last_locked=time_now
             if is_acq_active:
                 print("GPS locked {}, ACQ active {}, ACQ running!".format(is_gps_locked,is_acq_active),flush=True)
                 if (time_now-when_last_started)>24*3600:
@@ -66,7 +66,7 @@ while True:
         else:
             if is_acq_active:
                 # switch to no gps mode if we have lost the lock for more than 24 hours
-                holdover = time_now - time_last_locked
+                holdover = time_now - when_last_locked
                 if holdover > 24*3600:
                     print("GPS locked {}, ACQ active {}, ACQ stop!".format(is_gps_locked,is_acq_active),flush=True)
                     os.system(CMD_SANDRA_STOP)
