@@ -3,6 +3,25 @@ import sys
 import subprocess
 import time
 
+import digital_rf as drf
+
+subdirectory_cadence_seconds = 3600
+file_cadence_seconds = 60
+samples_per_second_numerator = 1000000
+samples_per_second_denominator = 1
+file_name = "lock"
+omddir=pc.gpslock_metadata_dir
+os.system("mkdir -p %s"%(omddir))
+
+dmw = drf.DigitalMetadataWriter(
+    omddir,
+    subdirectory_cadence_seconds,
+    file_cadence_seconds,
+    samples_per_second_numerator,
+    samples_per_second_denominator,
+    file_name,
+)
+
 GPS_LOCKED_SUBSTRINGS = [
     "GPS lock status: locked",
     #"GPSDO detected: true",
@@ -21,6 +40,7 @@ CMD_SANDRA_START = CMD_SANDRA+" start"
 require_gps=True
 when_last_started=time.time()
 when_last_locked=time.time()
+holdover=0
 
 while True:
 
@@ -76,6 +96,8 @@ while True:
                     print("GPS locked {}, ACQ active {}, holdover {} s".format(is_gps_locked,is_acq_active,holdover),flush=True)
             else:
                 print("GPS locked {}, ACQ active {}, ACQ wait!".format(is_gps_locked,is_acq_active),flush=True)
+        data_dict={"holdover":holdover,"acq":is_acq_active,"lock":is_gps_locked}
+        dmw.write(time_now*1000000,data_dict)
     else:
         # if we don't require GPS, then restart once a day to keep some level of alignment with system clock
         if is_acq_active:
