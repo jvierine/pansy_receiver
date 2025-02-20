@@ -124,6 +124,8 @@ d4=drf.DigitalMetadataReader(pc.mesomode_metadata_dir)
 d5=drf.DigitalMetadataReader(pc.xc_metadata_dir)#meteor_cal_metadata_dir="/media/analysis/metadata/meteor_cal"
 d6=drf.DigitalMetadataReader(pc.simple_fit_metadata_dir)
 dr=drf.DigitalRFReader(pc.raw_voltage_dir)
+dgps=drf.DigitalMetadataReader(pc.gpslock_metadata_dir)
+
 
 tnow=time.time()*1e6
 mfb=d0.get_bounds()
@@ -150,6 +152,14 @@ latest_fit=stuffr.unix2datestr(fitb[1]/1e6)
 b=dr.get_bounds("ch000")
 latest_raw=stuffr.unix2datestr(b[1]/1e6)
 
+bg=dgps.get_bounds()
+gdata=dgps.read(bg[1]-10000000,bg[1])
+holdover=0
+holdovert=-1
+for k in gdata:
+    holdover=gdata[k]["holdover"]
+    holdovert=k
+
 try:
     h=h5py.File("/tmp/last_rem.h5","r")
     last_del=h["last_del"][()]
@@ -157,7 +167,6 @@ try:
     h.close()
 except:
     pass
-
 
 def plot_status():
     raw_delay=(tnow-b[1])/1e6
@@ -176,9 +185,10 @@ def plot_status():
     print("latest xc %s (%1.0f s behind)"%(latest_xc,xc_delay))
     fit_delay=(tnow-fitb[1])/1e6
     print("latest fit %s (%1.0f s behind)"%(latest_fit,fit_delay))
+    print("gpslock %s (%1.0f s holdover)"%(stuffr.unix2datestr(holdoverk/1e6),holdover))
 
-    labels=["Raw voltage","Transmit pulse detect","Match function","Clustering","Cutting","Mode boundaries","Cross-spectra"]
-    delays=n.array([raw_delay,tx_delay,mf_delay,det_delay,cut_delay,mode_delay,xc_delay])/3600.0
+    labels=["Raw voltage","Transmit pulse detect","Match function","Clustering","Cutting","Mode boundaries","Cross-spectra","GPS holdover"]
+    delays=n.array([raw_delay,tx_delay,mf_delay,det_delay,cut_delay,mode_delay,xc_delay,holdover])/3600.0
 
     fig,(ax0,ax1)=plt.subplots(2,1,sharex=True,figsize=(8,8))
     get_xc(fig,ax0)
