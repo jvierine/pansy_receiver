@@ -97,7 +97,7 @@ while True:
             else:
                 print("GPS locked {}, ACQ active {}, ACQ wait!".format(is_gps_locked,is_acq_active),flush=True)
         data_dict={"holdover":holdover,"acq":is_acq_active,"lock":is_gps_locked}
-        dmw.write(time_now*1000000,data_dict)
+        dmw.write(int(time_now*1000000),data_dict)
     else:
         # if we don't require GPS, then restart once a day to keep some level of alignment with system clock
         if is_acq_active:
