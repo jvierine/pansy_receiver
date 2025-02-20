@@ -57,6 +57,8 @@ while True:
             if is_acq_active:
                 print("GPS locked {}, ACQ active {}, ACQ running!".format(is_gps_locked,is_acq_active),flush=True)
                 if (time_now-when_last_started)>24*3600:
+                    # if over 24 hours since restart and we have a lock, then restart now when most likely there is 
+                    # not going to be a wait
                     os.system(CMD_SANDRA_STOP)
 
             else:
