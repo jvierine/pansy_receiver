@@ -4,7 +4,7 @@ import subprocess
 import time
 
 import digital_rf as drf
-
+import pansy_config as pc
 subdirectory_cadence_seconds = 3600
 file_cadence_seconds = 60
 samples_per_second_numerator = 1000000
