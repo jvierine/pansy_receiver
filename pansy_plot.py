@@ -8,7 +8,7 @@ channels=["ch000","ch001","ch002","ch003","ch004","ch005","ch006","ch007"]
 b=d.get_bounds("ch000")
 print(b)
 fig,((ax0,ax1),(ax2,ax3),(ax4,ax5),(ax6,ax7))=plt.subplots(4,2,sharex=True)
-axs=[ax0,ax1,ax2,ax3,ax4,ax5,ax6,ax7,ax8]
+axs=[ax0,ax1,ax2,ax3,ax4,ax5,ax6,ax7]
 for i in range(8):
     ch=channels[i]
     z=d.read_vector_c81d(b[1]-1000000,100000,ch)
