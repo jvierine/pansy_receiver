@@ -4,13 +4,13 @@ import subprocess
 import time
 
 import digital_rf as drf
-import pansy_config as pc
+#import pansy_config as pc
 subdirectory_cadence_seconds = 3600
 file_cadence_seconds = 60
 samples_per_second_numerator = 1000000
 samples_per_second_denominator = 1
 file_name = "lock"
-omddir=pc.gpslock_metadata_dir
+omddir="/media/analysis/metadata/gpslock"
 os.system("mkdir -p %s"%(omddir))
 
 dmw = drf.DigitalMetadataWriter(
