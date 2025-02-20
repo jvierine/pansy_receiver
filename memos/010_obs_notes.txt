@@ -44,6 +44,10 @@
 	   in the zenith beam and another beam, the SNR will provide an indication on where
 	   the meteor is.
 	   
-    
-
-
+2025-02-20 GPS lock issue persists. Site engineer indicates nothing wrong with cable or antenna
+    - either broken antenna (it was very low cost) or antenna cable
+    - antenna sky visibility blocked by a structure. 
+    - faulty gpsdo unit
+    - At Feb 20 22:30 a updated sandra_rx_server_gpsdo.py was start, which has a 24 hour holdover time
+      and which only restarts when we have a lock
+      Lock regained at 22:58
