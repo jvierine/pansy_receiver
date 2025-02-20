@@ -19,7 +19,6 @@ CMD_SANDRA_START = CMD_SANDRA+" start"
 
 # when was gps lock last seen.
 require_gps=True
-
 when_last_started=time.time()
 when_last_locked=time.time()
 
@@ -52,47 +51,38 @@ while True:
         is_acq_active = True
 
     time_now=time.time()
-    print("GPS locked {}, ACQ active {}, ACQ stop!".format(is_gps_locked,is_acq_active),flush=True)
-    if is_acq_active:
-        if when_last_started - time_now > 24*3600:
-            # restart if we have run for more than 24 hours
-            os.system(CMD_SANDRA_STOP)
-    else:
-        when_last_started=time_now
-        os.system(CMD_SANDRA_START)
-
-    if False:
-        if require_gps:
-            if is_gps_locked:
-                time_last_locked=time.time()
-                if is_acq_active:
-                    print("GPS locked {}, ACQ active {}, ACQ running!".format(is_gps_locked,is_acq_active),flush=True)
-                else:
-                    print("GPS locked {}, ACQ active {}, ACQ start!".format(is_gps_locked,is_acq_active),flush=True)
-                    when_last_started = time.time()
-                    os.system(CMD_SANDRA_START)
-            else:
-                time_now=time.time()
-                if is_acq_active:
-                    # switch to no gps mode if we have lost the lock for more than 24 hours
-                    holdover = time_now - time_last_locked
-                    if holdover > 24*3600:
-                        print("GPS locked {}, ACQ active {}, ACQ stop!".format(is_gps_locked,is_acq_active),flush=True)
-                        os.system(CMD_SANDRA_STOP)
-                    else:
-                        print("GPS locked {}, ACQ active {}, holdover {} s".format(is_gps_locked,is_acq_active,holdover),flush=True)
-                else:
-                    print("GPS locked {}, ACQ active {}, ACQ wait!".format(is_gps_locked,is_acq_active),flush=True)
-        else:
-            # if we don't require GPS, then restart once a day to keep some level of alignment with system clock
+    if require_gps:
+        if is_gps_locked:
+            time_last_locked=time_now
             if is_acq_active:
-                time_now=time.time()
                 print("GPS locked {}, ACQ active {}, ACQ running!".format(is_gps_locked,is_acq_active),flush=True)
                 if (time_now-when_last_started)>24*3600:
                     os.system(CMD_SANDRA_STOP)
+
             else:
-                when_last_started=time.time()
                 print("GPS locked {}, ACQ active {}, ACQ start!".format(is_gps_locked,is_acq_active),flush=True)
+                when_last_started = time_now
                 os.system(CMD_SANDRA_START)
+        else:
+            if is_acq_active:
+                # switch to no gps mode if we have lost the lock for more than 24 hours
+                holdover = time_now - time_last_locked
+                if holdover > 24*3600:
+                    print("GPS locked {}, ACQ active {}, ACQ stop!".format(is_gps_locked,is_acq_active),flush=True)
+                    os.system(CMD_SANDRA_STOP)
+                else:
+                    print("GPS locked {}, ACQ active {}, holdover {} s".format(is_gps_locked,is_acq_active,holdover),flush=True)
+            else:
+                print("GPS locked {}, ACQ active {}, ACQ wait!".format(is_gps_locked,is_acq_active),flush=True)
+    else:
+        # if we don't require GPS, then restart once a day to keep some level of alignment with system clock
+        if is_acq_active:
+            print("GPS locked {}, ACQ active {}, ACQ running!".format(is_gps_locked,is_acq_active),flush=True)
+            if (time_now-when_last_started)>24*3600:
+                os.system(CMD_SANDRA_STOP)
+        else:
+            when_last_started=time_now
+            print("GPS locked {}, ACQ active {}, ACQ start!".format(is_gps_locked,is_acq_active),flush=True)
+            os.system(CMD_SANDRA_START)
 
     time.sleep(1.0)
