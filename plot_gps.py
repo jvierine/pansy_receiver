@@ -1,7 +1,7 @@
 import pansy_config as pc 
 import numpy as n
 import matplotlib.pyplot as plt
-
+import digital_rf as drf
 
 
 dm = drf.DigitalMetadataReader(pc.gpslock_metadata_dir)
