@@ -21,7 +21,6 @@ CMD_SANDRA_START = CMD_SANDRA+" start"
 require_gps=True
 when_last_started=time.time()
 when_last_locked=time.time()
-os.system(CMD_SANDRA_START)
 
 while True:
 
