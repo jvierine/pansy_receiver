@@ -95,8 +95,6 @@ while True:
                     print("GPS locked {}, ACQ active {}, holdover {} s".format(is_gps_locked,is_acq_active,holdover),flush=True)
             else:
                 print("GPS locked {}, ACQ active {}, ACQ wait!".format(is_gps_locked,is_acq_active),flush=True)
-        data_dict={"holdover":holdover,"acq":is_acq_active,"lock":is_gps_locked}
-        dmw.write(int(time_now*1000000),data_dict)
     else:
         # if we don't require GPS, then restart once a day to keep some level of alignment with system clock
         if is_acq_active:
@@ -107,5 +105,8 @@ while True:
             when_last_started=time_now
             print("GPS locked {}, ACQ active {}, ACQ start!".format(is_gps_locked,is_acq_active),flush=True)
             os.system(CMD_SANDRA_START)
+            
+    data_dict={"holdover":holdover,"acq":is_acq_active,"lock":is_gps_locked}
+    dmw.write(int(time_now*1000000),data_dict)
 
     time.sleep(1.0)
