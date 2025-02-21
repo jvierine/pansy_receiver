@@ -247,7 +247,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     bool all_locked = true;
     for (size_t ch = 0; ch < usrp->get_num_mboards(); ch++) {
         std::string ref_locked = usrp->get_mboard_sensor("ref_locked", ch).value;
-        std::cout << boost::format(" * %s: %s") % serials[ch] % ref_locked << std::endl;
+        //std::cout << boost::format(" * %s: %s") % serials[ch] % ref_locked << std::endl;
 
         if (ref_locked != "true")
             all_locked = false;
