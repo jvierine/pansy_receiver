@@ -243,11 +243,14 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
       usrp->set_rx_freq(47e6,i);
     }
 
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+
     std::cout << std::endl << "Checking USRP devices for lock." << std::endl;
     bool all_locked = true;
     for (size_t ch = 0; ch < usrp->get_num_mboards(); ch++) {
+//        std::cout << boost::format("%d") % ch  << std::endl;
         std::string ref_locked = usrp->get_mboard_sensor("ref_locked", ch).value;
-        //std::cout << boost::format(" * %s: %s") % serials[ch] % ref_locked << std::endl;
+        std::cout << boost::format(" * %d: %s") % ch % ref_locked << std::endl;
 
         if (ref_locked != "true")
             all_locked = false;
