@@ -6,4 +6,4 @@ test_gps: test_gps.cc
 #`pkg-config --cflags hdf5 digital_rf`
 #`pkg-config --libs hdf5 digital_rf`
 pansy_uhd_rx: pansy_uhd_rx.cpp
-	g++ `pkg-config --cflags hdf5 digital_rf` -I/home/radar/.syowa/include -o pansy_uhd_rx pansy_uhd_rx.cpp -pthread  -L/home/radar/.syowa/lib -lboost_program_options -lboost_system -lboost_thread -lboost_date_time -lboost_regex -lboost_serialization -ldigital_rf -luhd `pkg-config --libs hdf5 digital_rf`
+	g++ -I/home/radar/.sandra/envs/sandra-2.7/include -o pansy_uhd_rx pansy_uhd_rx.cpp -pthread  -L/home/radar/.sandra/envs/sandra-2.7/lib -lboost_program_options -lboost_system -lboost_thread -lboost_date_time -lboost_regex -lboost_serialization -ldigital_rf -luhd 
