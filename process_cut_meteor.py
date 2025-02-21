@@ -13,46 +13,34 @@ import itertools
 import pansy_interferometry as pint
 import h5py
 import pansy_modes as pmm
-
 import meteor_fit as metfit
-
 from mpi4py import MPI
+
 comm = MPI.COMM_WORLD
 size = comm.Get_size()
 rank = comm.Get_rank()
-
 
 phasecal = n.zeros([5,7])
 imaging=[]
 mmdict=pmm.get_m_mode()
 
-
 def beam_pixmap():
     u0,v0,w0=pint.uv_coverage(N=400,max_zenith_angle=20.0)
     ew=u0*100
     ns=v0*100
-    #plt.pcolormesh(u0)
-    #plt.show()
     bitmap=n.zeros(u0.shape)
     bitmap[:,:]=0
     for i in range(5):
         az0=mmdict["beam_pos_az_za"][i][0]
         el0=90-mmdict["beam_pos_az_za"][i][1]
-        print(az0)
-        print(el0)
         p_h=n.cos(n.pi*el0/180.0)
         pw0=-n.sin(n.pi*el0/180.0)
         pv0=p_h*n.cos(-n.pi*az0/180)
         pu0=-p_h*n.sin(-n.pi*az0/180)
-        print(pv0)
-        print(pu0)
-        print(pw0)
         angle=180*n.arccos(u0*pu0 + v0*pv0 + pw0*w0)/n.pi
         bitmap[angle<10]+=1
-        #plt.pcolormesh(ew,ns,bitmap,cmap="gist_yarg")
-        #plt.colorbar()
-        #plt.show()
     return(ew,ns,bitmap)
+# backdrop for plot, to show the five beam pointing directions
 ewbm,nsbm,bitmap=beam_pixmap()
 
 for i in range(5):
@@ -63,7 +51,7 @@ for i in range(5):
     u,v,w=pint.uv_coverage2(N=500,
                             az0=mmdict["beam_pos_az_za"][i][0],
                             el0=90.0-mmdict["beam_pos_az_za"][i][1],
-                            max_angle=9.0)
+                            max_angle=10.0)
     if False:
         plt.subplot(121)
         plt.pcolormesh(u)
@@ -77,21 +65,16 @@ for i in range(5):
 
     imaging.append({"u":u,"v":v,"w":w})
 
-#   m_mode={
- #      "t0":0,
-  #     "t1":1e99,
-   #    "beam_pos_az_za": [(0,0),(0,10),(90,10),(180,10),(270,10)],
-    #   "ipp_us": 1600,
-     #  "codes": [
-           
 antpos=pint.get_antpos()
 ch_pairs=n.array(list(itertools.combinations(n.arange(7),2)))
 dmat=pint.pair_mat(ch_pairs,antpos)
-    
 
 fft=fp.fft
 
 class range_doppler_search:
+    """
+    Range-Doppler matched filterbank
+    """
     def __init__(self,
                  txlen,
                  echolen,
@@ -223,7 +206,9 @@ def process_cut(data,
         peak_dop=[]
         drg=c.c/1e6/2/1e3
         snr=[]
+        print("range-doppler matched filter %d"%(z_rx.shape[0]))
         for ti in range(z_rx.shape[0]):
+            
             MF,pprof,peak_dopv,noise_floor,xc,rgmax=rds.mf(z_tx[ti,:],z_rx[ti,:,:])
             max_rg=n.argmax(pprof)
             peak_rg.append((delays[ti]+max_rg/interp)*drg)
@@ -247,125 +232,110 @@ def process_cut(data,
         snrs=[]
         beam_idss=[]
 
-        for bi in beam_ids:
-            gidx=n.where( (snr > 10) & (beam_id == bi) )[0]
+        #        for bi in beam_ids:
+        gidx=n.where( snr > 10 )[0]
+        if len(gidx)>2:
+            mu,mv,mfs=pint.image_points1(phasecal,xct[gidx,:],ch_pairs,dmat,snr[gidx],beam_id[gidx],tx_idx[gidx])
+            mw=n.sqrt(1-mu**2-mv**2)
+            ew=peak_rg[gidx]*mu
+            ns=peak_rg[gidx]*mv
+            up=peak_rg[gidx]*mw
+            ews=n.concatenate((ews,ew))
+            nss=n.concatenate((nss,ns))
+            ups=n.concatenate((ups,up))
+            txidxs=n.concatenate((txidxs,tx_idx[gidx]))
+            mfss=n.concatenate((mfss,mfs))
+            snrs=n.concatenate((snrs,snr[gidx]))
+            peak_dops=n.concatenate((peak_dops,peak_dop[gidx]))
+            beam_idss=n.concatenate((beam_idss,beam_id[gidx]))
 
-            if len(gidx)>2:
-                mu,mv,mfs,mis,mjs=pint.image_points(phasecal[bi,:],
-                                                    xct[gidx,:],
-                                                    ch_pairs,
-                                                    imaging[bi]["u"],
-                                                    imaging[bi]["v"],
-                                                    imaging[bi]["w"],
-                                                    dmat)
-                mw=n.sqrt(1-mu**2-mv**2)
-                    
-                ew=peak_rg[gidx]*mu
-                ns=peak_rg[gidx]*mv
-                up=peak_rg[gidx]*mw
-                ews=n.concatenate((ews,ew))
-                nss=n.concatenate((nss,ns))
-                ups=n.concatenate((ups,up))
-                txidxs=n.concatenate((txidxs,tx_idx[gidx]))
-                mfss=n.concatenate((mfss,mfs))
-                snrs=n.concatenate((snrs,snr[gidx]))
-                peak_dops=n.concatenate((peak_dops,peak_dop[gidx]))
-                beam_idss=n.concatenate((beam_idss,beam_id[gidx]))
+            r0,v0,model,eres,nres,ures=metfit.simple_fit_meteor(txidxs/1e6,ews,nss,ups)
+            dout={}
+            dout["r0"]=r0
+            dout["v0"]=v0            
+            dout["std"]=[eres,nres,ures]
+            print("%d beam %d %s %1.2f km %1.2f km/s %1.2f %1.2f %1.2f"%(rank,bi,stuffr.unix2datestr(txidxs[0]/1e6),
+                                                                         n.linalg.norm(r0),n.linalg.norm(v0),eres*1e3,nres*1e3,ures*1e3))
+            if write_dm:
+                try:
+                    dmw.write(txidxs[0],dout)
+                except:
+                    import traceback
+                    traceback.print_exc()
 
-        r0,v0,model,eres,nres,ures=metfit.simple_fit_meteor(txidxs/1e6,ews,nss,ups)
-        dout={}
-        dout["r0"]=r0
-        dout["v0"]=v0            
-        dout["std"]=[eres,nres,ures]
-        print("%d beam %d %s %1.2f km %1.2f km/s %1.2f %1.2f %1.2f"%(rank,bi,stuffr.unix2datestr(txidxs[0]/1e6),
-                                                                     n.linalg.norm(r0),n.linalg.norm(v0),eres*1e3,nres*1e3,ures*1e3))
-        if write_dm:
-            try:
-                dmw.write(tx_idxs[0],dout)
-            except:
-                import traceback
-                traceback.print_exc()
+            if plot:
+                nm=len(ews)
+                plt.figure(figsize=(12,8))
+                plt.subplot(231)
+                plt.scatter(txidxs/1e6,ews,c=mfss/21)
+                plt.plot(txidxs/1e6,model[0:nm],color="blue")
+                plt.title(r"$|v_g|$=%1.1f km/s"%(n.linalg.norm(v0)))
+                plt.xlabel("Time (s)")
+                plt.ylabel("EW (km)")            
+                plt.subplot(232)
+                plt.scatter(txidxs/1e6,nss,c=mfss/21)
+                plt.title(r"$\sigma_e=%1.1f$ $\sigma_n=%1.1f$, $\sigma_u=%1.1f$ m"%(1e3*eres,1e3*nres,1e3*ures))
+                plt.plot(txidxs/1e6,model[nm:(2*nm)],color="blue")            
+                plt.xlabel("Time (s)")
+                plt.ylabel("NS (km)")                        
+                plt.subplot(233)
+                plt.scatter(txidxs/1e6,ups,c=mfss/21)
+                plt.title(stuffr.unix2datestr(txidxs[0]/1e6))
+                plt.plot(txidxs/1e6,model[(2*nm):(3*nm)],color="blue")
+                plt.xlabel("Time (s)")
+                plt.ylabel("Up (km)")            
 
-        if plot:
-            nm=len(ews)
-            plt.figure(figsize=(12,8))
-            plt.subplot(231)
-            plt.scatter(txidxs/1e6,ews,c=mfss/21)
-            plt.plot(txidxs/1e6,model[0:nm],color="blue")
-            plt.title(r"$|v_g|$=%1.1f km/s"%(n.linalg.norm(v0)))
-            plt.xlabel("Time (s)")
-            plt.ylabel("EW (km)")            
-            plt.subplot(232)
-            plt.scatter(txidxs/1e6,nss,c=mfss/21)
-            plt.title(r"$\sigma_e=%1.1f$ $\sigma_n=%1.1f$, $\sigma_u=%1.1f$ m"%(1e3*eres,1e3*nres,1e3*ures))
-            plt.plot(txidxs/1e6,model[nm:(2*nm)],color="blue")            
-            plt.xlabel("Time (s)")
-            plt.ylabel("NS (km)")                        
-            plt.subplot(233)
-            plt.scatter(txidxs/1e6,ups,c=mfss/21)
-            plt.title(stuffr.unix2datestr(txidxs[0]/1e6))
-            plt.plot(txidxs/1e6,model[(2*nm):(3*nm)],color="blue")
-            plt.xlabel("Time (s)")
-            plt.ylabel("Up (km)")            
+                plt.subplot(234)
 
-            plt.subplot(234)
+                plt.pcolormesh(ewbm,nsbm,bitmap,cmap="gist_yarg",vmax=5)
+                plt.scatter(ews,nss,c=beam_idss,s=1,cmap="rainbow",vmin=0,vmax=4)
+                sidx=n.argmin(txidxs)
+                plt.text(ews[sidx],nss[sidx],r"$t_0$")
 
-            plt.pcolormesh(ewbm,nsbm,bitmap,cmap="gist_yarg",vmax=5)
-            plt.scatter(ews,nss,c=beam_idss,s=1,cmap="rainbow",vmin=0,vmax=4)
-            sidx=n.argmin(txidxs)
-            plt.text(ews[sidx],nss[sidx],r"$t_0$")
+                plt.xlabel("EW (km)")
+                plt.ylabel("NS (km)")     
+                plt.ylim([-35,35])
+                plt.xlim([-35,35])
 
-            plt.xlabel("EW (km)")
-            plt.ylabel("NS (km)")     
-            plt.ylim([-35,35])
-            plt.xlim([-35,35])
+                plt.subplot(235)
+                plt.scatter(txidxs/1e6,10.0*n.log10(snrs),c=beam_idss,cmap="rainbow",vmin=0,vmax=4)
+                cb=plt.colorbar()
+                cb.set_label("beam")
 
-            plt.subplot(235)
-            plt.scatter(txidxs/1e6,10.0*n.log10(snrs),c=beam_idss,cmap="rainbow",vmin=0,vmax=4)
-            cb=plt.colorbar()
-            cb.set_label("beam")
-
-            plt.xlabel("Time (s)")
-            plt.ylabel("SNR (dB)")                        
-            plt.subplot(236)
-            plt.scatter(txidxs/1e6,peak_dops/1e3,c=mfss/21)
-            cb=plt.colorbar()
-            cb.set_label("Coherence")
-            plt.xlabel("Time (s)")
-            plt.ylabel("Doppler (km/s)")
-            plt.tight_layout()
-            plt.savefig("/data1/pansy/meteor-%1.1f.png"%(float(tx_idx[0]/1e6)))
-            plt.close()
+                plt.xlabel("Time (s)")
+                plt.ylabel("SNR (dB)")                        
+                plt.subplot(236)
+                plt.scatter(txidxs/1e6,peak_dops/1e3,c=mfss/21)
+                cb=plt.colorbar()
+                cb.set_label("Coherence")
+                plt.xlabel("Time (s)")
+                plt.ylabel("Doppler (km/s)")
+                plt.tight_layout()
+                plt.show()
+    #            plt.savefig("/data1/pansy/meteor-%1.1f.png"%(float(tx_idx[0]/1e6)))
+     #           plt.close()
 
 
-            #fig=plt.figure(figsize=(16,9))
-            fig,ax=plt.subplots(figsize=(16,9))
-#            m=ax.pcolormesh(u,v,dB-nfloor,vmin=0,vmax=n.nanmax(dB-nfloor))
- #           cb=fig.colorbar(m,ax=ax)
-  #          cb.set_label("Mean power (dB)")
-   #         cs=ax.contour(u,v,za,colors="black")
-    #        ax.clabel(cs,fmt=r"%1.0f$^{\circ}$",colors="black")
-     #       ax.set_xlabel("u")
-      #      ax.set_ylabel("v")
-            
-       #     ax=fig.subplots(111)
-            ax.pcolormesh(ewbm,nsbm,bitmap,cmap="gist_yarg",vmax=6)
-            ax.set_title("PANSY Meteor Head Echoes %s"%(stuffr.unix2datestr(tx_idx[0]/1e6)))
-            m=ax.scatter(ews,nss,c=10.0*n.log10(snrs),cmap="plasma",vmin=10,vmax=30)
-            cb=fig.colorbar(m,ax=ax)
-            cb.set_label("SNR (dB)")
-            
-            ax.set_aspect("equal")#,s=1
-            #plt.axes().set_aspect('equal')
-            sidx=n.argmin(txidxs)
-            ax.text(ews[sidx],nss[sidx],r"$t_0$")
-            ax.set_xlabel("EW (km)")
-            ax.set_ylabel("NS (km)")     
-            ax.set_ylim([-35,35])
-            ax.set_xlim([-35,35])
-            plt.tight_layout()
-            plt.savefig("/data1/pansy/hor-%1.1f.png"%(float(tx_idx[0]/1e6)))
-            plt.close()
+                #fig=plt.figure(figsize=(16,9))
+                if False:
+                    fig,ax=plt.subplots(figsize=(16,9))
+                    ax.pcolormesh(ewbm,nsbm,bitmap,cmap="gist_yarg",vmax=6)
+                    ax.set_title("PANSY Meteor Head Echoes %s"%(stuffr.unix2datestr(tx_idx[0]/1e6)))
+                    m=ax.scatter(ews,nss,c=10.0*n.log10(snrs),cmap="plasma",vmin=10,vmax=30)
+                    cb=fig.colorbar(m,ax=ax)
+                    cb.set_label("SNR (dB)")
+                    ax.set_aspect("equal")#,s=1
+                    #plt.axes().set_aspect('equal')
+                    sidx=n.argmin(txidxs)
+                    ax.text(ews[sidx],nss[sidx],r"$t_0$")
+                    ax.set_xlabel("EW (km)")
+                    ax.set_ylabel("NS (km)")     
+                    ax.set_ylim([-35,35])
+                    ax.set_xlim([-35,35])
+                    plt.tight_layout()
+                    plt.show()
+        #            plt.savefig("/data1/pansy/hor-%1.1f.png"%(float(tx_idx[0]/1e6)))
+         #           plt.close()
 
 
 if __name__ == "__main__":
