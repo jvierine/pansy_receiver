@@ -34,13 +34,13 @@ RATE=1e6
 #
 
 echo "192.168.11.2"
-$ENVPYTHON $ENVDIR/thor.py -m 192.168.11.2 -d "A:A A:B" -c ch0,ch1 -f $FREQ -r $RATE /media/buffer > $RUNDIR/logs/thor.11.2.log 2>&1 &
+$ENVPYTHON $ENVDIR/thor.py -m 192.168.11.2 -d "A:A A:B" -c ch000,ch001 -f $FREQ -r $RATE /media/buffer > $RUNDIR/logs/thor.11.2.log 2>&1 &
 echo "192.168.12.2"
-$ENVPYTHON $ENVDIR/thor.py -m 192.168.12.2 -d "A:A A:B" -c ch2,ch3 -f $FREQ -r $RATE /media/buffer > $RUNDIR/logs/thor.12.2.log 2>&1 &
+$ENVPYTHON $ENVDIR/thor.py -m 192.168.12.2 -d "A:A A:B" -c ch002,ch003 -f $FREQ -r $RATE /media/buffer > $RUNDIR/logs/thor.12.2.log 2>&1 &
 echo "192.168.12.2"
-$ENVPYTHON $ENVDIR/thor.py -m 192.168.13.2 -d "A:A A:B" -c ch4,ch5 -f $FREQ -r $RATE /media/buffer > $RUNDIR/logs/thor.13.2.log 2>&1 &
+$ENVPYTHON $ENVDIR/thor.py -m 192.168.13.2 -d "A:A A:B" -c ch004,ch005 -f $FREQ -r $RATE /media/buffer > $RUNDIR/logs/thor.13.2.log 2>&1 &
 echo "192.168.12.2"
-$ENVPYTHON $ENVDIR/thor.py -m 192.168.14.2 -d "A:A A:B" -c ch6,ch7 -f $FREQ -r $RATE /media/buffer > $RUNDIR/logs/thor.14.2.log 2>&1 &
+$ENVPYTHON $ENVDIR/thor.py -m 192.168.14.2 -d "A:A A:B" -c ch006,ch007 -f $FREQ -r $RATE /media/buffer > $RUNDIR/logs/thor.14.2.log 2>&1 &
 
 echo "done"
 echo "to stop service, do something"
