@@ -210,7 +210,7 @@ def plot_status():
     fig.tight_layout()
     plt.savefig("processing.png")
     plt.close()
-    os.system("scp processing.png status.png j@4.235.86.214:/var/www/html/pansy/")
+    os.system("rsync -avz --bwlimit 5 status.png processing.png j@4.235.86.214:/var/www/html/pansy/")
 
 
 while True:
