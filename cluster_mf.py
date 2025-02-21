@@ -230,6 +230,13 @@ def cluster(tx_idx,
 
         # for each cluster, find measurements that fit        
         if plot:
+            plt.subplot(121)
+            plt.plot(tv,dop,".")
+            plt.subplot(122)
+            plt.plot(tv,rg,".")
+            plt.show()
+
+
             plt.plot(tv,rg,".",color="gray")
             plt.title("%s %d %d"%(stuffr.unix2datestr(tx_idx[0]/1e6),len(tx_idx),2*len(pairs)))
             for p in pairs:
