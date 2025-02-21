@@ -16,8 +16,8 @@ DDIR=/media/buffer/
 mkdir -p $RUNDIR/logs
 
 # delete old data from ram disk
-rm -Rf $DDIR
-mkdir -p $DDIR
+#rm -Rf $DDIR
+#mkdir -p $DDIR
 
 # add ntp?
 
@@ -27,7 +27,7 @@ $ENVPYTHON $ENVDIR/drf ringbuffer -z 120GB /media/buffer -p 10 > $RUNDIR/logs/ri
 echo "Mirror - RAM disk to archive"
 $ENVPYTHON $ENVDIR/drf mirror cp /media/buffer/ /media/archive/ > $RUNDIR/logs/mirror.log 2>&1 &
 echo "Ringbuffer on archive"
-$ENVPYTHON $ENVDIR/drf ringbuffer -z 20TB /media/archive/ -p 60 > $RUNDIR/logs/ringbuffer_archive.log 2>&1 &
+$ENVPYTHON $ENVDIR/drf ringbuffer -z 30TB /media/archive/ -p 60 > $RUNDIR/logs/ringbuffer_archive.log 2>&1 &
 
 FREQ=47.5e6
 RATE=1e6
