@@ -3,6 +3,7 @@ import pansy_config as pc
 import matplotlib.pyplot as plt
 import digital_rf as drf
 import stuffr
+import h5py
 
 import jcoord
 from astropy import units as u
@@ -47,7 +48,7 @@ def get_radiant(p0,t0,u0):
 
     return(sky,sc_gc_lat,sc_gc_lon, sun_pos.lon.deg)
 
-dm = drf.DigitalMetadataReader("../pansy_test_data/metadata/simple_meteor_fit")
+dm = drf.DigitalMetadataReader("/tmp/simple_fit")
 b = dm.get_bounds()
 dt=100000000
 n_block=int((b[1]-b[0])/dt)
@@ -82,7 +83,7 @@ for i in range(n_block):
 #        print(sc_lon)
                 
         std=data[k]["std"]
-        if n.max(std*1e3) < 500.0:
+        if n.max(std*1e3) < 250.0:
             hgts.append(r0[2])
             vgs.append(n.linalg.norm(v0))
             t0s.append(stuffr.unix2date(k/1e6))
@@ -93,6 +94,14 @@ for i in range(n_block):
             
 slats=n.array(slats)
 slons=n.array(slons)
+
+
+ho=h5py.File("slon.h5","w")
+ho["slat"]=slats
+ho["slon"]=slons
+ho["vg"]=vgs
+ho.close()
+
 idx=n.where(slons<0)[0]
 slons[idx]=slons[idx]+360.0
 plt.scatter(slons,slats,c=vgs,vmin=0,vmax=73,s=1)

@@ -37,7 +37,6 @@ def image_points(phcal,xc,ch_pairs,u,v,w,dmat):
     mfs=n.array(mfs)
     mis=n.array(mis)
     mjs=n.array(mjs)
-
     return(mu,mv,mfs,mis,mjs)
 
 # index pairs
@@ -79,6 +78,118 @@ def uv_coverage2(N=100,max_angle=10,az0=0,el0=90.0):
   #  vv[mag>=1]=n.nan
     return(uu,vv,ww)
 
+def mask_uvw(az0,el0,max_angle,u,v,w):
+    """
+    Provide indices that are less than max_angle for az0,el0
+    """
+    p_h=n.cos(n.pi*el0/180.0)
+    pw0=-n.sin(n.pi*el0/180.0)
+    pv0=p_h*n.cos(-n.pi*az0/180)
+    pu0=-p_h*n.sin(-n.pi*az0/180)
+    angle=180*n.arccos(u*pu0 + v*pv0 + w*pw0)/n.pi
+    idx=n.where(n.abs(angle) < max_angle)[0]
+    return(idx)
+
+def uv_coverage1(N=100,max_angle=10,az0=0,el0=90.0):
+    """
+    1d unit vector list
+    az0, el0 is beam pointing direction
+    """
+    u,v,w=uv_coverage2(N=N,max_angle=max_angle,az0=az0,el0=el0)
+    return(u.flatten(),v.flatten(),w.flatten())
+
+
+# all possible u,v,w
+u,v,w=uv_coverage1(N=400,max_angle=30,az0=0,el0=90.0)
+
+
+def image_points1(phcal,xc,ch_pairs,dmat,snr,beam_id,txidx,beam_az=[0,0,90,180,270],beam_el=[90,80,80,80,80]):
+    """
+    image all points
+    use phcal applied to the phase of each channel
+    xc is the cross correlation
+    ch_pair is the antenna pair index structure
+    u,v,w is the 
+    """
+    # start with highest snr observation
+    i0=n.argmax(snr)
+    beam0=beam_id[i0]
+    az0=beam_az[beam0]
+    el0=beam_el[beam0]
+    
+    print("masking")
+    # we search here.
+    idx=mask_uvw(az0,el0,10.0,u,v,w)
+    print("initial beam %d az0 %1.1f el0 %1.1f snr %1.0f len(idx)=%d"%(beam0,az0,el0,snr[i0],len(idx)))
+
+#    plt.plot(u[idx],v[idx],".")
+ #   plt.show()
+
+    mfs=[]
+    mu=[]
+    mv=[]
+    mw=[]
+    mt=[]
+
+    all_idx=n.arange(xc.shape[0])
+    
+    # start with highest snr measurement, and then work
+    for i in range(xc.shape[0]):
+        print("%d/%d"%(i,xc.shape[0]))
+        mt.append(i0)
+        # phasecal depends on beam pointing direction!
+        z=n.exp(1j*(n.angle(xc[i0,:]) + phcal[beam_id[i0],ch_pairs[:,0]] - phcal[beam_id[i0],ch_pairs[:,1]]))
+        M=n.abs(mf(z,dmat,u[idx],v[idx],w[idx]))
+        mi=n.argmax(M)
+        mfs.append(M[mi])
+        mu.append(u[idx[mi]])
+        mv.append(v[idx[mi]])
+        mw.append(w[idx[mi]])
+        all_idx=n.setdiff1d(all_idx,[i0])
+        if len(all_idx)>0:
+            # select the next one, choose the closes observation in time.
+            best_i0=-1
+            best_dt=1e99
+            best_ei=-1
+            for eidx in range(len(mt)):
+                time_diff=n.abs(txidx[mt[eidx]] - txidx[all_idx])
+                closest_idx=n.argmin(time_diff)
+                #print(time_diff)
+                if time_diff[closest_idx] < best_dt:
+                    best_dt=time_diff[closest_idx]
+                    best_i0=all_idx[closest_idx]
+                    best_ei=eidx
+            # closest new point to DoA
+            i0=best_i0#all_idx[n.argmin(n.abs(txidx[all_idx]-txidx[i0]))]
+            # az0,el0 of closest existing DoE
+#            print(mu[eidx],mv[eidx],mw[eidx])
+            az0,el0=uvw2azel(mu[best_ei],mv[best_ei],mw[best_ei])
+            print("dt %d %1.1f %1.1f u %1.2f v %1.2f w %1.2f"%(best_dt,az0,el0,mu[best_ei],mv[best_ei],mw[best_ei]))
+            # new mask
+            idx=mask_uvw(az0,el0,7.0,u,v,w)
+#            print(idx)
+        
+    mu=n.array(mu)
+    mv=n.array(mv)
+    mfs=n.array(mfs)
+    mt=n.array(mt,dtype=n.int64)
+    muu=n.zeros(len(mu))
+    mvv=n.zeros(len(mu))
+    mfss=n.zeros(len(mu))
+    muu[mt]=mu
+    mvv[mt]=mv
+    mfss[mt]=mfs        
+    return(muu,mvv,mfss)
+
+
+def uvw2azel(u,v,w):
+    el=180*n.arcsin(-w)/n.pi
+    uh=n.cos(n.pi*el/180)
+    az=180*n.arccos(v/(uh+1e-8))/n.pi
+    az2=180*n.arctan2(u,v)/n.pi
+    print(az,az2)
+    return(az2,el)
+    
 def zenang(u,v,w):
     return(180*n.arctan(n.sqrt(u**2+v**2)/w)/n.pi)
 
@@ -108,7 +219,7 @@ def mf(meas,dmat,u,v,w):
     given a measurement, calculate the match function (beam forming) response
     for different pointing directions
     """
-    M=n.zeros([u.shape[0],u.shape[1]],dtype=n.complex64)
+    M=n.zeros(u.shape,dtype=n.complex64)
     
     # for each pair
     k0=2*n.pi/pc.wavelength
