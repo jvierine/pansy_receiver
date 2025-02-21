@@ -2,9 +2,8 @@ import os
 import sys
 import subprocess
 import time
-
 import digital_rf as drf
-#import pansy_config as pc
+
 subdirectory_cadence_seconds = 3600
 file_cadence_seconds = 60
 samples_per_second_numerator = 1000000
@@ -37,7 +36,7 @@ CMD_SANDRA_STOP = CMD_SANDRA+" stop"
 CMD_SANDRA_START = CMD_SANDRA+" start"
 
 # when was gps lock last seen.
-require_gps=True
+require_gps=False
 when_last_started=time.time()
 when_last_locked=time.time()
 holdover=0
