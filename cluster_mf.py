@@ -101,7 +101,7 @@ def cluster(tx_idx,
             snr,
             min_dur=0.06,
             min_det=4,
-            plot=False
+            plot=True
             ):
 
     meteor_detections=[]
