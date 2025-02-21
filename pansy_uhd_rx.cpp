@@ -21,7 +21,7 @@
 
 namespace po = boost::program_options;
 
-using namespace uhd::usrp_clock;
+//using namespace uhd::usrp_clock;
 using namespace uhd::usrp;
 using namespace std;
 
@@ -237,7 +237,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     // use external pps and 10 mhz ref
     usrp->set_clock_source("external");
     usrp->set_time_source("external");
-    usrp->set_rx_subdev_spec(uhd::usrp::subdev_spec_t()"A:A A:B"));
+    usrp->set_rx_subdev_spec(uhd::usrp::subdev_spec_t("A:A A:B"));
     usrp->set_rx_rate(rate);
     for (int i=0; i<8; i++){
       usrp->set_rx_freq(47e6,i);
