@@ -25,11 +25,11 @@ mkdir -p $RUNDIR/logs
 
 # setup ringbuffer
 echo "Ringbuffer on RAM disk"
-$ENVPYTHON $ENVDIR/drf ringbuffer -z 30GB /media/buffer -p 10 > $RUNDIR/logs/ringbuffer_ramdisk.log 2>&1 &
+nohup $ENVPYTHON $ENVDIR/drf ringbuffer -z 30GB /media/buffer -p 10 > $RUNDIR/logs/ringbuffer_ramdisk.log 2>&1 &
 echo "Mirror - RAM disk to archive"
-$ENVPYTHON $ENVDIR/drf mirror cp /media/buffer/ /media/archive/ > $RUNDIR/logs/mirror.log 2>&1 &
+nohup $ENVPYTHON $ENVDIR/drf mirror cp /media/buffer/ /media/archive/ > $RUNDIR/logs/mirror.log 2>&1 &
 echo "Ringbuffer on archive"
-$ENVPYTHON $ENVDIR/drf ringbuffer -z 30000GB /media/archive/ -p 60 > $RUNDIR/logs/ringbuffer_archive.log 2>&1 &
+nohup $ENVPYTHON $ENVDIR/drf ringbuffer -z 30000GB /media/archive/ -p 60 > $RUNDIR/logs/ringbuffer_archive.log 2>&1 &
 
 echo "done"
 echo "to stop service, do something"
