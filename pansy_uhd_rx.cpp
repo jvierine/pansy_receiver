@@ -70,7 +70,7 @@ void streaming_by_channel(size_t chan,double rate,std::string subdev,std::string
     printf("%lu",global_start_index);
 
     //std::string ch_dir = outdir+"/ch"+std::to_string(chan);
-    std::string ch_dir = outdir + "/ch" + std::string(3 - std::to_string(num).length(), '0') + std::to_string(chan);
+    std::string ch_dir = outdir + "/ch" + std::string(3 - std::to_string(chan).length(), '0') + std::to_string(chan);
 
     std::cout << "Writing complex short to multiple files and subdirectores in " << ch_dir << std::endl;
     std::string mkdir_cmd = "mkdir -p "+ch_dir;
