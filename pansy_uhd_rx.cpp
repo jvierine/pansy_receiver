@@ -211,10 +211,10 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("help", "help message")
         ("usrp_args", po::value<std::string>(&usrp_args)->default_value("addr0=192.168.11.2,addr1=192.168.12.2,addr2=192.168.13.2,addr3=192.168.14.2,recv_buff_size=500000000"),"ettus device args")
         ("clock_args",po::value<std::string>(&clock_args)->default_value("addr=192.168.10.3"),"octoclock address args")
-        ("outdir", po::value<std::string>(&outdir)->default_value("/dev/shm/hf25"), "output directory")
+        ("outdir", po::value<std::string>(&outdir)->default_value("/media/buffer"), "output directory")
         ("killdir", po::value<std::string>(&killdir)->default_value("/home/sdr/chirpsounder2"), "kill directory")
         ("wire", po::value<std::string>(&wire)->default_value(""), "the over the wire type, sc16, sc8, etc")
-        ("subdev", po::value<std::string>(&subdev)->default_value("A:A"), "subdevice")
+        ("subdev", po::value<std::string>(&subdev)->default_value("A:A A:"), "subdevice")
         ("rate", po::value<double>(&rate)->default_value(1000000), "rate of incoming samples")
         ("dilv", "specify to disable inner-loop verbose")
         ("channels", po::value<std::string>(&channel_list)->default_value("0,1,2,3,4,5,6,7"), "which channel(s) to use (specify \"0\", \"1\", \"0,1\", etc)")
@@ -292,7 +292,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     uhd::time_spec_t time_last_pps = usrp->get_time_last_pps();
     printf("USRP time now %1.4f USRP last pps %1.4f\n",usrp->get_time_now().get_real_secs(),time_last_pps.get_real_secs());
-    exit(0);
+    //exit(0);
     // Threading for each channel
     std::vector<std::thread> threads;
     for(size_t ch=0 ; ch < usrp->get_num_mboards(); ch++){
