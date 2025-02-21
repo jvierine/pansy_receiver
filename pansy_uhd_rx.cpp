@@ -139,6 +139,10 @@ void streaming_by_channel(size_t chan,double rate,std::string subdev,std::string
       
         // pointer to short array
         short *a = (short *)buff.data();
+        // conjugate
+//        for(int si; si <vector_length; si++){
+
+  //      }
       
         if(samp_diff == 363)
         {
@@ -240,7 +244,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     usrp->set_rx_subdev_spec(uhd::usrp::subdev_spec_t("A:A A:B"));
     usrp->set_rx_rate(rate);
     for (int i=0; i<8; i++){
-      usrp->set_rx_freq(47e6,i);
+      usrp->set_rx_freq(-47e6,i);
     }
 
     std::this_thread::sleep_for(std::chrono::seconds(2));
