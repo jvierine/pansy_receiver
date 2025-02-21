@@ -152,16 +152,16 @@ latest_fit=stuffr.unix2datestr(fitb[1]/1e6)
 b=dr.get_bounds("ch000")
 latest_raw=stuffr.unix2datestr(b[1]/1e6)
 
-bg=dgps.get_bounds()
-gdata=dgps.read(bg[1]-24*3600*1000000,bg[1])
-holdover=0
-holdovert=-1
-holdovers=[]
-for k in gdata:
-    holdover=gdata[k]["holdover"]
-    holdovert=k
-    holdovers.append(holdover)
-mean_holdover=n.mean(holdovers)
+#bg=dgps.get_bounds()
+#gdata=dgps.read(bg[1]-24*3600*1000000,bg[1])
+#holdover=0
+#holdovert=-1
+#holdovers=[]
+#for k in gdata:
+#    holdover=gdata[k]["holdover"]
+#    holdovert=k
+#    holdovers.append(holdover)
+#mean_holdover=n.mean(holdovers)
 
 try:
     h=h5py.File("/tmp/last_rem.h5","r")
@@ -188,10 +188,10 @@ def plot_status():
     print("latest xc %s (%1.0f s behind)"%(latest_xc,xc_delay))
     fit_delay=(tnow-fitb[1])/1e6
     print("latest fit %s (%1.0f s behind)"%(latest_fit,fit_delay))
-    print("gpslock %s (%1.0f s holdover)"%(stuffr.unix2datestr(holdovert/1e6),holdover))
+#    print("gpslock %s (%1.0f s holdover)"%(stuffr.unix2datestr(holdovert/1e6),holdover))
 
-    labels=["Raw","TX det","MF","Events","Cutting","Modes","FXC","GPS holdover","Mean holdover"]
-    delays=n.array([raw_delay,tx_delay,mf_delay,det_delay,cut_delay,mode_delay,xc_delay,holdover,mean_holdover])/3600.0
+    labels=["Raw","TX det","MF","Events","Cutting","Modes","FXC"]
+    delays=n.array([raw_delay,tx_delay,mf_delay,det_delay,cut_delay,mode_delay,xc_delay])/3600.0
 
     fig,(ax0,ax1)=plt.subplots(2,1,sharex=True,figsize=(8,8))
     get_xc(fig,ax0)
