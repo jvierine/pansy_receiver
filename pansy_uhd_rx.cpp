@@ -295,7 +295,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     //exit(0);
     // Threading for each channel
     std::vector<std::thread> threads;
-    for(size_t ch=0 ; ch < usrp->get_num_mboards(); ch++){
+    for (size_t ch = 0; ch < channel_strings.size(); ch++) {
+//    for(size_t ch=0 ; ch < usrp->get_num_mboards(); ch++){
         threads.push_back(std::thread(streaming_by_channel, std::stoi(channel_strings[ch]), rate, subdev, outdir, usrp, time_last_pps));
     }  
     
