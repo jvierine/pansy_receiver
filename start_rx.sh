@@ -8,8 +8,10 @@
 
 # todo, move this to startup
 #sudo sysctl -w net.core.rmem_max=100000000
-ENVPYTHON=/home/radar/.miniforge3/envs/syowa-meteor-radar/bin/python3.8
-ENVDIR=/home/radar/.miniforge3/envs/syowa-meteor-radar/bin
+ENVPYTHON=/home/radar/.sandra/envs/sandra-2.7/bin/python2.7
+#/home/radar/.miniforge3/envs/syowa-meteor-radar/bin/python3.8
+ENVDIR=/home/radar/.sandra/envs/sandra-2.7/bin/python2.7/bin
+#/home/radar/.miniforge3/envs/syowa-meteor-radar/bin
 RUNDIR=/home/radar/src/git/pansy_receiver
 DDIR=/media/buffer/
 
