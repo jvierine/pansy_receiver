@@ -25,24 +25,24 @@ mkdir -p $RUNDIR/logs
 
 # setup ringbuffer
 echo "Ringbuffer on RAM disk"
-$ENVPYTHON $ENVDIR/drf ringbuffer -z 120GB /media/buffer -p 10 > $RUNDIR/logs/ringbuffer_ramdisk.log 2>&1 &
+$ENVPYTHON $ENVDIR/drf ringbuffer -z 30GB /media/buffer -p 10 > $RUNDIR/logs/ringbuffer_ramdisk.log 2>&1 &
 echo "Mirror - RAM disk to archive"
 $ENVPYTHON $ENVDIR/drf mirror cp /media/buffer/ /media/archive/ > $RUNDIR/logs/mirror.log 2>&1 &
 echo "Ringbuffer on archive"
-$ENVPYTHON $ENVDIR/drf ringbuffer -z 30TB /media/archive/ -p 60 > $RUNDIR/logs/ringbuffer_archive.log 2>&1 &
+$ENVPYTHON $ENVDIR/drf ringbuffer -z 30000GB /media/archive/ -p 60 > $RUNDIR/logs/ringbuffer_archive.log 2>&1 &
 
-FREQ=47.5e6
-RATE=1e6
+FREQ=47.0e6
+RATE=1000000
 #
 
 echo "192.168.11.2"
-$ENVPYTHON $ENVDIR/thor.py -m 192.168.11.2 -d "A:A A:B" -c ch000,ch001 -f $FREQ -r $RATE /media/buffer > $RUNDIR/logs/thor.11.2.log 2>&1 &
+$ENVPYTHON $ENVDIR/thor.py -m 192.168.11.2 -d "A:A A:B" -c ch000,ch001 -f $FREQ -r $RATE --clock_source external --time_source external /media/buffer > $RUNDIR/logs/thor.11.2.log 2>&1 &
 echo "192.168.12.2"
-$ENVPYTHON $ENVDIR/thor.py -m 192.168.12.2 -d "A:A A:B" -c ch002,ch003 -f $FREQ -r $RATE /media/buffer > $RUNDIR/logs/thor.12.2.log 2>&1 &
+$ENVPYTHON $ENVDIR/thor.py -m 192.168.12.2 -d "A:A A:B" -c ch002,ch003 -f $FREQ -r $RATE --clock_source external --time_source external  /media/buffer > $RUNDIR/logs/thor.12.2.log 2>&1 &
 echo "192.168.12.2"
-$ENVPYTHON $ENVDIR/thor.py -m 192.168.13.2 -d "A:A A:B" -c ch004,ch005 -f $FREQ -r $RATE /media/buffer > $RUNDIR/logs/thor.13.2.log 2>&1 &
+$ENVPYTHON $ENVDIR/thor.py -m 192.168.13.2 -d "A:A A:B" -c ch004,ch005 -f $FREQ -r $RATE --clock_source external --time_source external  /media/buffer > $RUNDIR/logs/thor.13.2.log 2>&1 &
 echo "192.168.12.2"
-$ENVPYTHON $ENVDIR/thor.py -m 192.168.14.2 -d "A:A A:B" -c ch006,ch007 -f $FREQ -r $RATE /media/buffer > $RUNDIR/logs/thor.14.2.log 2>&1 &
+$ENVPYTHON $ENVDIR/thor.py -m 192.168.14.2 -d "A:A A:B" -c ch006,ch007 -f $FREQ -r $RATE --clock_source external --time_source external  /media/buffer > $RUNDIR/logs/thor.14.2.log 2>&1 &
 
 echo "done"
 echo "to stop service, do something"
