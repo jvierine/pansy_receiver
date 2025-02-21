@@ -51,3 +51,8 @@
     - At Feb 20 22:30 a updated sandra_rx_server_gpsdo.py was start, which has a 24 hour holdover time
       and which only restarts when we have a lock
       Lock regained at 22:58
+
+2025-02-21 
+    - wrote a new digital rf recorder from scratch. pansy_uhd_rx (pansy_uhd_rx.cpp)
+    - initially conjugate, (about 2025-02-21T21:00-) should delete the problematic data!
+    - fixed to same convention as before at 2025-02-21T22:20Z
