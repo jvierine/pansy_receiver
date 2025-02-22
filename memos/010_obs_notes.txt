@@ -54,5 +54,6 @@
 
 2025-02-21 
     - wrote a new digital rf recorder from scratch. pansy_uhd_rx (pansy_uhd_rx.cpp)
-    - initially conjugate, (about 2025-02-21T21:00-) should delete the problematic data!
+    - initially conjugate, (about 2025-02-21T21:00-) problematic data deleted.
+      they had a wrong sign in the doppler. 
     - fixed to same convention as before at 2025-02-21T22:20Z
