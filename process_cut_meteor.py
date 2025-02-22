@@ -169,8 +169,8 @@ class range_doppler_search:
 def process_cut(data,
                 dmw,
                 interp=1,
-                write_dm=False,
-                plot=True):
+                write_dm=True,
+                plot=False):
 
 
     # create a uniform grid of u,v,w values
@@ -254,6 +254,12 @@ def process_cut(data,
             dout["r0"]=r0
             dout["v0"]=v0            
             dout["std"]=[eres,nres,ures]
+            dout["ew"]=ews
+            dout["ns"]=nss
+            dout["up"]=ups
+            dout["snr"]=snrs
+            dout["mfs"]=mfss
+
             print("%d beam %d %s %1.2f km %1.2f km/s %1.2f %1.2f %1.2f"%(rank,bi,stuffr.unix2datestr(txidxs[0]/1e6),
                                                                          n.linalg.norm(r0),n.linalg.norm(v0),eres*1e3,nres*1e3,ures*1e3))
             if write_dm:
@@ -311,9 +317,9 @@ def process_cut(data,
                 plt.xlabel("Time (s)")
                 plt.ylabel("Doppler (km/s)")
                 plt.tight_layout()
-                plt.show()
-    #            plt.savefig("/data1/pansy/meteor-%1.1f.png"%(float(tx_idx[0]/1e6)))
-     #           plt.close()
+                #plt.show()
+                plt.savefig("/tmp/pansy/meteor-%1.1f.png"%(float(tx_idx[0]/1e6)))
+                plt.close()
 
 
                 #fig=plt.figure(figsize=(16,9))
@@ -333,30 +339,30 @@ def process_cut(data,
                     ax.set_ylim([-35,35])
                     ax.set_xlim([-35,35])
                     plt.tight_layout()
-                    plt.show()
-        #            plt.savefig("/data1/pansy/hor-%1.1f.png"%(float(tx_idx[0]/1e6)))
-         #           plt.close()
+#                    plt.show()
+                    plt.savefig("/tmp/pansy/hor-%1.1f.png"%(float(tx_idx[0]/1e6)))
+                    plt.close()
 
 
 if __name__ == "__main__":
-    #mddir=pc.cut_metadata_dir
-    mddir="../pansy_test_data/metadata/cut"
+    mddir=pc.cut_metadata_dir
+    #mddir="../pansy_test_data/metadata/cut"
     dm = drf.DigitalMetadataReader(mddir)
     b = dm.get_bounds()
     dt=120000000
-    n_block=int((b[1]-b[0])/dt)
 #    os.system("mkdir -p caldata")
     start_idx=b[0]
-    #start_idx=1737912526407585
-
+    n_block=int(n.ceil((b[1]-start_idx)/dt))
+    print(stuffr.unix2datestr(b[1]/1e6))
+    print(stuffr.unix2datestr(start_idx/1e6))
 
     subdirectory_cadence_seconds = 3600
     file_cadence_seconds = 60
     samples_per_second_numerator = 1000000
     samples_per_second_denominator = 1
     file_name = "fit"
-    omddir="/tmp/simple_fit"
-    #omddir=pc.simple_fit_metadata_dir
+    #omddir="/tmp/simple_fit"
+    omddir=pc.simple_fit_metadata_dir
     os.system("mkdir -p %s"%(omddir))#pc.simple_fit_metadata_dir))
 
     dmw = drf.DigitalMetadataWriter(
@@ -374,6 +380,7 @@ if __name__ == "__main__":
         for ki in range(len(kl)):
             k=kl[ki]
             try:
+                print(stuffr.unix2datestr(k/1e6))
                 process_cut(data[k],dmw)
             except:
                 import traceback

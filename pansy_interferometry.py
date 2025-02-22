@@ -100,7 +100,7 @@ def uv_coverage1(N=100,max_angle=10,az0=0,el0=90.0):
 
 
 # all possible u,v,w
-u,v,w=uv_coverage1(N=400,max_angle=30,az0=0,el0=90.0)
+u,v,w=uv_coverage1(N=800,max_angle=30,az0=0,el0=90.0)
 
 
 def image_points1(phcal,xc,ch_pairs,dmat,snr,beam_id,txidx,beam_az=[0,0,90,180,270],beam_el=[90,80,80,80,80]):
@@ -117,10 +117,11 @@ def image_points1(phcal,xc,ch_pairs,dmat,snr,beam_id,txidx,beam_az=[0,0,90,180,2
     az0=beam_az[beam0]
     el0=beam_el[beam0]
     
-    print("masking")
+    #
+    # print("masking")
     # we search here.
     idx=mask_uvw(az0,el0,10.0,u,v,w)
-    print("initial beam %d az0 %1.1f el0 %1.1f snr %1.0f len(idx)=%d"%(beam0,az0,el0,snr[i0],len(idx)))
+    #print("initial beam %d az0 %1.1f el0 %1.1f snr %1.0f len(idx)=%d"%(beam0,az0,el0,snr[i0],len(idx)))
 
 #    plt.plot(u[idx],v[idx],".")
  #   plt.show()
@@ -135,7 +136,7 @@ def image_points1(phcal,xc,ch_pairs,dmat,snr,beam_id,txidx,beam_az=[0,0,90,180,2
     
     # start with highest snr measurement, and then work
     for i in range(xc.shape[0]):
-        print("%d/%d"%(i,xc.shape[0]))
+       # print("%d/%d"%(i,xc.shape[0]))
         mt.append(i0)
         # phasecal depends on beam pointing direction!
         z=n.exp(1j*(n.angle(xc[i0,:]) + phcal[beam_id[i0],ch_pairs[:,0]] - phcal[beam_id[i0],ch_pairs[:,1]]))
@@ -164,7 +165,7 @@ def image_points1(phcal,xc,ch_pairs,dmat,snr,beam_id,txidx,beam_az=[0,0,90,180,2
             # az0,el0 of closest existing DoE
 #            print(mu[eidx],mv[eidx],mw[eidx])
             az0,el0=uvw2azel(mu[best_ei],mv[best_ei],mw[best_ei])
-            print("dt %d %1.1f %1.1f u %1.2f v %1.2f w %1.2f"%(best_dt,az0,el0,mu[best_ei],mv[best_ei],mw[best_ei]))
+           # print("dt %d %1.1f %1.1f u %1.2f v %1.2f w %1.2f"%(best_dt,az0,el0,mu[best_ei],mv[best_ei],mw[best_ei]))
             # new mask
             idx=mask_uvw(az0,el0,7.0,u,v,w)
 #            print(idx)
@@ -187,7 +188,7 @@ def uvw2azel(u,v,w):
     uh=n.cos(n.pi*el/180)
     az=180*n.arccos(v/(uh+1e-8))/n.pi
     az2=180*n.arctan2(u,v)/n.pi
-    print(az,az2)
+    #print(az,az2)
     return(az2,el)
     
 def zenang(u,v,w):
@@ -277,7 +278,7 @@ def find_meso_zen_cal():
     xhat=sio.fmin(ss,xhat)
     xhat=sio.fmin(ss,xhat)
     xhat=sio.fmin(ss,xhat)            
-    print(xhat)
+  #  print(xhat)
     
     for chi,chp in enumerate(ch_pairs):
         print("%d %1.2f %1.2f"%(chi,n.angle(meas_phase[chi]*n.conj(model_phase[chi])),n.angle(n.exp(1j*(xhat[chp[0]]-xhat[chp[1]])))))
