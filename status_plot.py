@@ -57,6 +57,31 @@ def plot_pmse_modes(fig,ax,dt=24*3600*1000000):
             on.append(dd[k]["start"])
             off.append(dd[k]["end"])
 
+def write_clock_offset():
+    os.system("mkdir -p %s"%(pc.clock_metadata_dir))
+    subdirectory_cadence_seconds = 3600
+    file_cadence_seconds = 60
+    samples_per_second_numerator = 1000000
+    samples_per_second_denominator = 1
+    file_name = "clock"
+    dmw = drf.DigitalMetadataWriter(
+        pc.clock_metadata_dir,
+        subdirectory_cadence_seconds,
+        file_cadence_seconds,
+        samples_per_second_numerator,
+        samples_per_second_denominator,
+        file_name,
+    )
+    tnow=time.time()
+    dr=drf.DigitalRFReader(pc.raw_voltage_dir)
+    b=dr.get_bounds("ch000")
+    data={"pc_tnow":tnow,"raw_b1":b[1]/1e6}
+    try:
+        dmw.write(int(tnow*1000000),data)
+    except:
+        import traceback
+        traceback.print_exc()
+
 def get_xc(fig,ax,dt=24*3600*1000000):
     """
     plot latest pmse
@@ -124,7 +149,10 @@ d4=drf.DigitalMetadataReader(pc.mesomode_metadata_dir)
 d5=drf.DigitalMetadataReader(pc.xc_metadata_dir)#meteor_cal_metadata_dir="/media/analysis/metadata/meteor_cal"
 d6=drf.DigitalMetadataReader(pc.simple_fit_metadata_dir)
 dr=drf.DigitalRFReader(pc.raw_voltage_dir)
-dgps=drf.DigitalMetadataReader(pc.gpslock_metadata_dir)
+#dgps=drf.DigitalMetadataReader(pc.gpslock_metadata_dir)
+#dclock=drf.DigitalMetadataReader(pc.clock_metadata_dir)
+
+write_clock_offset()
 
 
 tnow=time.time()*1e6
@@ -219,4 +247,4 @@ while True:
     except:
         import traceback
         traceback.print_exc()
-    time.sleep(1800)
+    time.sleep(600)

@@ -11,6 +11,7 @@ xc_sparse_metadata_dir="/media/analysis/metadata/xc_sparse"
 meteor_cal_metadata_dir="/media/analysis/metadata/meteor_cal"
 simple_fit_metadata_dir="/media/analysis/metadata/simple_meteor_fit"
 gpslock_metadata_dir="/media/analysis/metadata/gpslock"
+clock_metadata_dir="/media/analysis/metadata/clock"
 
 raw_voltage_dir="/media/archive/"
 
@@ -18,7 +19,7 @@ raw_voltage_dir="/media/archive/"
 lat=-69.010833
 lon=39.599722
 
-freq=47.5e6
+freq=47.0e6
 wavelength=c.c/freq
 
 # parse antenna connections
