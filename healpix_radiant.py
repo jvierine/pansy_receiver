@@ -27,6 +27,6 @@ pixels = hp.ang2pix(nside, theta, phi)
 histogram = np.bincount(pixels, minlength=hp.nside2npix(nside))
 
 # Plot the histogram as a HEALPix map
-hp.mollview(histogram, title="Histogram of radiants", unit="Counts",cmap="turbo")
+hp.mollview(histogram, title="Histogram of radiants", unit="Counts",cmap="turbo",flip="geo")
 hp.graticule(color="white",alpha=0.1)
 plt.show()
