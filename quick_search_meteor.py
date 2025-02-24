@@ -100,6 +100,70 @@ class range_doppler_search:
             plt.show()
         return(MF,pprof,peak_dopv,noise_floor)
 
+
+def process_m_mode(key,d,rds,dmw,dm_mf2,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"]):
+    """
+    process 20 ipps of meso mode starting at "key"
+    """
+    n_ch=len(chs)
+    z=n.zeros([n_ch,1600*20],dtype=n.complex64)
+    for chi in range(n_ch):
+        z[chi,:]=d.read_vector_c81d(key,1600*20,chs[chi])
+    z_tx=d.read_vector_c81d(key,1600*20,"ch007")
+    RTI=n.zeros([20,rds.n_rg],dtype=n.float32)
+    RTIV=n.zeros([20,rds.n_rg],dtype=n.float32)
+    noise_floors=[]
+    tx_pwrs=[]
+    max_dops=[]
+    max_snrs=[]
+    max_ranges=[]
+    tx_idxs=[]
+    for ti in range(20):
+        tx_pwr=n.sum(n.abs(z_tx[(0+ti*1600):(rds.txlen+ti*1600)])**2.0)
+        tx_idxs.append(key+ti*1600)
+        tx_pwrs.append(tx_pwr)
+        MF,pprof,dop_prof,nf=rds.mf(z[:,(0+ti*1600):(1600+ti*1600)],z_tx[(0+ti*1600):(rds.txlen+ti*1600)])
+        noise_floors.append(nf)
+        RTI[ti,:]=pprof
+        RTIV[ti,:]=dop_prof
+    tv=n.arange(20)*1.6e-3
+    noise_floor=n.median(noise_floors)
+    snr= (RTI-noise_floor)/noise_floor
+    snr[snr<=0]=0.0001
+    for ti in range(20):
+        max_rg=n.argmax(snr[ti,:])
+        max_dop=RTIV[ti,max_rg]
+        max_snr=snr[ti,max_rg]
+        if debug:
+            print("%s snr=%1.0f range=%1.1f km doppler=%1.1f km/s txp=%1.1f"%(stuffr.unix2datestr((int(key)+ti*1600)/1e6),max_snr,rds.rangev[max_rg],max_dop,tx_pwrs[ti]))
+        max_dops.append(max_dop)
+        max_ranges.append(rds.rangev[max_rg])
+        max_snrs.append(max_snr)
+    odata_dict={}
+    
+    tx_idxs=n.array(tx_idxs)
+    #if (key >= i0) & (key<i1):                
+    odata_dict["beam_pos_idx"]=[n.arange(20,dtype=n.int8)]
+    odata_dict["tx_std"]=[n.repeat(n.std(tx_pwrs),20)]
+    odata_dict["tx_pwr"]=[tx_pwrs]
+    odata_dict["max_snr"]=[max_snrs]
+    odata_dict["max_range"]=[max_ranges]
+    odata_dict["max_dopvel"]=[max_dops]
+    odata_dict["noise_floor"]=[noise_floors]
+    odata_dict["tx_idxs"]=[tx_idxs]
+
+    # write timestamp of last detection in tmp file, so that we know how far the analysis has reached.
+    last_fname="/tmp/meteor_mf_%d.h5"%(rank)
+    ho=h5py.File(last_fname,"w")
+    ho["latest"]=key
+    ho.close()
+    # check if we have done this already?
+    mf2out=dm_mf2.read(key-100,key+100,["beam_pos_idx"])
+    if len(mf2out.keys())==0:
+        dmw.write([key],odata_dict)
+    else:
+        print("%d %s looks like this is already processed."%(rank,stuffr.unix2datestr(key/1e6)))
+
 def meteor_search(debug=False):
 
     # this is where the existing metadata lives
@@ -181,7 +245,7 @@ def meteor_search(debug=False):
 
     d_analysis=file_cadence_seconds*1000000
     # start analysis where the previous one left off
-    start_idx=d_analysis*int(n.ceil((db_mf[1]-24*3600*1000000)/d_analysis))
+    start_idx=d_analysis*int(n.ceil((db_mf[1]-6*3600*1000000)/d_analysis))
     # stay 6 minutes behind realtime to avoid underfull metadata files
     end_idx=d_analysis*int(n.ceil(db[1]/d_analysis))-6*d_analysis
 
@@ -231,68 +295,9 @@ def meteor_search(debug=False):
             for key in keys:
                 keyi=int(key)
                 try:
+                    if  data_dict[key]["id"] == 1:
+                        process_m_mode(key,d,rds,dmw,dm_mf2,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"])
 
-                    chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"]
-                    n_ch=len(chs)
-                    z=n.zeros([n_ch,1600*20],dtype=n.complex64)
-                    for chi in range(n_ch):
-                        z[chi,:]=d.read_vector_c81d(key,1600*20,chs[chi])
-                    z_tx=d.read_vector_c81d(key,1600*20,"ch007")
-                    RTI=n.zeros([20,rds.n_rg],dtype=n.float32)
-                    RTIV=n.zeros([20,rds.n_rg],dtype=n.float32)
-                    noise_floors=[]
-                    tx_pwrs=[]
-                    max_dops=[]
-                    max_snrs=[]
-                    max_ranges=[]
-                    tx_idxs=[]
-                    for ti in range(20):
-                        tx_pwr=n.sum(n.abs(z_tx[(0+ti*1600):(rds.txlen+ti*1600)])**2.0)
-                        tx_idxs.append(key+ti*1600)
-                        tx_pwrs.append(tx_pwr)
-    #                    print(tx_pwr)
-                        MF,pprof,dop_prof,nf=rds.mf(z[:,(0+ti*1600):(1600+ti*1600)],z_tx[(0+ti*1600):(rds.txlen+ti*1600)])
-                        noise_floors.append(nf)
-                        RTI[ti,:]=pprof
-                        RTIV[ti,:]=dop_prof
-                    tv=n.arange(20)*1.6e-3
-                    noise_floor=n.median(noise_floors)
-                    snr= (RTI-noise_floor)/noise_floor
-                    snr[snr<=0]=0.0001
-
-                    for ti in range(20):
-                        max_rg=n.argmax(snr[ti,:])
-                        max_dop=RTIV[ti,max_rg]
-                        max_snr=snr[ti,max_rg]
-                        if debug:
-                            print("%s snr=%1.0f range=%1.1f km doppler=%1.1f km/s txp=%1.1f"%(stuffr.unix2datestr((int(key)+ti*1600)/1e6),max_snr,rds.rangev[max_rg],max_dop,tx_pwrs[ti]))
-                        max_dops.append(max_dop)
-                        max_ranges.append(rds.rangev[max_rg])
-                        max_snrs.append(max_snr)
-                    odata_dict={}
-                    
-                    tx_idxs=n.array(tx_idxs)
-                    #if (key >= i0) & (key<i1):                
-                    odata_dict["beam_pos_idx"]=[n.arange(20,dtype=n.int8)]
-                    odata_dict["tx_std"]=[n.repeat(n.std(tx_pwrs),20)]
-                    odata_dict["tx_pwr"]=[tx_pwrs]
-                    odata_dict["max_snr"]=[max_snrs]
-                    odata_dict["max_range"]=[max_ranges]
-                    odata_dict["max_dopvel"]=[max_dops]
-                    odata_dict["noise_floor"]=[noise_floors]
-                    odata_dict["tx_idxs"]=[tx_idxs]
-
-                    # write timestamp of last detection in tmp file, so that we know how far the analysis has reached.
-                    last_fname="/tmp/meteor_mf_%d.h5"%(rank)
-                    ho=h5py.File(last_fname,"w")
-                    ho["latest"]=key
-                    ho.close()
-                    # check if we have done this already?
-                    mf2out=dm_mf2.read(key-100,key+100,["beam_pos_idx"])
-                    if len(mf2out.keys())==0:
-                        dmw.write([key],odata_dict)
-                    else:
-                        print("%d %s looks like this is already processes."%(rank,stuffr.unix2datestr(key/1e6)))
                 except:
                     traceback.print_exc()
 
