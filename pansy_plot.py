@@ -2,7 +2,7 @@ import numpy as n
 import matplotlib.pyplot as plt
 import digital_rf as drf
 
-d=drf.DigitalRFReader("/media/buffer")
+d=drf.DigitalRFReader("/media/archive")
 import sys
 channels=["ch000","ch001","ch002","ch003","ch004","ch005","ch006","ch007"]
 b=d.get_bounds("ch000")
