@@ -164,6 +164,44 @@ def process_m_mode(key,d,rds,dmw,dm_mf2,chs=["ch000","ch001","ch002","ch003","ch
     else:
         print("%d %s looks like this is already processed."%(rank,stuffr.unix2datestr(key/1e6)))
 
+
+def process_isr_mode(key,d,rds,dmw,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"]):
+    """
+    process 1 ipp of isr mode starting at "key"
+    """
+    n_ch=len(chs)
+    ipp=12500
+    gc=600
+    z=n.zeros([n_ch,ipp],dtype=n.complex64)
+    for chi in range(n_ch):
+        z[chi,:]=d.read_vector_c81d(key,ipp,chs[chi])
+    # gc cancel
+    z[:,0:gc]=0.0
+    z_tx=d.read_vector_c81d(key,ipp,"ch007")
+    
+    tx_pwr=n.sum(n.abs(z_tx[0:540])**2.0)
+    tx_idx=key
+    MF,pprof,dop_prof,nf=rds.mf(z,z_tx)
+    snr= (pprof-nf)/nf
+    max_rg=n.argmax(pprof)
+    max_range=rds.rangev[max_rg]
+    max_dop=dop_prof[max_rg]
+    snr[snr<=0]=0.0001
+    max_snr=n.max(snr)
+    
+    if max_snr>10:
+        print("%s snr=%1.0f range=%1.1f km doppler=%1.1f km/s txp=%1.1f"%(stuffr.unix2datestr((int(key)/1e6)),max_snr,rds.rangev[max_rg],max_dop,tx_pwr))
+        odata_dict={}
+        tx_idxs=n.array(tx_idxs)
+        odata_dict["tx_pwr"]=tx_pwr
+        odata_dict["max_snr"]=max_snr
+        odata_dict["max_range"]=max_range
+        odata_dict["max_dopvel"]=max_dop
+        odata_dict["noise_floor"]=nf
+        odata_dict["tx_idxs"]=tx_idx
+        dmw.write([key],odata_dict)
+
+
 def meteor_search(debug=False):
 
     # this is where the existing metadata lives
@@ -200,8 +238,32 @@ def meteor_search(debug=False):
         file_name,
     )
 
+
+    # setup the directory and file cadence.
+    # use 1 MHz, as this is the sample-rate and thus a
+    # natural resolution for timing.
+    subdirectory_cadence_seconds = 3600
+    file_cadence_seconds = 60
+    samples_per_second_numerator = 1000000
+    samples_per_second_denominator = 1
+    file_name = "mf"
+    os.system("mkdir -p %s"%(pc.mf_isr_metadata_dir))
+
+    dmw_isr = drf.DigitalMetadataWriter(
+        pc.mf_isr_metadata_dir,
+        subdirectory_cadence_seconds,
+        file_cadence_seconds,
+        samples_per_second_numerator,
+        samples_per_second_denominator,
+        file_name,
+    )
+
+
     # see if results already exist
     dm_mf2 = drf.DigitalMetadataReader(mf_metadata_dir)
+
+    # see if results already exist
+    dm_mf_isr = drf.DigitalMetadataReader(pc.mf_isr_metadata_dir)
 
     # this is where the data is
     d=drf.DigitalRFReader("/media/archive/")
@@ -263,6 +325,8 @@ def meteor_search(debug=False):
     N=20*1600
     beam_pos_idx=n.arange(20,dtype=n.int8)%5
 
+    rds_isr=range_doppler_search(txlen=540)
+
     # analyze in parallel. one minute for each thread
     for bi in range(start_minute,end_minute):
         if bi%size != rank:
@@ -286,6 +350,12 @@ def meteor_search(debug=False):
             if len(mf2out.keys())>0:
                 print("rank %d already processed %d-%d %d results"%(rank,i0,i1,len(mf2out.keys())))
                 continue
+
+            mf2out=dm_mf_isr.read(i0,i1,["tx_pwr"])
+            if len(mf2out.keys())>0:
+                print("rank %d already processed %d-%d %d results"%(rank,i0,i1,len(mf2out.keys())))
+                continue
+
             #print("not processed yet rank %d"%(rank))
             
 
@@ -297,6 +367,8 @@ def meteor_search(debug=False):
                 try:
                     if  data_dict[key]["id"] == 1:
                         process_m_mode(key,d,rds,dmw,dm_mf2,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"])
+                    elif data_dist[key]["id"] == 2:
+                        process_isr_mode(key,d,rds_isr,dmw_isr,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"])
 
                 except:
                     traceback.print_exc()
