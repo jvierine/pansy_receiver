@@ -233,8 +233,8 @@ def find_isr_mode_start(d,
     z_tx=z_tx/n.max(n.abs(z_tx))
     #   pwr=n.abs(z_tx/n.max(n.abs(z_tx)))
     h.close()
-    N=12000
-    step=10000
+    N=9500
+    step=9400
     ZTX=n.conj(fft.fft(z_tx,N))
     #    P=n.conj(fft.fft(pwr,N))
 
@@ -267,7 +267,7 @@ def find_isr_mode_start(d,
             start_idxs.append(i0+mi)
             prev_idx=i0+mi
             if True:
-                z=d.read_vector_c81d(i0+mi,10000,ch)
+                z=d.read_vector_c81d(i0+mi,N,ch)
                 plt.plot(z.real)
                 plt.plot(z.imag)
                 plt.show()
