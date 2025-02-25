@@ -2,6 +2,8 @@ import numpy as n
 import scipy.constants as c
 
 mf_metadata_dir="/media/analysis/metadata/mf"
+mf_isr_metadata_dir="/media/analysis/metadata/mf_isr"
+
 tx_metadata_dir="/media/analysis/metadata/tx"
 detections_metadata_dir="/media/analysis/metadata/detections"
 cut_metadata_dir="/media/analysis/metadata/cut"
