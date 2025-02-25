@@ -181,7 +181,7 @@ def process_isr_mode(key,d,rds,dmw,chs=["ch000","ch001","ch002","ch003","ch004",
     
     tx_pwr=n.sum(n.abs(z_tx[0:540])**2.0)
     tx_idx=key
-    MF,pprof,dop_prof,nf=rds.mf(z,z_tx[0:rds.txlen],debug=True)
+    MF,pprof,dop_prof,nf=rds.mf(z,z_tx[0:rds.txlen],debug=False)
     snr= (pprof-nf)/nf
     max_rg=n.argmax(pprof)
     max_range=rds.rangev[max_rg]
