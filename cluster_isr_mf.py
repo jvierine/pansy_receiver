@@ -57,14 +57,14 @@ def read_mf_output(dm_mf,i0,i1,snr_threshold=7,tx_pwr_threshold=1e9):
 
 def analyze_until_now():
     dm_mf = drf.DigitalMetadataReader(pc.mf_isr_metadata_dir)
-    db_mf = dm_mf.get_bounds()
+    b_mf = dm_mf.get_bounds()
 
     dt=10000000
     d=drf.DigitalRFReader("/media/archive/")
     b=d.get_bounds("ch007")
 
-    start_idx=db_md[0]
-    n_min=int(n.floor((db_mf[1]-start_idx)/dt))
+    start_idx=b_mf[0]
+    n_min=int(n.floor((b_mf[1]-start_idx)/dt))
 
     for i in range(n_min):
         i0=start_idx+i*dt
