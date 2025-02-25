@@ -267,6 +267,7 @@ def find_isr_mode_start(d,
             start_idxs.append(i0+mi)
             prev_idx=i0+mi
             if True:
+                print(i0+mi)
                 z=d.read_vector_c81d(i0+mi,N,ch)
                 plt.plot(z.real)
                 plt.plot(z.imag)
