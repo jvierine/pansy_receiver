@@ -70,7 +70,7 @@ def analyze_until_now():
         i0=start_idx+i*dt
         i1=start_idx+i*dt+dt
 
-        txpa,txidxa,rnga,dopa,snra,beam=read_mf_output(dm_mf,i0,i1)
+        txpa,txidxa,rnga,dopa,snra=read_mf_output(dm_mf,i0,i1)
         plt.scatter(txidxa,rnga,c=dopa,s=1,cmap="turbo")        
         plt.colorbar()
         plt.show()
