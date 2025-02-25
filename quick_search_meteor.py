@@ -311,7 +311,7 @@ def meteor_search(debug=False):
 
     d_analysis=file_cadence_seconds*1000000
 
-    b_mf_isr=db_mf_isr.get_bounds()
+    b_mf_isr=dm_mf_isr.get_bounds()
 
     # start analysis where the previous one left off
     start_idx=d_analysis*int(n.floor((n.max((db_mf[1],b_mf_isr[1])))/d_analysis))
