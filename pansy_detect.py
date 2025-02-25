@@ -269,10 +269,10 @@ def find_isr_mode_start(d,
             prev_idx=i0+mi
             if True:
                 print((i0+mi)-prev_idx)
-                z=d.read_vector_c81d(i0+mi,N,ch)
-                plt.plot(z.real)
-                plt.plot(z.imag)
-                plt.show()
+                #z=d.read_vector_c81d(i0+mi,N,ch)
+                #plt.plot(z.real)
+                #plt.plot(z.imag)
+                #plt.show()
         # go forward by one ipp
         i0+=step
     return(n.array(start_idxs,dtype=int))
