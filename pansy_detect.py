@@ -216,6 +216,78 @@ def find_m_mode_start(d,
         i0+=10*N
     return(n.array(start_idxs,dtype=int))
 
+
+def find_isr_mode_start(d,
+                        i0=None,
+                        i1=None,
+                        ch="ch007", # channel 007 is the transmit sample
+                        debug=False):
+    z_tx = h5py.File("data/barker7.h5","r")
+    plt.plot(z_tx.real)
+    plt.plot(z_tx.imag)
+    plt.show()
+    CAA=n.conj(n.fft.fft(codeaa,11*N))
+    CBB=n.conj(n.fft.fft(codebb,11*N))
+    P=n.conj(n.fft.fft(power,11*N))
+
+    start_idxs=[]
+    prev_idx=0
+    plot=False
+    while i0 < i1:
+        try:
+            z=d.read_vector_c81d(i0,11*N,ch)
+        except:
+            import traceback
+            traceback.print_exc()
+            print("read fail %d. returning empty string."%(i0))
+            return(n.array([],dtype=n.int64))
+        Z=n.fft.fft(z)
+        ccaaa=n.fft.ifft(Z*CAA)
+        ccaa=ccaaa.real**2.0+ccaaa.imag**2.0
+        ccbbb=n.fft.ifft(Z*CBB)
+        ccbb=ccbbb.real**2.0+ccbbb.imag**2.0
+
+        # regularize with +1 to avoid division by zero
+        zp=z.real**2.0 + z.imag**2.0#n.abs(z)**2.0
+        # correlate power pattern
+        pwr=n.abs(n.fft.ifft(n.fft.fft(zp)*P))+1
+        
+        # the maxima of AA and minima of AB cross-correlations coincide
+        # make use of this!
+        pfr=(ccaa/pwr - ccbb/pwr)
+        mi=n.argmax(pfr)
+        #        plt.plot(pfr)
+        #        plt.show()
+#        if debug:
+#            print(pfr[mi])        
+        if pfr[mi]>150 and (i0+mi - prev_idx) != 0:
+            # found new start
+            if debug:
+                print("%f %d %f"%( (i0-b[0])/1e6, i0+mi - prev_idx, pfr[mi]))
+            # 
+            # the idx points to the start of last ipp in a sequence of 20 ipps. we need to adjust to the start of the first ipp.
+            start_idxs.append(i0+mi - 19*1600)
+            if plot:
+                plt.plot(pfr,label=r"$m_t$")
+                plt.plot(ccaa/pwr,label=r"$c^A_{-t}*z_t/P_t$")
+                plt.plot(ccbb/pwr,label=r"$c^B_{-t}*z_t/P_t$")
+                plt.xlabel("Time (samples)")
+                plt.legend()
+                plt.show()
+                z=d.read_vector_c81d(i0+mi,N,ch)
+                plt.subplot(211)
+                plt.plot(z.real*codeaa.real)
+                plt.plot(z.imag*codeaa.real)
+                plt.subplot(212)
+                plt.plot(z.real*codebb.real)
+                plt.plot(z.imag*codebb.real)
+                plt.show()
+            prev_idx=i0+mi
+        # go forward by one code sequence
+        i0+=10*N
+    return(n.array(start_idxs,dtype=int))
+
+
 def analyze_st_mode(d,
                     dt=10,
                     b0=None,
@@ -558,6 +630,7 @@ def test_mode_detection():
 
 
 if __name__ == "__main__":
+    find_isr_mode_start(None)
     if False:
         d=drf.DigitalRFReader("/media/archive/")
         b=d.get_bounds("ch007")
