@@ -37,11 +37,11 @@ def read_mf_output(dm_mf,i0,i1,snr_threshold=7,tx_pwr_threshold=1e9):
             txp=data["tx_pwr"]
             print(txp)
             if n.min(txp) > tx_pwr_threshold:
-                txpa=n.concatenate((txpa,txp))
-                txidxa=n.concatenate((txidxa,data["tx_idxs"]))
-                rnga=n.concatenate((rnga,data["max_range"]))
-                dopa=n.concatenate((dopa,data["max_dopvel"]))
-                snra=n.concatenate((snra,data["max_snr"]))
+                txpa=n.concatenate((txpa,[txp]))
+                txidxa=n.concatenate((txidxa,[data["tx_idxs"]]))
+                rnga=n.concatenate((rnga,[data["max_range"]]))
+                dopa=n.concatenate((dopa,[data["max_dopvel"]]))
+                snra=n.concatenate((snra,[data["max_snr"]]))
             else:
                 pass
 #                print("low txpower. skipping")
