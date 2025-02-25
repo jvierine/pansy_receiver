@@ -6,6 +6,10 @@ import scipy.signal.windows as sw
 import scipy.constants as c
 import stuffr
 import time
+import h5py
+import pyfftw
+
+fft = pyfftw.interfaces.scipy_fftpack
 
 from mpi4py import MPI
 
@@ -222,69 +226,50 @@ def find_isr_mode_start(d,
                         i1=None,
                         ch="ch007", # channel 007 is the transmit sample
                         debug=False):
-    z_tx = h5py.File("data/barker7.h5","r")
-    plt.plot(z_tx.real)
-    plt.plot(z_tx.imag)
-    plt.show()
-    CAA=n.conj(n.fft.fft(codeaa,11*N))
-    CBB=n.conj(n.fft.fft(codebb,11*N))
-    P=n.conj(n.fft.fft(power,11*N))
+    h = h5py.File("data/barker7.h5","r")
+    #  z0=h["z"][()]
+    z_tx=h["z"][()]
+    z_tx=z_tx[2800:3330]
+    z_tx=z_tx/n.max(n.abs(z_tx))
+    #   pwr=n.abs(z_tx/n.max(n.abs(z_tx)))
+    h.close()
+    N=12000
+    step=10000
+    ZTX=n.conj(fft.fft(z_tx,N))
+    #    P=n.conj(fft.fft(pwr,N))
 
+#    plt.plot(n.abs(n.fft.ifft(n.fft.fft(z0[0:12000]/n.max(n.abs(z0)))*ZTX)))#/n.abs(n.fft.ifft(n.fft.fft(n.abs(z0[0:12000]/n.max(n.abs(z0))))*P)))
+ #   plt.show()
+    
     start_idxs=[]
-    prev_idx=0
-    plot=False
+    
     while i0 < i1:
         try:
-            z=d.read_vector_c81d(i0,11*N,ch)
+
+            z=d.read_vector_c81d(i0,N,ch)
         except:
             import traceback
             traceback.print_exc()
             print("read fail %d. returning empty string."%(i0))
             return(n.array([],dtype=n.int64))
-        Z=n.fft.fft(z)
-        ccaaa=n.fft.ifft(Z*CAA)
-        ccaa=ccaaa.real**2.0+ccaaa.imag**2.0
-        ccbbb=n.fft.ifft(Z*CBB)
-        ccbb=ccbbb.real**2.0+ccbbb.imag**2.0
+        # normalize
+        z=z/n.max(n.abs(z))
+        Z=fft(z)
+        cc=fft.ifft(Z*ZTX)
+        ccm=cc.real**2.0+cc.imag**2.0
+        mi=n.argmax(ccm)
 
-        # regularize with +1 to avoid division by zero
-        zp=z.real**2.0 + z.imag**2.0#n.abs(z)**2.0
-        # correlate power pattern
-        pwr=n.abs(n.fft.ifft(n.fft.fft(zp)*P))+1
+        thresh=190e3
         
-        # the maxima of AA and minima of AB cross-correlations coincide
-        # make use of this!
-        pfr=(ccaa/pwr - ccbb/pwr)
-        mi=n.argmax(pfr)
-        #        plt.plot(pfr)
-        #        plt.show()
-#        if debug:
-#            print(pfr[mi])        
-        if pfr[mi]>150 and (i0+mi - prev_idx) != 0:
-            # found new start
-            if debug:
-                print("%f %d %f"%( (i0-b[0])/1e6, i0+mi - prev_idx, pfr[mi]))
-            # 
-            # the idx points to the start of last ipp in a sequence of 20 ipps. we need to adjust to the start of the first ipp.
-            start_idxs.append(i0+mi - 19*1600)
-            if plot:
-                plt.plot(pfr,label=r"$m_t$")
-                plt.plot(ccaa/pwr,label=r"$c^A_{-t}*z_t/P_t$")
-                plt.plot(ccbb/pwr,label=r"$c^B_{-t}*z_t/P_t$")
-                plt.xlabel("Time (samples)")
-                plt.legend()
-                plt.show()
-                z=d.read_vector_c81d(i0+mi,N,ch)
-                plt.subplot(211)
-                plt.plot(z.real*codeaa.real)
-                plt.plot(z.imag*codeaa.real)
-                plt.subplot(212)
-                plt.plot(z.real*codebb.real)
-                plt.plot(z.imag*codebb.real)
-                plt.show()
+        if ccm[mi]>thresh and (i0+mi - prev_idx) != 0:
+            start_idxs.append(i0+mi)
             prev_idx=i0+mi
-        # go forward by one code sequence
-        i0+=10*N
+            z=d.read_vector_c81d(i0+mi,10000,ch)
+            plt.plot(z.real)
+            plt.plot(z.imag)
+            plt.show()
+        # go forward by one ipp
+        i0+=step
     return(n.array(start_idxs,dtype=int))
 
 
@@ -630,53 +615,9 @@ def test_mode_detection():
 
 
 if __name__ == "__main__":
-    find_isr_mode_start(None)
-    if False:
-        d=drf.DigitalRFReader("/media/archive/")
-        b=d.get_bounds("ch007")
-        # 10 seconds later then start of buffer
-        idx_end=b[1]-3600*1000000
-        print(b)
-        while True:
-            b=d.get_bounds("ch007")
-            if idx_end < b[0]:
-                print("cannot keep up. adjust start")
-                idx_end=b[0]+10000000
-            i1=idx_end+60000000
-            if i1>b[1]:
-                i1=b[1]
-            start_idx=find_m_mode_start(d,
-                                        i0=idx_end,
-                                        i1=i1,
-                                        ch="ch007", # channel 007 is the transmit sample
-                                        debug=True)
-            print(len(start_idx))
-            if len(start_idx) == 0:
-                idx_end=i1
-            else:
-                # we found 
-                idx_end=start_idx[-1]+1600*10
-
-            print(idx_end)
-            time.sleep(1)
-    
     d=drf.DigitalRFReader("/media/archive/")
-    b=d.get_bounds("ch000")
-    analyze_m_mode(d,b0=b[1]-3600*1000000,b1=b[1])
-    
-    b=d.get_bounds("ch000")
-    print(b)
-    analyze_st_mode(d,b0=b[1]-3600*1000000,b1=b[1])
-
-    
-    #
-    #d=drf.DigitalRFReader("test_data/mmode")
-    #analyze_m_mode(d)
-    #
-    #d=drf.DigitalRFReader("test_data/mixmode")
-    #analyze_m_mode(d)
-    #analyze_st_mode(d)
-
+    b=d.get_bounds("ch007")
+    find_isr_mode_start(d,b[1]-1000000,b[1])
 
 
 
