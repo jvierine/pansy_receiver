@@ -135,7 +135,7 @@ def process_m_mode(key,d,rds,dmw,dm_mf2,chs=["ch000","ch001","ch002","ch003","ch
         max_dop=RTIV[ti,max_rg]
         max_snr=snr[ti,max_rg]
         if debug:
-            print("%s snr=%1.0f range=%1.1f km doppler=%1.1f km/s txp=%1.1f"%(stuffr.unix2datestr((int(key)+ti*1600)/1e6),max_snr,rds.rangev[max_rg],max_dop,tx_pwrs[ti]))
+            print("%s snr=%1.0f range=%1.1f km doppler=%1.1f km/s txp=%1.1f"%(stuffr.unix2datestr((int(key)+ti*1600)/1e6),max_snr,rds.rangev[max_rg],max_dop/1e3,tx_pwrs[ti]))
         max_dops.append(max_dop)
         max_ranges.append(rds.rangev[max_rg])
         max_snrs.append(max_snr)
@@ -190,7 +190,7 @@ def process_isr_mode(key,d,rds,dmw,chs=["ch000","ch001","ch002","ch003","ch004",
     max_snr=n.max(snr)
     
     if max_snr>10:
-        print("%s snr=%1.0f range=%1.1f km doppler=%1.1f km/s txp=%1.1f"%(stuffr.unix2datestr((int(key)/1e6)),max_snr,rds.rangev[max_rg],max_dop,tx_pwr))
+        print("%s snr=%1.0f range=%1.1f km doppler=%1.1f km/s txp=%1.1f"%(stuffr.unix2datestr((int(key)/1e6)),max_snr,rds.rangev[max_rg],max_dop/1e3,tx_pwr))
         odata_dict={}
         odata_dict["tx_pwr"]=tx_pwr
         odata_dict["max_snr"]=max_snr
@@ -362,10 +362,10 @@ def meteor_search(debug=False):
                 keyi=int(key)
                 try:
                     if  data_dict[key] == 1:
-                        print("meso mode %s"%(stuffr.unix2datestr(key/1e6)))
+ #                       print("meso mode %s"%(stuffr.unix2datestr(key/1e6)))
                         process_m_mode(key,d,rds,dmw,dm_mf2,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"])
                     elif data_dict[key] == 2:
-                        print("isr mode %s"%(stuffr.unix2datestr(key/1e6)))
+#                        print("isr mode %s"%(stuffr.unix2datestr(key/1e6)))
                         process_isr_mode(key,d,rds_isr,dmw_isr,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"])
                     else:
                         print("unknown mode %d"%(data_dict[key]))
