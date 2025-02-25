@@ -242,7 +242,7 @@ def find_isr_mode_start(d,
  #   plt.show()
     
     start_idxs=[]
-    
+    prev_idx=0    
     while i0 < i1:
         try:
 
@@ -260,7 +260,7 @@ def find_isr_mode_start(d,
         mi=n.argmax(ccm)
 
         thresh=190e3
-        prev_idx=0
+
 #        print(ccm[mi])
         # txpulse about 520 microseconds
         # 9464 us ipp
