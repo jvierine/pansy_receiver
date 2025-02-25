@@ -357,6 +357,8 @@ def meteor_search(debug=False):
 
             keys=data_dict.keys()
             n_keys=len(keys)
+            n_meso=0
+            n_isr=0
             #print("%d processing %d pulses"%(rank,20*n_keys))
             for key in keys:
                 keyi=int(key)
@@ -364,9 +366,11 @@ def meteor_search(debug=False):
                     if  data_dict[key] == 1:
  #                       print("meso mode %s"%(stuffr.unix2datestr(key/1e6)))
                         process_m_mode(key,d,rds,dmw,dm_mf2,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"])
+                        n_meso+=1
                     elif data_dict[key] == 2:
 #                        print("isr mode %s"%(stuffr.unix2datestr(key/1e6)))
                         process_isr_mode(key,d,rds_isr,dmw_isr,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"])
+                        n_isr+=1
                     else:
                         print("unknown mode %d"%(data_dict[key]))
 
@@ -376,7 +380,7 @@ def meteor_search(debug=False):
 
         cput1=time.time()
         if n_keys > 0:
-            print("rank %d %d pulses %s cputime/realtime %1.2f"% (rank,n_keys*20,stuffr.unix2datestr(i0/1e6), (cput1-cput0)/(size*n_keys*20*1.6e-3)))
+            print("rank %d %d isr %d meso %s cputime/realtime %1.2f"% (rank,n_isr,n_meso*20,stuffr.unix2datestr(i0/1e6), (cput1-cput0)/(size*(n_meso*20*1.6e-3+n_isr*12.5e-3))))
 
     
     
