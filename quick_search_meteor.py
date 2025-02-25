@@ -356,18 +356,15 @@ def meteor_search(debug=False):
                 print("rank %d already processed %d-%d %d results"%(rank,i0,i1,len(mf2out.keys())))
                 continue
 
-            #print("not processed yet rank %d"%(rank))
-            
-
             keys=data_dict.keys()
             n_keys=len(keys)
             #print("%d processing %d pulses"%(rank,20*n_keys))
             for key in keys:
                 keyi=int(key)
                 try:
-                    if  data_dict[key]["id"] == 1:
+                    if  data_dict[key] == 1:
                         process_m_mode(key,d,rds,dmw,dm_mf2,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"])
-                    elif data_dist[key]["id"] == 2:
+                    elif data_dist[key] == 2:
                         process_isr_mode(key,d,rds_isr,dmw_isr,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"])
 
                 except:
