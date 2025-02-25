@@ -363,8 +363,10 @@ def meteor_search(debug=False):
                 keyi=int(key)
                 try:
                     if  data_dict[key] == 1:
+                        print("meso mode")
                         process_m_mode(key,d,rds,dmw,dm_mf2,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"])
                     elif data_dist[key] == 2:
+                        print("isr mode")
                         process_isr_mode(key,d,rds_isr,dmw_isr,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"])
 
                 except:
