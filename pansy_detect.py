@@ -266,12 +266,13 @@ def find_isr_mode_start(d,
         # 9464 us ipp
         if ccm[mi]>thresh and (i0+mi - prev_idx) != 0:
             start_idxs.append(i0+mi)
-            prev_idx=i0+mi
+
             if True:
                 print((i0+mi)-prev_idx)
                 #z=d.read_vector_c81d(i0+mi,N,ch)
                 #plt.plot(z.real)
                 #plt.plot(z.imag)
+            prev_idx=i0+mi                
                 #plt.show()
         # go forward by one ipp
         i0+=step
