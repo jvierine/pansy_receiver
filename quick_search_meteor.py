@@ -192,7 +192,6 @@ def process_isr_mode(key,d,rds,dmw,chs=["ch000","ch001","ch002","ch003","ch004",
     if max_snr>10:
         print("%s snr=%1.0f range=%1.1f km doppler=%1.1f km/s txp=%1.1f"%(stuffr.unix2datestr((int(key)/1e6)),max_snr,rds.rangev[max_rg],max_dop,tx_pwr))
         odata_dict={}
-        tx_idxs=n.array(tx_idxs)
         odata_dict["tx_pwr"]=tx_pwr
         odata_dict["max_snr"]=max_snr
         odata_dict["max_range"]=max_range
