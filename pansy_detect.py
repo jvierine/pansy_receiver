@@ -261,19 +261,19 @@ def find_isr_mode_start(d,
 
         thresh=190e3
         prev_idx=0
-        print(ccm[mi])
+#        print(ccm[mi])
+        # txpulse about 520 microseconds
         if ccm[mi]>thresh and (i0+mi - prev_idx) != 0:
-
             start_idxs.append(i0+mi)
             prev_idx=i0+mi
-            z=d.read_vector_c81d(i0+mi,10000,ch)
-            plt.plot(z.real)
-            plt.plot(z.imag)
-            plt.show()
+            if False:
+                z=d.read_vector_c81d(i0+mi,10000,ch)
+                plt.plot(z.real)
+                plt.plot(z.imag)
+                plt.show()
         # go forward by one ipp
         i0+=step
     return(n.array(start_idxs,dtype=int))
-
 
 def analyze_st_mode(d,
                     dt=10,
