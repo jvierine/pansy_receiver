@@ -190,15 +190,20 @@ def process_isr_mode(key,d,rds,dmw,chs=["ch000","ch001","ch002","ch003","ch004",
     max_snr=n.max(snr)
     
     if max_snr>10:
-#        print("%s snr=%1.0f range=%1.1f km doppler=%1.1f km/s txp=%1.1f"%(stuffr.unix2datestr((int(key)/1e6)),max_snr,rds.rangev[max_rg],max_dop/1e3,tx_pwr))
-        odata_dict={}
-        odata_dict["tx_pwr"]=tx_pwr
-        odata_dict["max_snr"]=max_snr
-        odata_dict["max_range"]=max_range
-        odata_dict["max_dopvel"]=max_dop
-        odata_dict["noise_floor"]=nf
-        odata_dict["tx_idxs"]=tx_idx
-        dmw.write([key],odata_dict)
+        #        print("%s snr=%1.0f range=%1.1f km doppler=%1.1f km/s txp=%1.1f"%(stuffr.unix2datestr((int(key)/1e6)),max_snr,rds.rangev[max_rg],max_dop/1e3,tx_pwr))
+        try:
+            odata_dict={}
+            odata_dict["tx_pwr"]=tx_pwr
+            odata_dict["max_snr"]=max_snr
+            odata_dict["max_range"]=max_range
+            odata_dict["max_dopvel"]=max_dop
+            odata_dict["noise_floor"]=nf
+            odata_dict["tx_idxs"]=tx_idx
+            dmw.write([key],odata_dict)
+        except:
+            import traceback
+            traceback.print_exc()
+            pass
 
 
 def meteor_search(debug=False):
@@ -305,8 +310,11 @@ def meteor_search(debug=False):
     b=d.get_bounds("ch000")
 
     d_analysis=file_cadence_seconds*1000000
+
+    b_mf_isr=db_mf_isr.get_bounds()
+
     # start analysis where the previous one left off
-    start_idx=d_analysis*int(n.ceil((db_mf[1]-6*3600*1000000)/d_analysis))
+    start_idx=d_analysis*int(n.floor((n.max((db_mf[1],b_mf_isr[1])))/d_analysis))
     # stay 6 minutes behind realtime to avoid underfull metadata files
     end_idx=d_analysis*int(n.ceil(db[1]/d_analysis))-6*d_analysis
 
