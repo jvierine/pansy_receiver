@@ -365,7 +365,7 @@ def meteor_search(debug=False):
                     if  data_dict[key] == 1:
                         print("meso mode %s"%(stuffr.unix2datestr(key/1e6)))
                         process_m_mode(key,d,rds,dmw,dm_mf2,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"])
-                    elif data_dist[key] == 2:
+                    elif data_dict[key] == 2:
                         print("isr mode %s"%(stuffr.unix2datestr(key/1e6)))
                         process_isr_mode(key,d,rds_isr,dmw_isr,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"])
                     else:
