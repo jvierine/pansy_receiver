@@ -101,7 +101,7 @@ class range_doppler_search:
         return(MF,pprof,peak_dopv,noise_floor)
 
 
-def process_m_mode(key,d,rds,dmw,dm_mf2,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"]):
+def process_m_mode(key,d,rds,dmw,dm_mf2,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"],debug=False):
     """
     process 20 ipps of meso mode starting at "key"
     """
