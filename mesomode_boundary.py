@@ -56,6 +56,8 @@ def find_blocks():
             print("no meso-mode")
         else:
             for k in data_dict.keys():
+                if data_dict[k]["id"] != 1:
+                    continue
                 if meso_start == -1:
                     meso_start = k
                     meso_prev=k
@@ -65,11 +67,11 @@ def find_blocks():
                     meso_end=meso_prev
                     #meso_blocks.append({"start":meso_start,"end":meso_end})
                     print("%s found meso mode %1.2f (s)"%(stuffr.unix2datestr(meso_start/1e6), (meso_end-meso_start)/1e6))
-                    data_dict={}
-                    data_dict["start"]=[meso_start]
-                    data_dict["end"]=[meso_end]
+                    odata_dict={}
+                    odata_dict["start"]=[meso_start]
+                    odata_dict["end"]=[meso_end]
                     try:
-                        dmw.write([meso_end],data_dict)
+                        dmw.write([meso_end],pdata_dict)
                     except:
                         traceback.print_exc()
                     # start new
