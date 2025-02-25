@@ -260,7 +260,7 @@ def find_isr_mode_start(d,
         mi=n.argmax(ccm)
 
         thresh=190e3
-        
+        prev_idx=0
         if ccm[mi]>thresh and (i0+mi - prev_idx) != 0:
             start_idxs.append(i0+mi)
             prev_idx=i0+mi
