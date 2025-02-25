@@ -254,7 +254,7 @@ def find_isr_mode_start(d,
             return(n.array([],dtype=n.int64))
         # normalize
         z=z/n.max(n.abs(z))
-        Z=fft(z)
+        Z=fft.fft(z)
         cc=fft.ifft(Z*ZTX)
         ccm=cc.real**2.0+cc.imag**2.0
         mi=n.argmax(ccm)
