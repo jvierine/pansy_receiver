@@ -145,6 +145,8 @@ def get_xc(fig,ax,dt=24*3600*1000000):
 def plot_status():
 
     d0=drf.DigitalMetadataReader(pc.mf_metadata_dir)
+    d0_isr=drf.DigitalMetadataReader(pc.mf_isr_metadata_dir)
+
     d1=drf.DigitalMetadataReader(pc.tx_metadata_dir)
     d2=drf.DigitalMetadataReader(pc.detections_metadata_dir)
     d3=drf.DigitalMetadataReader(pc.cut_metadata_dir)
@@ -160,7 +162,9 @@ def plot_status():
 
     tnow=time.time()*1e6
     mfb=d0.get_bounds()
-    latest_mf=stuffr.unix2datestr(mfb[1]/1e6)
+    mfb_isr=d0_isr.get_bounds()
+    b_mf = n.max((mfb[1],mfb_isr[1]))
+    latest_mf=stuffr.unix2datestr(b_mf/1e6)
 
     txb=d1.get_bounds()
     latest_tx=stuffr.unix2datestr(txb[1]/1e6)
@@ -207,7 +211,7 @@ def plot_status():
     print("raw voltage extent %s-%s (%1.0f s behind)"%(stuffr.unix2datestr(b[0]/1e6),latest_raw,raw_delay))
     tx_delay=(tnow-txb[1])/1e6
     print("latest tx %s (%1.0f s behind)"%(latest_tx,tx_delay))
-    mf_delay=(tnow-mfb[1])/1e6
+    mf_delay=(tnow-b_mf)/1e6
     print("latest mf %s (%1.0f s behind)"%(latest_mf,mf_delay))
     det_delay=(tnow-detb[1])/1e6
     print("latest det %s (%1.0f s behind)"%(latest_det,det_delay))
