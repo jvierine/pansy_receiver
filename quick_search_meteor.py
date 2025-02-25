@@ -368,6 +368,8 @@ def meteor_search(debug=False):
                     elif data_dist[key] == 2:
                         print("isr mode")
                         process_isr_mode(key,d,rds_isr,dmw_isr,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"])
+                    else:
+                        print("unknown mode %d"%(data_dict[key]))
 
                 except:
                     traceback.print_exc()
