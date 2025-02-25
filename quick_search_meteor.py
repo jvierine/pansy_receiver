@@ -30,7 +30,7 @@ class range_doppler_search:
                  fftlen=256
                  ):
         
-        self.idx=n.arange(132,dtype=n.int64)
+        self.idx=n.arange(txlen,dtype=n.int64)
         self.n_rg=len(rg)
         self.txlen=txlen
         if fftlen < txlen/fdec:
