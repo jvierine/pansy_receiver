@@ -71,6 +71,7 @@ def analyze_until_now():
         i1=start_idx+i*dt+dt
 
         txpa,txidxa,rnga,dopa,snra=read_mf_output(dm_mf,i0,i1)
+        print(n.diff(txidxa))
         if len(txidxa)>0:
             plt.scatter((txidxa-txidxa[0])/1e6,rnga,c=dopa,s=1,cmap="turbo")        
             plt.colorbar()
