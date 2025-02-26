@@ -4,6 +4,17 @@ import pansy_config as pc
 import itertools
 import h5py
 
+
+def get_phasecal():
+    phasecal = n.zeros([5,7])
+    for i in range(5):
+        # each antenna needs to be multiplied
+        # with these phases (n.exp(-1j*phasecal))
+        h=h5py.File("data/phases%d.h5"%(i),"r")
+        phasecal[i,:]=h["phasecal"][()]
+        h.close()
+    return(phasecal)
+
 def image_points(phcal,xc,ch_pairs,u,v,w,dmat):
     """
     image all points

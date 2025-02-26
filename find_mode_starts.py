@@ -74,7 +74,7 @@ def update_tx_pulses():
 
         if len(start_idx) > 0:
             data_dict={}
-            # let's use 1 as id of standard M-mode
+            # let's use 2 as id of standard isr-mode
             mode_id=n.repeat(2,len(start_idx))
             gidx=n.where( (start_idx >= idx0) & (start_idx < idx1) )[0]
             
