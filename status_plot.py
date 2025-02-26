@@ -141,70 +141,77 @@ def get_xc(fig,ax,dt=24*3600*1000000):
 
 # plot latest 24 hours of meteors
 
-d0=drf.DigitalMetadataReader(pc.mf_metadata_dir)
-d1=drf.DigitalMetadataReader(pc.tx_metadata_dir)
-d2=drf.DigitalMetadataReader(pc.detections_metadata_dir)
-d3=drf.DigitalMetadataReader(pc.cut_metadata_dir)
-d4=drf.DigitalMetadataReader(pc.mesomode_metadata_dir)
-d5=drf.DigitalMetadataReader(pc.xc_metadata_dir)#meteor_cal_metadata_dir="/media/analysis/metadata/meteor_cal"
-d6=drf.DigitalMetadataReader(pc.simple_fit_metadata_dir)
-dr=drf.DigitalRFReader(pc.raw_voltage_dir)
-#dgps=drf.DigitalMetadataReader(pc.gpslock_metadata_dir)
-#dclock=drf.DigitalMetadataReader(pc.clock_metadata_dir)
-
-write_clock_offset()
-
-
-tnow=time.time()*1e6
-mfb=d0.get_bounds()
-latest_mf=stuffr.unix2datestr(mfb[1]/1e6)
-
-txb=d1.get_bounds()
-latest_tx=stuffr.unix2datestr(txb[1]/1e6)
-
-detb=d2.get_bounds()
-latest_det=stuffr.unix2datestr(detb[1]/1e6)
-
-cutb=d3.get_bounds()
-latest_cut=stuffr.unix2datestr(cutb[1]/1e6)
-
-modeb=d4.get_bounds()
-latest_mode=stuffr.unix2datestr(modeb[1]/1e6)
-
-xcb=d5.get_bounds()
-latest_xc=stuffr.unix2datestr(xcb[1]/1e6)
-
-fitb=d6.get_bounds()
-latest_fit=stuffr.unix2datestr(fitb[1]/1e6)
-
-b=dr.get_bounds("ch000")
-latest_raw=stuffr.unix2datestr(b[1]/1e6)
-
-#bg=dgps.get_bounds()
-#gdata=dgps.read(bg[1]-24*3600*1000000,bg[1])
-#holdover=0
-#holdovert=-1
-#holdovers=[]
-#for k in gdata:
-#    holdover=gdata[k]["holdover"]
-#    holdovert=k
-#    holdovers.append(holdover)
-#mean_holdover=n.mean(holdovers)
-
-try:
-    h=h5py.File("/tmp/last_rem.h5","r")
-    last_del=h["last_del"][()]
-    print("removed non-meso mode up to %s (%1.0f s behind)"%(stuffr.unix2datestr(last_del/1e6),(tnow-last_del)/1e6))
-    h.close()
-except:
-    pass
 
 def plot_status():
+
+    d0=drf.DigitalMetadataReader(pc.mf_metadata_dir)
+    d0_isr=drf.DigitalMetadataReader(pc.mf_isr_metadata_dir)
+
+    d1=drf.DigitalMetadataReader(pc.tx_metadata_dir)
+    d2=drf.DigitalMetadataReader(pc.detections_metadata_dir)
+    d3=drf.DigitalMetadataReader(pc.cut_metadata_dir)
+    d4=drf.DigitalMetadataReader(pc.mesomode_metadata_dir)
+    d5=drf.DigitalMetadataReader(pc.xc_metadata_dir)#meteor_cal_metadata_dir="/media/analysis/metadata/meteor_cal"
+    d6=drf.DigitalMetadataReader(pc.simple_fit_metadata_dir)
+    dr=drf.DigitalRFReader(pc.raw_voltage_dir)
+    #dgps=drf.DigitalMetadataReader(pc.gpslock_metadata_dir)
+    #dclock=drf.DigitalMetadataReader(pc.clock_metadata_dir)
+
+    write_clock_offset()
+
+
+    tnow=time.time()*1e6
+    mfb=d0.get_bounds()
+    mfb_isr=d0_isr.get_bounds()
+    b_mf = n.max((mfb[1],mfb_isr[1]))
+    latest_mf=stuffr.unix2datestr(b_mf/1e6)
+
+    txb=d1.get_bounds()
+    latest_tx=stuffr.unix2datestr(txb[1]/1e6)
+
+    detb=d2.get_bounds()
+    latest_det=stuffr.unix2datestr(detb[1]/1e6)
+
+    cutb=d3.get_bounds()
+    latest_cut=stuffr.unix2datestr(cutb[1]/1e6)
+
+    modeb=d4.get_bounds()
+    latest_mode=stuffr.unix2datestr(modeb[1]/1e6)
+
+    xcb=d5.get_bounds()
+    latest_xc=stuffr.unix2datestr(xcb[1]/1e6)
+
+    fitb=d6.get_bounds()
+    latest_fit=stuffr.unix2datestr(fitb[1]/1e6)
+
+    b=dr.get_bounds("ch000")
+    latest_raw=stuffr.unix2datestr(b[1]/1e6)
+
+    #bg=dgps.get_bounds()
+    #gdata=dgps.read(bg[1]-24*3600*1000000,bg[1])
+    #holdover=0
+    #holdovert=-1
+    #holdovers=[]
+    #for k in gdata:
+    #    holdover=gdata[k]["holdover"]
+    #    holdovert=k
+    #    holdovers.append(holdover)
+    #mean_holdover=n.mean(holdovers)
+
+    try:
+        h=h5py.File("/tmp/last_rem.h5","r")
+        last_del=h["last_del"][()]
+        print("removed non-meso mode up to %s (%1.0f s behind)"%(stuffr.unix2datestr(last_del/1e6),(tnow-last_del)/1e6))
+        h.close()
+    except:
+        pass
+
+
     raw_delay=(tnow-b[1])/1e6
     print("raw voltage extent %s-%s (%1.0f s behind)"%(stuffr.unix2datestr(b[0]/1e6),latest_raw,raw_delay))
     tx_delay=(tnow-txb[1])/1e6
     print("latest tx %s (%1.0f s behind)"%(latest_tx,tx_delay))
-    mf_delay=(tnow-mfb[1])/1e6
+    mf_delay=(tnow-b_mf)/1e6
     print("latest mf %s (%1.0f s behind)"%(latest_mf,mf_delay))
     det_delay=(tnow-detb[1])/1e6
     print("latest det %s (%1.0f s behind)"%(latest_det,det_delay))
