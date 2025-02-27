@@ -64,11 +64,27 @@ def update_tx_pulses():
         idx0=i0+i*dt
         idx1=i0+i*dt+dt
 
+
+        start_idx=pd.find_b13_mode_start(d,
+                                         i0=idx0,
+                                         i1=idx1)
+        
+        print("%s found %d pulses b13 mode"%(stuffr.unix2datestr((i0+i*dt)/1e6),len(start_idx)))
+
+        if len(start_idx) > 0:
+            data_dict={}
+            # let's use 3 as id of standard barker13 4 ms ipp-mode
+            mode_id=n.repeat(3,len(start_idx))
+            gidx=n.where( (start_idx >= idx0) & (start_idx < idx1) )[0]
+            
+            if len(gidx)>0:
+                data_dict["id"]=mode_id[gidx]
+                dmw.write(start_idx[gidx],data_dict)
+
         # find 7-bit Barker codes associated with ISR mdoe
         start_idx=pd.find_isr_mode_start(d,
                                          i0=idx0,
-                                         i1=idx1,
-                                         ch="ch007")
+                                         i1=idx1)
         
         print("%s found %d pulses isr mode"%(stuffr.unix2datestr((i0+i*dt)/1e6),20*len(start_idx)))
 
@@ -86,7 +102,6 @@ def update_tx_pulses():
         start_idx=pd.find_m_mode_start(d,
                                        i0=idx0,
                                        i1=idx1,
-                                       ch="ch007", # channel 007 is the transmit sample
                                        debug=False)
         
         print("%s found %d pulses mesosphere mode"%(stuffr.unix2datestr((i0+i*dt)/1e6),20*len(start_idx)))

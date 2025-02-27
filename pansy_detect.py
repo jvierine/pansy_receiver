@@ -279,6 +279,53 @@ def find_isr_mode_start(d,
         i0+=step
     return(n.array(start_idxs,dtype=int))
 
+
+def find_b13_mode_start(d,
+                        i0=None,
+                        i1=None,
+                        ch="ch007", # channel 007 is the transmit sample
+                        debug=False):
+    h = h5py.File("data/barker13.h5","r")
+    z_tx=h["z"][()]
+    z_tx=z_tx[450:613]
+    z_tx=z_tx/n.max(n.abs(z_tx))
+    h.close()
+    N=4163
+    step=4000
+    ZTX=n.conj(fft.fft(z_tx,N))
+    
+    start_idxs=[]
+    prev_idx=0
+    while i0 < i1:
+        try:
+            z=d.read_vector_c81d(i0,N,ch)
+        except:
+            import traceback
+            traceback.print_exc()
+            print("read fail %d. returning empty string."%(i0))
+            return(n.array([],dtype=n.int64))
+        # normalize
+        z=z/n.max(n.abs(z))
+        Z=fft.fft(z)
+        cc=fft.ifft(Z*ZTX)
+        ccm=cc.real**2.0+cc.imag**2.0
+        mi=n.argmax(ccm)
+
+        thresh=25e3
+
+        if ccm[mi]>thresh and (i0+mi - prev_idx) != 0:
+            start_idxs.append(i0+mi)
+            if True:
+                print((i0+mi)-prev_idx)
+                z=d.read_vector_c81d(i0+mi,4000,ch)
+                plt.plot(z.real)
+                plt.plot(z.imag)
+                plt.show()
+            prev_idx=i0+mi              
+        i0+=step
+    return(n.array(start_idxs,dtype=int))
+
+
 def analyze_st_mode(d,
                     dt=10,
                     b0=None,
