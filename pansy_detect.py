@@ -311,6 +311,7 @@ def find_b13_mode_start(d,
         ccm=cc.real**2.0+cc.imag**2.0
         mi=n.argmax(ccm)
 
+        print(ccm[mi])
         thresh=25e3
 
         if ccm[mi]>thresh and (i0+mi - prev_idx) != 0:
