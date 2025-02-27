@@ -79,8 +79,12 @@ def update_tx_pulses():
             mean_ipp=n.mean(n.diff(start_idx[gidx]))
             print("mean_ipp=%d"%(mean_ipp))
             if len(gidx)>0:
-                data_dict["id"]=mode_id[gidx]
-                dmw.write(start_idx[gidx],data_dict)
+                try:
+                    data_dict["id"]=mode_id[gidx]
+                    dmw.write(start_idx[gidx],data_dict)
+                except:
+                    import traceback
+                    traceback.print_exc()
 
         # find 7-bit Barker codes associated with ISR mdoe
         start_idx=pd.find_isr_mode_start(d,
@@ -96,8 +100,13 @@ def update_tx_pulses():
             gidx=n.where( (start_idx >= idx0) & (start_idx < idx1) )[0]
             
             if len(gidx)>0:
-                data_dict["id"]=mode_id[gidx]
-                dmw.write(start_idx[gidx],data_dict)
+                try:
+                    data_dict["id"]=mode_id[gidx]
+                    dmw.write(start_idx[gidx],data_dict)
+                except:
+                    import traceback
+                    traceback.print_exc()
+
 
         # search for the start of a continuous 20 IPP sequence
         start_idx=pd.find_m_mode_start(d,
@@ -114,8 +123,12 @@ def update_tx_pulses():
             gidx=n.where( (start_idx >= idx0) & (start_idx < idx1) )[0]
             if len(gidx)>0:
                 print("%d in range"%(20*len(gidx)))
-                data_dict["id"]=mode_id[gidx]
-                dmw.write(start_idx[gidx],data_dict)
+                try:
+                    data_dict["id"]=mode_id[gidx]
+                    dmw.write(start_idx[gidx],data_dict)
+                except:
+                    import traceback
+                    traceback.print_exc()
     
 
 if __name__ == "__main__":
