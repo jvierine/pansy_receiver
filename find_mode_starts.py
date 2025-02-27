@@ -76,7 +76,8 @@ def update_tx_pulses():
             # let's use 3 as id of standard barker13 4 ms ipp-mode
             mode_id=n.repeat(3,len(start_idx))
             gidx=n.where( (start_idx >= idx0) & (start_idx < idx1) )[0]
-            
+            mean_ipp=n.mean(n.diff(start_idx[gidx]))
+            print("mean_ipp=%d"%(mean_ipp))
             if len(gidx)>0:
                 data_dict["id"]=mode_id[gidx]
                 dmw.write(start_idx[gidx],data_dict)
