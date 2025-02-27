@@ -327,7 +327,7 @@ def find_b13_mode_start(d,
 
         if ccm[mi]>thresh and (i0+mi - prev_idx) != 0:
             start_idxs.append(i0+mi)
-            if True:
+            if False:
                 print((i0+mi)-prev_idx)
                 z=d.read_vector_c81d(i0+mi,4000,ch)
                 plt.plot(z.real)
