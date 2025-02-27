@@ -309,6 +309,8 @@ def find_b13_mode_start(d,
         Z=fft.fft(z)
         cc=fft.ifft(Z*ZTX)
         ccm=cc.real**2.0+cc.imag**2.0
+        plt.plot(ccm)
+        plt.show()
         mi=n.argmax(ccm)
 
         print(ccm[mi])
