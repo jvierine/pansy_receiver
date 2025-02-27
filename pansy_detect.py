@@ -316,8 +316,13 @@ def find_b13_mode_start(d,
             plt.plot(ccm)
             plt.show()
         mi=n.argmax(ccm)
-
-        print(ccm[mi])
+        if ccm[mi] > 9e3:
+            print(ccm[mi])
+            plt.plot(z.real)
+            plt.plot(z.imag)
+            plt.show()
+            plt.plot(ccm)
+            plt.show()
         thresh=25e3
 
         if ccm[mi]>thresh and (i0+mi - prev_idx) != 0:
