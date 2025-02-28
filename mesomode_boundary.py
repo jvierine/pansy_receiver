@@ -56,7 +56,7 @@ def find_blocks():
             print("no meso-mode")
         else:
             for k in data_dict.keys():
-                if data_dict[k]["id"] != 1:
+                if data_dict[k] != 1:
                     continue
                 if meso_start == -1:
                     meso_start = k
