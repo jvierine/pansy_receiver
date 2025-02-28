@@ -381,8 +381,27 @@ def meteor_search(debug=False):
                         process_isr_mode(key,d,rds_isr,dmw_isr,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"])
                         n_isr+=1
                     else:
-                        print("unknown mode %d"%(data_dict[key]))
+                        try:
+                            # store a placeholder to avoid reanalyzing this part!
+                            odata_dict={}
+                            odata_dict["tx_pwr"]=0
+                            odata_dict["max_snr"]=0
+                            odata_dict["max_range"]=0
+                            odata_dict["max_dopvel"]=0
+                            odata_dict["noise_floor"]=0
+                            odata_dict["tx_idxs"]=0
+                            dmw_isr.write([keyi],odata_dict)
+                        except:
+                            import traceback
+                            traceback.print_exc()
+                            pass
+                        
+                        #                    else:
+                        #                       print("unknown mode %d"%(data_dict[key]))
 
+                    
+                    
+                    
                 except:
                     traceback.print_exc()
 
