@@ -388,7 +388,7 @@ def meteor_search(debug=False):
 
 
         cput1=time.time()
-        if n_keys > 0:
+        if (n_isr + n_meso) > 0:
             print("rank %d %d isr %d meso %s cputime/realtime %1.2f"% (rank,n_isr,n_meso*20,stuffr.unix2datestr(i0/1e6), (cput1-cput0)/(size*(n_meso*20*1.6e-3+n_isr*12.5e-3))))
 
     
