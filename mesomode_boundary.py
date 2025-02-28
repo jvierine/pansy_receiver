@@ -71,7 +71,7 @@ def find_blocks():
                     odata_dict["start"]=[meso_start]
                     odata_dict["end"]=[meso_end]
                     try:
-                        dmw.write([meso_end],data_dict)
+                        dmw.write([meso_end],odata_dict)
                     except:
                         traceback.print_exc()
                     # start new
