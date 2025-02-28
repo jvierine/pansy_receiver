@@ -405,7 +405,7 @@ def meteor_search(debug=False):
                 odata_dict["max_dopvel"]=0
                 odata_dict["noise_floor"]=0
                 odata_dict["tx_idxs"]=0
-                dmw_isr.write([i0],odata_dict)
+                dmw_isr.write([i0+10],odata_dict)
             except:
                 import traceback
                 traceback.print_exc()
