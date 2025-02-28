@@ -380,21 +380,7 @@ def meteor_search(debug=False):
 #                        print("isr mode %s"%(stuffr.unix2datestr(key/1e6)))
                         process_isr_mode(key,d,rds_isr,dmw_isr,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"])
                         n_isr+=1
-                    else:
-                        try:
-                            # store a placeholder to avoid reanalyzing this part!
-                            odata_dict={}
-                            odata_dict["tx_pwr"]=0
-                            odata_dict["max_snr"]=0
-                            odata_dict["max_range"]=0
-                            odata_dict["max_dopvel"]=0
-                            odata_dict["noise_floor"]=0
-                            odata_dict["tx_idxs"]=0
-                            dmw_isr.write([keyi],odata_dict)
-                        except:
-                            import traceback
-                            traceback.print_exc()
-                            pass
+#                    else:
                         
                         #                    else:
                         #                       print("unknown mode %d"%(data_dict[key]))
@@ -409,6 +395,22 @@ def meteor_search(debug=False):
         cput1=time.time()
         if (n_isr + n_meso) > 0:
             print("rank %d %d isr %d meso %s cputime/realtime %1.2f"% (rank,n_isr,n_meso*20,stuffr.unix2datestr(i0/1e6), (cput1-cput0)/(size*(n_meso*20*1.6e-3+n_isr*12.5e-3))))
+        else:
+            try:
+                # store a placeholder to avoid reanalyzing this part!
+                odata_dict={}
+                odata_dict["tx_pwr"]=0
+                odata_dict["max_snr"]=0
+                odata_dict["max_range"]=0
+                odata_dict["max_dopvel"]=0
+                odata_dict["noise_floor"]=0
+                odata_dict["tx_idxs"]=0
+                dmw_isr.write([i1],odata_dict)
+            except:
+                import traceback
+                traceback.print_exc()
+
+            
 
     
     
