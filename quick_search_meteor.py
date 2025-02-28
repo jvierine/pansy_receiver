@@ -384,11 +384,8 @@ def meteor_search(debug=False):
                         
                         #                    else:
                         #                       print("unknown mode %d"%(data_dict[key]))
-
-                    
-                    
-                    
                 except:
+                    import traceback
                     traceback.print_exc()
 
 
