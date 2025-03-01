@@ -1,5 +1,11 @@
 # PANSY Meteor Extension
 
+
+
+https://github.com/user-attachments/assets/2e66e59c-f924-4e65-8808-d4a50f88fefd
+
+
+
 The <a href="https://pansy.eps.s.u-tokyo.ac.jp/en/">PANSY</a> radar is a powerful MST radar operating in Antarctica at Syowa station. It is primarily used to study the troposphere and the lower thermosphere using radar echoes of turbulence. The radar is extremely capable in terms of sensitivity also for meteors. For the purpose of extending the scientific outcome of PANSY, a receiver capable of detecting meteor head echoes was shipped to Syowa station in late 2024, and became operation in January 2025. This will allow creating a continuous record of meteor head echoes during the remainder of the operational lifetime of the PANSY radar. This is a unique opportunity to observe the southern hemisphere meteor flux via the head echo technique, which is not likely to occur anything soon.
 
 Software and engineering documantation related to the PANSY meteor head echo receiver. This is a software defined radio receiver that operates independently of the PANSY receiver, using the transmit pulse leakthrough as a phase and radar experiment sequence reference. 
