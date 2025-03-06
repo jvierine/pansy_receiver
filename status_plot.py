@@ -10,7 +10,7 @@ import traceback
 import h5py
 import plot_simple_fits as psf
 
-psf.plot_latest_fits(save_plot=True)
+psf.plot_latest_fits(save_png=True)
 
 def get_meteors(fig,ax,dt=24*3600*1000000):
     """
