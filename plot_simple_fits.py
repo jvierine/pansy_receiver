@@ -28,7 +28,7 @@ def plot_latest_fits(save_png=False):
 
     ax = plt.subplot(111, projection="lambert")
     sp=ax.scatter(n.angle(n.exp(1j*n.pi*slons/180.0)*n.exp(1j*n.pi/2)),n.pi*slats/180.0,c=vgs,vmin=10,vmax=72,s=2,cmap="turbo")
-    ax.set_title("%s-%s"%(stuffr.unix2datestr(n.min(tv)),stuffr.unix2datestr(n.max(tv))))
+    ax.set_title("%s\n%s"%(stuffr.unix2datestr(n.min(tv)),stuffr.unix2datestr(n.max(tv))))
     cb=plt.colorbar(sp)
     cb.set_label("Geocentric velocity (km/s)")
     ax.grid(True)
