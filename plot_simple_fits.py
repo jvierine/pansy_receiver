@@ -13,18 +13,22 @@ def plot_latest_fits(save_png=False):
     vgs=[]
     slats=[]
     slons=[]
+    tv=[]
 
     for k in dd.keys():
         vgs.append(n.linalg.norm(dd[k]["v0"]))
         slats.append(dd[k]["eclat"])
         slons.append(dd[k]["eclon"])
+        tv.append(k/1e6)
 
     slons=n.array(slons)
     slats=n.array(slats)
     vgs=n.array(vgs)
+    tv=n.array(tv)
 
     ax = plt.subplot(111, projection="lambert")
     sp=ax.scatter(n.angle(n.exp(1j*n.pi*slons/180.0)*n.exp(1j*n.pi/2)),n.pi*slats/180.0,c=vgs,vmin=10,vmax=72,s=2,cmap="turbo")
+    ax.set_title("%s-%s"%(stuffr.unix2datestr(n.min(tv)/1e6),stuffr.unix2datestr(n.max(tv)/1e6)))
     cb=plt.colorbar(sp)
     cb.set_label("Geocentric velocity (km/s)")
     ax.grid(True)
