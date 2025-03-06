@@ -6,7 +6,7 @@ import stuffr
 import numpy as n
 
 def plot_latest_fits(save_png=False):
-    dm = drf.DigitalMetadataReader("/tmp/simple_fit")
+    dm = drf.DigitalMetadataReader(pc.simple_fit_metadata_dir)#pc."/tmp/simple_fit")
     b = dm.get_bounds()
 
     dd=dm.read(b[1]-24*3600*1000000,b[1])
