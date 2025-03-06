@@ -19,16 +19,17 @@ def get_radiant(p0,t0,u0):
     time (unix)
     u0 unit vector indication velocity vector of meteor (enu)
     """
+    u0=u0/n.linalg.norm(u0)
     p0=jcoord.enu2ecef(pc.lat,pc.lon,0,p0[0],p0[1],p0[2])
     u0=jcoord.enu2ecef(pc.lat,pc.lon,0,u0[0],u0[1],u0[2])
-    print(p0)
-    print(u0)
+  #  print(p0)
+   # print(u0)
     
     # tbd: convert to astropy
     llh=jcoord.ecef2geodetic(p0[0], p0[1], p0[2])
-    print(llh)
+#    print(llh)
     llh2=jcoord.ecef2geodetic(p0[0]-0.1*u0[0], p0[1]-0.1*u0[1], p0[2]-0.1*u0[2])
-    print(llh2)
+ #   print(llh2)
     aar=jcoord.geodetic_to_az_el_r(llh[0],llh[1],llh[2], llh2[0], llh2[1], llh2[2])
 #    print(llh[2]/1e3)
     

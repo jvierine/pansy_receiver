@@ -14,6 +14,8 @@ import pansy_interferometry as pint
 import h5py
 import pansy_modes as pmm
 import meteor_fit as metfit
+import simple_radiant as sr
+
 from mpi4py import MPI
 
 comm = MPI.COMM_WORLD
@@ -250,6 +252,9 @@ def process_cut(data,
             beam_idss=n.concatenate((beam_idss,beam_id[gidx]))
 
             r0,v0,model,eres,nres,ures=metfit.simple_fit_meteor(txidxs/1e6,ews,nss,ups)
+
+            rres=sr.get_radiant(r0*1e3,txidxs[0]/1e6,v0)
+
             dout={}
             dout["r0"]=r0
             dout["v0"]=v0            
@@ -259,6 +264,9 @@ def process_cut(data,
             dout["up"]=ups
             dout["snr"]=snrs
             dout["mfs"]=mfss
+            dout["txidx"]=txidxs
+            dout["eclat"]=rres["lat"]
+            dout["eclon"]=rres["lon"]
 
             print("%d beam %d %s %1.2f km %1.2f km/s %1.2f %1.2f %1.2f"%(rank,bi,stuffr.unix2datestr(txidxs[0]/1e6),
                                                                          n.linalg.norm(r0),n.linalg.norm(v0),eres*1e3,nres*1e3,ures*1e3))
@@ -346,7 +354,7 @@ def process_cut(data,
 
 if __name__ == "__main__":
     mddir=pc.cut_metadata_dir
-    #mddir="../pansy_test_data/metadata/cut"
+    mddir="../pansy_test_data/metadata/cut"
     dm = drf.DigitalMetadataReader(mddir)
     b = dm.get_bounds()
     dt=120000000
@@ -361,8 +369,9 @@ if __name__ == "__main__":
     samples_per_second_numerator = 1000000
     samples_per_second_denominator = 1
     file_name = "fit"
-    #omddir="/tmp/simple_fit"
-    omddir=pc.simple_fit_metadata_dir
+#    omddir=pc.simple_fit_metadata_dir
+    omddir="/tmp/simple_fit"
+
     os.system("mkdir -p %s"%(omddir))#pc.simple_fit_metadata_dir))
 
     dmw = drf.DigitalMetadataWriter(
