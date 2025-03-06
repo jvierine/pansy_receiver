@@ -7,7 +7,7 @@ import numpy as n
 
 def plot_latest_fits(save_png=False):
     dm = drf.DigitalMetadataReader(pc.simple_fit_metadata_dir)#pc."/tmp/simple_fit")
-#    dm = drf.DigitalMetadataReader("/tmp/simple_fit")
+  #  dm = drf.DigitalMetadataReader("/tmp/simple_fit")
 
     b = dm.get_bounds()
 
@@ -48,7 +48,7 @@ def plot_latest_fits(save_png=False):
     plt.figure(figsize=(8,4))
     if True:
         ax = plt.subplot(121, projection="lambert")
-        sp=ax.scatter(n.angle(n.exp(1j*n.pi*slons/180.0)*n.exp(1j*n.pi/2)),n.pi*slats/180.0,c=vgs,vmin=10,vmax=72,s=2,cmap="turbo")
+        sp=ax.scatter(n.angle(n.exp(1j*n.pi*slons/180.0)*n.exp(1j*n.pi/2)),n.pi*slats/180.0,c=vgs,vmin=10,vmax=72,s=0.5,cmap="turbo")
         ax.set_title("%s\n%s"%(stuffr.unix2datestr(n.min(tv)),stuffr.unix2datestr(n.max(tv))))
         #frame1 = plt.gca()
         ax.xaxis.set_ticklabels([])
@@ -59,7 +59,7 @@ def plot_latest_fits(save_png=False):
         ax.set_ylabel("Ecliptic latitude (deg)")
 
     ax = plt.subplot(122)
-    sp=ax.scatter(ea,no,c=10.0*n.log10(sn),s=1,cmap="gist_yarg",vmin=10,vmax=25)
+    sp=ax.scatter(ea,no,c=10.0*n.log10(sn),s=0.5,cmap="gist_yarg",vmin=10,vmax=25)
     ax.set_xlim([-30,30])
     ax.set_ylim([-30,30])
     #cb=plt.colorbar(sp)
