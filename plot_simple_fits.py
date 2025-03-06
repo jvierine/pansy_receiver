@@ -60,6 +60,8 @@ def plot_latest_fits(save_png=False):
 
     ax = plt.subplot(122)
     sp=ax.scatter(ea,no,c=10.0*n.log10(sn),s=1,cmap="gist_yarg",vmin=10,vmax=25)
+    ax.set_xlim([-30,30])
+    ax.set_ylim([-30,30])
     #cb=plt.colorbar(sp)
     #cb.set_label("SNR (dB)")
     ax.set_xlabel("East-West (km)")
