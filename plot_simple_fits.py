@@ -4,9 +4,10 @@ import matplotlib.pyplot as plt
 import digital_rf as drf
 import stuffr
 import numpy as n
+import h5py
 
 def plot_latest_fits(save_png=False):
-    dm = drf.DigitalMetadataReader(pc.simple_fit_metadata_dir)#pc."/tmp/simple_fit")
+    dm = drf.DigitalMetadataReader(pc.simple_fit_metadata_dir)
   #  dm = drf.DigitalMetadataReader("/tmp/simple_fit")
 
     b = dm.get_bounds()
@@ -41,6 +42,16 @@ def plot_latest_fits(save_png=False):
     ea=n.array(ea)
     no=n.array(no)
     sn=n.array(sn)
+
+    ho=h5py.File("/tmp/fit_data.h5","w")
+    ho["north"]=no
+    ho["east"]=ea
+    ho["snr"]=sn
+    ho["vg"]=vgs
+    ho["slon"]=slons
+    ho["slat"]=slats
+    ho["time"]=tv
+    ho.close()
     print(len(sn))
     print(len(ew))
     print(len(ns))
