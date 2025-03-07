@@ -10,7 +10,6 @@ import traceback
 import h5py
 import plot_simple_fits as psf
 
-psf.plot_latest_fits(save_png=True)
 
 def get_meteors(fig,ax,dt=24*3600*1000000):
     """
@@ -146,6 +145,7 @@ def get_xc(fig,ax,dt=24*3600*1000000):
 
 
 def plot_status():
+    psf.plot_latest_fits(save_png=True)
 
     d0=drf.DigitalMetadataReader(pc.mf_metadata_dir)
     d0_isr=drf.DigitalMetadataReader(pc.mf_isr_metadata_dir)
