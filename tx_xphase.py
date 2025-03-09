@@ -59,7 +59,7 @@ if __name__ == "__main__":
                     for j in range(8):                    
                         z1=d.read_vector_c81d(k,120,channels[j])
                         xphase[j]=n.mean(z0*n.conj(z1))
-                        if j == 1:
+                        if False:
                             #plt.subplot(121)
                             plt.plot((z0*n.conj(z1)).real)
                             plt.plot((z0*n.conj(z1)).imag)
