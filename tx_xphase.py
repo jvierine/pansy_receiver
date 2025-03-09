@@ -19,7 +19,7 @@ if __name__ == "__main__":
     rdir=pc.raw_voltage_dir
     d = drf.DigitalRFReader(rdir)
 
-    b = dm.get_bounds()
+    b = d.get_bounds("ch000")
     dt=10000000
     start_idx=b[0]
     n_block=int(n.ceil((b[1]-start_idx)/dt))
