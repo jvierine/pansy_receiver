@@ -40,14 +40,16 @@ if __name__ == "__main__":
 
 
     b = d.get_bounds("ch000")
-    dt=600000000
+    dt=60000000
     start_idx=b[0]
     n_block=int(n.ceil((b[1]-start_idx)/dt))
 
     channels=["ch000","ch001","ch002","ch003","ch004","ch005","ch006","ch007"]
     xphase=n.zeros(8,dtype=n.complex64)
     for bi in range(n_block):
-        data=dm.read(start_idx+bi*dt,start_idx+bi*dt+dt,"id")
+        print(stuffr.unix2datestr((start_idx+bi*dt)/1e6))
+
+        data=dm.read(start_idx+bi*dt,start_idx+bi*dt+1000000,"id")
         kl=list(data.keys())
         if len(kl) > 0:
             ki=0
@@ -77,7 +79,7 @@ if __name__ == "__main__":
                         print("%s %1.1g"%(stuffr.unix2datestr(k/1e6),n.mean(n.abs(xphase))))
 
                 except:
-                    print(stuffr.unix2datestr(k/1e6))
+                    pass
 #                    print()
 #                    import traceback
 #                    traceback.print_exc()
