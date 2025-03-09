@@ -37,15 +37,16 @@ if __name__ == "__main__":
             k=kl[ki]
             if data[k] == 1:
                 try:
-                    z0=d.read_vector_c81d(k,200,"ch000")
-                    z1=d.read_vector_c81d(k,200,"ch001")
-                    plt.subplot(121)
-                    plt.plot(z0.real)
-                    plt.plot(z0.imag)
-                    plt.subplot(122)
-                    plt.plot(z1.real)
-                    plt.plot(z1.imag)
-                    plt.show()
+                    z0=d.read_vector_c81d(k,120,"ch000")
+                    z1=d.read_vector_c81d(k,120,"ch001")
+                    print(n.angle(n.mean(z0*n.conj(z1))))
+#                    plt.subplot(121)
+ #                   plt.plot(z0.real)
+  #                  plt.plot(z0.imag)
+   #                 plt.subplot(122)
+    #                plt.plot(z1.real)
+     #               plt.plot(z1.imag)
+      #              plt.show()
                 except:
                     import traceback
                     traceback.print_exc()
