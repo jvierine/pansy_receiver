@@ -14,6 +14,7 @@ meteor_cal_metadata_dir="/media/analysis/metadata/meteor_cal"
 simple_fit_metadata_dir="/media/analysis/metadata/simple_meteor_fit"
 gpslock_metadata_dir="/media/analysis/metadata/gpslock"
 clock_metadata_dir="/media/analysis/metadata/clock"
+phase_metadata_dir="/media/analysis/metadata/phase"
 
 raw_voltage_dir="/media/archive/"
 

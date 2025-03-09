@@ -19,30 +19,50 @@ if __name__ == "__main__":
     rdir=pc.raw_voltage_dir
     d = drf.DigitalRFReader(rdir)
 
-    b = d.get_bounds("ch000")
-    dt=10000000
-    start_idx=b[0]
-    n_block=int(n.ceil((b[1]-start_idx)/dt))
-
+    # setup the directory and file cadence.
+    # use 1 MHz, as this is the sample-rate and thus a
+    # natural resolution for timing.
     subdirectory_cadence_seconds = 3600
     file_cadence_seconds = 60
     samples_per_second_numerator = 1000000
     samples_per_second_denominator = 1
-    file_name = "tx_xphase"
+    file_name = "txphase"
+    os.system("mkdir -p %s"%(pc.phase_metadata_dir))
+
+    dmw = drf.DigitalMetadataWriter(
+        pc.phase_metadata_dir,
+        subdirectory_cadence_seconds,
+        file_cadence_seconds,
+        samples_per_second_numerator,
+        samples_per_second_denominator,
+        file_name,
+    )
+
+
+    b = d.get_bounds("ch000")
+    dt=60000000
+    start_idx=b[0]
+    n_block=int(n.ceil((b[1]-start_idx)/dt))
+
     channels=["ch000","ch001","ch002","ch003","ch004","ch005","ch006","ch007"]
-    xphase=n.zeros(8,dtype=n.float32)
+    xphase=n.zeros(8,dtype=n.complex64)
     for bi in range(n_block):
         data=dm.read(start_idx+bi*dt,start_idx+bi*dt+dt,"id")
         kl=list(data.keys())
-        for ki in range(len(kl)):
+        if len(kl) > 0:
+            ki=0
+#        for ki in range(len(kl)):
             k=kl[ki]
             if data[k] == 1:
                 try:
                     z0=d.read_vector_c81d(k,120,"ch000")
-                    for j in range(1,8):                    
+                    for j in range(8):                    
                         z1=d.read_vector_c81d(k,120,channels[j])
-                        xphase[j]=n.angle(n.mean(z0*n.conj(z1)))
-                    print(xphase)
+                        xphase[j]=n.mean(z0*n.conj(z1))
+                    print(n.angle(xphase))
+                    print(n.abs(xphase))
+                    dout={"xphase":xphase}
+                    dmw.write(k,dout)
 #                    plt.subplot(121)
  #                   plt.plot(z0.real)
   #                  plt.plot(z0.imag)
