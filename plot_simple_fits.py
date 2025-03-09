@@ -20,16 +20,19 @@ def plot_latest_fits(save_png=False):
     no=[]
     sn=[]
     tv=[]
+    mfs=[]
 
     for k in dd.keys():
         vgs.append(n.linalg.norm(dd[k]["v0"]))
         snr=dd[k]["snr"]
         ew=dd[k]["ew"]
         ns=dd[k]["ns"]
+        mf=dd[k]["mfs"]
         mi=n.argmax(snr)
         ea.append(ew[mi])
         no.append(ns[mi])
         sn.append(snr[mi])
+        mfs.append(mf[mi])
        # print(snr[mi])
         slats.append(dd[k]["eclat"])
         slons.append(dd[k]["eclon"])
@@ -42,6 +45,7 @@ def plot_latest_fits(save_png=False):
     ea=n.array(ea)
     no=n.array(no)
     sn=n.array(sn)
+    mfs=n.array(mfs)
 
     ho=h5py.File("/tmp/fit_data.h5","w")
     ho["north"]=no
@@ -51,6 +55,8 @@ def plot_latest_fits(save_png=False):
     ho["slon"]=slons
     ho["slat"]=slats
     ho["time"]=tv
+    ho["mfs"]=mfs
+
     ho.close()
     print(len(sn))
     print(len(ew))
@@ -70,7 +76,7 @@ def plot_latest_fits(save_png=False):
         ax.set_ylabel("Ecliptic latitude (deg)")
 
     ax = plt.subplot(122)
-    sp=ax.scatter(ea,no,c=10.0*n.log10(sn),s=0.5,cmap="gist_yarg",vmin=10,vmax=25)
+    sp=ax.scatter(ea,no,c=mfs/21,s=0.5,cmap="viridis",vmin=0,vmax=1)
     ax.set_xlim([-30,30])
     ax.set_ylim([-30,30])
     #cb=plt.colorbar(sp)
