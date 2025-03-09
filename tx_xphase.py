@@ -69,17 +69,15 @@ if __name__ == "__main__":
                             #plt.plot(z1.real)
                             #plt.plot(z1.imag)
                             plt.show()
-                    print(n.abs(xphase))
-                    print("%s %1.1f %1.1f %1.1f %1.1f %1.1f %1.1f %1.1f %1.1f"%(stuffr.unix2datestr(k/1e6),n.angle(xphase[0]),n.angle(xphase[1]),n.angle(xphase[2]),n.angle(xphase[3]),n.angle(xphase[4]),n.angle(xphase[5]),n.angle(xphase[6]),n.angle(xphase[7])))
-#                    print("%s %1.1f %1.1f %1.1f %1.1f %1.1f %1.1f %1.1f %1.1f"%(stuffr.unix2datestr(k/1e6),n.angle(xphase[0]),n.angle(xphase[1]),n.angle(xphase[2]),n.angle(xphase[3]),n.angle(xphase[4]),n.angle(xphase[5]),n.angle(xphase[6]),n.angle(xphase[7])))
-
-#                    print(n.angle(xphase))
- #                   print(n.abs(xphase))
-                    dout={"xphase":xphase}
-                    dmw.write(k,dout)
+                    if n.mean(n.abs(xphase))>1e7:
+                        print("%s %1.1f %1.1f %1.1f %1.1f %1.1f %1.1f %1.1f %1.1f"%(stuffr.unix2datestr(k/1e6),n.angle(xphase[0]),n.angle(xphase[1]),n.angle(xphase[2]),n.angle(xphase[3]),n.angle(xphase[4]),n.angle(xphase[5]),n.angle(xphase[6]),n.angle(xphase[7])))
+                        dout={"xphase":xphase}
+                        dmw.write(k,dout)
                 except:
-                    import traceback
-                    traceback.print_exc()
+                    print(stuffr.unix2datestr(k/1e6))
+#                    print()
+#                    import traceback
+#                    traceback.print_exc()
             
 
 
