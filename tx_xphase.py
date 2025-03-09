@@ -73,6 +73,9 @@ if __name__ == "__main__":
                         print("%s %1.1f %1.1f %1.1f %1.1f %1.1f %1.1f %1.1f %1.1f"%(stuffr.unix2datestr(k/1e6),n.angle(xphase[0]),n.angle(xphase[1]),n.angle(xphase[2]),n.angle(xphase[3]),n.angle(xphase[4]),n.angle(xphase[5]),n.angle(xphase[6]),n.angle(xphase[7])))
                         dout={"xphase":xphase}
                         dmw.write(k,dout)
+                    else:
+                        print("%s %1.1g"%(stuffr.unix2datestr(k/1e6),n.mean(n.abs(xphase))))
+
                 except:
                     print(stuffr.unix2datestr(k/1e6))
 #                    print()
