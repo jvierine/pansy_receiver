@@ -14,7 +14,7 @@ import pansy_modes as pmm
 
 
 if __name__ == "__main__":
-    mddir=pc.mf_metadata_dir
+    mddir=pc.tx_metadata_dir
     dm = drf.DigitalMetadataReader(mddir)
     rdir=pc.raw_voltage_dir
     d = drf.DigitalRFReader(rdir)
