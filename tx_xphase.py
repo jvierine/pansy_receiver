@@ -59,18 +59,20 @@ if __name__ == "__main__":
                     for j in range(8):                    
                         z1=d.read_vector_c81d(k,120,channels[j])
                         xphase[j]=n.mean(z0*n.conj(z1))
+                        if j == 1:
+                            plt.subplot(121)
+                            plt.plot(z0.real)
+                            plt.plot(z0.imag)
+                            plt.subplot(122)
+                            plt.plot(z1.real)
+                            plt.plot(z1.imag)
+                            plt.show()
+
                     print("%s %1.1f %1.1f %1.1f %1.1f %1.1f %1.1f %1.1f %1.1f"%(stuffr.unix2datestr(k/1e6),n.angle(xphase[0]),n.angle(xphase[1]),n.angle(xphase[2]),n.angle(xphase[3]),n.angle(xphase[4]),n.angle(xphase[5]),n.angle(xphase[6]),n.angle(xphase[7])))
 #                    print(n.angle(xphase))
  #                   print(n.abs(xphase))
                     dout={"xphase":xphase}
                     dmw.write(k,dout)
-#                    plt.subplot(121)
- #                   plt.plot(z0.real)
-  #                  plt.plot(z0.imag)
-   #                 plt.subplot(122)
-    #                plt.plot(z1.real)
-     #               plt.plot(z1.imag)
-      #              plt.show()
                 except:
                     import traceback
                     traceback.print_exc()
