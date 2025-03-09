@@ -248,7 +248,7 @@ def plot_status():
     fig.tight_layout()
     plt.savefig("processing.png")
     plt.close()
-    os.system("rsync -avz --bwlimit 5 /tmp/latest_radiants.png status.png processing.png j@4.235.86.214:/var/www/html/pansy/")
+    os.system("rsync -avz --bwlimit 5 /tmp/fit_data.h5 /tmp/latest_radiants.png status.png processing.png j@4.235.86.214:/var/www/html/pansy/")
 
 
 while True:
