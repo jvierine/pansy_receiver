@@ -55,9 +55,9 @@ if __name__ == "__main__":
             k=kl[ki]
             if data[k] == 1:
                 try:
-                    z0=d.read_vector_c81d(k,120,"ch000")
+                    z0=d.read_vector_c81d(k,256,"ch000")
                     for j in range(8):                    
-                        z1=d.read_vector_c81d(k,120,channels[j])
+                        z1=d.read_vector_c81d(k,256,channels[j])
                         xphase[j]=n.mean(z0*n.conj(z1))
                         if j == 1:
                             plt.subplot(121)
