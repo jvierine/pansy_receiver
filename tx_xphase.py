@@ -30,7 +30,7 @@ if __name__ == "__main__":
     samples_per_second_denominator = 1
     file_name = "tx_xphase"
 
-    for bi in range(rank,n_block,size):
+    for bi in range(n_block):
         data=dm.read(start_idx+bi*dt,start_idx+bi*dt+dt,"id")
         kl=list(data.keys())
         for ki in range(len(kl)):
