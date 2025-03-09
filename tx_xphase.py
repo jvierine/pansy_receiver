@@ -35,20 +35,20 @@ if __name__ == "__main__":
         kl=list(data.keys())
         for ki in range(len(kl)):
             k=kl[ki]
-            data[key] == 1:
-            try:
-                z0=d.read_vector_c81d(k,200,"ch000")
-                z1=d.read_vector_c81d(k,200,"ch001")
-                plt.subplot(121)
-                plt.plot(z0.real)
-                plt.plot(z0.imag)
-                plt.subplot(122)
-                plt.plot(z1.real)
-                plt.plot(z1.imag)
-                plt.show()
-            except:
-                import traceback
-                traceback.print_exc()
+            if data[key] == 1:
+                try:
+                    z0=d.read_vector_c81d(k,200,"ch000")
+                    z1=d.read_vector_c81d(k,200,"ch001")
+                    plt.subplot(121)
+                    plt.plot(z0.real)
+                    plt.plot(z0.imag)
+                    plt.subplot(122)
+                    plt.plot(z1.real)
+                    plt.plot(z1.imag)
+                    plt.show()
+                except:
+                    import traceback
+                    traceback.print_exc()
             
 
 
