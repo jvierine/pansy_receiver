@@ -40,7 +40,7 @@ if __name__ == "__main__":
 
 
     b = d.get_bounds("ch000")
-    dt=60000000
+    dt=600000000
     start_idx=b[0]
     n_block=int(n.ceil((b[1]-start_idx)/dt))
 
