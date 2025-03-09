@@ -29,7 +29,8 @@ if __name__ == "__main__":
     samples_per_second_numerator = 1000000
     samples_per_second_denominator = 1
     file_name = "tx_xphase"
-
+    channels=["ch000","ch001","ch002","ch003","ch004","ch005","ch006","ch007"]
+    xphase=n.zeros(8,dtype=n.float32)
     for bi in range(n_block):
         data=dm.read(start_idx+bi*dt,start_idx+bi*dt+dt,"id")
         kl=list(data.keys())
@@ -38,8 +39,10 @@ if __name__ == "__main__":
             if data[k] == 1:
                 try:
                     z0=d.read_vector_c81d(k,120,"ch000")
-                    z1=d.read_vector_c81d(k,120,"ch001")
-                    print(n.angle(n.mean(z0*n.conj(z1))))
+                    for j in range(1,8):                    
+                        z1=d.read_vector_c81d(k,120,channels[j])
+                        xphase[j]=n.angle(n.mean(z0*n.conj(z1)))
+                    print(xphase)
 #                    plt.subplot(121)
  #                   plt.plot(z0.real)
   #                  plt.plot(z0.imag)
