@@ -352,14 +352,23 @@ def process_cut(data,
                     plt.close()
 
 
-if __name__ == "__main__":
+def process_latest():
     mddir=pc.cut_metadata_dir
  #   mddir="../pansy_test_data/metadata/cut"
     dm = drf.DigitalMetadataReader(mddir)
     b = dm.get_bounds()
     dt=120000000
 #    os.system("mkdir -p caldata")
+
     start_idx=b[0]
+
+    try:
+        dmf=drf.DigitalMetadataReader(pc.simple_fit_metadata_dir)
+        fitb=dmf.get_bounds()
+        start_idx=fitb[1]
+    except:
+        print("no fit boundary found")
+    
     n_block=int(n.ceil((b[1]-start_idx)/dt))
     print(stuffr.unix2datestr(b[1]/1e6))
     print(stuffr.unix2datestr(start_idx/1e6))
@@ -397,4 +406,8 @@ if __name__ == "__main__":
             
 
 
-
+if __name__ == "__main__":
+    while True:
+        process_latest()
+        comm.Barrier()
+        time.sleep(60)
