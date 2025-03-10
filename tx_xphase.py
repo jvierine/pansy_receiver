@@ -13,11 +13,12 @@ import itertools
 import pansy_modes as pmm
 
 
-if __name__ == "__main__":
+def tx_xphase():
     mddir=pc.tx_metadata_dir
     dm = drf.DigitalMetadataReader(mddir)
     rdir=pc.raw_voltage_dir
     d = drf.DigitalRFReader(rdir)
+
 
     # setup the directory and file cadence.
     # use 1 MHz, as this is the sample-rate and thus a
@@ -41,7 +42,17 @@ if __name__ == "__main__":
 
     b = d.get_bounds("ch000")
     dt=60000000
+
     start_idx=b[0]
+
+    try:
+        dmp = drf.DigitalMetadataReader(pc.phase_metadata_dir)
+        dmp_b=dmp.get_bounds()
+        start_idx=dmp_b[1]
+    except:
+        import traceback
+        trackback.print_exc()
+
     n_block=int(n.ceil((b[1]-start_idx)/dt))
 
     channels=["ch000","ch001","ch002","ch003","ch004","ch005","ch006","ch007"]
@@ -86,4 +97,7 @@ if __name__ == "__main__":
             
 
 
-
+if __name__ == "__main__":
+    while True:
+        tx_xphase()
+        time.sleep(3600)
