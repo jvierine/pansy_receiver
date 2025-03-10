@@ -8,8 +8,8 @@ import h5py
 import healpy as hp
 
 def plot_latest_fits(save_png=False):
-    #dm = drf.DigitalMetadataReader(pc.simple_fit_metadata_dir)
-    dm = drf.DigitalMetadataReader("../pansy_test_data/metadata/simple_meteor_fit")
+    dm = drf.DigitalMetadataReader(pc.simple_fit_metadata_dir)
+    #dm = drf.DigitalMetadataReader("../pansy_test_data/metadata/simple_meteor_fit")
 
     b = dm.get_bounds()
 
