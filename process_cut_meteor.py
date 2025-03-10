@@ -268,8 +268,8 @@ def process_cut(data,
             dout["eclat"]=rres["lat"]
             dout["eclon"]=rres["lon"]
 
-            print("%d beam %d %s %1.2f km %1.2f km/s %1.2f %1.2f %1.2f"%(rank,bi,stuffr.unix2datestr(txidxs[0]/1e6),
-                                                                         n.linalg.norm(r0),n.linalg.norm(v0),eres*1e3,nres*1e3,ures*1e3))
+            print("%d %s %1.2f km %1.2f km/s %1.2f %1.2f %1.2f"%(rank,stuffr.unix2datestr(txidxs[0]/1e6),
+                                                                 n.linalg.norm(r0),n.linalg.norm(v0),eres*1e3,nres*1e3,ures*1e3))
             if write_dm:
                 try:
                     dmw.write(txidxs[0],dout)
