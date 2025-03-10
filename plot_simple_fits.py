@@ -13,7 +13,7 @@ def plot_latest_fits(save_png=False):
 
     b = dm.get_bounds()
 
-    dd=dm.read(b[1]-24*3600*1000000,b[1])
+    dd=dm.read(b[1]-2*24*3600*1000000,b[1])
     vgs=[]
     slats=[]
     slons=[]
@@ -75,9 +75,9 @@ def plot_latest_fits(save_png=False):
     slats=slats[gidx]
     slons=slons[gidx]
     theta = n.radians(90 - slats)  # Colatitude: 90° - latitude
-    title="%s\n%s"%(stuffr.unix2datestr(n.min(tv)),stuffr.unix2datestr(n.max(tv)))
+    title="%s - %s"%(stuffr.unix2datestr(n.min(tv)),stuffr.unix2datestr(n.max(tv)))
     phi = n.radians(slons+90)  # Longitude in radians
-    nside = 32  
+    nside = 16  
     pixels = hp.ang2pix(nside, theta, phi)
     histogram = n.bincount(pixels, minlength=hp.nside2npix(nside))
     hp.mollview(histogram, title=title, unit="Counts",cmap="turbo",flip="geo",norm="linear")
