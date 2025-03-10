@@ -5,10 +5,11 @@ import digital_rf as drf
 import stuffr
 import numpy as n
 import h5py
+import healpy as hp
 
 def plot_latest_fits(save_png=False):
-    dm = drf.DigitalMetadataReader(pc.simple_fit_metadata_dir)
-  #  dm = drf.DigitalMetadataReader("/tmp/simple_fit")
+    #dm = drf.DigitalMetadataReader(pc.simple_fit_metadata_dir)
+    dm = drf.DigitalMetadataReader("../pansy_test_data/metadata/simple_meteor_fit")
 
     b = dm.get_bounds()
 
@@ -18,6 +19,7 @@ def plot_latest_fits(save_png=False):
     slons=[]
     ea=[]
     no=[]
+    up=[]
     sn=[]
     tv=[]
     mfs=[]
@@ -27,10 +29,13 @@ def plot_latest_fits(save_png=False):
         snr=dd[k]["snr"]
         ew=dd[k]["ew"]
         ns=dd[k]["ns"]
+        upp=dd[k]["up"]
+
         mf=dd[k]["mfs"]
         mi=n.argmax(snr)
         ea.append(ew[mi])
         no.append(ns[mi])
+        up.append(upp[mi])
         sn.append(snr[mi])
         mfs.append(mf[mi])
        # print(snr[mi])
@@ -44,6 +49,7 @@ def plot_latest_fits(save_png=False):
     tv=n.array(tv)
     ea=n.array(ea)
     no=n.array(no)
+    up=n.array(up)
     sn=n.array(sn)
     mfs=n.array(mfs)
 
@@ -62,6 +68,23 @@ def plot_latest_fits(save_png=False):
     print(len(ew))
     print(len(ns))
 
+
+        #ax = plt.subplot(121)
+
+    gidx=n.where(n.isnan(slats)!=True)[0]
+    slats=slats[gidx]
+    slons=slons[gidx]
+    theta = n.radians(90 - slats)  # Colatitude: 90° - latitude
+    title="%s\n%s"%(stuffr.unix2datestr(n.min(tv)),stuffr.unix2datestr(n.max(tv)))
+    phi = n.radians(slons+90)  # Longitude in radians
+    nside = 32  
+    pixels = hp.ang2pix(nside, theta, phi)
+    histogram = n.bincount(pixels, minlength=hp.nside2npix(nside))
+    hp.mollview(histogram, title=title, unit="Counts",cmap="turbo",flip="geo",norm="linear")
+    hp.graticule(color="white",alpha=0.1)
+    plt.savefig("/tmp/latest_radiants.png")
+    plt.close()
+    
     plt.figure(figsize=(8,4))
     if True:
         ax = plt.subplot(121, projection="lambert")
@@ -76,17 +99,23 @@ def plot_latest_fits(save_png=False):
         ax.set_ylabel("Ecliptic latitude (deg)")
 
     ax = plt.subplot(122)
-    sp=ax.scatter(ea,no,c=mfs/21,s=0.5,cmap="viridis",vmin=0,vmax=1)
-    ax.set_xlim([-30,30])
-    ax.set_ylim([-30,30])
-    #cb=plt.colorbar(sp)
-    #cb.set_label("SNR (dB)")
-    ax.set_xlabel("East-West (km)")
-    ax.set_ylabel("North-South (km)")
+    L=n.sqrt(up**2.0+ea**2.0+no**2.0)
+    u=ea/L
+    v=no/L
+
+    sp=ax.scatter(u,v,c=mfs/21,s=0.5,cmap="viridis",vmin=0.5,vmax=1)
+
+    ax.set_xlim([-0.3,0.3])
+    ax.set_ylim([-0.3,0.3])
+    cb=plt.colorbar(sp)
+    cb.set_label("Match function")
+    ax.set_aspect("equal")
+    ax.set_xlabel("East-West (unit)")
+    ax.set_ylabel("North-South (unit)")
 
     plt.tight_layout()
     if save_png:
-        plt.savefig("/tmp/latest_radiants.png")
+        plt.savefig("/tmp/latest_hist.png")
         plt.close()
     else:
         plt.show()
