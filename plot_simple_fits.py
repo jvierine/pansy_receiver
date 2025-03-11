@@ -7,6 +7,23 @@ import numpy as n
 import h5py
 import healpy as hp
 
+from astropy.time import Time
+from astropy.coordinates import get_sun, HeliocentricTrueEcliptic
+import astropy.units as u
+
+def solar_ecliptic_longitude(unix_time):
+    # Convert Unix time to Astropy Time object
+    time = Time(unix_time, format='unix', scale='utc')
+    
+    # Get Sun's position in the sky
+    sun = get_sun(time)
+
+    sp=get_sun(time)
+    sun_pos=sp.transform_to('geocentricmeanecliptic')
+    
+    # Return ecliptic longitude in degrees
+    return(sun_pos.lon.deg)
+
 def plot_latest_fits(save_png=False):
     dm = drf.DigitalMetadataReader(pc.simple_fit_metadata_dir)
     #dm = drf.DigitalMetadataReader("../pansy_test_data/metadata/simple_meteor_fit")
@@ -80,7 +97,8 @@ def plot_latest_fits(save_png=False):
     nside = 32  
     pixels = hp.ang2pix(nside, theta, phi)
     histogram = n.bincount(pixels, minlength=hp.nside2npix(nside))
-    hp.mollview(histogram, title=title, unit="Counts",cmap="turbo",flip="geo",norm="linear")
+    slon=solar_ecliptic_longitude(tv[0])
+    hp.mollview(histogram, title=r"$\lambda_{\mathrm{sun}}=%1.1f^{\circ}$ %s"%(slon,title), unit="Counts",cmap="turbo",flip="geo",norm="linear")
 
     hp.projtext(-90., 0., '0°', lonlat=True, coord='geo',color="white")
     hp.projtext(0., 0., '270°', lonlat=True, coord='geo',color="white")
