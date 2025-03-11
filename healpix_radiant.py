@@ -3,48 +3,119 @@ import healpy as hp
 import matplotlib.pyplot as plt 
 import h5py 
 import numpy as n
+import stuffr
 
-# Generate some random latitude and longitude points (or use real data)
-#num_points = 1000
-h=h5py.File("slon.h5","r")
-lons=h["slon"][()]
-lats=h["slat"][()]
-vg=h["vg"][()]
-h.close()
-print(vg)
-#exit(0)
-print(len(lons))
-#lats = np.random.uniform(-90, 90, num_points)  # Latitude in degrees
-#lons = np.random.uniform(-180, 180, num_points)  # Longitude in degrees
+import digital_rf as drf
 
-# Convert latitude to colatitude (theta) in radians
-theta = np.radians(90 - lats)  # Colatitude: 90° - latitude
-phi = np.radians(lons+90)  # Longitude in radians
+from astropy.time import Time
+from astropy.coordinates import get_sun, HeliocentricTrueEcliptic
+import astropy.units as u
 
-# Set HEALPix resolution (higher Nside means higher resolution)
-nside = 32  # Must be a power of 2
+def solar_ecliptic_longitude(unix_time):
+    # Convert Unix time to Astropy Time object
+    time = Time(unix_time, format='unix', scale='utc')
+    
+    # Get Sun's position in the sky
+    sun = get_sun(time)
+    
+    # Convert to Heliocentric True Ecliptic coordinates
+    sun_ecliptic = sun.transform_to(HeliocentricTrueEcliptic(obstime=time))
+    
+    # Return ecliptic longitude in degrees
+    return sun_ecliptic.lon.deg
 
-# Convert lat/lon to HEALPix pixel indices
-pixels = hp.ang2pix(nside, theta, phi)
 
-# Create a HEALPix map and count occurrences in each pixel
-histogram = np.bincount(pixels, minlength=hp.nside2npix(nside))
-mean_vel=n.zeros(len(histogram))
+def read_block(i0,i1,dm):
+    d=dm.read(i0,i1)
+    eclats=[]
+    eclons=[]
+    vgs=[]
+    tv=[]
 
-for i in range(len(pixels)):
-    mean_vel[pixels[i]]+=vg[i]
-mean_vel=mean_vel/histogram
-mean_vel[histogram<5]=n.nan
-print(histogram.shape)
-histogram[histogram<5]=1
-# Plot the histogram as a HEALPix map
-hp.mollview(histogram, title="Histogram of radiants", unit="Counts",cmap="viridis",flip="geo",norm="log")
-hp.graticule(color="white",alpha=0.1)
-plt.show()
+    for k in d.keys():
+        print(k)
+        eclat=d[k]["eclat"]
+        eclon=d[k]["eclon"]
+        tunix=n.min(d[k]["txidx"])/1e6
+        vg=n.linalg.norm(d[k]["v0"])/1e3
+        eclats.append(eclat)
+        eclons.append(eclon)
+        vgs.append(vg)
+        tv.append(tunix)
+    return(n.array(eclats),n.array(eclons),n.array(vgs),n.array(tv))
 
-mean_vel[mean_vel<0]=0
-mean_vel[mean_vel>72]=72
+def radiant_dist(lats,lons,vgs,tv,title="Sun centered ecliptic",savefig=True,nside=32):
+    # Convert latitude to colatitude (theta) in radians
+    gidx=n.where(n.isnan(lats)!=True)[0]
+    lats=lats[gidx]
+    lons=lons[gidx]
+    vgs=vgs[gidx]
+    tv=tv[gidx]
+    print(n.where(lats<=-90))
+    print(n.where(lats>=90))
+    theta = np.radians(90 - lats)  # Colatitude: 90° - latitude
+    print(n.min(theta))
+    print(n.max(theta))
 
-hp.mollview(mean_vel, title="Histogram of radiants", unit="Counts",cmap="turbo",flip="geo",norm="linear")
-hp.graticule(color="white",alpha=0.1)
-plt.show()
+    phi = np.radians(lons+90)  # Longitude in radians
+
+    # Set HEALPix resolution (higher Nside means higher resolution)
+    nside = nside  # Must be a power of 2
+
+    # Convert lat/lon to HEALPix pixel indices
+    pixels = hp.ang2pix(nside, theta, phi)
+
+    # Create a HEALPix map and count occurrences in each pixel
+    histogram = np.bincount(pixels, minlength=hp.nside2npix(nside))
+
+    slon=solar_ecliptic_longitude(tv[0]/1e6)
+    #mean_vel=n.zeros(len(histogram))
+
+    #for i in range(len(pixels)):
+    #    mean_vel[pixels[i]]+=vg[i]
+   # mean_vel=mean_vel/histogram
+  #  mean_vel[histogram<5]=n.nan
+ #   print(histogram.shape)
+#    histogram[histogram<5]=1
+    # Plot the histogram as a HEALPix map
+    hp.mollview(histogram, title=r"$\lambda=%1.1f^{\circ}$ %s"%(slon,title), unit="Counts",cmap="turbo",flip="geo",norm="linear")
+    hp.graticule(color="white",alpha=0.1)
+    if savefig:
+        plt.savefig("/tmp/heal-%d.png"%(int(n.min(tv))))
+        plt.close()
+    else:
+        plt.show()
+
+
+dm = drf.DigitalMetadataReader("/Users/j/src/pansy_test_data/metadata/simple_meteor_fit")
+b = dm.get_bounds()
+
+#lats,lons,vg,tv=read_block(b[0],b[1],dm)
+#print(len(lats))
+#titlestr=stuffr.unix2datestr((b[0])/1e6)
+#plt.hist(lats)
+#plt.show()
+print("plot")
+#radiant_dist(lats,lons,vg,tv,title=titlestr,savefig=False)
+
+w=2*24*3600*1000000
+dt=24*3600*1000000
+
+n_days=int(n.floor((b[1]-b[0])/dt))
+for di in range(n_days):
+    lats,lons,vg,tv=read_block(b[0]+di*dt,b[0]+di*dt+w,dm)
+    titlestr=stuffr.unix2datestr((b[0]+di*dt)/1e6)
+    #plt.hist(lats)
+    #plt.show()
+    print("plot")
+    radiant_dist(lats,lons,vg,tv,title=titlestr)
+    #lats = np.random.uniform(-90, 90, num_points)  # Latitude in degrees
+    #lons = np.random.uniform(-180, 180, num_points)  # Longitude in degrees
+
+
+#mean_vel[mean_vel<0]=0
+#mean_vel[mean_vel>72]=72
+
+#hp.mollview(mean_vel, title="Histogram of radiants", unit="Counts",cmap="turbo",flip="geo",norm="linear")
+#hp.graticule(color="white",alpha=0.1)
+#plt.show()

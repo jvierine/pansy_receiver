@@ -77,11 +77,17 @@ def plot_latest_fits(save_png=False):
     theta = n.radians(90 - slats)  # Colatitude: 90° - latitude
     title="%s - %s"%(stuffr.unix2datestr(n.min(tv)),stuffr.unix2datestr(n.max(tv)))
     phi = n.radians(slons+90)  # Longitude in radians
-    nside = 16  
+    nside = 32  
     pixels = hp.ang2pix(nside, theta, phi)
     histogram = n.bincount(pixels, minlength=hp.nside2npix(nside))
     hp.mollview(histogram, title=title, unit="Counts",cmap="turbo",flip="geo",norm="linear")
-    hp.graticule(color="white",alpha=0.1)
+
+    hp.projtext(-90., 0., '0°', lonlat=True, coord='geo',color="white")
+    hp.projtext(0., 0., '270°', lonlat=True, coord='geo',color="white")
+    hp.projtext(90., 0., '90°', lonlat=True, coord='geo',color="white")
+    hp.graticule(color="white",alpha=0.2,dpar=10,verbose=True)
+
+    #hp.graticule(color="white",alpha=0.1)
     plt.savefig("/tmp/latest_radiants.png")
     plt.close()
     
