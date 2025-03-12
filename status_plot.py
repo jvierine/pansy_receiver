@@ -230,8 +230,8 @@ def plot_status():
     print("latest fit %s (%1.0f s behind)"%(latest_fit,fit_delay))
 #    print("gpslock %s (%1.0f s holdover)"%(stuffr.unix2datestr(holdovert/1e6),holdover))
 
-    labels=["Raw (s)","TX det","MF","Events","Cutting","Modes","FXC"]
-    delays=n.array([3600*raw_delay,tx_delay,mf_delay,det_delay,cut_delay,mode_delay,xc_delay])/3600.0
+    labels=["Raw (s)","TX det","MF","Events","Cutting","Modes","FXC","fit"]
+    delays=n.array([3600*raw_delay,tx_delay,mf_delay,det_delay,cut_delay,mode_delay,xc_delay,fit_delay])/3600.0
 
     fig,(ax0,ax1)=plt.subplots(2,1,sharex=True,figsize=(8,8))
     get_xc(fig,ax0)
