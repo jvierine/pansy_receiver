@@ -250,7 +250,7 @@ def plot_status():
     fig.tight_layout()
     plt.savefig("processing.png")
     plt.close()
-    os.system("rsync -avz --bwlimit 5 /tmp/fit_data.h5 /tmp/latest_meteor.png /tmp/latest_radiants.png /tmp/latest_hist.png status.png processing.png j@4.235.86.214:/var/www/html/pansy/")
+    os.system("rsync -avz --bwlimit 1 /tmp/fit_data.h5 /tmp/latest_meteor.png /tmp/latest_radiants.png /tmp/latest_hist.png status.png processing.png j@4.235.86.214:/var/www/html/pansy/")
 
 
 while True:
@@ -259,4 +259,4 @@ while True:
     except:
         import traceback
         traceback.print_exc()
-    time.sleep(3600)
+    time.sleep(300)
