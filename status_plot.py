@@ -9,6 +9,7 @@ import pansy_config as pc
 import traceback
 import h5py
 import plot_simple_fits as psf
+import process_cut_meteor as pcm
 
 
 def get_meteors(fig,ax,dt=24*3600*1000000):
@@ -146,6 +147,7 @@ def get_xc(fig,ax,dt=24*3600*1000000):
 
 def plot_status():
     psf.plot_latest_fits(save_png=True)
+    pcm.plot_last()
 
     d0=drf.DigitalMetadataReader(pc.mf_metadata_dir)
     d0_isr=drf.DigitalMetadataReader(pc.mf_isr_metadata_dir)
@@ -248,7 +250,7 @@ def plot_status():
     fig.tight_layout()
     plt.savefig("processing.png")
     plt.close()
-    os.system("rsync -avz --bwlimit 5 /tmp/fit_data.h5 /tmp/latest_radiants.png /tmp/latest_hist.png status.png processing.png j@4.235.86.214:/var/www/html/pansy/")
+    os.system("rsync -avz --bwlimit 5 /tmp/fit_data.h5 /tmp/latest_meteor.png /tmp/latest_radiants.png /tmp/latest_hist.png status.png processing.png j@4.235.86.214:/var/www/html/pansy/")
 
 
 while True:
