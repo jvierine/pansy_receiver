@@ -201,7 +201,8 @@ def process_cut(data,
         rds=range_doppler_search(txlen=txlen,echolen=echolen,interp=interp,n_channels=z_rx.shape[1])
 
         n_ipp=z_rx.shape[0]
-        RTI=n.zeros([n_ipp, rds.n_rg],dtype=n.float32)
+        ridx=n.arange(rds.n_rg,dtype=int)
+        RTI=n.zeros([n_ipp, 1600],dtype=n.float32)
         xct=n.zeros([n_ipp,rds.n_pairs],dtype=n.complex64)
 
         peak_rg=[]
@@ -215,7 +216,7 @@ def process_cut(data,
             max_rg=n.argmax(pprof)
             peak_rg.append((delays[ti]+max_rg/interp)*drg)
             peak_dop.append(peak_dopv[max_rg])
-            RTI[ti,:]=(pprof-noise_floor)/noise_floor
+            RTI[ti,ridx+delays[ti]]=(pprof-noise_floor)/noise_floor
             xct[ti,:]=xc
             snr.append((pprof[max_rg]-noise_floor)/noise_floor)
             
@@ -279,23 +280,24 @@ def process_cut(data,
 
             if plot:
                 nm=len(ews)
+                pt0=tx_idx[0]/1e6
                 plt.figure(figsize=(12,8))
                 plt.subplot(231)
-                plt.scatter(txidxs/1e6,ews,c=mfss/21)
-                plt.plot(txidxs/1e6,model[0:nm],color="blue")
+                plt.scatter(txidxs/1e6-pt0,ews,c=mfss/21,vmin=0.5,vmax=1.0)
+                plt.plot(txidxs/1e6-pt0,model[0:nm],color="blue")
                 plt.title(r"$|v_g|$=%1.1f km/s"%(n.linalg.norm(v0)))
                 plt.xlabel("Time (s)")
                 plt.ylabel("EW (km)")            
                 plt.subplot(232)
-                plt.scatter(txidxs/1e6,nss,c=mfss/21)
+                plt.scatter(txidxs/1e6-pt0,nss,c=mfss/21,vmin=0.5,vmax=1.0)
                 plt.title(r"$\sigma_e=%1.1f$ $\sigma_n=%1.1f$, $\sigma_u=%1.1f$ m"%(1e3*eres,1e3*nres,1e3*ures))
-                plt.plot(txidxs/1e6,model[nm:(2*nm)],color="blue")            
+                plt.plot(txidxs/1e6-pt0,model[nm:(2*nm)],color="blue")            
                 plt.xlabel("Time (s)")
                 plt.ylabel("NS (km)")                        
                 plt.subplot(233)
-                plt.scatter(txidxs/1e6,ups,c=mfss/21)
+                plt.scatter(txidxs/1e6-pt0,ups,c=mfss/21,vmin=0.5,vmax=1.0)
                 plt.title(stuffr.unix2datestr(txidxs[0]/1e6))
-                plt.plot(txidxs/1e6,model[(2*nm):(3*nm)],color="blue")
+                plt.plot(txidxs/1e6-pt0,model[(2*nm):(3*nm)],color="blue")
                 plt.xlabel("Time (s)")
                 plt.ylabel("Up (km)")            
 
@@ -312,21 +314,28 @@ def process_cut(data,
                 plt.xlim([-35,35])
 
                 plt.subplot(235)
-                plt.scatter(txidxs/1e6,10.0*n.log10(snrs),c=beam_idss,cmap="rainbow",vmin=0,vmax=4)
+                rvec=n.arange(1600)*0.15
+                plt.pcolormesh(tx_idx/1e6-pt0,rvec,RTI.T,cmap="turbo")
+                plt.ylim([n.min(delays)*0.15,(n.max(delays)+rds.n_rg)*0.15])
                 cb=plt.colorbar()
-                cb.set_label("beam")
+                cb.set_label("SNR (dB)")
+                if False:
+                    plt.scatter(txidxs/1e6,10.0*n.log10(snrs),c=beam_idss,cmap="rainbow",vmin=0,vmax=4)
+                    cb=plt.colorbar()
+                    cb.set_label("beam")
 
                 plt.xlabel("Time (s)")
-                plt.ylabel("SNR (dB)")                        
+                plt.ylabel("Range (km)")                        
                 plt.subplot(236)
-                plt.scatter(txidxs/1e6,peak_dops/1e3,c=mfss/21)
+                plt.scatter(txidxs/1e6-pt0,peak_dops/1e3,c=mfss/21,vmin=0.5,vmax=1.0)
                 cb=plt.colorbar()
-                cb.set_label("Coherence")
+                cb.set_label("Match function")
                 plt.xlabel("Time (s)")
                 plt.ylabel("Doppler (km/s)")
                 plt.tight_layout()
                 #plt.show()
-                plt.savefig("/tmp/pansy/meteor-%1.1f.png"%(float(tx_idx[0]/1e6)))
+                plt.savefig("/tmp/latest_meteor.png")#%(float(tx_idx[0]/1e6)))
+                #plt.show()
                 plt.close()
 
 
@@ -404,9 +413,24 @@ def process_latest():
                 import traceback
                 traceback.print_exc()
             
+def plot_last():
+    #mddir="../pansy_test_data/metadata/cut"
+    dm = drf.DigitalMetadataReader(pc.cut_metadata_dir)
+    b = dm.get_bounds()
 
+    data=dm.read(b[1]-60000000,b[1])
+    kl=list(data.keys())
+    if len(kl)>0:
+        k=kl[0]
+        try:
+            print(stuffr.unix2datestr(k/1e6))
+            process_cut(data[k],None,write_dm=False,plot=True)
+        except:
+            import traceback
+            traceback.print_exc()
 
 if __name__ == "__main__":
+    #plot_last()
     while True:
         process_latest()
         comm.Barrier()
