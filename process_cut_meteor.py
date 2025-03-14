@@ -26,6 +26,9 @@ phasecal = n.zeros([5,7])
 imaging=[]
 mmdict=pmm.get_m_mode()
 
+
+
+
 def beam_pixmap():
     u0,v0,w0=pint.uv_coverage(N=400,max_zenith_angle=20.0)
     ew=u0*100
@@ -172,6 +175,7 @@ def process_cut(data,
                 dmw,
                 interp=1,
                 write_dm=True,
+                do_cnn_image=False,
                 plot=False):
 
 
@@ -203,6 +207,7 @@ def process_cut(data,
         n_ipp=z_rx.shape[0]
         ridx=n.arange(rds.n_rg,dtype=int)
         RTI=n.zeros([n_ipp, 1600],dtype=n.float32)
+        DTI=n.zeros([n_ipp, 1600],dtype=n.float32)
         xct=n.zeros([n_ipp,rds.n_pairs],dtype=n.complex64)
 
         peak_rg=[]
@@ -217,6 +222,7 @@ def process_cut(data,
             peak_rg.append((delays[ti]+max_rg/interp)*drg)
             peak_dop.append(peak_dopv[max_rg])
             RTI[ti,ridx+delays[ti]]=(pprof-noise_floor)/noise_floor
+            DTI[ti,ridx+delays[ti]]=peak_dopv
             xct[ti,:]=xc
             snr.append((pprof[max_rg]-noise_floor)/noise_floor)
             
@@ -277,25 +283,27 @@ def process_cut(data,
                 except:
                     import traceback
                     traceback.print_exc()
+            if do_cnn_image:
+                return(RTI[:,n.min(delays):(n.max(delays)+rds.n_rg)].T,DTI[:,n.min(delays):(n.max(delays)+rds.n_rg)].T)
 
             if plot:
                 nm=len(ews)
                 pt0=tx_idx[0]/1e6
                 plt.figure(figsize=(12,8))
                 plt.subplot(231)
-                plt.scatter(txidxs/1e6-pt0,ews,c=mfss/21,vmin=0.5,vmax=1.0)
+                plt.scatter(txidxs/1e6-pt0,ews,c=mfss/21,vmin=0.5,vmax=1.0,cmap="brg")
                 plt.plot(txidxs/1e6-pt0,model[0:nm],color="blue")
                 plt.title(r"$|v_g|$=%1.1f km/s"%(n.linalg.norm(v0)))
                 plt.xlabel("Time (s)")
                 plt.ylabel("EW (km)")            
                 plt.subplot(232)
-                plt.scatter(txidxs/1e6-pt0,nss,c=mfss/21,vmin=0.5,vmax=1.0)
+                plt.scatter(txidxs/1e6-pt0,nss,c=mfss/21,vmin=0.5,vmax=1.0,cmap="brg")
                 plt.title(r"$\sigma_e=%1.1f$ $\sigma_n=%1.1f$, $\sigma_u=%1.1f$ m"%(1e3*eres,1e3*nres,1e3*ures))
                 plt.plot(txidxs/1e6-pt0,model[nm:(2*nm)],color="blue")            
                 plt.xlabel("Time (s)")
                 plt.ylabel("NS (km)")                        
                 plt.subplot(233)
-                plt.scatter(txidxs/1e6-pt0,ups,c=mfss/21,vmin=0.5,vmax=1.0)
+                plt.scatter(txidxs/1e6-pt0,ups,c=mfss/21,vmin=0.5,vmax=1.0,cmap="brg")
                 plt.title(stuffr.unix2datestr(txidxs[0]/1e6))
                 plt.plot(txidxs/1e6-pt0,model[(2*nm):(3*nm)],color="blue")
                 plt.xlabel("Time (s)")
@@ -316,6 +324,9 @@ def process_cut(data,
                 plt.subplot(235)
                 rvec=n.arange(1600)*0.15
                 plt.pcolormesh(tx_idx/1e6-pt0,rvec,RTI.T,cmap="turbo")
+
+#                    cnn_image(RTI.T)
+                
                 plt.ylim([n.min(delays)*0.15,(n.max(delays)+rds.n_rg)*0.15])
                 cb=plt.colorbar()
                 cb.set_label("SNR (dB)")
@@ -327,7 +338,7 @@ def process_cut(data,
                 plt.xlabel("Time (s)")
                 plt.ylabel("Range (km)")                        
                 plt.subplot(236)
-                plt.scatter(txidxs/1e6-pt0,peak_dops/1e3,c=mfss/21,vmin=0.5,vmax=1.0)
+                plt.scatter(txidxs/1e6-pt0,peak_dops/1e3,c=mfss/21,vmin=0.5,vmax=1.0,cmap="brg")
                 cb=plt.colorbar()
                 cb.set_label("Match function")
                 plt.xlabel("Time (s)")

@@ -127,7 +127,7 @@ def plot_latest_fits(save_png=False):
     u=ea/L
     v=no/L
 
-    sp=ax.scatter(u,v,c=mfs/21,s=0.5,cmap="viridis",vmin=0.5,vmax=1)
+    sp=ax.scatter(u,v,c=mfs/21,s=0.5,cmap="brg",vmin=0.5,vmax=1)
 
     ax.set_xlim([-0.3,0.3])
     ax.set_ylim([-0.3,0.3])
