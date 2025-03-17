@@ -291,28 +291,31 @@ def process_cut(data,
                 pt0=tx_idx[0]/1e6
                 plt.figure(figsize=(12,8))
                 plt.subplot(231)
-                plt.scatter(txidxs/1e6-pt0,ews,c=mfss/21,vmin=0.5,vmax=1.0,cmap="brg")
+                plt.errorbar(txidxs/1e6-pt0,ews,eres*2,fmt=".")
+                plt.scatter(txidxs/1e6-pt0,ews,c=mfss/21,vmin=0.5,vmax=1.0,cmap="brg",s=10)
                 plt.plot(txidxs/1e6-pt0,model[0:nm],color="blue")
                 plt.title(r"$|v_g|$=%1.1f km/s"%(n.linalg.norm(v0)))
                 plt.xlabel("Time (s)")
                 plt.ylabel("EW (km)")            
                 plt.subplot(232)
-                plt.scatter(txidxs/1e6-pt0,nss,c=mfss/21,vmin=0.5,vmax=1.0,cmap="brg")
+                plt.errorbar(txidxs/1e6-pt0,nss,nres*2,fmt=".")
+                plt.scatter(txidxs/1e6-pt0,nss,c=mfss/21,vmin=0.5,vmax=1.0,cmap="brg",s=10)
+
                 plt.title(r"$\sigma_e=%1.1f$ $\sigma_n=%1.1f$, $\sigma_u=%1.1f$ m"%(1e3*eres,1e3*nres,1e3*ures))
                 plt.plot(txidxs/1e6-pt0,model[nm:(2*nm)],color="blue")            
                 plt.xlabel("Time (s)")
                 plt.ylabel("NS (km)")                        
                 plt.subplot(233)
-                plt.scatter(txidxs/1e6-pt0,ups,c=mfss/21,vmin=0.5,vmax=1.0,cmap="brg")
+                plt.errorbar(txidxs/1e6-pt0,ups,ures*2,fmt=".")
+                plt.scatter(txidxs/1e6-pt0,ups,c=mfss/21,vmin=0.5,vmax=1.0,cmap="brg",s=10)
                 plt.title(stuffr.unix2datestr(txidxs[0]/1e6))
                 plt.plot(txidxs/1e6-pt0,model[(2*nm):(3*nm)],color="blue")
                 plt.xlabel("Time (s)")
                 plt.ylabel("Up (km)")            
 
-                plt.subplot(234)
-
+                plt.subplot(234)                
                 plt.pcolormesh(ewbm,nsbm,bitmap,cmap="gist_yarg",vmax=5)
-                plt.scatter(ews,nss,c=beam_idss,s=1,cmap="rainbow",vmin=0,vmax=4)
+                plt.scatter(ews,nss,c=beam_idss,s=2,cmap="rainbow",vmin=0,vmax=4)
                 sidx=n.argmin(txidxs)
                 plt.text(ews[sidx],nss[sidx],r"$t_0$")
 
@@ -329,7 +332,7 @@ def process_cut(data,
                 
                 plt.ylim([n.min(delays)*0.15,(n.max(delays)+rds.n_rg)*0.15])
                 cb=plt.colorbar()
-                cb.set_label("SNR (dB)")
+                cb.set_label("SNR (linear)")
                 if False:
                     plt.scatter(txidxs/1e6,10.0*n.log10(snrs),c=beam_idss,cmap="rainbow",vmin=0,vmax=4)
                     cb=plt.colorbar()
@@ -345,7 +348,8 @@ def process_cut(data,
                 plt.ylabel("Doppler (km/s)")
                 plt.tight_layout()
                 #plt.show()
-                plt.savefig("/tmp/latest_meteor.png")#%(float(tx_idx[0]/1e6)))
+                plt.savefig("/tmp/meteor-%d.png"%(int(tx_idx[0]/1e6)))
+#                plt.savefig("/tmp/latest_meteor.png")#%(float(tx_idx[0]/1e6)))
                 #plt.show()
                 plt.close()
 
@@ -373,8 +377,8 @@ def process_cut(data,
 
 
 def process_latest():
-    mddir=pc.cut_metadata_dir
- #   mddir="../pansy_test_data/metadata/cut"
+  #  mddir=pc.cut_metadata_dir
+    mddir="../pansy_test_data/metadata/cut"
     dm = drf.DigitalMetadataReader(mddir)
     b = dm.get_bounds()
     dt=120000000
@@ -398,8 +402,8 @@ def process_latest():
     samples_per_second_numerator = 1000000
     samples_per_second_denominator = 1
     file_name = "fit"
-    omddir=pc.simple_fit_metadata_dir
-#    omddir="/tmp/simple_fit"
+#    omddir=pc.simple_fit_metadata_dir
+    omddir="/tmp/simple_fit"
 
     os.system("mkdir -p %s"%(omddir))#pc.simple_fit_metadata_dir))
 
@@ -419,7 +423,7 @@ def process_latest():
             k=kl[ki]
             try:
                 print(stuffr.unix2datestr(k/1e6))
-                process_cut(data[k],dmw)
+                process_cut(data[k],dmw,plot=True,write_dm=False)
             except:
                 import traceback
                 traceback.print_exc()
@@ -429,10 +433,10 @@ def plot_last():
     dm = drf.DigitalMetadataReader(pc.cut_metadata_dir)
     b = dm.get_bounds()
 
-    data=dm.read(b[1]-60000000,b[1])
+    data=dm.read(b[1]-600000000,b[1])
     kl=list(data.keys())
     if len(kl)>0:
-        k=kl[0]
+        k=kl[-1]
         try:
             print(stuffr.unix2datestr(k/1e6))
             process_cut(data[k],None,write_dm=False,plot=True)
