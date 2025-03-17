@@ -176,6 +176,7 @@ def process_cut(data,
                 interp=1,
                 write_dm=True,
                 do_cnn_image=False,
+                named_ofname=True,
                 plot=False):
 
 
@@ -348,8 +349,10 @@ def process_cut(data,
                 plt.ylabel("Doppler (km/s)")
                 plt.tight_layout()
                 #plt.show()
-                plt.savefig("/tmp/meteor-%d.png"%(int(tx_idx[0]/1e6)))
-#                plt.savefig("/tmp/latest_meteor.png")#%(float(tx_idx[0]/1e6)))
+                if named_ofname==True:
+                    plt.savefig("/tmp/meteor-%d.png"%(int(tx_idx[0]/1e6)))
+                else:
+                    plt.savefig("/tmp/latest_meteor.png")#%(float(tx_idx[0]/1e6)))
                 #plt.show()
                 plt.close()
 
@@ -439,7 +442,7 @@ def plot_last():
         k=kl[-1]
         try:
             print(stuffr.unix2datestr(k/1e6))
-            process_cut(data[k],None,write_dm=False,plot=True)
+            process_cut(data[k],None,write_dm=False,plot=True,named_ofname=False)
         except:
             import traceback
             traceback.print_exc()
