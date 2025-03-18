@@ -17,12 +17,12 @@ def solar_ecliptic_longitude(unix_time):
     
     # Get Sun's position in the sky
     sun = get_sun(time)
-    
-    # Convert to Heliocentric True Ecliptic coordinates
-    sun_ecliptic = sun.transform_to(HeliocentricTrueEcliptic(obstime=time))
+
+    sp=get_sun(time)
+    sun_pos=sp.transform_to('geocentricmeanecliptic')
     
     # Return ecliptic longitude in degrees
-    return sun_ecliptic.lon.deg
+    return(sun_pos.lon.deg)
 
 
 def read_block(i0,i1,dm):
@@ -37,14 +37,14 @@ def read_block(i0,i1,dm):
         eclat=d[k]["eclat"]
         eclon=d[k]["eclon"]
         tunix=n.min(d[k]["txidx"])/1e6
-        vg=n.linalg.norm(d[k]["v0"])/1e3
+        vg=n.linalg.norm(d[k]["v0"])
         eclats.append(eclat)
         eclons.append(eclon)
         vgs.append(vg)
         tv.append(tunix)
     return(n.array(eclats),n.array(eclons),n.array(vgs),n.array(tv))
 
-def radiant_dist(lats,lons,vgs,tv,title="Sun centered ecliptic",savefig=True,nside=32):
+def radiant_dist(lats,lons,vgs,tv,title="Sun centered ecliptic",savefig=True,nside=16):
     # Convert latitude to colatitude (theta) in radians
     gidx=n.where(n.isnan(lats)!=True)[0]
     lats=lats[gidx]
@@ -68,18 +68,49 @@ def radiant_dist(lats,lons,vgs,tv,title="Sun centered ecliptic",savefig=True,nsi
     # Create a HEALPix map and count occurrences in each pixel
     histogram = np.bincount(pixels, minlength=hp.nside2npix(nside))
 
-    slon=solar_ecliptic_longitude(tv[0]/1e6)
-    #mean_vel=n.zeros(len(histogram))
+    slon=solar_ecliptic_longitude(tv[0])
+    mean_vel=n.zeros(len(histogram))
 
-    #for i in range(len(pixels)):
-    #    mean_vel[pixels[i]]+=vg[i]
-   # mean_vel=mean_vel/histogram
-  #  mean_vel[histogram<5]=n.nan
- #   print(histogram.shape)
+    for i in range(len(pixels)):
+        mean_vel[pixels[i]]+=vg[i]
+    mean_vel=mean_vel/histogram
+    mean_vel[histogram<5]=n.nan
+    print(histogram.shape)
 #    histogram[histogram<5]=1
     # Plot the histogram as a HEALPix map
-    hp.mollview(histogram, title=r"$\lambda=%1.1f^{\circ}$ %s"%(slon,title), unit="Counts",cmap="turbo",flip="geo",norm="linear")
-    hp.graticule(color="white",alpha=0.1)
+    if True:
+        hp.mollview(histogram, title=r"$\lambda_{\mathrm{sun}}=%1.1f^{\circ}$ %s"%(slon,title), unit="Counts",cmap="turbo",flip="geo",norm="linear")
+        hp.projtext(-90., 0., '0°', lonlat=True, coord='geo',color="white")
+        hp.projtext(0., 0., '270°', lonlat=True, coord='geo',color="white")
+        hp.projtext(90., 0., '90°', lonlat=True, coord='geo',color="white")
+        hp.graticule(color="white",alpha=0.2,dpar=10,verbose=True)
+
+    # Set custom x-ticks (longitude)
+    if False:
+        plt.text(0,0,'270°',color="white")
+        plt.text(-n.pi/2,0,'0°',color="white")
+        plt.text(n.pi/2,0,'90°',color="white")
+
+    if savefig:
+        plt.savefig("/tmp/heal-%d.png"%(int(n.min(tv))))
+        plt.close()
+    else:
+        plt.show()
+
+    # Plot the histogram as a HEALPix map
+    if True:
+        hp.mollview(mean_vel, title=r"$\lambda_{\mathrm{sun}}=%1.1f^{\circ}$ %s"%(slon,title), unit="Mean velocity",cmap="turbo",flip="geo",norm="linear",min=10,max=72)
+        hp.projtext(-90., 0., '0°', lonlat=True, coord='geo',color="white")
+        hp.projtext(0., 0., '270°', lonlat=True, coord='geo',color="white")
+        hp.projtext(90., 0., '180°', lonlat=True, coord='geo',color="white")
+        hp.graticule(color="white",alpha=0.2,dpar=10,verbose=True)
+
+    # Set custom x-ticks (longitude)
+    if False:
+        plt.text(0,0,'270°',color="white")
+        plt.text(-n.pi/2,0,'0°',color="white")
+        plt.text(n.pi/2,0,'180°',color="white")
+
     if savefig:
         plt.savefig("/tmp/heal-%d.png"%(int(n.min(tv))))
         plt.close()
@@ -90,13 +121,19 @@ def radiant_dist(lats,lons,vgs,tv,title="Sun centered ecliptic",savefig=True,nsi
 dm = drf.DigitalMetadataReader("/Users/j/src/pansy_test_data/metadata/simple_meteor_fit")
 b = dm.get_bounds()
 
-#lats,lons,vg,tv=read_block(b[0],b[1],dm)
-#print(len(lats))
-#titlestr=stuffr.unix2datestr((b[0])/1e6)
+lats,lons,vg,tv=read_block(b[0],b[1],dm)
+#lats,lons,vg,tv=read_block(b[0],b[0]+24*3600*1000000,dm)
+#plt.hist(vg)
+#plt.show()
+print(len(lats))
+titlestr=stuffr.unix2datestr((b[0])/1e6)
 #plt.hist(lats)
 #plt.show()
 print("plot")
-#radiant_dist(lats,lons,vg,tv,title=titlestr,savefig=False)
+# looks like lon is flipped aroud 270
+lons=180*n.angle(n.exp(1j*n.pi*270/180)*n.exp(1j*-n.angle(n.exp(1j*n.pi*lons/180)*n.exp(-1j*n.pi*270/180))))/n.pi
+
+radiant_dist(lats,lons,vg,tv,title=titlestr,savefig=False,nside=32)
 
 w=2*24*3600*1000000
 dt=24*3600*1000000
