@@ -147,7 +147,7 @@ def get_xc(fig,ax,dt=24*3600*1000000):
 
 
 def plot_status():
-    hpr.plot_last_48()
+    #hpr.plot_last_48()
     psf.plot_latest_fits(save_png=True)
     pcm.plot_last()
 
