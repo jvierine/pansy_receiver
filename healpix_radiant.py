@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import h5py 
 import numpy as n
 import stuffr
+import pansy_config as pc
 
 import digital_rf as drf
 
@@ -75,7 +76,6 @@ def radiant_dist(lats,lons,vgs,tv,title="Sun centered ecliptic",savefig=True,nsi
         mean_vel[pixels[i]]+=vg[i]
     mean_vel=mean_vel/histogram
     mean_vel[histogram<5]=n.nan
-    print(histogram.shape)
 #    histogram[histogram<5]=1
     # Plot the histogram as a HEALPix map
     if True:
@@ -97,39 +97,47 @@ def radiant_dist(lats,lons,vgs,tv,title="Sun centered ecliptic",savefig=True,nsi
     else:
         plt.show()
 
+def plot_last_48():
+    #simple_fit_metadata_dir
+    dm = drf.DigitalMetadataReader(pc.simple_fit_metadata_dir)
+    b = dm.get_bounds()
+    lats,lons,vg,tv=read_block(b[1]-48*3600*1000000,b[1],dm)
+    titlestr=stuffr.unix2datestr((b[0])/1e6)
+    lons=180*n.angle(n.exp(1j*n.pi*270/180)*n.exp(1j*-n.angle(n.exp(1j*n.pi*lons/180)*n.exp(-1j*n.pi*270/180))))/n.pi
+    radiant_dist(lats,lons,vg,tv,title=titlestr,savefig=True,nside=32)
 
 
+if __name__ == "__main__":
+    dm = drf.DigitalMetadataReader("/Users/j/src/pansy_test_data/metadata/simple_meteor_fit")
+    b = dm.get_bounds()
 
-dm = drf.DigitalMetadataReader("/Users/j/src/pansy_test_data/metadata/simple_meteor_fit")
-b = dm.get_bounds()
-
-lats,lons,vg,tv=read_block(b[0],b[1],dm)
-#lats,lons,vg,tv=read_block(b[0],b[0]+24*3600*1000000,dm)
-#plt.hist(vg)
-#plt.show()
-print(len(lats))
-titlestr=stuffr.unix2datestr((b[0])/1e6)
-#plt.hist(lats)
-#plt.show()
-print("plot")
-# looks like lon is flipped aroud 270
-lons=180*n.angle(n.exp(1j*n.pi*270/180)*n.exp(1j*-n.angle(n.exp(1j*n.pi*lons/180)*n.exp(-1j*n.pi*270/180))))/n.pi
-
-radiant_dist(lats,lons,vg,tv,title=titlestr,savefig=False,nside=64)
-
-w=2*24*3600*1000000
-dt=24*3600*1000000
-
-n_days=int(n.floor((b[1]-b[0])/dt))
-for di in range(n_days):
-    lats,lons,vg,tv=read_block(b[0]+di*dt,b[0]+di*dt+w,dm)
-    titlestr=stuffr.unix2datestr((b[0]+di*dt)/1e6)
+    lats,lons,vg,tv=read_block(b[0],b[1],dm)
+    #lats,lons,vg,tv=read_block(b[0],b[0]+24*3600*1000000,dm)
+    #plt.hist(vg)
+    #plt.show()
+    print(len(lats))
+    titlestr=stuffr.unix2datestr((b[0])/1e6)
     #plt.hist(lats)
     #plt.show()
     print("plot")
-    radiant_dist(lats,lons,vg,tv,title=titlestr)
-    #lats = np.random.uniform(-90, 90, num_points)  # Latitude in degrees
-    #lons = np.random.uniform(-180, 180, num_points)  # Longitude in degrees
+    # looks like lon is flipped aroud 270
+    lons=180*n.angle(n.exp(1j*n.pi*270/180)*n.exp(1j*-n.angle(n.exp(1j*n.pi*lons/180)*n.exp(-1j*n.pi*270/180))))/n.pi
+
+    radiant_dist(lats,lons,vg,tv,title=titlestr,savefig=False,nside=64)
+
+    w=2*24*3600*1000000
+    dt=24*3600*1000000
+
+    n_days=int(n.floor((b[1]-b[0])/dt))
+    for di in range(n_days):
+        lats,lons,vg,tv=read_block(b[0]+di*dt,b[0]+di*dt+w,dm)
+        titlestr=stuffr.unix2datestr((b[0]+di*dt)/1e6)
+        #plt.hist(lats)
+        #plt.show()
+        print("plot")
+        radiant_dist(lats,lons,vg,tv,title=titlestr)
+        #lats = np.random.uniform(-90, 90, num_points)  # Latitude in degrees
+        #lons = np.random.uniform(-180, 180, num_points)  # Longitude in degrees
 
 
 #mean_vel[mean_vel<0]=0

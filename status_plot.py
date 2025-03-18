@@ -10,6 +10,7 @@ import traceback
 import h5py
 import plot_simple_fits as psf
 import process_cut_meteor as pcm
+import healpix_radiant as hpr
 
 
 def get_meteors(fig,ax,dt=24*3600*1000000):
@@ -146,6 +147,7 @@ def get_xc(fig,ax,dt=24*3600*1000000):
 
 
 def plot_status():
+    hpr.plot_last_48()
     psf.plot_latest_fits(save_png=True)
     pcm.plot_last()
 
