@@ -40,4 +40,5 @@ for i in range(n_blocks):
     rangek=n.array(rangek)
     dop=n.array(dop)
     plt.scatter(t,rangek,c=dop,cmap="turbo")
+    plt.colorbar()
     plt.show()
