@@ -82,7 +82,7 @@ def radiant_dist(lats,lons,vgs,tv,title="Sun centered ecliptic",savefig=True,nsi
         hp.mollview(histogram, title=r"$\lambda_{\mathrm{sun}}=%1.1f^{\circ}$ %s"%(slon,title), unit="Counts",cmap="turbo",flip="geo",norm="linear")
         hp.projtext(-90., 0., '0°', lonlat=True, coord='geo',color="white")
         hp.projtext(0., 0., '270°', lonlat=True, coord='geo',color="white")
-        hp.projtext(90., 0., '90°', lonlat=True, coord='geo',color="white")
+        hp.projtext(90., 0., '180°', lonlat=True, coord='geo',color="white")
         hp.graticule(color="white",alpha=0.2,dpar=10,verbose=True)
 
     # Set custom x-ticks (longitude)
