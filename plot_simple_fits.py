@@ -102,7 +102,7 @@ def plot_latest_fits(save_png=False):
 
     hp.projtext(-90., 0., '0°', lonlat=True, coord='geo',color="white")
     hp.projtext(0., 0., '270°', lonlat=True, coord='geo',color="white")
-    hp.projtext(90., 0., '90°', lonlat=True, coord='geo',color="white")
+    hp.projtext(90., 0., '180°', lonlat=True, coord='geo',color="white")
     hp.graticule(color="white",alpha=0.2,dpar=10,verbose=True)
 
     #hp.graticule(color="white",alpha=0.1)
