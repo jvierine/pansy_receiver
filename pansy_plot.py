@@ -1,6 +1,10 @@
 import numpy as n
 import matplotlib.pyplot as plt
 import digital_rf as drf
+import h5py
+h=h5py.File("data/mesocal.h5","r")
+pwr=h["pwr"][()]
+scaling=n.sqrt(n.real(pwr[0:7]/pwr[0:7]))
 
 d=drf.DigitalRFReader("/media/archive")
 import sys
@@ -12,6 +16,8 @@ axs=[ax0,ax1,ax2,ax3,ax4,ax5,ax6,ax7]
 for i in range(8):
     ch=channels[i]
     z=d.read_vector_c81d(b[1]-1000000,100000,ch)
+    if i<7:
+        z=z*scale
     #plt.subplot(4,2,i+1)
     axs[i].set_ylabel(i+1)
     axs[i].plot(z[0:20000].real)
