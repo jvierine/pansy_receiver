@@ -387,8 +387,8 @@ def process_cut(data,
 
 
 def process_latest():
-  #  mddir=pc.cut_metadata_dir
-    mddir="../pansy_test_data/metadata/cut"
+    mddir=pc.cut_metadata_dir
+  #  mddir="../pansy_test_data/metadata/cut"
     dm = drf.DigitalMetadataReader(mddir)
     b = dm.get_bounds()
     dt=120000000
@@ -412,8 +412,8 @@ def process_latest():
     samples_per_second_numerator = 1000000
     samples_per_second_denominator = 1
     file_name = "fit"
-#    omddir=pc.simple_fit_metadata_dir
-    omddir="/tmp/simple_fit"
+    omddir=pc.simple_fit_metadata_dir
+    #omddir="/tmp/simple_fit"
 
     os.system("mkdir -p %s"%(omddir))#pc.simple_fit_metadata_dir))
 
