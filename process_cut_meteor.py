@@ -250,7 +250,7 @@ def process_cut(data,
         beam_idss=[]
 
         #        for bi in beam_ids:
-        gidx=n.where( snr > 10 )[0]
+        gidx=n.where( snr >  )[0]
         if len(gidx)>2:
             mu,mv,mfs=pint.image_points1(phasecal,xct[gidx,:],ch_pairs,dmat,snr[gidx],beam_id[gidx],tx_idx[gidx])
             mw=n.sqrt(1-mu**2-mv**2)
@@ -433,7 +433,7 @@ def process_latest():
             k=kl[ki]
             try:
                 print(stuffr.unix2datestr(k/1e6))
-                process_cut(data[k],dmw,plot=True,write_dm=False)
+                process_cut(data[k],dmw,plot=False,write_dm=True)
             except:
                 import traceback
                 traceback.print_exc()
