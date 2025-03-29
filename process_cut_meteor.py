@@ -196,7 +196,7 @@ def process_cut(data,
     z_rx=n.array(data["zrx_echoes_re"],dtype=n.complex64)+n.array(data["zrx_echoes_im"],dtype=n.complex64)*1j
     z_tx=n.array(data["ztx_pulses_re"],dtype=n.complex64)+n.array(data["ztx_pulses_im"],dtype=n.complex64)*1j
     # calibrated amplitudes
-    for i in range(z_rx.shape[2]):
+    for i in range(z_rx.shape[1]):
         z_rx[:,i,:]=z_rx[:,i,:]*amp_scale[i]
 
     delays=data["delays"]
