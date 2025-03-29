@@ -17,6 +17,12 @@ import traceback
 fft = pyfftw.interfaces.scipy_fftpack.fft
 #fft=fp.fft
 
+h=h5py.File("data/mesocal.h5","r")
+pwr=h["pwr"][()]
+amp_scale=n.real(n.sqrt(pwr[0])/n.sqrt(pwr[0:7]))
+h.close()
+
+
 from mpi4py import MPI
 comm = MPI.COMM_WORLD
 size = comm.Get_size()
@@ -46,6 +52,7 @@ class range_doppler_search:
         self.fvec=n.fft.fftshift(n.fft.fftfreq(self.fftlen,d=fdec/1e6))
         self.dopv=self.fvec*c.c/2.0/self.frad
         self.fdec=fdec
+
 
         for ri in range(self.n_rg):
             self.idx_mat[ri,:]=self.idx+rg[ri]
@@ -108,7 +115,7 @@ def process_m_mode(key,d,rds,dmw,dm_mf2,chs=["ch000","ch001","ch002","ch003","ch
     n_ch=len(chs)
     z=n.zeros([n_ch,1600*20],dtype=n.complex64)
     for chi in range(n_ch):
-        z[chi,:]=d.read_vector_c81d(key,1600*20,chs[chi])
+        z[chi,:]=d.read_vector_c81d(key,1600*20,chs[chi])*amp_scale[chi]
     z_tx=d.read_vector_c81d(key,1600*20,"ch007")
     RTI=n.zeros([20,rds.n_rg],dtype=n.float32)
     RTIV=n.zeros([20,rds.n_rg],dtype=n.float32)
