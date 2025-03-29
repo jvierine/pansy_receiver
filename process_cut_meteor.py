@@ -250,7 +250,7 @@ def process_cut(data,
         beam_idss=[]
 
         #        for bi in beam_ids:
-        gidx=n.where( snr >  )[0]
+        gidx=n.where( snr >  8 )[0]
         if len(gidx)>2:
             mu,mv,mfs=pint.image_points1(phasecal,xct[gidx,:],ch_pairs,dmat,snr[gidx],beam_id[gidx],tx_idx[gidx])
             mw=n.sqrt(1-mu**2-mv**2)
