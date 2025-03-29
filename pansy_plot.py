@@ -18,7 +18,7 @@ for i in range(8):
     ch=channels[i]
     z=d.read_vector_c81d(b[1]-1000000,100000,ch)
     if i<7:
-        z=z*scale
+        z=z*scale[i]
     #plt.subplot(4,2,i+1)
     axs[i].set_ylabel(i+1)
     axs[i].plot(z[0:20000].real)
