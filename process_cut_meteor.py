@@ -26,7 +26,10 @@ phasecal = n.zeros([5,7])
 imaging=[]
 mmdict=pmm.get_m_mode()
 
-
+h=h5py.File("data/mesocal.h5","r")
+pwr=h["pwr"][()]
+amp_scale=n.real(n.sqrt(pwr[0])/n.sqrt(pwr[0:7]))
+h.close()
 
 
 def beam_pixmap():
@@ -192,6 +195,10 @@ def process_cut(data,
 
     z_rx=n.array(data["zrx_echoes_re"],dtype=n.complex64)+n.array(data["zrx_echoes_im"],dtype=n.complex64)*1j
     z_tx=n.array(data["ztx_pulses_re"],dtype=n.complex64)+n.array(data["ztx_pulses_im"],dtype=n.complex64)*1j
+    # calibrated amplitudes
+    for i in range(z_rx.shape[2]):
+        z_rx[:,i,:]=z_rx[:,i,:]*amp_scale[i]
+
     delays=data["delays"]
     beam_id=data["beam_id"]
     tx_idx=data["tx_idx"]
