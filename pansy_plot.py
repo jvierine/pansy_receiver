@@ -6,7 +6,7 @@ h=h5py.File("data/mesocal.h5","r")
 pwr=h["pwr"][()]
 scale=n.real(n.sqrt(pwr[0:7])/n.sqrt(pwr[0:7]))
 h.close()
-
+print(scale)
 d=drf.DigitalRFReader("/media/archive")
 import sys
 channels=["ch000","ch001","ch002","ch003","ch004","ch005","ch006","ch007"]
