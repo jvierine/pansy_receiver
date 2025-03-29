@@ -4,7 +4,7 @@ import digital_rf as drf
 import h5py
 h=h5py.File("data/mesocal.h5","r")
 pwr=h["pwr"][()]
-scale=n.real(n.sqrt(pwr[0:7])/n.sqrt(pwr[0:7]))
+scale=n.real(n.sqrt(pwr[0])/n.sqrt(pwr[0:7]))
 h.close()
 print(scale)
 d=drf.DigitalRFReader("/media/archive")
