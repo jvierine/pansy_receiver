@@ -108,7 +108,7 @@ def plot_latest_fits(save_png=False):
     hp.graticule(color="white",alpha=0.2,dpar=10,verbose=True)
 
     #hp.graticule(color="white",alpha=0.1)
-    #plt.show()
+    plt.show()
     plt.savefig("/tmp/latest_radiants.png")
     plt.close()
     
@@ -141,7 +141,7 @@ def plot_latest_fits(save_png=False):
     ax.set_ylabel("North-South (unit)")
 
     plt.tight_layout()
-#    plt.show()
+    plt.show()
     if save_png:
         plt.savefig("/tmp/latest_hist.png")
         plt.close()
