@@ -90,7 +90,8 @@ def plot_latest_fits(save_png=False):
 
     gidx=n.where(n.isnan(slats)!=True)[0]
     slats=slats[gidx]
-    slons=slons[gidx]
+    # flip slon.
+    slons=180*n.angle(n.exp(-1j*n.pi*slons[gidx]/180))/n.pi
     theta = n.radians(90 - slats)  # Colatitude: 90° - latitude
     title="%s - %s"%(stuffr.unix2datestr(n.min(tv)),stuffr.unix2datestr(n.max(tv)))
     phi = n.radians(slons+90)  # Longitude in radians
@@ -98,11 +99,11 @@ def plot_latest_fits(save_png=False):
     pixels = hp.ang2pix(nside, theta, phi)
     histogram = n.bincount(pixels, minlength=hp.nside2npix(nside))
     slon=solar_ecliptic_longitude(tv[0])
-    hp.mollview(histogram, title=r"$\lambda_{\mathrm{sun}}=%1.1f^{\circ}$ %s"%(slon,title), unit="Counts",cmap="turbo",flip="geo",norm="linear")
+    hp.mollview(histogram, title=r"$\lambda_{\mathrm{sun}}=%1.1f^{\circ}$ %s"%(slon,title), unit="Counts",cmap="turbo",flip="astro",norm="linear")
 
-    hp.projtext(-90., 0., '0°', lonlat=True, coord='geo',color="white")
-    hp.projtext(0., 0., '270°', lonlat=True, coord='geo',color="white")
-    hp.projtext(90., 0., '180°', lonlat=True, coord='geo',color="white")
+    hp.projtext(-90., 0., '0°', lonlat=True, coord='astro',color="white")
+    hp.projtext(0., 0., '270°', lonlat=True, coord='astro',color="white")
+    hp.projtext(90., 0., '180°', lonlat=True, coord='astro',color="white")
     hp.graticule(color="white",alpha=0.2,dpar=10,verbose=True)
 
     #hp.graticule(color="white",alpha=0.1)
@@ -112,7 +113,7 @@ def plot_latest_fits(save_png=False):
     plt.figure(figsize=(8,4))
     if True:
         ax = plt.subplot(121, projection="lambert")
-        sp=ax.scatter(n.angle(n.exp(1j*n.pi*slons/180.0)*n.exp(1j*n.pi/2)),n.pi*slats/180.0,c=vgs,vmin=10,vmax=72,s=0.5,cmap="turbo")
+        sp=ax.scatter(n.angle(n.exp(-1j*n.pi*slons/180.0)*n.exp(1j*n.pi/2)),n.pi*slats/180.0,c=vgs,vmin=10,vmax=72,s=0.5,cmap="turbo")
         ax.set_title("%s\n%s"%(stuffr.unix2datestr(n.min(tv)),stuffr.unix2datestr(n.max(tv))))
         #frame1 = plt.gca()
         ax.xaxis.set_ticklabels([])
