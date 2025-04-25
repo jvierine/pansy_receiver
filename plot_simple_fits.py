@@ -90,7 +90,9 @@ def plot_latest_fits(save_png=False):
 
     gidx=n.where(n.isnan(slats)!=True)[0]
     slats=slats[gidx]
-    slons=180*n.angle(n.exp(-1j*n.pi*slons[gidx]/180))/n.pi
+    slons=180*n.angle(n.exp(1j*-n.angle(n.exp(-1j*n.pi*slons/180.0)*n.exp(1j*n.pi/2)))*n.exp(-1j*n.pi/2))/n.pi
+    
+#    180*n.angle(n.exp(-1j*n.pi*slons[gidx]/180))/n.pi
     theta = n.radians(90 - slats)  # Colatitude: 90° - latitude
     title="%s - %s"%(stuffr.unix2datestr(n.min(tv)),stuffr.unix2datestr(n.max(tv)))
     phi = n.radians(slons+90)  # Longitude in radians
