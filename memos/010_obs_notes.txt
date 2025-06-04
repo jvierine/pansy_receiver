@@ -57,3 +57,7 @@
     - initially conjugate, (about 2025-02-21T21:00-) problematic data deleted.
       they had a wrong sign in the doppler. 
     - fixed to same convention as before at 2025-02-21T22:20Z
+
+2025-06-03 20:00 The recording stopped for some reason. SANDRA rx took over and caused an outage.
+2025-06-04 6:00  Recording restarted. Prolem with phase.
+2025-06-04 7:00  Phasing fixed again after restoring the startup delay to what it was before. Data between 6-7 is broken.
