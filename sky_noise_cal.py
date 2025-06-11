@@ -8,6 +8,12 @@ from pygdsm import GSMObserver
 from astropy.coordinates import SkyCoord, AltAz, EarthLocation
 from astropy.time import Time
 import astropy.units as u
+import h5py
+
+import pansy_modes as pm
+mmode=pm.get_m_mode()
+beam_pos=mmode["beam_pos_az_za"]
+
 
 # Inputs
 azimuth = 120 * u.deg        # Azimuth (measured from North towards East)
@@ -20,6 +26,8 @@ unix_time = 1718112000       # Example UNIX timestamp (2024-06-11 00:00:00 UTC)
 # Define observer location and time
 location = EarthLocation(lat=latitude * u.deg, lon=longitude * u.deg, height=elevation_m * u.m)
 
+# sidereal day in seconds
+d_sidereal=86164.0905
 
 gsm = GlobalSkyModel()
 gsm.generate(47)
@@ -92,14 +100,15 @@ def unit_vector_to_az_el(v):
     el_deg = n.degrees(el)
 
     return az_deg, el_deg
-def get_noise(az,el,unix_time,bw=3):
+
+def get_noise(az,el,unix_time,bw=5):
     time = Time(unix_time, format='unix')
 
     # AltAz frame at given time and location
     altaz_frame = AltAz(obstime=time, location=location)
     # Create SkyCoord in AltAz
-    az_del=n.linspace(-bw,bw,num=3)
-    el_del=n.linspace(-bw,bw,num=3)
+    az_del=n.linspace(-bw,bw,num=10)
+    el_del=n.linspace(-bw,bw,num=10)
     temps=[]
     for i in range(len(az_del)):
         for j in range(len(el_del)):
@@ -112,10 +121,52 @@ def get_noise(az,el,unix_time,bw=3):
             temps.append(gsm.get_sky_temperature(altaz_coord))
     return(n.mean(temps))
 
+
+def calc_beam_lookup(n_times=48*2,t0=1718112000):
+    temp=n.zeros([5,n_times])
+    tsid=n.arange(n_times)*(d_sidereal/n_times)
+    for i in range(5):
+        for ti in range(n_times):
+            tnow=t0+tsid[ti]
+            temp[i,ti]=get_noise(beam_pos[i][0],90-beam_pos[i][1],tnow)
+#        plt.plot(tsid,temp[i,:])
+ #       plt.show()
+    ho=h5py.File("data/noise_lookup.h5","w")
+    ho["temp"]=temp
+    ho["t0"]=t0
+    ho["tsid"]=tsid
+    ho.close()
+#    print("done")
+
+    #nlu=noise_lookup()
+    #temp2=n.zeros([5,n_times])
+    #for i in range(5):    
+    #    for ti in range(n_times):
+    #        tnow=t0+tsid[ti]+1
+     #       temp2[i,ti]=nlu.get_noise_lookup(i,tnow)
+#        plt.plot(tsid,temp2[i,:])
+ #       plt.show()
+
+class noise_lookup():
+    def __init__(self):
+        h=h5py.File("data/noise_lookup.h5","r")
+        self.temp=h["temp"][()]
+        self.n_times=self.temp.shape[1]
+        self.t_epoch=h["t0"][()]
+        self.t_sid=h["tsid"][()]
+        h.close()
+    def get_noise_lookup(self,beam_id,tnow):
+        t_sid_now=(tnow-self.t_epoch)%d_sidereal
+        ti=n.argmin(n.abs(t_sid_now - self.t_sid))
+        return(self.temp[beam_id,ti])
+    
+    
+            
 if __name__ == "__main__":
-    times=n.arange(24*2*2)*3600/2/2 + 1718112000
-    temps=[]
-    for t in times:
-        temps.append(get_noise(0,90,t))
-    plt.plot(times,temps)
-    plt.show()
+    calc_beam_lookup()
+#    times=n.arange(24*2*2)*3600/2/2 + 1718112000
+ #   temps=[]
+  #  for t in times:
+   #     temps.append(get_noise(0,90,t))
+   # plt.plot(times,temps)
+    #plt.show()
