@@ -148,6 +148,12 @@ void streaming_by_channel(size_t chan,double rate,std::string subdev,std::string
         {
           //	printf("%d\n",data_short[0]);
           result = digital_rf_write_hdf5(data_object, vector_leading_edge_index + packet_i*363, a, vector_length);
+	  if(result != 0) {
+	    stream_cmd.stream_mode = uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS;
+	    rx_stream->issue_stream_cmd(stream_cmd);
+	    return;
+	    
+	  }
           packet_i+=1;
         }
         else
@@ -157,6 +163,12 @@ void streaming_by_channel(size_t chan,double rate,std::string subdev,std::string
           for(int pi = 0 ; pi < n_packets; pi++)
           {
             result = digital_rf_write_hdf5(data_object, vector_leading_edge_index + packet_i*363, a, vector_length);
+	    if(result != 0) {
+	      stream_cmd.stream_mode = uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS;
+	      rx_stream->issue_stream_cmd(stream_cmd);
+	      return;
+	    } 
+
             packet_i+=1;
           }
         
