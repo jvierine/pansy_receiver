@@ -61,3 +61,25 @@
 2025-06-03 20:00 The recording stopped for some reason. SANDRA rx took over and caused an outage.
 2025-06-04 6:00  Recording restarted. Prolem with phase.
 2025-06-04 7:00  Phasing fixed again after restoring the startup delay to what it was before. Data between 6-7 is broken.
+2025-11-25 Power outage occurred around 2025-11-24T10:00:00Z. Restarting all processes. As I have not started all the processes in a 
+long while, and there was some development since the last restart, I am making note of the startup sequence for next time.
+
+cd src/git/pansy_receiver
+# deactivate default environment (I think Nico setup this to support his Python 2.7 code, which is not used by the PANSY system)
+conda deactivate 
+# activate environment with libraries needed for the signal processing chain. 
+source /home/radar/testenv/bin/activate
+# this appears to be needed to start the receiver program written in C++, which relies on the UHD library
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/radar/.syowa/lib
+./pansy_uhd_rx
+# deleted last tx metadatafile, because the last one was corrupted due to computer shutdown
+python3 find_mode_starts.py
+drf ringbuffer -z 20000GB /media/archive
+python3 status_plot.py
+python3 mesomode_boundary.py
+python3 cluster_mf.py
+mpirun -np 5 python3 quick_search_meteor.py
+python3 meso_xc.py
+python3 tx_xphase.py
+python3 cut_meteors.py
+mpirun -np 2 python3 process_cut_meteor.py
