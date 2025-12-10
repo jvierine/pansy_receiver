@@ -83,3 +83,8 @@ python3 meso_xc.py
 python3 tx_xphase.py
 python3 cut_meteors.py
 mpirun -np 2 python3 process_cut_meteor.py
+
+
+2025-12-10
+- I noticed that all git commits are with nico's username from PANSY. I need to fix this.
+- About once every few days, digital_rf encounters a problem writing raw voltage in the pansy_rx_uhd program. I added an error handling and restart the receiver when the error is encounterd. I don't know what is the cause of this error. It has only started to occur recently. It might be related to disk degradation...
