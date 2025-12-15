@@ -72,9 +72,10 @@ source /home/radar/testenv/bin/activate
 # this appears to be needed to start the receiver program written in C++, which relies on the UHD library
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/radar/.syowa/lib
 ./pansy_uhd_rx
+# delete old files
+while true; do find /media/archive/ch* -type f -name 'rf*.h5' -mtime +10 -delete; sleep 60 ; done
 # deleted last tx metadatafile, because the last one was corrupted due to computer shutdown
 python3 find_mode_starts.py
-drf ringbuffer -z 20000GB /media/archive
 python3 status_plot.py
 python3 mesomode_boundary.py
 python3 cluster_mf.py
