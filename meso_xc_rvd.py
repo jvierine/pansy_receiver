@@ -254,9 +254,10 @@ def analyze_xc():
     dmb=dmm.get_bounds()
     # raw voltage 
     d = drf.DigitalRFReader(pc.raw_voltage_dir)
-    # cross-spectral metadata
-    dmxc = drf.DigitalMetadataReader(pc.xc_rvd_metadata_dir)
     try:
+        # cross-spectral metadata
+        dmxc = drf.DigitalMetadataReader(pc.xc_rvd_metadata_dir)
+
         xcb=dmxc.get_bounds()
         t0=xcb[1]
     except:
