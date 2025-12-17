@@ -40,14 +40,14 @@ def analyze_block(i0,
     samples_per_second_numerator = 1000000
     samples_per_second_denominator = 1
     file_name = "xc"
-    os.system("mkdir -p %s"%(pc.xc_metadata_dir))
+    os.system("mkdir -p %s"%(pc.xc_rvd_metadata_dir))
 
     # raw voltage 
     d = drf.DigitalRFReader(pc.raw_voltage_dir)
 
 
     dmw = drf.DigitalMetadataWriter(
-        pc.xc_metadata_dir,
+        pc.xc_rvd_metadata_dir,
         subdirectory_cadence_seconds,
         file_cadence_seconds,
         samples_per_second_numerator,
@@ -255,11 +255,17 @@ def analyze_xc():
     # raw voltage 
     d = drf.DigitalRFReader(pc.raw_voltage_dir)
     # cross-spectral metadata
-    dmxc = drf.DigitalMetadataReader(pc.xc_metadata_dir)
-    xcb=dmxc.get_bounds()
+    dmxc = drf.DigitalMetadataReader(pc.xc_rvd_metadata_dir)
+    try:
+        xcb=dmxc.get_bounds()
+        t0=xcb[1]
+    except:
+        print("no metadata yet!")
+        xcb=d.get_bounds("ch000")
+        t0=xcb[0]+600*1000000
 
     b=d.get_bounds("ch000")
-    t0=xcb[1]
+
     dd=dmm.read(t0,dmb[1])
     kl=list(dd.keys())
     for ki in range(rank,len(kl),size):
