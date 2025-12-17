@@ -182,7 +182,7 @@ def analyze_block(i0,
 
     if plot:
         pi=7
-        bi=1
+        bi=0
         dB=10.0*n.log10(n.abs(XC[pi,bi,:,:].T))
         if bi < 7:
             noise_floor=n.nanmedian(dB)
