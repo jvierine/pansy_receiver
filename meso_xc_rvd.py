@@ -20,6 +20,11 @@ rank = comm.Get_rank()
 """
  phase calibration data
 """
+subdirectory_cadence_seconds = 3600
+file_cadence_seconds = 60
+samples_per_second_numerator = 1000000
+samples_per_second_denominator = 1
+file_name = "xc"
 
 def analyze_block(i0,
                   i1,
@@ -35,11 +40,6 @@ def analyze_block(i0,
     find contiguous blocks of mesosphere mode
     """
 
-    subdirectory_cadence_seconds = 3600
-    file_cadence_seconds = 60
-    samples_per_second_numerator = 1000000
-    samples_per_second_denominator = 1
-    file_name = "xc"
     os.system("mkdir -p %s"%(pc.xc_rvd_metadata_dir))
 
     # raw voltage 
@@ -261,6 +261,15 @@ def analyze_xc():
         t0=xcb[1]
     except:
         print("no metadata yet!")
+        dmw = drf.DigitalMetadataWriter(
+            pc.xc_rvd_metadata_dir,
+            subdirectory_cadence_seconds,
+            file_cadence_seconds,
+            samples_per_second_numerator,
+            samples_per_second_denominator,
+            file_name,
+        )
+        
         xcb=d.get_bounds("ch000")
         t0=xcb[0]+600*1000000
 
