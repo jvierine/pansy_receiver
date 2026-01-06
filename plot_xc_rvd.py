@@ -52,8 +52,8 @@ def plot_pprof(t0,t1):
             mean_pwr=n.sum(n.abs(data_dict[k]["xc_arr"][0:7,0,:,:]),axis=0)
             noise_floor=n.median(mean_pwr)
             snr=(mean_pwr-noise_floor)/noise_floor
-            plt.pcolormesh(10.0*n.log10(snr[fidx,:].T))
-            plt.show()
+            #plt.pcolormesh(10.0*n.log10(snr[fidx,:].T))
+            #plt.show()
             snr_prof=n.zeros(len(rvec))
             mean_prof=n.zeros(len(rvec))
             width_prof=n.zeros(len(rvec))
