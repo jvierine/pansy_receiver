@@ -94,8 +94,8 @@ def plot_pprof(t0,t1):
     M_masked = M.copy()
     M_masked[S < min_snr] = n.nan
     pcm1 = axes[1].pcolormesh(
-        tvs, rvec, M_masked.T,
-        cmap="seismic", vmin=-5, vmax=5
+        tvs, rvec, M_masked.T*3e8/47.5e6/2,
+        cmap="seismic", vmin=-10, vmax=10
     )
     fig.colorbar(pcm1, ax=axes[1], label="Doppler mean (Hz)")
     axes[1].set_ylim([75, 100])
@@ -107,7 +107,7 @@ def plot_pprof(t0,t1):
     W_masked = W.copy()
     W_masked[S < min_snr] = n.nan
     pcm2 = axes[2].pcolormesh(
-        tvs, rvec, W_masked.T,
+        tvs, rvec, W_masked.T*3e8/47.5e6/2,
         cmap="plasma", vmin=0, vmax=6
     )
     fig.colorbar(pcm2, ax=axes[2], label="Doppler width (Hz)")
@@ -124,9 +124,10 @@ def plot_pprof(t0,t1):
     
     fig.tight_layout()
     fig.autofmt_xdate()
-    plt.savefig("rvd-%06d.png"%(int(n.floor(t0/24/3600))))
-    print("saving")
-    plt.close()
+    plt.show()
+#    plt.savefig("rvd-%06d.png"%(int(n.floor(t0/24/3600))))
+ #   print("saving")
+  #  plt.close()
     
 
 dm = drf.DigitalMetadataReader("/media/archive/metadata/xc_rvd")
