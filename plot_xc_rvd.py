@@ -48,7 +48,7 @@ def plot_pprof(t0,t1):
             fvec=data_dict[k]["fvec"]        
             fidx=n.where(n.abs(fvec)<fmax)[0]
             mean_pwr=n.sum(n.abs(data_dict[k]["xc_arr"][0:7,0,:,:]),axis=0)
-            plt.pcolormesh(mean_pwr)
+            plt.pcolormesh(10.0*n.log10(mean_pwr))
             plt.show()
             noise_floor=n.median(mean_pwr)
             snr=(mean_pwr-noise_floor)/noise_floor
