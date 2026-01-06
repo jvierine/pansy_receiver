@@ -131,8 +131,8 @@ def plot_pprof(t0,t1):
 
 dm = drf.DigitalMetadataReader("/media/archive/metadata/xc_rvd")
 b=dm.get_bounds()
-day0=n.floor(b[0]/1e6/24/3600)
-day1=n.floor(b[1]/1e6/24/3600)
+day0=int(n.floor(b[0]/1e6/24/3600))
+day1=int(n.floor(b[1]/1e6/24/3600))
 
 for di in range(day0,day1):
     print(di)
