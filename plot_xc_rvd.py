@@ -51,7 +51,7 @@ def plot_pprof(t0,t1):
             noise_floor=n.median(mean_pwr)
             snr=(mean_pwr-noise_floor)/noise_floor
             snr_prof=n.sum(mean_pwr[fidx,:],axis=0)
-            plt.plo
+
             S[bi,:]=snr_prof
     tvec=n.array(keys)
     plt.pcolormesh(tvec/1e6,rvec,10.0*n.log10(S.T))
