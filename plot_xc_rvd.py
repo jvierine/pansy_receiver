@@ -81,18 +81,18 @@ def plot_pprof(t0,t1):
 
     # --- Power (dB) ---
     pcm0 = axes[0].pcolormesh(
-        tvs, rvec, 10.0 * np.log10(S.T),
+        tvs, rvec, 10.0 * n.log10(S.T),
         cmap="plasma", vmin=0, vmax=50
     )
     fig.colorbar(pcm0, ax=axes[0], label="Power (dB)")
     axes[0].set_ylim([75, 100])
     axes[0].set_ylabel("Range")
-    axes[0].set_title("Signal Power")
+    axes[0].set_title("SNR (dB)")
     axes[0].tick_params(labelbottom=False)
     
     # --- M ---
     M_masked = M.copy()
-    M_masked[S < min_snr] = np.nan
+    M_masked[S < min_snr] = n.nan
     pcm1 = axes[1].pcolormesh(
         tvs, rvec, M_masked.T,
         cmap="seismic", vmin=-5, vmax=5
@@ -100,12 +100,12 @@ def plot_pprof(t0,t1):
     fig.colorbar(pcm1, ax=axes[1], label="M")
     axes[1].set_ylim([75, 100])
     axes[1].set_ylabel("Range")
-    axes[1].set_title("M (SNR-masked)")
+    axes[1].set_title("Doppler mean (SNR-masked)")
     axes[1].tick_params(labelbottom=False)
     
     # --- W ---
     W_masked = W.copy()
-    W_masked[S < min_snr] = np.nan
+    W_masked[S < min_snr] = n.nan
     pcm2 = axes[2].pcolormesh(
         tvs, rvec, W_masked.T,
         cmap="plasma", vmin=0, vmax=6
@@ -113,7 +113,7 @@ def plot_pprof(t0,t1):
     fig.colorbar(pcm2, ax=axes[2], label="W")
     axes[2].set_ylim([75, 100])
     axes[2].set_ylabel("Range")
-    axes[2].set_title("W (SNR-masked)")
+    axes[2].set_title("Doppler width (SNR-masked)")
     axes[2].set_xlabel("Time")
     
     # --- Datetime formatting (bottom panel only) ---
