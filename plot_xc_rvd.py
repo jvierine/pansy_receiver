@@ -113,7 +113,7 @@ def plot_pprof(t0,t1):
     fig.colorbar(pcm2, ax=axes[2], label="Doppler width (Hz)")
     axes[2].set_ylim([75, 100])
     axes[2].set_ylabel("Range (km)")
-    axes[2].set_title("Doppler width (Hz)")
+#    axes[2].set_title("Doppler width (Hz)")
 #    axes[2].set_xlabel("Time")
     
     # --- Datetime formatting (bottom panel only) ---
@@ -124,9 +124,16 @@ def plot_pprof(t0,t1):
     
     fig.tight_layout()
     fig.autofmt_xdate()
-    plt.show()
+    plt.savefig("rvd-%06d.png"%(int(n.floor(t0/24/3600))))
+    print("saving")
+    plt.close()
     
 
+dm = drf.DigitalMetadataReader("/media/archive/metadata/xc_rvd")
+b=dm.get_bounds()
+day0=n.floor(b[0]/1e6/24/3600)
+day1=n.floor(b[1]/1e6/24/3600)
 
-tnow=time.time()
-plot_pprof(int(tnow*1e6-24*3600*1e6),int(tnow*1e6))
+for di in range(day0,day1):
+    print(di)
+    plot_pprof(int(di*24*3600*1e6),int((di+1)*24*3600*1e6))
