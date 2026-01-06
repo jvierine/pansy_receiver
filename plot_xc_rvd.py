@@ -74,22 +74,58 @@ def plot_pprof(t0,t1):
     print(W.shape)
     S[S<0]=1e-3
     min_snr=10
-    plt.subplot(311)
-    plt.pcolormesh(tvs,rvec,10.0*n.log10(S.T),cmap="plasma",vmin=0,vmax=50)
-    plt.colorbar()
-    plt.ylim([75,100])
-    plt.subplot(312)
-    M[S<min_snr]=n.nan
-    plt.pcolormesh(tvs,rvec,M.T,cmap="seismic",vmin=-5,vmax=5)
-    plt.colorbar()
-    plt.ylim([75,100])
-    plt.subplot(313)
-    W[S<min_snr]=n.nan
-    plt.pcolormesh(tvs,rvec,W.T,cmap="plasma",vmin=0,vmax=6)
-    plt.ylim([75,100])
-    plt.colorbar()
-    plt.tight_layout()
+
+    import matplotlib.dates as mdates
+
+    fig, axes = plt.subplots(3, 1, sharex=True, figsize=(10, 8))
+
+    # --- Power (dB) ---
+    pcm0 = axes[0].pcolormesh(
+        tvs, rvec, 10.0 * np.log10(S.T),
+        cmap="plasma", vmin=0, vmax=50
+    )
+    fig.colorbar(pcm0, ax=axes[0], label="Power (dB)")
+    axes[0].set_ylim([75, 100])
+    axes[0].set_ylabel("Range")
+    axes[0].set_title("Signal Power")
+    axes[0].tick_params(labelbottom=False)
+    
+    # --- M ---
+    M_masked = M.copy()
+    M_masked[S < min_snr] = np.nan
+    pcm1 = axes[1].pcolormesh(
+        tvs, rvec, M_masked.T,
+        cmap="seismic", vmin=-5, vmax=5
+    )
+    fig.colorbar(pcm1, ax=axes[1], label="M")
+    axes[1].set_ylim([75, 100])
+    axes[1].set_ylabel("Range")
+    axes[1].set_title("M (SNR-masked)")
+    axes[1].tick_params(labelbottom=False)
+    
+    # --- W ---
+    W_masked = W.copy()
+    W_masked[S < min_snr] = np.nan
+    pcm2 = axes[2].pcolormesh(
+        tvs, rvec, W_masked.T,
+        cmap="plasma", vmin=0, vmax=6
+    )
+    fig.colorbar(pcm2, ax=axes[2], label="W")
+    axes[2].set_ylim([75, 100])
+    axes[2].set_ylabel("Range")
+    axes[2].set_title("W (SNR-masked)")
+    axes[2].set_xlabel("Time")
+    
+    # --- Datetime formatting (bottom panel only) ---
+    axes[2].xaxis.set_major_locator(mdates.AutoDateLocator())
+    axes[2].xaxis.set_major_formatter(mdates.ConciseDateFormatter(
+        axes[2].xaxis.get_major_locator()
+    ))
+    
+    fig.tight_layout()
+    fig.autofmt_xdate()
     plt.show()
+    
 
 
 tnow=time.time()
