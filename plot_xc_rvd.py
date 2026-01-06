@@ -135,14 +135,14 @@ def plot_pprof(t0,t1):
     
     fig.tight_layout()
     fig.autofmt_xdate()
-    plt.show()
+    plt.savefig("rvd-%06d.png"%(int(n.floor(t0/24/3600/1e6))))
+    print("saving")
+    plt.close()
+
 
     cmd="ffmpeg -framerate 10 -pattern_type glob -i \"tmp/spec*.png\" -c:v libx264 -pix_fmt yuv420p -profile:v high -level 4.1 -crf 23 -preset slow -movflags +faststart rvd-%06d.mp4"%(int(t0/24/3600/1e6))
     os.system(cmd)
     
-    plt.savefig("rvd-%06d.png"%(int(n.floor(t0/24/3600/1e6))))
-    print("saving")
-    plt.close()
     
 
 dm = drf.DigitalMetadataReader("/media/archive/metadata/xc_rvd")
