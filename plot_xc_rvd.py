@@ -146,7 +146,7 @@ def plot_pprof(t0,t1):
     plt.close()
 
 
-    cmd="ffmpeg -framerate 10 -pattern_type glob -i \"tmp/spec*.png\" -c:v libx264 -pix_fmt yuv420p -profile:v high -level 4.1 -crf 23 -preset slow -movflags +faststart rvd-%06d.mp4"%(int(t0/24/3600/1e6))
+    cmd="ffmpeg -y -framerate 10 -pattern_type glob -i \"tmp/spec*.png\" -c:v libx264 -pix_fmt yuv420p -profile:v high -level 4.1 -crf 23 -preset slow -movflags +faststart rvd-%06d.mp4"%(int(t0/24/3600/1e6))
     os.system(cmd)
     
     
