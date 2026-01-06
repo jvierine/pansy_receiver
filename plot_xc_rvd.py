@@ -84,10 +84,10 @@ def plot_pprof(t0,t1):
         tvs, rvec, 10.0 * n.log10(S.T),
         cmap="plasma", vmin=0, vmax=50
     )
-    fig.colorbar(pcm0, ax=axes[0], label="Power (dB)")
+    fig.colorbar(pcm0, ax=axes[0], label="SNR (dB)")
     axes[0].set_ylim([75, 100])
-    axes[0].set_ylabel("Range")
-    axes[0].set_title("SNR (dB)")
+    axes[0].set_ylabel("Range (km)")
+  #  axes[0].set_title("SNR (dB)")
     axes[0].tick_params(labelbottom=False)
     
     # --- M ---
@@ -97,10 +97,10 @@ def plot_pprof(t0,t1):
         tvs, rvec, M_masked.T,
         cmap="seismic", vmin=-5, vmax=5
     )
-    fig.colorbar(pcm1, ax=axes[1], label="M")
+    fig.colorbar(pcm1, ax=axes[1], label="Doppler mean (Hz)")
     axes[1].set_ylim([75, 100])
-    axes[1].set_ylabel("Range")
-    axes[1].set_title("Doppler mean (SNR-masked)")
+    axes[1].set_ylabel("Range (km)")
+    #axes[1].set_title("Doppler mean (Hz)")
     axes[1].tick_params(labelbottom=False)
     
     # --- W ---
@@ -110,11 +110,11 @@ def plot_pprof(t0,t1):
         tvs, rvec, W_masked.T,
         cmap="plasma", vmin=0, vmax=6
     )
-    fig.colorbar(pcm2, ax=axes[2], label="W")
+    fig.colorbar(pcm2, ax=axes[2], label="Doppler width (Hz)")
     axes[2].set_ylim([75, 100])
-    axes[2].set_ylabel("Range")
-    axes[2].set_title("Doppler width (SNR-masked)")
-    axes[2].set_xlabel("Time")
+    axes[2].set_ylabel("Range (km)")
+    axes[2].set_title("Doppler width (Hz)")
+#    axes[2].set_xlabel("Time")
     
     # --- Datetime formatting (bottom panel only) ---
     axes[2].xaxis.set_major_locator(mdates.AutoDateLocator())
