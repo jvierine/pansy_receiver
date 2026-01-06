@@ -57,7 +57,7 @@ def plot_pprof(t0,t1):
             fvec=data_dict[k]["fvec"]        
             fidx=n.where(n.abs(fvec)<fmax)[0]
             mean_pwr=n.sum(n.abs(data_dict[k]["xc_arr"][0:7,0,:,:]),axis=0)
-            plt.hist(10.0*n.log10(mean_pwr),bins=100)
+            plt.hist(10.0*n.log10(mean_pwr.flatten()),bins=100)
             plt.show()
     #            noise_floor=
             noise_floor, nf_sigma=noise_floor_median(mean_pwr)
