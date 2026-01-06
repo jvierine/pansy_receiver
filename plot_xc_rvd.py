@@ -54,6 +54,7 @@ def plot_pprof(t0,t1):
             snr=(mean_pwr-noise_floor)/noise_floor
             #plt.pcolormesh(10.0*n.log10(snr[fidx,:].T))
             #plt.show()
+            # calculate moments
             snr_prof=n.zeros(len(rvec))
             mean_prof=n.zeros(len(rvec))
             width_prof=n.zeros(len(rvec))
@@ -82,7 +83,7 @@ def plot_pprof(t0,t1):
     plt.ylim([75,100])
     plt.subplot(313)
     W[S<min_snr]=n.nan
-    plt.pcolormesh(tvec/1e6,rvec,W.T,cmap="plasma",vmin=0,vmax=10)
+    plt.pcolormesh(tvec/1e6,rvec,W.T,cmap="plasma",vmin=0,vmax=6)
     plt.ylim([75,100])
     plt.colorbar()
     
@@ -90,4 +91,4 @@ def plot_pprof(t0,t1):
 
 
 tnow=time.time()
-plot_pprof(int(tnow*1e6-5*3600*1e6),int(tnow*1e6))
+plot_pprof(int(tnow*1e6-24*3600*1e6),int(tnow*1e6))
