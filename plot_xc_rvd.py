@@ -12,6 +12,11 @@ import plot_simple_fits as psf
 import process_cut_meteor as pcm
 import healpix_radiant as hpr
 
+def noise_floor_median(x):
+    med = n.median(x)
+    mad = n.median(n.abs(x - med))
+    sigma = 1.4826 * mad  # robust std estimate
+    return(med, sigma)
 
 def plot_pprof(t0,t1):
     """
@@ -52,7 +57,10 @@ def plot_pprof(t0,t1):
             fvec=data_dict[k]["fvec"]        
             fidx=n.where(n.abs(fvec)<fmax)[0]
             mean_pwr=n.sum(n.abs(data_dict[k]["xc_arr"][0:7,0,:,:]),axis=0)
-            noise_floor=n.median(mean_pwr)
+            plt.hist(10.0*n.log10(mean_pwr),bins=100)
+            plt.show()
+    #            noise_floor=
+            noise_floor, nf_sigma=noise_floor_median(mean_pwr)
             snr=(mean_pwr-noise_floor)/noise_floor
             psnr=n.copy(snr)
             psnr[snr<0]=1e-3
