@@ -38,6 +38,8 @@ def plot_pprof(t0,t1):
         return(0)
     n_r=len(rvec)
     S=n.zeros([n_b,n_r],dtype=n.float32)
+    M=n.zeros([n_b,n_r],dtype=n.float32)
+    W=n.zeros([n_b,n_r],dtype=n.float32)
     
     for bi in range(n_b):
         print(bi)
@@ -52,13 +54,28 @@ def plot_pprof(t0,t1):
             snr=(mean_pwr-noise_floor)/noise_floor
             plt.pcolormesh(10.0*n.log10(snr[fidx,:].T))
             plt.show()
-            
-            snr_prof=n.sum(snr[fidx,:],axis=0)
+            snr_prof=n.zeros(len(rvec))
+            mean_prof=n.zeros(len(rvec))
+            width_prof=n.zeros(len(rvec))
+            for i in range(len(rvec)):
+                snr_prof[i]=n.trapz(snr[fidx,ri],fvec[fidx])
+                mean_prof[i]=n.trapz(snr[fidx,ri]*fvec[fidx],fvec[fidx])/snr_prof[i]
+                width_prof[i]=n.sqrt(n.trapz(snr[fidx,ri]*(fvec[fidx]-mean_prof[i])**2,fvec[fidx])/snr_prof[i])
 
             S[bi,:]=snr_prof
+            M[bi,:]=mean_prof
+            W[bi,:]=width_prof            
     tvec=n.array(keys)
-    plt.pcolormesh(tvec/1e6,rvec,10.0*n.log10(S.T))
+    plt.pcolormesh(311)
+    plt.pcolormesh(tvec/1e6,rvec,10.0*n.log10(S.T),cmap="plasma")
     plt.colorbar()
+    plt.pcolormesh(312)
+    plt.pcolormesh(tvec/1e6,rvec,M.T,cmap="turbo")
+    plt.colorbar()
+    plt.pcolormesh(313)
+    plt.pcolormesh(tvec/1e6,rvec,W.T,cmap="plasma")
+    plt.colorbar()
+    
     plt.show()
 
 
