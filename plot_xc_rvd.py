@@ -66,13 +66,16 @@ def plot_pprof(t0,t1):
             M[bi,:]=mean_prof
             W[bi,:]=width_prof            
     tvec=n.array(keys)
-    plt.pcolormesh(311)
+    print(S.shape)
+    print(M.shape)
+    print(W.shape)
+    plt.subplot(311)
     plt.pcolormesh(tvec/1e6,rvec,10.0*n.log10(S.T),cmap="plasma")
     plt.colorbar()
-    plt.pcolormesh(312)
+    plt.subplot(312)
     plt.pcolormesh(tvec/1e6,rvec,M.T,cmap="turbo")
     plt.colorbar()
-    plt.pcolormesh(313)
+    plt.subplot(313)
     plt.pcolormesh(tvec/1e6,rvec,W.T,cmap="plasma")
     plt.colorbar()
     
