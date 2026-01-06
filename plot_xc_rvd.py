@@ -61,7 +61,7 @@ def plot_pprof(t0,t1):
             noise_floor=n.median(mean_pwr[fidxnoise,:])
             snr=(mean_pwr-noise_floor)/noise_floor
             psnr=mean_pwr/noise_floor#n.copy(snr)
-            plt.pcolormesh(fvec,rvec,snr.T,cmap="plasma")
+            plt.pcolormesh(fvec,rvec,10.0*n.log10(psnr.T),cmap="plasma",vmin=0)
 #            psnr[snr<0]=1e-3
             cb=plt.colorbar()
             cb.set_label("SNR (dB)")
@@ -78,9 +78,9 @@ def plot_pprof(t0,t1):
             mean_prof=n.zeros(len(rvec))
             width_prof=n.zeros(len(rvec))
             for i in range(len(rvec)):
-                snr_prof[i]=n.trapz(snr[fidx,i],fvec[fidx])
-                mean_prof[i]=n.trapz(snr[fidx,i]*fvec[fidx],fvec[fidx])/snr_prof[i]
-                width_prof[i]=n.sqrt(n.trapz(snr[fidx,i]*(fvec[fidx]-mean_prof[i])**2,fvec[fidx])/snr_prof[i])
+                snr_prof[i]=n.trapz(n.abs(snr[fidx,i]),fvec[fidx])
+                mean_prof[i]=n.trapz(n.abs(snr[fidx,i])*fvec[fidx],fvec[fidx])/snr_prof[i]
+                width_prof[i]=n.sqrt(n.trapz(n.abs(snr[fidx,i])*(fvec[fidx]-mean_prof[i])**2,fvec[fidx])/snr_prof[i])
 
             S[bi,:]=snr_prof
             M[bi,:]=mean_prof
