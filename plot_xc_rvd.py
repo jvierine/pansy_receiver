@@ -25,6 +25,7 @@ def plot_pprof(t0,t1):
     n_b=0
     fmax=20.0
     keys=[]
+    tvs=[]
     rvec=None
     for k in data_dict.keys():
         keys.append(k)
@@ -44,6 +45,7 @@ def plot_pprof(t0,t1):
     for bi in range(n_b):
         print(bi)
         data_dict = dm.read(keys[bi]-10, keys[bi]+10, ("xc_arr","i0","i1","rvec","fvec"))
+        tvs.append(stuffr.unix2date(keys[bi]/1e6))
         for k in data_dict.keys():
             rvec=data_dict[k]["rvec"]
             xc=data_dict[k]["xc_arr"]
@@ -73,20 +75,20 @@ def plot_pprof(t0,t1):
     S[S<0]=1e-3
     min_snr=10
     plt.subplot(311)
-    plt.pcolormesh(tvec/1e6,rvec,10.0*n.log10(S.T),cmap="plasma",vmin=0,vmax=50)
+    plt.pcolormesh(tvs,rvec,10.0*n.log10(S.T),cmap="plasma",vmin=0,vmax=50)
     plt.colorbar()
     plt.ylim([75,100])
     plt.subplot(312)
     M[S<min_snr]=n.nan
-    plt.pcolormesh(tvec/1e6,rvec,M.T,cmap="seismic",vmin=-5,vmax=5)
+    plt.pcolormesh(tvs,rvec,M.T,cmap="seismic",vmin=-5,vmax=5)
     plt.colorbar()
     plt.ylim([75,100])
     plt.subplot(313)
     W[S<min_snr]=n.nan
-    plt.pcolormesh(tvec/1e6,rvec,W.T,cmap="plasma",vmin=0,vmax=6)
+    plt.pcolormesh(tvs,rvec,W.T,cmap="plasma",vmin=0,vmax=6)
     plt.ylim([75,100])
     plt.colorbar()
-    
+    plt.tight_layout()
     plt.show()
 
 
