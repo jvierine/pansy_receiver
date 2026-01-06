@@ -70,13 +70,16 @@ def plot_pprof(t0,t1):
     print(M.shape)
     print(W.shape)
     S[S<0]=1e-3
+    min_snr=10
     plt.subplot(311)
     plt.pcolormesh(tvec/1e6,rvec,10.0*n.log10(S.T),cmap="plasma",vmin=0,vmax=50)
     plt.colorbar()
     plt.subplot(312)
-    plt.pcolormesh(tvec/1e6,rvec,M.T,cmap="turbo",vmin=-10,vmax=10)
+    M[S<min_snr]=n.nan
+    plt.pcolormesh(tvec/1e6,rvec,M.T,cmap="seismic",vmin=-5,vmax=5)
     plt.colorbar()
     plt.subplot(313)
+    W[S<min_snr]=n.nan
     plt.pcolormesh(tvec/1e6,rvec,W.T,cmap="plasma",vmin=0,vmax=10)
     plt.colorbar()
     
