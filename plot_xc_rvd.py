@@ -56,7 +56,7 @@ def plot_pprof(t0,t1):
             snr=(mean_pwr-noise_floor)/noise_floor
             psnr=n.copy(snr)
             psnr[snr<0]=1e-3
-            plt.pcolormesh(fvec,rvec,10.0*n.log10(psnr.T),cmap="plasma",vmin=-3)
+            plt.pcolormesh(fvec,rvec,10.0*n.log10(psnr.T),cmap="plasma",vmin=0)
             cb=plt.colorbar()
             cb.set_label("SNR (dB)")
             plt.title(stuffr.unix2datestr(keys[bi]/1e6))
