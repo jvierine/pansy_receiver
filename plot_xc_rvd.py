@@ -21,10 +21,14 @@ def plot_pprof(t0,t1):
     pprofs=[]
     dprofs=[]
     wprofs=[]
-    data_dict = dm.read(t0, t1, ("i0"))
+    data_dict = dm.read(t0, t1, ("i0","r0","r1","rvec","fvec"))
     n_b=0
+
     for k in data_dict.keys():
         print(k)
+        rvec=data_dict[k]["rvec"]
+        print(n.min(rvec))
+        print(n.max(rvec))
         n_b+=1
         
     exit(0)
