@@ -25,6 +25,7 @@ def plot_pprof(t0,t1):
     n_b=0
     fmax=20.0
     keys=[]
+    rvec=None
     for k in data_dict.keys():
         keys.append(k)
         print(k)
@@ -32,7 +33,9 @@ def plot_pprof(t0,t1):
         print(n.min(rvec))
         print(n.max(rvec))
         n_b+=1
-        
+    if n_b==0:
+        print("no data")
+        return(0)
     n_r=len(rvec)
     S=n.zeros([n_b,n_r],dtype=n.float32)
     for bi in range(n_b):
@@ -54,4 +57,4 @@ def plot_pprof(t0,t1):
 
 
 tnow=time.time()
-plot_pprof(int(tnow*1e6-1*3600*1e6),int(tnow*1e6))
+plot_pprof(int(tnow*1e6-5*3600*1e6),int(tnow*1e6))
