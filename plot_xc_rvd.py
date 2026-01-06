@@ -41,7 +41,7 @@ def plot_pprof(t0,t1):
     S=n.zeros([n_b,n_r],dtype=n.float32)
     M=n.zeros([n_b,n_r],dtype=n.float32)
     W=n.zeros([n_b,n_r],dtype=n.float32)
-    
+    os.system("rm tmp/spec*.png")
     for bi in range(n_b):
         print(bi)
         data_dict = dm.read(keys[bi]-10, keys[bi]+10, ("xc_arr","i0","i1","rvec","fvec"))
@@ -54,8 +54,19 @@ def plot_pprof(t0,t1):
             mean_pwr=n.sum(n.abs(data_dict[k]["xc_arr"][0:7,0,:,:]),axis=0)
             noise_floor=n.median(mean_pwr)
             snr=(mean_pwr-noise_floor)/noise_floor
-            #plt.pcolormesh(10.0*n.log10(snr[fidx,:].T))
-            #plt.show()
+            psnr=n.copy(snr)
+            psnr[snr<0]=1e-3
+            plt.pcolormesh(fvec,rvec,10.0*n.log10(psnr.T),cmap="plasma",vmin=-3)
+            cb=plt.colorbar()
+            cb.set_label("SNR (dB)")
+            plt.title(stuffr.unix2datestr(keys[bi]/1e6))
+            plt.xlim([-20,20])
+            plt.ylim([75,100])
+            plt.xlabel("Doppler (Hz)")
+            plt.ylabel("Range (km)")
+            plt.savefig("tmp/spec-%06d.png"%(bi))
+            plt.close()
+#            plt.show()
             # calculate moments
             snr_prof=n.zeros(len(rvec))
             mean_prof=n.zeros(len(rvec))
@@ -125,9 +136,13 @@ def plot_pprof(t0,t1):
     fig.tight_layout()
     fig.autofmt_xdate()
     plt.show()
-#    plt.savefig("rvd-%06d.png"%(int(n.floor(t0/24/3600))))
- #   print("saving")
-  #  plt.close()
+
+    cmd="ffmpeg -framerate 10 -pattern_type glob -i \"tmp/spec*.png\" -c:v libx264 -pix_fmt yuv420p -profile:v high -level 4.1 -crf 23 -preset slow -movflags +faststart rvd-%06d.mp4"%(int(t0/24/3600/1e6))
+    os.system(cmd)
+    
+    plt.savefig("rvd-%06d.png"%(int(n.floor(t0/24/3600/1e6))))
+    print("saving")
+    plt.close()
     
 
 dm = drf.DigitalMetadataReader("/media/archive/metadata/xc_rvd")
