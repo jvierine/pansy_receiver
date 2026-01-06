@@ -38,6 +38,7 @@ def plot_pprof(t0,t1):
         return(0)
     n_r=len(rvec)
     S=n.zeros([n_b,n_r],dtype=n.float32)
+    
     for bi in range(n_b):
         print(bi)
         data_dict = dm.read(keys[bi]-10, keys[bi]+10, ("xc_arr","i0","i1","rvec","fvec"))
@@ -50,8 +51,10 @@ def plot_pprof(t0,t1):
             noise_floor=n.median(mean_pwr)
             snr=(mean_pwr-noise_floor)/noise_floor
             snr_prof=n.sum(mean_pwr[fidx,:],axis=0)
+            plt.plo
             S[bi,:]=snr_prof
-    plt.pcolormesh(10.0*n.log10(S))
+    tvec=n.array(keys)
+    plt.pcolormesh(tvec/1e6,rvec,10.0*n.log10(S.T))
     plt.colorbar()
     plt.show()
 
