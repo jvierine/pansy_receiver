@@ -131,10 +131,11 @@ def analyze_block(i0,
             ipp_idx0=0
             if False:
                 plt.subplot(121)
-                plt.pcolormesh(fvec,rvec,10.0*n.log10(n.abs(XC[0,1,:,:].T)),vmin=noise_floor,vmax=noise_floor+20)
+                plt.pcolormesh(fvec,rvec,10.0*n.log10(n.abs(XC[0,1,:,:].T)),vmin=noise_floor)
                 plt.title("%s"%(stuffr.unix2datestr(i0/1e6)))
                 plt.ylim([r0,r1])
-                plt.xlim([-max_dop,max_dop])
+                max_pdop=25
+                plt.xlim([-max_pdop,max_pdop])
                 plt.xlabel("Doppler (Hz)")
                 plt.ylabel("Range (km)")
                 plt.colorbar()
@@ -142,7 +143,7 @@ def analyze_block(i0,
                 plt.pcolormesh(fvec,rvec,n.angle(XC[7,1,:,:].T),cmap="hsv")
                 plt.title("beam %d (%d,%d)"%(1,ch_pairs[7][0],ch_pairs[7][1]))
                 plt.ylim([r0,r1])
-                plt.xlim([-max_dop,max_dop])
+                plt.xlim([-max_pdop,max_pdop])
                 plt.xlabel("Doppler (Hz)")
                 plt.ylabel("Range (km)")
                 plt.colorbar()
@@ -188,20 +189,28 @@ def analyze_block(i0,
             noise_floor=n.nanmedian(dB)
         else:
             noise_floor=-3
-        #10.0*n.log10(n.abs(XC[pi,bi,:,:].T))
+            #10.0*n.log10(n.abs(XC[pi,bi,:,:].T))
+        max_pdop=20
+        pr0=70
+        pr1=100   
         plt.subplot(121)
-        plt.pcolormesh(fvec,rvec,dB,vmin=noise_floor,vmax=noise_floor+20)
+        plt.pcolormesh(fvec,rvec,dB,vmin=noise_floor,cmap="plasma")
+        plt.axvline(5,color="white",alpha=0.2)
+        plt.axvline(-5,color="white",alpha=0.2)
         plt.title("%s"%(stuffr.unix2datestr(i0/1e6)))
-        plt.ylim([r0,r1])
-        plt.xlim([-max_dop,max_dop])
+        plt.ylim([pr0,pr1])
+
+        plt.xlim([-max_pdop,max_pdop])
+#        plt.xlim([-max_dop,max_dop])
         plt.xlabel("Doppler (Hz)")
         plt.ylabel("Range (km)")
         plt.colorbar()
         plt.subplot(122)            
         plt.pcolormesh(fvec,rvec,n.angle(XC[pi,bi,:,:].T),cmap="hsv")
         plt.title("beam %d (%d,%d)"%(bi,ch_pairs[pi][0],ch_pairs[pi][1]))
-        plt.ylim([r0,r1])
-        plt.xlim([-max_dop,max_dop])
+        plt.ylim([pr0,pr1])
+        plt.xlim([-max_pdop,max_pdop])
+        #plt.xlim([-max_dop,max_dop])
         plt.xlabel("Doppler (Hz)")
         plt.ylabel("Range (km)")
         plt.colorbar()
