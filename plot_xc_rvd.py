@@ -12,6 +12,7 @@ import plot_simple_fits as psf
 import process_cut_meteor as pcm
 import healpix_radiant as hpr
 
+
 def plot_pprof(t0,t1):
     """
     plot latest pmse
@@ -61,3 +62,7 @@ def plot_pprof(t0,t1):
     fig.autofmt_xdate()
 #    cb=fig.colorbar(m,ax=ax)
  #   cb.set_label("SNR (dB)")
+
+
+tnow=time.time()
+plot_pprof(int(tnow*1e6-24*3600*1e6),int(tnow*1e6))
