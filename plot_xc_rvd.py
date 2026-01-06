@@ -58,9 +58,9 @@ def plot_pprof(t0,t1):
             mean_prof=n.zeros(len(rvec))
             width_prof=n.zeros(len(rvec))
             for i in range(len(rvec)):
-                snr_prof[i]=n.trapz(snr[fidx,ri],fvec[fidx])
-                mean_prof[i]=n.trapz(snr[fidx,ri]*fvec[fidx],fvec[fidx])/snr_prof[i]
-                width_prof[i]=n.sqrt(n.trapz(snr[fidx,ri]*(fvec[fidx]-mean_prof[i])**2,fvec[fidx])/snr_prof[i])
+                snr_prof[i]=n.trapz(snr[fidx,i],fvec[fidx])
+                mean_prof[i]=n.trapz(snr[fidx,i]*fvec[fidx],fvec[fidx])/snr_prof[i]
+                width_prof[i]=n.sqrt(n.trapz(snr[fidx,i]*(fvec[fidx]-mean_prof[i])**2,fvec[fidx])/snr_prof[i])
 
             S[bi,:]=snr_prof
             M[bi,:]=mean_prof
