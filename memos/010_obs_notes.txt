@@ -93,3 +93,5 @@ mpirun -np 2 python3 process_cut_meteor.py
 2025-12-31
 - rsync of files to disk caused recorder to halt. Lost three hours of data. Trying now with ionice:
 ionice -c2 -n7 
+
+2026-04-17 Phase calibration problem appeared after receiver restart. Trying a new restart. Data is not valid 2026-04-17 -  2026-04-19
