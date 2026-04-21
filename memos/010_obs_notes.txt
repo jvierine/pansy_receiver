@@ -95,3 +95,4 @@ mpirun -np 2 python3 process_cut_meteor.py
 ionice -c2 -n7 
 
 2026-04-17 Phase calibration problem appeared after receiver restart. Trying a new restart. Data is not valid 2026-04-17 -  2026-04-19
+2026-04-21 Added stalled-channel detection and automatic restart in pansy_uhd_rx.cpp when some receiver channels stop delivering data.
