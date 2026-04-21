@@ -25,6 +25,25 @@ namespace po = boost::program_options;
 using namespace uhd::usrp;
 using namespace std;
 
+namespace {
+
+void stop_rx_stream(const uhd::rx_streamer::sptr& rx_stream)
+{
+    if (!rx_stream) {
+        return;
+    }
+
+    try {
+        uhd::stream_cmd_t stream_cmd(uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS);
+        stream_cmd.stream_now = true;
+        rx_stream->issue_stream_cmd(stream_cmd);
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to stop RX stream cleanly: " << e.what() << std::endl;
+    }
+}
+
+}
+
 void get_usrp_time(multi_usrp::sptr usrp, size_t mboard, std::vector<int64_t>* times)
 {
     (*times)[mboard] = usrp->get_time_now(mboard).get_full_secs();
@@ -54,11 +73,6 @@ void streaming_by_channel(size_t chan,double rate,std::string subdev,std::string
   //  usrp->set_rx_rate(rate,chan);
     //usrp->set_rx_freq(47e6,chan);
 //    usrp->set_rx_subdev_spec(subdev,chan);
-
-    // create a receive streamers for this thread's channel
-    uhd::stream_args_t stream_args("sc16", "sc16"); // complex shorts
-    stream_args.channels             = channel_number;
-    uhd::rx_streamer::sptr rx_stream = usrp->get_rx_stream(stream_args);
 
     // setup streaming
     double tstart=time_last_pps.get_real_secs()+2.0;
@@ -97,111 +111,118 @@ void streaming_by_channel(size_t chan,double rate,std::string subdev,std::string
       exit(-1);
     }
 
-    uhd::stream_cmd_t stream_cmd(uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS);
-    // stream_cmd.num_samps  = total_num_samps;
-    stream_cmd.stream_now = false;
-    stream_cmd.time_spec  = ts_t0;
-
-    rx_stream->issue_stream_cmd(stream_cmd);
-
-    // metadata
-    uhd::rx_metadata_t md;
-
-
-    // allocate buffer to receive with samples
-    std::vector<std::complex<short>> buff(rx_stream->get_max_num_samps());
-    std::vector<void*> buffs;
-    buffs.push_back(&buff.front());
-
-    // the first call to recv() will block this many seconds before receiving
-    double timeout = 3.0 + 0.1; // timeout (delay before receive + padding)
-
     size_t num_acc_samps = 0; // number of accumulated samples
     uint64_t packet_i=0;
     uint64_t prev_tl=0;
     uint64_t samp_diff=363;
-    int n_empty=0;
+    bool first_start = true;
+    uint64_t restart_count = 0;
+    const int max_empty_recvs = 10;
+
     while (1)
     {
-      // receive a single packet
-      size_t num_rx_samps = rx_stream->recv(buffs, buff.size(), md, timeout, true);
+      uhd::rx_streamer::sptr rx_stream;
 
-      if(num_rx_samps  == 363){
-        n_empty=0;
-        uint64_t tl=(uint64_t)md.time_spec.get_full_secs()*sample_rate_numerator;
-        tl=tl + (uint64_t)(md.time_spec.get_frac_secs()*((double)sample_rate_numerator));
-
-        //      printf("tl %ld prev %ld\n",tl,prev_tl);
-        if(prev_tl!=0)
-        {
-          samp_diff = tl-prev_tl;
-        }
-      
-        // pointer to short array
-        short *a = (short *)buff.data();
-        // conjugate
-//        for(int si; si <vector_length; si++){
-
-  //      }
-      
-        if(samp_diff == 363)
-        {
-          //	printf("%d\n",data_short[0]);
-          result = digital_rf_write_hdf5(data_object, vector_leading_edge_index + packet_i*363, a, vector_length);
-	  if(result != 0) {
-	    stream_cmd.stream_mode = uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS;
-	    rx_stream->issue_stream_cmd(stream_cmd);
-	    return;
-	    
-	  }
-          packet_i+=1;
-        }
-        else
-        {
-          int n_packets = samp_diff/363;
-          printf("samp_diff %ld number of packets %d\n",samp_diff,n_packets);
-          for(int pi = 0 ; pi < n_packets; pi++)
-          {
-            result = digital_rf_write_hdf5(data_object, vector_leading_edge_index + packet_i*363, a, vector_length);
-	    if(result != 0) {
-	      stream_cmd.stream_mode = uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS;
-	      rx_stream->issue_stream_cmd(stream_cmd);
-	      return;
-	    } 
-
-            packet_i+=1;
-          }
-        
-        }
-        prev_tl=tl;
-      }
-      else
+      try
       {
-        printf("got no data in recv %d\n",n_empty);
-        n_empty+=1;
-        if(n_empty > 10)
-        {
-          exit(0);
+        // create a receive streamer for this thread's channel
+        uhd::stream_args_t stream_args("sc16", "sc16"); // complex shorts
+        stream_args.channels = channel_number;
+        rx_stream = usrp->get_rx_stream(stream_args);
+
+        // metadata
+        uhd::rx_metadata_t md;
+
+        // allocate buffer to receive with samples
+        std::vector<std::complex<short>> buff(rx_stream->get_max_num_samps());
+        std::vector<void*> buffs;
+        buffs.push_back(&buff.front());
+
+        uhd::stream_cmd_t stream_cmd(uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS);
+        if (first_start) {
+          stream_cmd.stream_now = false;
+          stream_cmd.time_spec = ts_t0;
+        } else {
+          stream_cmd.stream_now = true;
         }
-          /*	if (md.error_code != uhd::rx_metadata_t::ERROR_CODE_NONE) {
-           throw std::runtime_error(str(boost::format("Receiver error %s") % md.strerror()));
-          }
-          */
+        rx_stream->issue_stream_cmd(stream_cmd);
 
-      }
+        // The first call after a stream start can block longer.
+        double timeout = first_start ? 3.0 + 0.1 : 0.5;
+        int n_empty = 0;
+
+        while (1)
+        {
+          size_t num_rx_samps = rx_stream->recv(buffs, buff.size(), md, timeout, true);
+
+          if (num_rx_samps == vector_length &&
+              md.error_code == uhd::rx_metadata_t::ERROR_CODE_NONE) {
+            n_empty = 0;
+            uint64_t tl=(uint64_t)md.time_spec.get_full_secs()*sample_rate_numerator;
+            tl=tl + (uint64_t)(md.time_spec.get_frac_secs()*((double)sample_rate_numerator));
+
+            if(prev_tl!=0)
+            {
+              samp_diff = tl-prev_tl;
+            }
+
+            // pointer to short array
+            short *a = (short *)buff.data();
+
+            if(samp_diff == vector_length)
+            {
+              result = digital_rf_write_hdf5(data_object, vector_leading_edge_index + packet_i * vector_length, a, vector_length);
+              if(result != 0) {
+                stop_rx_stream(rx_stream);
+                return;
+              }
+              packet_i+=1;
+            }
+            else
+            {
+              int n_packets = samp_diff / vector_length;
+              printf("ch %zu samp_diff %ld number of packets %d\n", chan, samp_diff, n_packets);
+              for(int pi = 0 ; pi < n_packets; pi++)
+              {
+                result = digital_rf_write_hdf5(data_object, vector_leading_edge_index + packet_i * vector_length, a, vector_length);
+                if(result != 0) {
+                  stop_rx_stream(rx_stream);
+                  return;
+                }
+
+                packet_i+=1;
+              }
+            }
+            prev_tl=tl;
+          }
+          else
+          {
+            printf("ch %zu recv problem %d: samps=%zu error=%s\n",
+                   chan,
+                   n_empty,
+                   num_rx_samps,
+                   md.strerror().c_str());
+            n_empty+=1;
+            if(n_empty > max_empty_recvs)
+            {
+              throw std::runtime_error("channel stalled");
+            }
+          }
+
           // use a small timeout for subsequent packets
-      timeout = 0.1;
-
-          // handle the error code
-          /*
-          if (md.error_code == uhd::rx_metadata_t::ERROR_CODE_TIMEOUT)
-      break;
-          if (md.error_code != uhd::rx_metadata_t::ERROR_CODE_NONE) {
-      throw std::runtime_error(str(boost::format("Receiver error %s") % md.strerror()));
-          }
-          */
-          // check md.time_stamp
-
+          timeout = 0.1;
+        }
+      }
+      catch (const std::exception& e)
+      {
+        stop_rx_stream(rx_stream);
+        restart_count += 1;
+        first_start = false;
+        std::cerr << "Channel " << chan << " stalled after " << restart_count
+                  << " restart attempts: " << e.what()
+                  << ". Recreating stream." << std::endl;
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+      }
     }
 }
 
