@@ -96,3 +96,4 @@ ionice -c2 -n7
 
 2026-04-17 Phase calibration problem appeared after receiver restart. Trying a new restart. Data is not valid 2026-04-17 -  2026-04-19
 2026-04-21 Added stalled-channel detection and automatic restart in pansy_uhd_rx.cpp when some receiver channels stop delivering data.
+2026-05-09 Recording stalled. Restarted, but with bad phase cal. Restarted again 2026-05-10 16:20:00. Data need custom phasecal 2026-05-09T00:00 - 2026-05-10T16:20
