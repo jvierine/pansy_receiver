@@ -75,11 +75,11 @@
     <thead>
       <tr>
         <th>Channel</th>
-        <th>Newest file UTC</th>
+        <th>Newest local entry UTC</th>
         <th>Age</th>
         <th>Last rsync</th>
         <th>Exit</th>
-        <th>Files</th>
+        <th>Entries</th>
         <th>Size</th>
       </tr>
     </thead>
@@ -120,11 +120,11 @@ fetch("status.json", {cache: "no-store"})
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td class="${fresh ? "ok" : "warn"}">${channel.channel}</td>
-        <td>${channel.newest_file_utc || "no files"}</td>
+        <td>${channel.newest_entry_utc || "no local entries"}</td>
         <td>${fmtAge(channel.age_seconds)}</td>
         <td>${channel.last_rsync_finished || "never"}</td>
         <td>${channel.last_rsync_exit_code ?? "n/a"}</td>
-        <td>${channel.file_count}</td>
+        <td>${channel.entry_count}</td>
         <td>${fmtBytes(channel.total_bytes)}</td>
       `;
       rows.appendChild(tr);

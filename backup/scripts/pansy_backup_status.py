@@ -23,23 +23,21 @@ def load_env_file(path):
     return values
 
 
-def newest_file(root):
+def channel_summary(root):
     newest = None
     count = 0
     total_bytes = 0
     if not root.exists():
         return None, 0, 0
-    for dirpath, _, filenames in os.walk(root):
-        for filename in filenames:
-            path = Path(dirpath) / filename
-            try:
-                stat = path.stat()
-            except OSError:
-                continue
-            count += 1
-            total_bytes += stat.st_size
-            if newest is None or stat.st_mtime > newest:
-                newest = stat.st_mtime
+    for path in root.iterdir():
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        count += 1
+        total_bytes += stat.st_size
+        if newest is None or stat.st_mtime > newest:
+            newest = stat.st_mtime
     return newest, count, total_bytes
 
 
@@ -78,7 +76,7 @@ def write_status_svg(path, channels):
         rc = channel.get("last_rsync_exit_code")
         fresh = age is not None and age < 3600 and rc == 0
         color = "#1b9e77" if fresh else "#d95f02"
-        newest = channel.get("newest_file_utc") or "no files"
+        newest = channel.get("newest_entry_utc") or "no local entries"
         age_txt = "n/a" if age is None else f"{age / 60:.1f} min"
         rows.append(
             f'<circle cx="24" cy="{y - 5}" r="7" fill="{color}" />'
@@ -86,7 +84,7 @@ def write_status_svg(path, channels):
             f'<text x="230" y="{y}" class="mono">{html.escape(newest)}</text>'
             f'<text x="560" y="{y}" class="mono">{html.escape(age_txt)}</text>'
             f'<text x="690" y="{y}" class="mono">{html.escape(str(rc))}</text>'
-            f'<text x="780" y="{y}" class="mono">{channel["file_count"]}</text>'
+            f'<text x="780" y="{y}" class="mono">{channel["entry_count"]}</text>'
         )
     svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">
 <style>
@@ -98,10 +96,10 @@ def write_status_svg(path, channels):
 <text x="20" y="28" class="title">PANSY metadata backup status</text>
 <text x="20" y="48" class="label">generated {html.escape(now.isoformat())}</text>
 <text x="44" y="54" class="label">channel</text>
-<text x="230" y="54" class="label">newest file UTC</text>
+<text x="230" y="54" class="label">newest local entry UTC</text>
 <text x="560" y="54" class="label">age</text>
 <text x="690" y="54" class="label">rsync rc</text>
-<text x="780" y="54" class="label">files</text>
+<text x="780" y="54" class="label">entries</text>
 {''.join(rows)}
 </svg>
 """
@@ -125,12 +123,12 @@ def main():
 
     channel_status = []
     for channel in channels:
-        newest, count, total_bytes = newest_file(local_root / channel)
+        newest, count, total_bytes = channel_summary(local_root / channel)
         record = {
             "channel": channel,
-            "newest_file_utc": iso_from_ts(newest),
+            "newest_entry_utc": iso_from_ts(newest),
             "age_seconds": None if newest is None else now - newest,
-            "file_count": count,
+            "entry_count": count,
             "total_bytes": total_bytes,
         }
         record.update(rsync_status.get(channel, {}))
