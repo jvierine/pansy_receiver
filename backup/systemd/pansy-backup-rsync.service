@@ -1,0 +1,14 @@
+[Unit]
+Description=PANSY metadata rsync backup
+After=pansy-backup-tunnel.service
+Wants=pansy-backup-tunnel.service
+
+[Service]
+Type=simple
+Environment=PANSY_RECEIVER_REPO=__PANSY_RECEIVER_REPO__
+ExecStart=__PANSY_RECEIVER_REPO__/backup/scripts/pansy_backup_rsync.sh
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=default.target

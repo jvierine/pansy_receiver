@@ -1,0 +1,14 @@
+[Unit]
+Description=PANSY Antarctica SSH tunnel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=PANSY_RECEIVER_REPO=__PANSY_RECEIVER_REPO__
+ExecStart=__PANSY_RECEIVER_REPO__/backup/scripts/pansy_backup_tunnel.sh
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PANSY Metadata Backup</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #111;
+      background: #f6f7f8;
+    }
+    main {
+      max-width: 1060px;
+      margin: 0 auto;
+      padding: 28px 20px 48px;
+    }
+    h1 {
+      margin: 0 0 4px;
+      font-size: 28px;
+    }
+    .subtle {
+      color: #555;
+      margin: 0 0 22px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+      border: 1px solid #ddd;
+    }
+    th, td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #e6e6e6;
+      text-align: left;
+      font-variant-numeric: tabular-nums;
+    }
+    th {
+      background: #eceff1;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .ok {
+      color: #13795b;
+      font-weight: 700;
+    }
+    .warn {
+      color: #b45309;
+      font-weight: 700;
+    }
+    .panel {
+      background: white;
+      border: 1px solid #ddd;
+      padding: 14px;
+      margin: 18px 0;
+    }
+    code {
+      background: #eef1f3;
+      padding: 2px 4px;
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>PANSY Metadata Backup</h1>
+  <p class="subtle">Pull-only rsync mirror from the Antarctica receiver to revontuli.</p>
+
+  <div class="panel">
+    <img src="status.svg" alt="PANSY metadata backup status plot" style="max-width: 100%; height: auto;">
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Channel</th>
+        <th>Newest file UTC</th>
+        <th>Age</th>
+        <th>Last rsync</th>
+        <th>Exit</th>
+        <th>Files</th>
+        <th>Size</th>
+      </tr>
+    </thead>
+    <tbody id="rows">
+      <tr><td colspan="7">Loading <code>status.json</code>...</td></tr>
+    </tbody>
+  </table>
+</main>
+<script>
+function fmtAge(seconds) {
+  if (seconds === null || seconds === undefined) return "n/a";
+  if (seconds < 120) return `${seconds.toFixed(0)} s`;
+  if (seconds < 7200) return `${(seconds / 60).toFixed(1)} min`;
+  if (seconds < 172800) return `${(seconds / 3600).toFixed(1)} h`;
+  return `${(seconds / 86400).toFixed(1)} d`;
+}
+
+function fmtBytes(bytes) {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes || 0;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+fetch("status.json", {cache: "no-store"})
+  .then(response => response.json())
+  .then(status => {
+    const rows = document.getElementById("rows");
+    rows.innerHTML = "";
+    for (const channel of status.channels) {
+      const fresh = channel.age_seconds !== null &&
+        channel.age_seconds < 3600 &&
+        channel.last_rsync_exit_code === 0;
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td class="${fresh ? "ok" : "warn"}">${channel.channel}</td>
+        <td>${channel.newest_file_utc || "no files"}</td>
+        <td>${fmtAge(channel.age_seconds)}</td>
+        <td>${channel.last_rsync_finished || "never"}</td>
+        <td>${channel.last_rsync_exit_code ?? "n/a"}</td>
+        <td>${channel.file_count}</td>
+        <td>${fmtBytes(channel.total_bytes)}</td>
+      `;
+      rows.appendChild(tr);
+    }
+  })
+  .catch(error => {
+    document.getElementById("rows").innerHTML =
+      `<tr><td colspan="7">Could not load status.json: ${error}</td></tr>`;
+  });
+</script>
+</body>
+</html>
