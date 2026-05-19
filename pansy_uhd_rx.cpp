@@ -1,8 +1,7 @@
 //
-// deperate attempt to recover sampling at pansy
+// Resilient multi-channel UHD receiver for PANSY raw voltage recording.
 //
 #include <uhd/usrp/multi_usrp.hpp>
-//#include <uhd/usrp_clock/multi_usrp_clock.hpp>
 #include <uhd/utils/safe_main.hpp>
 #include <uhd/utils/thread.hpp>
 #include <boost/algorithm/string.hpp>
@@ -15,13 +14,12 @@
 #include <vector>
 #include <unistd.h>
 #include <digital_rf.h>
-#include <iostream>
 #include <string>
 #include <ctime>
+#include <cmath>
 
 namespace po = boost::program_options;
 
-//using namespace uhd::usrp_clock;
 using namespace uhd::usrp;
 using namespace std;
 
@@ -42,6 +40,46 @@ void stop_rx_stream(const uhd::rx_streamer::sptr& rx_stream)
     }
 }
 
+uint64_t time_spec_to_sample(const uhd::time_spec_t& ts, double rate)
+{
+    // Digital RF indexes samples as integer offsets from a global sample epoch.
+    return static_cast<uint64_t>(std::llround(ts.get_real_secs() * rate));
+}
+
+uhd::time_spec_t next_stream_start_time(const multi_usrp::sptr& usrp, double delay)
+{
+    // Restart on a future integer second so a recovered channel keeps the same
+    // time base as the other channels.
+    const double now = usrp->get_time_now().get_real_secs();
+    return uhd::time_spec_t(std::ceil(now + delay));
+}
+
+void assert_mboard_times_aligned(const multi_usrp::sptr& usrp)
+{
+    // Catch bad startups before recording. A sub-microsecond disagreement here
+    // means interferometric phases will be wrong even if data is flowing.
+    const size_t num_mboards = usrp->get_num_mboards();
+    const double reference_time = usrp->get_time_last_pps(0).get_real_secs();
+    bool aligned = true;
+
+    std::cout << "Checking motherboard PPS time alignment." << std::endl;
+    for (size_t mb = 0; mb < num_mboards; mb++) {
+        const double mb_time = usrp->get_time_last_pps(mb).get_real_secs();
+        const double delta = mb_time - reference_time;
+        std::cout << boost::format(" * mboard %d last PPS: %.6f (delta %.6f s)")
+                         % mb % mb_time % delta
+                  << std::endl;
+        if (std::abs(delta) > 0.5 / 1000000.0) {
+            aligned = false;
+        }
+    }
+
+    if (!aligned) {
+        throw std::runtime_error(
+            "USRP motherboard times are not aligned after PPS synchronization.");
+    }
+}
+
 }
 
 void get_usrp_time(multi_usrp::sptr usrp, size_t mboard, std::vector<int64_t>* times)
@@ -52,12 +90,11 @@ void get_usrp_time(multi_usrp::sptr usrp, size_t mboard, std::vector<int64_t>* t
 void streaming_by_channel(size_t chan,double rate,std::string subdev,std::string outdir, multi_usrp::sptr usrp, uhd::time_spec_t time_last_pps)
 {
     Digital_rf_write_object * data_object = NULL; /* main object created by init */
-    uint64_t vector_leading_edge_index = 0; /* index of the sample being written starting at zero with the first sample recorded */
     uint64_t global_start_index; /* start sample (unix time * sample_rate) of first measurement - set below */
     int i, result;
     std::vector<size_t> channel_number;
     channel_number.push_back(chan);
-    uint64_t sample_rate_numerator = 1000000; /* 1 MHz sample rate */
+    uint64_t sample_rate_numerator = static_cast<uint64_t>(std::llround(rate));
     uint64_t sample_rate_denominator = 1;
     uint64_t subdir_cadence = 3600;
     uint64_t millseconds_per_file = 1000; 
@@ -70,20 +107,15 @@ void streaming_by_channel(size_t chan,double rate,std::string subdev,std::string
     char uuid[100] = "Fake UUID - use a better one!";
     uint64_t vector_length = 363; /* one packet */
 
-  //  usrp->set_rx_rate(rate,chan);
-    //usrp->set_rx_freq(47e6,chan);
-//    usrp->set_rx_subdev_spec(subdev,chan);
-
     // setup streaming
     double tstart=time_last_pps.get_real_secs()+2.0;
     uhd::time_spec_t ts_t0=uhd::time_spec_t(tstart);
     printf("Streaming start at %f\n",time_last_pps.get_real_secs()+2.0);
 
     // start recording at global_start_sample
-    global_start_index = (uint64_t)((uint64_t)tstart * (long double)sample_rate_numerator/sample_rate_denominator);
+    global_start_index = time_spec_to_sample(ts_t0, rate);
     printf("%lu",global_start_index);
 
-    //std::string ch_dir = outdir+"/ch"+std::to_string(chan);
     std::string ch_dir = outdir + "/ch" + std::string(3 - std::to_string(chan).length(), '0') + std::to_string(chan);
 
     std::cout << "Writing complex short to multiple files and subdirectores in " << ch_dir << std::endl;
@@ -111,13 +143,12 @@ void streaming_by_channel(size_t chan,double rate,std::string subdev,std::string
       exit(-1);
     }
 
-    size_t num_acc_samps = 0; // number of accumulated samples
-    uint64_t packet_i=0;
     uint64_t prev_tl=0;
-    uint64_t samp_diff=363;
-    bool first_start = true;
+    size_t prev_num_rx_samps = 0;
+    uhd::time_spec_t next_start_time = ts_t0;
     uint64_t restart_count = 0;
     const int max_empty_recvs = 10;
+    const double restart_delay = 2.0;
 
     while (1)
     {
@@ -128,6 +159,8 @@ void streaming_by_channel(size_t chan,double rate,std::string subdev,std::string
         // create a receive streamer for this thread's channel
         uhd::stream_args_t stream_args("sc16", "sc16"); // complex shorts
         stream_args.channels = channel_number;
+        // Request one radar packet per recv when the transport supports it.
+        stream_args.args["spp"] = std::to_string(vector_length);
         rx_stream = usrp->get_rx_stream(stream_args);
 
         // metadata
@@ -138,62 +171,56 @@ void streaming_by_channel(size_t chan,double rate,std::string subdev,std::string
         std::vector<void*> buffs;
         buffs.push_back(&buff.front());
 
+        // Always use a timed start, including after recovery. stream_now=true
+        // would restart each channel at a slightly different device time.
         uhd::stream_cmd_t stream_cmd(uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS);
-        if (first_start) {
-          stream_cmd.stream_now = false;
-          stream_cmd.time_spec = ts_t0;
-        } else {
-          stream_cmd.stream_now = true;
-        }
+        stream_cmd.stream_now = false;
+        stream_cmd.time_spec = next_start_time;
         rx_stream->issue_stream_cmd(stream_cmd);
 
-        // The first call after a stream start can block longer.
-        double timeout = first_start ? 3.0 + 0.1 : 0.5;
+        std::cout << "Channel " << chan << " streaming start requested at "
+                  << next_start_time.get_real_secs() << std::endl;
+
+        // The first call after a timed stream start can block longer.
+        double timeout = restart_delay + 1.0;
         int n_empty = 0;
 
         while (1)
         {
           size_t num_rx_samps = rx_stream->recv(buffs, buff.size(), md, timeout, true);
 
-          if (num_rx_samps == vector_length &&
+          if (num_rx_samps > 0 &&
               md.error_code == uhd::rx_metadata_t::ERROR_CODE_NONE) {
             n_empty = 0;
-            uint64_t tl=(uint64_t)md.time_spec.get_full_secs()*sample_rate_numerator;
-            tl=tl + (uint64_t)(md.time_spec.get_frac_secs()*((double)sample_rate_numerator));
+            uint64_t tl = time_spec_to_sample(md.time_spec, rate);
 
             if(prev_tl!=0)
             {
-              samp_diff = tl-prev_tl;
+              const uint64_t expected_tl = prev_tl + prev_num_rx_samps;
+              if (tl != expected_tl) {
+                const int64_t gap = static_cast<int64_t>(tl) - static_cast<int64_t>(expected_tl);
+                std::cerr << "ch " << chan << " timestamp discontinuity of "
+                          << gap << " samples at " << md.time_spec.get_real_secs()
+                          << std::endl;
+              }
             }
 
-            // pointer to short array
+            if (tl < global_start_index) {
+              std::cerr << "ch " << chan << " received data before global start; skipping"
+                        << std::endl;
+              continue;
+            }
+
+            // Use the UHD timestamp for the Digital RF offset. This preserves
+            // gaps/restarts as real sample-time gaps instead of compressing them.
             short *a = (short *)buff.data();
-
-            if(samp_diff == vector_length)
-            {
-              result = digital_rf_write_hdf5(data_object, vector_leading_edge_index + packet_i * vector_length, a, vector_length);
-              if(result != 0) {
-                stop_rx_stream(rx_stream);
-                return;
-              }
-              packet_i+=1;
-            }
-            else
-            {
-              int n_packets = samp_diff / vector_length;
-              printf("ch %zu samp_diff %ld number of packets %d\n", chan, samp_diff, n_packets);
-              for(int pi = 0 ; pi < n_packets; pi++)
-              {
-                result = digital_rf_write_hdf5(data_object, vector_leading_edge_index + packet_i * vector_length, a, vector_length);
-                if(result != 0) {
-                  stop_rx_stream(rx_stream);
-                  return;
-                }
-
-                packet_i+=1;
-              }
+            result = digital_rf_write_hdf5(data_object, tl - global_start_index, a, num_rx_samps);
+            if(result != 0) {
+              stop_rx_stream(rx_stream);
+              return;
             }
             prev_tl=tl;
+            prev_num_rx_samps = num_rx_samps;
           }
           else
           {
@@ -217,10 +244,12 @@ void streaming_by_channel(size_t chan,double rate,std::string subdev,std::string
       {
         stop_rx_stream(rx_stream);
         restart_count += 1;
-        first_start = false;
+        // Recreate the stream and schedule the next attempt in the near future.
+        next_start_time = next_stream_start_time(usrp, restart_delay);
         std::cerr << "Channel " << chan << " stalled after " << restart_count
                   << " restart attempts: " << e.what()
-                  << ". Recreating stream." << std::endl;
+                  << ". Recreating stream at "
+                  << next_start_time.get_real_secs() << "." << std::endl;
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
       }
     }
@@ -285,7 +314,6 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     std::cout << std::endl << "Checking USRP devices for lock." << std::endl;
     bool all_locked = true;
     for (size_t ch = 0; ch < usrp->get_num_mboards(); ch++) {
-//        std::cout << boost::format("%d") % ch  << std::endl;
         std::string ref_locked = usrp->get_mboard_sensor("ref_locked", ch).value;
         std::cout << boost::format(" * %d: %s") % ch % ref_locked << std::endl;
 
@@ -327,13 +355,14 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     // when the time is actually set.
     std::this_thread::sleep_for(std::chrono::seconds(2));
 
+    assert_mboard_times_aligned(usrp);
+
     uhd::time_spec_t time_last_pps = usrp->get_time_last_pps();
     printf("USRP time now %1.4f USRP last pps %1.4f\n",usrp->get_time_now().get_real_secs(),time_last_pps.get_real_secs());
-    //exit(0);
+
     // Threading for each channel
     std::vector<std::thread> threads;
     for (size_t ch = 0; ch < channel_strings.size(); ch++) {
-//    for(size_t ch=0 ; ch < usrp->get_num_mboards(); ch++){
         threads.push_back(std::thread(streaming_by_channel, std::stoi(channel_strings[ch]), rate, subdev, outdir, usrp, time_last_pps));
     }  
     
