@@ -22,8 +22,7 @@ while true; do
       --bwlimit="$RSYNC_BWLIMIT_KB" \
       --partial \
       --timeout=120 \
-      --contimeout=30 \
-      -e "ssh -p ${LOCAL_TUNNEL_PORT} -o BatchMode=yes -o StrictHostKeyChecking=accept-new" \
+      -e "ssh -p ${LOCAL_TUNNEL_PORT} -o BatchMode=yes -o ConnectTimeout=30 -o StrictHostKeyChecking=accept-new" \
       "radar@127.0.0.1:${REMOTE_METADATA_ROOT}/${channel}/20*" \
       "$LOCAL_METADATA_ROOT/$channel/" >>"$LOG_FILE" 2>&1
     rc=$?
