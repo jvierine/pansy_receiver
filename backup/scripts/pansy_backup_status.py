@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import datetime as dt
-import html
 import json
 import os
 from pathlib import Path
@@ -64,48 +63,6 @@ def read_rsync_status(path):
     return status
 
 
-def write_status_svg(path, channels):
-    width = 980
-    row_h = 34
-    height = 80 + row_h * max(1, len(channels))
-    now = dt.datetime.now(dt.timezone.utc)
-    rows = []
-    for i, channel in enumerate(channels):
-        y = 60 + i * row_h
-        age = channel.get("age_seconds")
-        rc = channel.get("last_rsync_exit_code")
-        fresh = age is not None and age < 3600 and rc == 0
-        color = "#1b9e77" if fresh else "#d95f02"
-        newest = channel.get("newest_entry_utc") or "no local entries"
-        age_txt = "n/a" if age is None else f"{age / 60:.1f} min"
-        rows.append(
-            f'<circle cx="24" cy="{y - 5}" r="7" fill="{color}" />'
-            f'<text x="44" y="{y}" class="mono">{html.escape(channel["channel"])}</text>'
-            f'<text x="230" y="{y}" class="mono">{html.escape(newest)}</text>'
-            f'<text x="560" y="{y}" class="mono">{html.escape(age_txt)}</text>'
-            f'<text x="690" y="{y}" class="mono">{html.escape(str(rc))}</text>'
-            f'<text x="780" y="{y}" class="mono">{channel["entry_count"]}</text>'
-        )
-    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">
-<style>
-  .title {{ font: 700 20px sans-serif; fill: #111; }}
-  .label {{ font: 700 13px sans-serif; fill: #444; }}
-  .mono {{ font: 13px monospace; fill: #111; }}
-</style>
-<rect width="100%" height="100%" fill="#fff" />
-<text x="20" y="28" class="title">PANSY metadata backup status</text>
-<text x="20" y="48" class="label">generated {html.escape(now.isoformat())}</text>
-<text x="44" y="54" class="label">channel</text>
-<text x="230" y="54" class="label">newest local entry UTC</text>
-<text x="560" y="54" class="label">age</text>
-<text x="690" y="54" class="label">rsync rc</text>
-<text x="780" y="54" class="label">entries</text>
-{''.join(rows)}
-</svg>
-"""
-    path.write_text(svg)
-
-
 def main():
     config_path = Path(env("PANSY_BACKUP_CONFIG", str(Path.home() / ".config/pansy-backup/pansy-backup.env")))
     config = load_env_file(config_path)
@@ -140,7 +97,6 @@ def main():
         "channels": channel_status,
     }
     (web_dir / "status.json").write_text(json.dumps(status, indent=2))
-    write_status_svg(web_dir / "status.svg", channel_status)
 
 
 if __name__ == "__main__":

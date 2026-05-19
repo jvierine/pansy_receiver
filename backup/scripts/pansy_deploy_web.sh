@@ -13,5 +13,4 @@ cp "$REPO_DIR/web/index.html" "$WEB_BUILD_DIR/index.html"
 rsync -avz \
   "$WEB_BUILD_DIR/index.html" \
   "$WEB_BUILD_DIR/status.json" \
-  "$WEB_BUILD_DIR/status.svg" \
   "$WEB_HOST:$WEB_ROOT/"
