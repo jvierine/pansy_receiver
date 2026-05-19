@@ -11,6 +11,9 @@
 #include <thread>
 #include <iostream>
 #include <fstream>
+#include <sstream>
+#include <iomanip>
+#include <random>
 #include <vector>
 #include <unistd.h>
 #include <digital_rf.h>
@@ -80,6 +83,32 @@ void assert_mboard_times_aligned(const multi_usrp::sptr& usrp)
     }
 }
 
+std::string random_uuid()
+{
+    std::random_device rd;
+    std::uniform_int_distribution<int> byte_dist(0, 255);
+    std::uniform_int_distribution<int> variant_dist(8, 11);
+
+    uint8_t bytes[16];
+    for (auto& byte : bytes) {
+        byte = static_cast<uint8_t>(byte_dist(rd));
+    }
+
+    bytes[6] = static_cast<uint8_t>((bytes[6] & 0x0f) | 0x40);
+    bytes[8] = static_cast<uint8_t>((variant_dist(rd) << 4) | (bytes[8] & 0x0f));
+
+    std::ostringstream os;
+    os << std::hex << std::setfill('0');
+    for (size_t i = 0; i < 16; i++) {
+        os << std::setw(2) << static_cast<int>(bytes[i]);
+        if (i == 3 || i == 5 || i == 7 || i == 9) {
+            os << '-';
+        }
+    }
+
+    return os.str();
+}
+
 }
 
 void get_usrp_time(multi_usrp::sptr usrp, size_t mboard, std::vector<int64_t>* times)
@@ -104,7 +133,7 @@ void streaming_by_channel(size_t chan,double rate,std::string subdev,std::string
     int is_continuous = 1; /* continuous data written */
     int num_subchannels = 1; /* only one subchannel */
     int marching_periods = 1; /* marching periods when writing */
-    char uuid[100] = "Fake UUID - use a better one!";
+    std::string uuid = random_uuid();
     uint64_t vector_length = 363; /* one packet */
 
     // setup streaming
@@ -130,7 +159,7 @@ void streaming_by_channel(size_t chan,double rate,std::string subdev,std::string
 					       global_start_index,
 					       sample_rate_numerator,
 					       sample_rate_denominator,
-					       uuid,
+					       (char *)uuid.c_str(),
 					       compression_level,
 					       checksum,
 					       is_complex,
