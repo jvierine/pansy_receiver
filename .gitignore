@@ -12,3 +12,12 @@ id_ed25519
 authorized_keys
 known_hosts
 
+# Generated backup monitor outputs
+web/detections_daily.png
+web/phase_history.png
+web/status.json
+web/status.svg
+backup_state/
+*.npz
+*.pyc
+__pycache__/
