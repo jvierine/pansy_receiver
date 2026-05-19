@@ -1,0 +1,16 @@
+[Unit]
+Description=PANSY local redundant metadata mirror
+After=pansy-backup-rsync.service
+Wants=pansy-backup-rsync.service
+
+[Service]
+Type=simple
+Environment=PANSY_RECEIVER_REPO=__PANSY_RECEIVER_REPO__
+ExecStart=__PANSY_RECEIVER_REPO__/backup/scripts/pansy_local_metadata_mirror.sh
+KillMode=control-group
+TimeoutStopSec=15
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=default.target

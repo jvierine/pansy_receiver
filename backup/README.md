@@ -34,6 +34,8 @@ Edit that file if paths or ports need to change.
 ```bash
 systemctl --user status pansy-backup-tunnel.service
 systemctl --user status pansy-backup-rsync.service
+systemctl --user status pansy-local-metadata-mirror.service
+systemctl --user status pansy-detection-history.service
 systemctl --user status pansy-backup-web.service
 ```
 
@@ -43,7 +45,12 @@ The services do the following:
   `j@4.235.86.214` to `radar@localhost -p 3131`.
 - `pansy-backup-rsync.service`: pulls metadata channels through
   `localhost:2222` into `/mnt/data/juha/pansy/metadata`.
-- `pansy-backup-web.service`: writes `status.json` and `status.svg`, then
+- `pansy-local-metadata-mirror.service`: mirrors
+  `/mnt/data/juha/pansy/metadata/` to `/urdr/data/juha/pansy/metadata/`
+  without `--delete`.
+- `pansy-detection-history.service`: counts the `detections` metadata channel
+  by UTC day and writes `detections_daily.png`.
+- `pansy-backup-web.service`: writes `status.json`, then
   deploys the web page to `j@4.235.86.214:/var/www/html/pansy`.
 
 ## Manual commands
@@ -53,6 +60,8 @@ Start or restart everything:
 ```bash
 systemctl --user restart pansy-backup-tunnel.service
 systemctl --user restart pansy-backup-rsync.service
+systemctl --user restart pansy-local-metadata-mirror.service
+systemctl --user restart pansy-detection-history.service
 systemctl --user restart pansy-backup-web.service
 ```
 
@@ -61,6 +70,7 @@ Inspect logs:
 ```bash
 journalctl --user -u pansy-backup-rsync.service -f
 tail -f /mnt/data/juha/pansy/backup_state/rsync.log
+tail -f /mnt/data/juha/pansy/backup_state/local_mirror.log
 ```
 
 Deploy the web page once:

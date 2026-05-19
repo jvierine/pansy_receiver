@@ -2,7 +2,11 @@
 import datetime as dt
 import json
 import os
+import re
 from pathlib import Path
+
+
+DATE_PATTERN = re.compile(r"(20\d{2})[-_]?(\d{2})[-_]?(\d{2})")
 
 
 def env(name, default):
@@ -24,10 +28,11 @@ def load_env_file(path):
 
 def channel_summary(root):
     newest = None
+    newest_date = None
     count = 0
     total_bytes = 0
     if not root.exists():
-        return None, 0, 0
+        return None, None, 0, 0
     for path in root.iterdir():
         try:
             stat = path.stat()
@@ -37,7 +42,13 @@ def channel_summary(root):
         total_bytes += stat.st_size
         if newest is None or stat.st_mtime > newest:
             newest = stat.st_mtime
-    return newest, count, total_bytes
+
+        match = DATE_PATTERN.search(path.name)
+        if match is not None:
+            entry_date = "-".join(match.groups())
+            if newest_date is None or entry_date > newest_date:
+                newest_date = entry_date
+    return newest, newest_date, count, total_bytes
 
 
 def iso_from_ts(ts):
@@ -63,6 +74,51 @@ def read_rsync_status(path):
     return status
 
 
+def parse_active_rsync_line(line, now):
+    parts = line.split("\t")
+    if len(parts) not in (3, 5):
+        return None, None
+
+    channel, started, pid = parts[:3]
+    active = {
+        "rsync_active": True,
+        "active_rsync_started": started,
+        "active_rsync_pid": int(pid) if pid.isdigit() else pid,
+    }
+    if len(parts) == 5:
+        files_total, files_left = parts[3], parts[4]
+        active["active_rsync_files_total"] = int(files_total) if files_total.isdigit() else None
+        active["active_rsync_files_left"] = int(files_left) if files_left.isdigit() else None
+    try:
+        started_dt = dt.datetime.fromisoformat(started.replace("Z", "+00:00"))
+        active["active_rsync_age_seconds"] = now - started_dt.timestamp()
+    except ValueError:
+        active["active_rsync_age_seconds"] = None
+    return channel, active
+
+
+def read_active_rsync(path, now):
+    if not path.exists():
+        return {}
+
+    if path.is_dir():
+        active = {}
+        for active_file in path.glob("*.tsv"):
+            lines = active_file.read_text(errors="replace").splitlines()
+            if not lines:
+                continue
+            channel, record = parse_active_rsync_line(lines[-1], now)
+            if channel is not None:
+                active[channel] = record
+        return active
+
+    lines = path.read_text(errors="replace").splitlines()
+    if not lines:
+        return {}
+    channel, record = parse_active_rsync_line(lines[-1], now)
+    return {} if channel is None else {channel: record}
+
+
 def main():
     config_path = Path(env("PANSY_BACKUP_CONFIG", str(Path.home() / ".config/pansy-backup/pansy-backup.env")))
     config = load_env_file(config_path)
@@ -77,18 +133,25 @@ def main():
     web_dir.mkdir(parents=True, exist_ok=True)
     rsync_status = read_rsync_status(state_dir / "rsync_status.tsv")
     now = dt.datetime.now(dt.timezone.utc).timestamp()
+    active_rsync_dir = state_dir / "rsync_active"
+    active_rsync = read_active_rsync(active_rsync_dir, now)
+    if not active_rsync_dir.exists():
+        active_rsync = read_active_rsync(state_dir / "rsync_active.tsv", now)
 
     channel_status = []
     for channel in channels:
-        newest, count, total_bytes = channel_summary(local_root / channel)
+        newest, newest_date, count, total_bytes = channel_summary(local_root / channel)
         record = {
             "channel": channel,
+            "latest_file_date": newest_date,
             "newest_entry_utc": iso_from_ts(newest),
             "age_seconds": None if newest is None else now - newest,
             "entry_count": count,
             "total_bytes": total_bytes,
+            "rsync_active": False,
         }
         record.update(rsync_status.get(channel, {}))
+        record.update(active_rsync.get(channel, {}))
         channel_status.append(record)
 
     status = {

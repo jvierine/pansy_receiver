@@ -14,25 +14,71 @@
         background: white;
     }
 
-    h1 {
-        text-align: center;
-        padding: 20px;
-        margin: 0;
+    .menu-bar {
+        display: grid;
+        grid-template-columns: minmax(230px, 1fr) auto minmax(300px, 1fr);
+        align-items: center;
+        gap: 18px;
+        min-height: 58px;
+        padding: 8px 16px;
+        border-bottom: 1px solid #e2e8f0;
+        background: #ffffff;
+        box-shadow: 0 1px 8px rgba(15, 23, 42, 0.08);
     }
 
-    .topbar {
-        text-align: center;
-        padding: 10px;
+    .menu-left {
+        min-width: 0;
     }
 
-    .topbar img {
-        width: 200px;
-        margin-bottom: 10px;
+    .utc-time {
+        color: #475569;
+        font-family: monospace;
+        font-size: 15px;
+        font-weight: 600;
+        white-space: nowrap;
     }
 
-    .topbar a {
-        color: #60a5fa;
+    .menu-link {
+        color: #0f172a;
+        font-size: 14px;
+        font-weight: 600;
         text-decoration: none;
+        white-space: nowrap;
+    }
+
+    .logos {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 16px;
+        min-width: 0;
+    }
+
+    .logo {
+        display: block;
+        width: auto;
+        max-width: 150px;
+        height: 34px;
+        object-fit: contain;
+        border-radius: 0;
+        cursor: default;
+    }
+
+    .logo-pansy {
+        max-width: 120px;
+    }
+
+    .logo-uit {
+        height: 34px;
+        max-width: 38px;
+    }
+
+    .logo-iap {
+        max-width: 95px;
+    }
+
+    .logo-tokyo {
+        max-width: 110px;
     }
 
     .dashboard {
@@ -55,7 +101,7 @@
         text-align: center;
     }
 
-    img {
+    img.dashboard-image {
         width: 100%;
         height: auto;
         object-fit: contain;
@@ -81,6 +127,30 @@
         padding: 5px 6px;
         border-bottom: 1px solid #e5e7eb;
         text-align: left;
+    }
+
+    .info-panel {
+        margin: 0 16px 18px 16px;
+        padding: 16px 18px;
+        border-top: 1px solid #e2e8f0;
+        color: #334155;
+        font-size: 14px;
+        line-height: 1.45;
+    }
+
+    .info-panel h2 {
+        margin: 0 0 8px 0;
+        color: #0f172a;
+        font-size: 16px;
+    }
+
+    .info-panel p {
+        margin: 8px 0;
+    }
+
+    .info-panel a {
+        color: #0f172a;
+        font-weight: 600;
     }
 
     .ok {
@@ -131,52 +201,82 @@
         opacity: 1;
         pointer-events: all;
     }
+
+    @media (max-width: 900px) {
+        .menu-bar {
+            grid-template-columns: 1fr;
+            justify-items: center;
+        }
+
+        .menu-left {
+            text-align: center;
+        }
+
+        .logos {
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+    }
 </style>
 </head>
 
 <body>
 
-<div class="topbar">
-    <img src="title.svg" alt="PANSY logo">
-    <div>
-        <a href="https://pansy.eps.s.u-tokyo.ac.jp/en/index.html" target="_blank">
-            Official PANSY project web site
-        </a>
+<header class="menu-bar">
+    <div class="menu-left">
+        <div id="utc-time" class="utc-time">---------- --:--:-- UTC</div>
     </div>
-</div>
-
-<h1>PANSY Meteor Dashboard</h1>
+    <a class="menu-link" href="https://pansy.eps.s.u-tokyo.ac.jp/en/index.html" target="_blank">
+        PANSY Meteor Extension Monitor
+    </a>
+    <div class="logos">
+        <img class="logo logo-pansy" src="pansy-title.svg" alt="PANSY logo">
+        <img class="logo logo-uit" src="uit-logo.png" alt="UiT logo">
+        <img class="logo logo-iap" src="iap-logo.svg" alt="IAP logo">
+        <img class="logo logo-tokyo" src="u-tokyo-logo.png" alt="The University of Tokyo logo">
+    </div>
+</header>
 
 <div class="dashboard">
 
     <div class="card">
         <h2>Latest 48 Hours - Histogram</h2>
-        <img src="latest_hist.png">
+        <img class="dashboard-image" src="latest_hist.png">
     </div>
 
     <div class="card">
         <h2>Latest 48 Hours - Radiants</h2>
-        <img src="latest_radiants.png">
+        <img class="dashboard-image" src="latest_radiants.png">
     </div>
 
     <div class="card">
         <h2>Latest Meteor</h2>
-        <img src="latest_meteor.png">
+        <img class="dashboard-image" src="latest_meteor.png">
     </div>
 
     <div class="card">
         <h2>Receiver Noise</h2>
-        <img src="status.png">
+        <img class="dashboard-image" src="status.png">
     </div>
 
     <div class="card">
         <h2>Latest Raw Voltage</h2>
-        <img src="raw.png">
+        <img class="dashboard-image" src="raw.png">
     </div>
 
     <div class="card">
         <h2>Processing Status</h2>
-        <img src="processing.png">
+        <img class="dashboard-image" src="processing.png">
+    </div>
+
+    <div class="card">
+        <h2>Historical Meteor Detections</h2>
+        <img class="dashboard-image" src="detections_daily.png">
+    </div>
+
+    <div class="card">
+        <h2>Transmitter Phase Calibration</h2>
+        <img class="dashboard-image" src="phase_history.png">
     </div>
 
     <div class="card">
@@ -188,15 +288,55 @@
 
 </div>
 
+<section class="info-panel">
+    <h2>About PANSY and the Meteor Extension</h2>
+    <p>
+        PANSY, the Program of the Antarctic Syowa MST/IS Radar, is an atmospheric radar at
+        Syowa Station in Antarctica. The official PANSY member page lists Kaoru Sato as
+        Project Leader and Principal Investigator, with core members Masaki Tsutsumi,
+        Toru Sato, Takuji Nakamura, Akinori Saito, Yoshihiro Tomikawa, Koji Nishimura,
+        Masashi Kohma, Taishi Hashimoto, Hisao Yamagishi, Takashi Yamanouchi,
+        Takehiko Aso, and Masaki Ejiri.
+    </p>
+    <p>
+        The PANSY Meteor Extension is a project to augment the capabilities of PANSY to
+        provide continuous meteor head echo observations. The extension was developed
+        in collaboration with the PANSY team, IAP Kuhlungsborn, and UiT The Arctic
+        University of Norway. Co-Investigators for the meteor extension are Juha
+        Vierinen, Jorge L. Chau, Nico Pfeffer, Devin Huyghebaert, and Daniel Kastinen.
+    </p>
+    <p>
+        This monitor is an operational status page for the meteor extension. For the
+        official PANSY project description, members, and publications, see the
+        <a href="https://pansy.eps.s.u-tokyo.ac.jp/en/index.html" target="_blank">
+            official PANSY web page
+        </a>.
+    </p>
+</section>
+
 <div class="overlay" id="overlay">
     <img id="overlayImg" src="">
 </div>
 
 <script>
+    const utcEl = document.getElementById('utc-time');
     const overlay = document.getElementById('overlay');
     const overlayImg = document.getElementById('overlayImg');
 
-    document.querySelectorAll('img').forEach(img => {
+    function updateUtcTime() {
+        const now = new Date();
+        const year = now.getUTCFullYear();
+        const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(now.getUTCDate()).padStart(2, '0');
+        const hours = String(now.getUTCHours()).padStart(2, '0');
+        const minutes = String(now.getUTCMinutes()).padStart(2, '0');
+        const seconds = String(now.getUTCSeconds()).padStart(2, '0');
+        utcEl.textContent = `${year}-${month}-${day} ${hours}:${minutes}:${seconds} UTC`;
+    }
+    updateUtcTime();
+    setInterval(updateUtcTime, 1000);
+
+    document.querySelectorAll('img.dashboard-image').forEach(img => {
         img.addEventListener('click', () => {
             if (overlay.classList.contains('active') && overlayImg.src === img.src) {
                 overlay.classList.remove('active');
@@ -229,6 +369,20 @@
         return `${(seconds / 86400).toFixed(1)} d`;
     }
 
+    function formatActive(channel) {
+        if (!channel.rsync_active) {
+            return '';
+        }
+        return `yes (${formatAge(channel.active_rsync_age_seconds)})`;
+    }
+
+    function formatFilesLeft(channel) {
+        if (channel.rsync_active) {
+            return 'syncing';
+        }
+        return '';
+    }
+
     fetch('status.json', {cache: 'no-store'})
         .then(response => response.json())
         .then(status => {
@@ -238,13 +392,14 @@
                     channel.last_rsync_exit_code === 0;
                 return `<tr>
                     <td class="${fresh ? 'ok' : 'warn'}">${channel.channel}</td>
+                    <td class="${channel.rsync_active ? 'ok' : ''}">${formatActive(channel)}</td>
                     <td>${formatAge(channel.age_seconds)}</td>
-                    <td>${channel.last_rsync_exit_code ?? 'n/a'}</td>
+                    <td>${formatFilesLeft(channel)}</td>
                 </tr>`;
             }).join('');
             document.getElementById('backupSummary').innerHTML =
                 `<table>
-                    <thead><tr><th>Channel</th><th>Age</th><th>Rsync</th></tr></thead>
+                    <thead><tr><th>Channel</th><th>Active</th><th>Age</th><th>Files Left</th></tr></thead>
                     <tbody>${rows}</tbody>
                 </table>`;
         })

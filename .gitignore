@@ -1,0 +1,14 @@
+# Local editor and OS files
+.DS_Store
+
+# SSH/private key material. Public keys may still contain sensitive access
+# metadata, so keep them out of this repository by default.
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+*.pem
+*.pub
+authorized_keys
+known_hosts
+
