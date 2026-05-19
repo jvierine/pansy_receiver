@@ -1,139 +1,254 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PANSY Metadata Backup</title>
-  <style>
+<meta charset="UTF-8">
+<title>PANSY Meteor Dashboard</title>
+
+<meta http-equiv="refresh" content="600">
+
+<style>
     body {
-      margin: 0;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      color: #111;
-      background: #f6f7f8;
+        margin: 0;
+        font-family: Arial, sans-serif;
+        color: #0f172a;
+        background: white;
     }
-    main {
-      max-width: 1060px;
-      margin: 0 auto;
-      padding: 28px 20px 48px;
-    }
+
     h1 {
-      margin: 0 0 4px;
-      font-size: 28px;
+        text-align: center;
+        padding: 20px;
+        margin: 0;
     }
-    .subtle {
-      color: #555;
-      margin: 0 0 22px;
+
+    .topbar {
+        text-align: center;
+        padding: 10px;
     }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      background: white;
-      border: 1px solid #ddd;
+
+    .topbar img {
+        width: 200px;
+        margin-bottom: 10px;
     }
-    th, td {
-      padding: 10px 12px;
-      border-bottom: 1px solid #e6e6e6;
-      text-align: left;
-      font-variant-numeric: tabular-nums;
+
+    .topbar a {
+        color: #60a5fa;
+        text-decoration: none;
     }
-    th {
-      background: #eceff1;
-      font-size: 13px;
-      text-transform: uppercase;
-      letter-spacing: 0.03em;
+
+    .dashboard {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+        gap: 16px;
+        padding: 16px;
     }
+
+    .card {
+        background: white;
+        border-radius: 12px;
+        padding: 10px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+    }
+
+    .card h2 {
+        font-size: 16px;
+        margin: 8px 0 10px 0;
+        text-align: center;
+    }
+
+    img {
+        width: 100%;
+        height: auto;
+        object-fit: contain;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: transform 0.2s ease;
+    }
+
+    .backup-summary {
+        font-family: monospace;
+        font-size: 13px;
+        margin: 8px 0 0;
+        overflow-x: auto;
+    }
+
+    .backup-summary table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .backup-summary th,
+    .backup-summary td {
+        padding: 5px 6px;
+        border-bottom: 1px solid #e5e7eb;
+        text-align: left;
+    }
+
     .ok {
-      color: #13795b;
-      font-weight: 700;
+        color: #047857;
+        font-weight: bold;
     }
+
     .warn {
-      color: #b45309;
-      font-weight: 700;
+        color: #b45309;
+        font-weight: bold;
     }
-    .panel {
-      background: white;
-      border: 1px solid #ddd;
-      padding: 14px;
-      margin: 18px 0;
+
+    .grid-2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
     }
-    code {
-      background: #eef1f3;
-      padding: 2px 4px;
+
+    @media (max-width: 600px) {
+        .grid-2 {
+            grid-template-columns: 1fr;
+        }
     }
-  </style>
+
+    .overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0,0,0,0.9);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s ease;
+    }
+
+    .overlay img {
+        max-width: 95vw;
+        max-height: 95vh;
+        border-radius: 10px;
+    }
+
+    .overlay.active {
+        opacity: 1;
+        pointer-events: all;
+    }
+</style>
 </head>
+
 <body>
-<main>
-  <h1>PANSY Metadata Backup</h1>
-  <p class="subtle">Pull-only rsync mirror from the Antarctica receiver to revontuli.</p>
 
-  <div class="panel">
-    <img src="status.svg" alt="PANSY metadata backup status plot" style="max-width: 100%; height: auto;">
-  </div>
+<div class="topbar">
+    <img src="title.svg" alt="PANSY logo">
+    <div>
+        <a href="https://pansy.eps.s.u-tokyo.ac.jp/en/index.html" target="_blank">
+            Official PANSY project web site
+        </a>
+    </div>
+</div>
 
-  <table>
-    <thead>
-      <tr>
-        <th>Channel</th>
-        <th>Newest local entry UTC</th>
-        <th>Age</th>
-        <th>Last rsync</th>
-        <th>Exit</th>
-        <th>Entries</th>
-        <th>Size</th>
-      </tr>
-    </thead>
-    <tbody id="rows">
-      <tr><td colspan="7">Loading <code>status.json</code>...</td></tr>
-    </tbody>
-  </table>
-</main>
+<h1>PANSY Meteor Dashboard</h1>
+
+<div class="dashboard">
+
+    <div class="card">
+        <h2>Latest 48 Hours - Histogram</h2>
+        <img src="latest_hist.png">
+    </div>
+
+    <div class="card">
+        <h2>Latest 48 Hours - Radiants</h2>
+        <img src="latest_radiants.png">
+    </div>
+
+    <div class="card">
+        <h2>Latest Meteor</h2>
+        <img src="latest_meteor.png">
+    </div>
+
+    <div class="card">
+        <h2>Receiver Noise</h2>
+        <img src="status.png">
+    </div>
+
+    <div class="card">
+        <h2>Processing Status</h2>
+        <img src="processing.png">
+    </div>
+
+    <div class="card">
+        <h2>Revontuli Metadata Backup</h2>
+        <img src="status.svg">
+        <div class="backup-summary" id="backupSummary">
+            Loading backup status...
+        </div>
+    </div>
+
+</div>
+
+<div class="overlay" id="overlay">
+    <img id="overlayImg" src="">
+</div>
+
 <script>
-function fmtAge(seconds) {
-  if (seconds === null || seconds === undefined) return "n/a";
-  if (seconds < 120) return `${seconds.toFixed(0)} s`;
-  if (seconds < 7200) return `${(seconds / 60).toFixed(1)} min`;
-  if (seconds < 172800) return `${(seconds / 3600).toFixed(1)} h`;
-  return `${(seconds / 86400).toFixed(1)} d`;
-}
+    const overlay = document.getElementById('overlay');
+    const overlayImg = document.getElementById('overlayImg');
 
-function fmtBytes(bytes) {
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let value = bytes || 0;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
-}
+    document.querySelectorAll('img').forEach(img => {
+        img.addEventListener('click', () => {
+            if (overlay.classList.contains('active') && overlayImg.src === img.src) {
+                overlay.classList.remove('active');
+                overlayImg.src = '';
+            } else {
+                overlay.classList.add('active');
+                overlayImg.src = img.src;
+            }
+        });
+    });
 
-fetch("status.json", {cache: "no-store"})
-  .then(response => response.json())
-  .then(status => {
-    const rows = document.getElementById("rows");
-    rows.innerHTML = "";
-    for (const channel of status.channels) {
-      const fresh = channel.age_seconds !== null &&
-        channel.age_seconds < 3600 &&
-        channel.last_rsync_exit_code === 0;
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td class="${fresh ? "ok" : "warn"}">${channel.channel}</td>
-        <td>${channel.newest_entry_utc || "no local entries"}</td>
-        <td>${fmtAge(channel.age_seconds)}</td>
-        <td>${channel.last_rsync_finished || "never"}</td>
-        <td>${channel.last_rsync_exit_code ?? "n/a"}</td>
-        <td>${channel.entry_count}</td>
-        <td>${fmtBytes(channel.total_bytes)}</td>
-      `;
-      rows.appendChild(tr);
+    overlay.addEventListener('click', () => {
+        overlay.classList.remove('active');
+        overlayImg.src = '';
+    });
+
+    function formatAge(seconds) {
+        if (seconds === null || seconds === undefined) {
+            return 'n/a';
+        }
+        if (seconds < 120) {
+            return `${seconds.toFixed(0)} s`;
+        }
+        if (seconds < 7200) {
+            return `${(seconds / 60).toFixed(1)} min`;
+        }
+        if (seconds < 172800) {
+            return `${(seconds / 3600).toFixed(1)} h`;
+        }
+        return `${(seconds / 86400).toFixed(1)} d`;
     }
-  })
-  .catch(error => {
-    document.getElementById("rows").innerHTML =
-      `<tr><td colspan="7">Could not load status.json: ${error}</td></tr>`;
-  });
+
+    fetch('status.json', {cache: 'no-store'})
+        .then(response => response.json())
+        .then(status => {
+            const rows = status.channels.map(channel => {
+                const fresh = channel.age_seconds !== null &&
+                    channel.age_seconds < 3600 &&
+                    channel.last_rsync_exit_code === 0;
+                return `<tr>
+                    <td class="${fresh ? 'ok' : 'warn'}">${channel.channel}</td>
+                    <td>${formatAge(channel.age_seconds)}</td>
+                    <td>${channel.last_rsync_exit_code ?? 'n/a'}</td>
+                </tr>`;
+            }).join('');
+            document.getElementById('backupSummary').innerHTML =
+                `<table>
+                    <thead><tr><th>Channel</th><th>Age</th><th>Rsync</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>`;
+        })
+        .catch(error => {
+            document.getElementById('backupSummary').textContent =
+                `Could not load backup status: ${error}`;
+        });
 </script>
+
 </body>
 </html>
