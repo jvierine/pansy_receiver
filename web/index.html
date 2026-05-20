@@ -142,38 +142,6 @@
         font-size: 14px;
     }
 
-    .backup-tabs {
-        display: flex;
-        gap: 6px;
-        margin: 4px 0 10px;
-        font-family: Arial, sans-serif;
-    }
-
-    .backup-tab-button {
-        border: 1px solid #cbd5e1;
-        background: #f8fafc;
-        color: #0f172a;
-        padding: 5px 9px;
-        border-radius: 6px;
-        cursor: pointer;
-        font-size: 12px;
-        font-weight: 600;
-    }
-
-    .backup-tab-button.active {
-        background: #0f172a;
-        color: white;
-        border-color: #0f172a;
-    }
-
-    .backup-tab-panel {
-        display: none;
-    }
-
-    .backup-tab-panel.active {
-        display: block;
-    }
-
     .info-panel {
         margin: 0 16px 18px 16px;
         padding: 16px 18px;
@@ -339,9 +307,16 @@
     </div>
 
     <div class="card">
-        <h2>Revontuli Metadata Backup</h2>
+        <h2>Antarctica to Revontuli</h2>
         <div class="backup-summary" id="backupSummary">
             Loading backup status...
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Revontuli to Urdr Mirror</h2>
+        <div class="backup-summary" id="mirrorSummary">
+            Loading mirror status...
         </div>
     </div>
 
@@ -573,20 +548,6 @@
         return `yes (${formatAge(mirror.active_age_seconds)})`;
     }
 
-    function bindBackupTabs() {
-        document.querySelectorAll('.backup-tab-button').forEach(button => {
-            button.addEventListener('click', () => {
-                const tab = button.dataset.backupTab;
-                document.querySelectorAll('.backup-tab-button').forEach(other => {
-                    other.classList.toggle('active', other === button);
-                });
-                document.querySelectorAll('.backup-tab-panel').forEach(panel => {
-                    panel.classList.toggle('active', panel.dataset.backupPanel === tab);
-                });
-            });
-        });
-    }
-
     fetch('status.json', {cache: 'no-store'})
         .then(response => response.json())
         .then(status => {
@@ -616,43 +577,37 @@
             }).join('');
             const mirrorExitOk = mirror.last_exit_code === 0;
             document.getElementById('backupSummary').innerHTML =
-                `<div class="backup-tabs" role="tablist" aria-label="Backup status tabs">
-                    <button class="backup-tab-button active" data-backup-tab="antarctica" type="button">Antarctica to Revontuli</button>
-                    <button class="backup-tab-button" data-backup-tab="urdr" type="button">Revontuli to Urdr</button>
-                </div>
-                <div class="backup-tab-panel active" data-backup-panel="antarctica">
-                    <table>
-                        <thead><tr><th>Channel</th><th>Active</th><th>Age</th><th>Files Left</th></tr></thead>
-                        <tbody>${rows}</tbody>
-                    </table>
-                </div>
-                <div class="backup-tab-panel" data-backup-panel="urdr">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Active</th>
-                                <th>Last Exit</th>
-                                <th>Last Finished</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td class="${mirror.active ? 'ok' : ''}">${formatMirrorActive(mirror)}</td>
-                                <td class="${mirrorExitOk ? 'ok' : 'warn'}">${formatExitCode(mirror.last_exit_code)}</td>
-                                <td>${mirror.last_finished || 'n/a'}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                    <table>
-                        <thead><tr><th>Channel</th><th>Source Date</th><th>Mirror Date</th><th>Files Behind</th><th>Bytes Behind</th></tr></thead>
-                        <tbody>${mirrorRows}</tbody>
-                    </table>
-                </div>`;
-            bindBackupTabs();
+                `<table>
+                    <thead><tr><th>Channel</th><th>Active</th><th>Age</th><th>Files Left</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>`;
+            document.getElementById('mirrorSummary').innerHTML =
+                `<table>
+                    <thead>
+                        <tr>
+                            <th>Active</th>
+                            <th>Last Exit</th>
+                            <th>Last Finished</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="${mirror.active ? 'ok' : ''}">${formatMirrorActive(mirror)}</td>
+                            <td class="${mirrorExitOk ? 'ok' : 'warn'}">${formatExitCode(mirror.last_exit_code)}</td>
+                            <td>${mirror.last_finished || 'n/a'}</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <table>
+                    <thead><tr><th>Channel</th><th>Source Date</th><th>Mirror Date</th><th>Files Behind</th><th>Bytes Behind</th></tr></thead>
+                    <tbody>${mirrorRows}</tbody>
+                </table>`;
         })
         .catch(error => {
             document.getElementById('backupSummary').textContent =
                 `Could not load backup status: ${error}`;
+            document.getElementById('mirrorSummary').textContent =
+                `Could not load mirror status: ${error}`;
         });
 </script>
 
