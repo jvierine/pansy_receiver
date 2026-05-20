@@ -131,6 +131,12 @@
         text-align: left;
     }
 
+    .backup-summary h3 {
+        margin: 12px 0 6px;
+        font-family: Arial, sans-serif;
+        font-size: 14px;
+    }
+
     .info-panel {
         margin: 0 16px 18px 16px;
         padding: 16px 18px;
@@ -465,6 +471,20 @@
         return '';
     }
 
+    function formatExitCode(exitCode) {
+        if (exitCode === null || exitCode === undefined || exitCode === '') {
+            return 'n/a';
+        }
+        return String(exitCode);
+    }
+
+    function formatMirrorActive(mirror) {
+        if (!mirror || !mirror.active) {
+            return '';
+        }
+        return `yes (${formatAge(mirror.active_age_seconds)})`;
+    }
+
     fetch('status.json', {cache: 'no-store'})
         .then(response => response.json())
         .then(status => {
@@ -479,10 +499,46 @@
                     <td>${formatFilesLeft(channel)}</td>
                 </tr>`;
             }).join('');
+            const mirror = status.local_mirror || {};
+            const mirrorRows = (mirror.channels || []).map(channel => {
+                const matched = channel.latest_file_date_match &&
+                    channel.entry_count_delta === 0 &&
+                    channel.byte_delta === 0;
+                return `<tr>
+                    <td class="${matched ? 'ok' : 'warn'}">${channel.channel}</td>
+                    <td>${channel.source_latest_file_date || 'n/a'}</td>
+                    <td>${channel.mirror_latest_file_date || 'n/a'}</td>
+                    <td>${channel.entry_count_delta}</td>
+                    <td>${channel.byte_delta}</td>
+                </tr>`;
+            }).join('');
+            const mirrorExitOk = mirror.last_exit_code === 0;
             document.getElementById('backupSummary').innerHTML =
-                `<table>
+                `<h3>Antarctica to Revontuli</h3>
+                <table>
                     <thead><tr><th>Channel</th><th>Active</th><th>Age</th><th>Files Left</th></tr></thead>
                     <tbody>${rows}</tbody>
+                </table>
+                <h3>Revontuli to Urdr Mirror</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Active</th>
+                            <th>Last Exit</th>
+                            <th>Last Finished</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="${mirror.active ? 'ok' : ''}">${formatMirrorActive(mirror)}</td>
+                            <td class="${mirrorExitOk ? 'ok' : 'warn'}">${formatExitCode(mirror.last_exit_code)}</td>
+                            <td>${mirror.last_finished || 'n/a'}</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <table>
+                    <thead><tr><th>Channel</th><th>Source Date</th><th>Mirror Date</th><th>Files Behind</th><th>Bytes Behind</th></tr></thead>
+                    <tbody>${mirrorRows}</tbody>
                 </table>`;
         })
         .catch(error => {
