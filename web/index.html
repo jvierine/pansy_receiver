@@ -97,6 +97,11 @@
         box-shadow: 0 4px 15px rgba(0,0,0,0.4);
     }
 
+    .card.keyboard-selected {
+        outline: 3px solid #0f172a;
+        outline-offset: 3px;
+    }
+
     .card h2 {
         font-size: 16px;
         margin: 8px 0 10px 0;
@@ -335,9 +340,10 @@
         </a>.
     </p>
     <p>
-        Keyboard shortcuts: press <kbd>Enter</kbd> to open the first plot,
-        use <kbd>Left</kbd> and <kbd>Right</kbd> to move between plots while a
-        plot is open, and press <kbd>Esc</kbd> to close the expanded plot.
+        Keyboard shortcuts: use <kbd>Left</kbd> and <kbd>Right</kbd> to move
+        between plots, press <kbd>Enter</kbd> to open the selected plot, and
+        press <kbd>Esc</kbd> to close or clear the selection. When a plot is
+        open, <kbd>Left</kbd> and <kbd>Right</kbd> move between expanded plots.
     </p>
 </section>
 
@@ -350,6 +356,7 @@
     const overlay = document.getElementById('overlay');
     const overlayImg = document.getElementById('overlayImg');
     let currentOverlayImage = null;
+    let selectedImage = null;
 
     function updateUtcTime() {
         const now = new Date();
@@ -368,7 +375,42 @@
         return Array.from(document.querySelectorAll('img.dashboard-image'));
     }
 
+    function selectImage(img, scrollIntoView = true) {
+        document.querySelectorAll('.card.keyboard-selected').forEach(card => {
+            card.classList.remove('keyboard-selected');
+        });
+        selectedImage = img;
+        const card = img ? img.closest('.card') : null;
+        if (card) {
+            card.classList.add('keyboard-selected');
+            if (scrollIntoView) {
+                card.scrollIntoView({block: 'nearest', inline: 'nearest'});
+            }
+        }
+    }
+
+    function clearSelection() {
+        document.querySelectorAll('.card.keyboard-selected').forEach(card => {
+            card.classList.remove('keyboard-selected');
+        });
+        selectedImage = null;
+    }
+
+    function selectAdjacentImage(step) {
+        const images = dashboardImages();
+        if (images.length === 0) {
+            return;
+        }
+        let index = images.indexOf(selectedImage);
+        if (index < 0) {
+            index = step > 0 ? -1 : 0;
+        }
+        const nextIndex = (index + step + images.length) % images.length;
+        selectImage(images[nextIndex]);
+    }
+
     function openOverlayFromImage(img) {
+        selectImage(img, false);
         currentOverlayImage = img;
         overlayImg.src = img.src;
         overlayImg.alt = img.alt || 'Expanded plot';
@@ -381,11 +423,12 @@
         currentOverlayImage = null;
     }
 
-    function openFirstImage() {
+    function openSelectedOrFirstImage() {
         const images = dashboardImages();
-        if (images.length > 0) {
-            openOverlayFromImage(images[0]);
+        if (images.length === 0) {
+            return;
         }
+        openOverlayFromImage(selectedImage || images[0]);
     }
 
     function navigateOverlay(step) {
@@ -411,6 +454,7 @@
 
     document.querySelectorAll('img.dashboard-image').forEach(img => {
         img.addEventListener('click', () => {
+            selectImage(img, false);
             if (overlay.classList.contains('active') && currentOverlayImage === img) {
                 closeOverlay();
             } else {
@@ -428,16 +472,28 @@
 
         if (event.key === 'Escape') {
             event.preventDefault();
-            closeOverlay();
-        } else if (event.key === 'ArrowLeft' && overlayIsOpen) {
+            if (overlayIsOpen) {
+                closeOverlay();
+            } else {
+                clearSelection();
+            }
+        } else if (event.key === 'ArrowLeft') {
             event.preventDefault();
-            navigateOverlay(-1);
-        } else if (event.key === 'ArrowRight' && overlayIsOpen) {
+            if (overlayIsOpen) {
+                navigateOverlay(-1);
+            } else {
+                selectAdjacentImage(-1);
+            }
+        } else if (event.key === 'ArrowRight') {
             event.preventDefault();
-            navigateOverlay(1);
+            if (overlayIsOpen) {
+                navigateOverlay(1);
+            } else {
+                selectAdjacentImage(1);
+            }
         } else if (event.key === 'Enter' && !overlayIsOpen) {
             event.preventDefault();
-            openFirstImage();
+            openSelectedOrFirstImage();
         }
     });
 

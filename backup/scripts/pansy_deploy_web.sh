@@ -13,6 +13,8 @@ cp \
   "$REPO_DIR/web/uit-logo.png" \
   "$REPO_DIR/web/iap-logo.svg" \
   "$REPO_DIR/web/u-tokyo-logo.png" \
+  "$REPO_DIR/web/favicon.svg" \
+  "$REPO_DIR/web/favicon.ico" \
   "$WEB_BUILD_DIR/"
 "$REPO_DIR/backup/scripts/pansy_backup_status.py"
 
@@ -22,6 +24,8 @@ DEPLOY_FILES=(
   "$WEB_BUILD_DIR/uit-logo.png" \
   "$WEB_BUILD_DIR/iap-logo.svg" \
   "$WEB_BUILD_DIR/u-tokyo-logo.png" \
+  "$WEB_BUILD_DIR/favicon.svg" \
+  "$WEB_BUILD_DIR/favicon.ico" \
   "$WEB_BUILD_DIR/status.json"
 )
 
