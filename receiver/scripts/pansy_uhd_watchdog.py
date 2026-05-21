@@ -110,7 +110,10 @@ def scan_h5_mtime(root, max_recent_dirs=6):
     except OSError:
         return None, None
 
-    dirs = [p for p in entries if p.is_dir()]
+    # Digital RF sample directories are timestamped, e.g.
+    # 2026-05-21T10-00-00. Ignore channel metadata directories here; their
+    # HDF5 files are not evidence that raw voltage samples are still arriving.
+    dirs = [p for p in entries if p.is_dir() and p.name[:1].isdigit()]
     dirs.sort(key=lambda p: (p.name, p.stat().st_mtime), reverse=True)
 
     latest_mtime = None
