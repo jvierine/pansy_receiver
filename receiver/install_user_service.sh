@@ -9,6 +9,15 @@ mkdir -p "$CONFIG_DIR" "$SYSTEMD_DIR" "$REPO_DIR/logs"
 
 if [ ! -f "$CONFIG_DIR/pansy-receiver.env" ]; then
   cp "$REPO_DIR/receiver/pansy-receiver.env" "$CONFIG_DIR/pansy-receiver.env"
+else
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)= ]]; then
+      key="${BASH_REMATCH[1]}"
+      if ! grep -q "^${key}=" "$CONFIG_DIR/pansy-receiver.env"; then
+        printf '%s\n' "$line" >> "$CONFIG_DIR/pansy-receiver.env"
+      fi
+    fi
+  done < "$REPO_DIR/receiver/pansy-receiver.env"
 fi
 
 for unit in pansy-uhd-rx.service pansy-uhd-watchdog.service; do

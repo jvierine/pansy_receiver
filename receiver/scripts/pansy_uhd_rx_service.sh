@@ -11,6 +11,7 @@ REPO_DIR="${PANSY_RECEIVER_REPO:-$HOME/src/git/pansy_receiver}"
 RX_BINARY="${PANSY_UHD_RX_BINARY:-$REPO_DIR/pansy_uhd_rx}"
 OUTDIR="${PANSY_UHD_RX_OUTDIR:-/media/archive}"
 EXTRA_ARGS="${PANSY_UHD_RX_ARGS:-}"
+EXTRA_LD_LIBRARY_PATH="${PANSY_UHD_RX_LD_LIBRARY_PATH:-}"
 
 cd "$REPO_DIR"
 mkdir -p "$REPO_DIR/logs" "$OUTDIR"
@@ -18,6 +19,10 @@ mkdir -p "$REPO_DIR/logs" "$OUTDIR"
 if [ ! -x "$RX_BINARY" ]; then
   echo "Receiver binary is missing or not executable: $RX_BINARY" >&2
   exit 1
+fi
+
+if [ -n "$EXTRA_LD_LIBRARY_PATH" ]; then
+  export LD_LIBRARY_PATH="$EXTRA_LD_LIBRARY_PATH${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 fi
 
 echo "Starting $RX_BINARY --outdir $OUTDIR $EXTRA_ARGS"
