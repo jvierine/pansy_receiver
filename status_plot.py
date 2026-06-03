@@ -302,10 +302,11 @@ def plot_status():
     os.system("rsync -avz --bwlimit 1 /tmp/fit_data.h5 /tmp/raw.png /tmp/latest_meteor.png /tmp/latest_radiants.png /tmp/latest_hist.png status.png processing.png j@4.235.86.214:/var/www/html/pansy/")
 
 
-while True:
-    try:
-        plot_status()
-    except:
-        import traceback
-        traceback.print_exc()
-    time.sleep(300)
+if __name__ == "__main__":
+    while True:
+        try:
+            plot_status()
+        except:
+            import traceback
+            traceback.print_exc()
+        time.sleep(300)
