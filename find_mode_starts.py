@@ -6,6 +6,7 @@ import os
 import stuffr
 import time
 import pansy_config as pc
+import traceback
 
 def update_tx_pulses():
     """
@@ -22,7 +23,9 @@ def update_tx_pulses():
             db = dmr.get_bounds()
             print(db)
         except:
+            traceback.print_exc()
             print("couldn't read metadata")
+            exit(0)
     else:
         os.system("mkdir -p %s"%(metadata_dir))
 

@@ -420,7 +420,8 @@ def analyze_until_now():
         except:
             import traceback
             traceback.print_exc()
-            print("couldn't read det metadata")
+            print("couldn't read latest file. waiting for quicksource to finish")
+            analysis_end=b_det[1]
     else:
         os.system("mkdir -p %s"%(det_md_dir))
     print("%s"%(stuffr.unix2datestr(analysis_end/1e6)))

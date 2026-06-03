@@ -116,6 +116,7 @@ def process_m_mode(key,d,rds,dmw,dm_mf2,chs=["ch000","ch001","ch002","ch003","ch
     z=n.zeros([n_ch,1600*20],dtype=n.complex64)
     for chi in range(n_ch):
         z[chi,:]=d.read_vector_c81d(key,1600*20,chs[chi])*amp_scale[chi]
+
     z_tx=d.read_vector_c81d(key,1600*20,"ch007")
     RTI=n.zeros([20,rds.n_rg],dtype=n.float32)
     RTIV=n.zeros([20,rds.n_rg],dtype=n.float32)
@@ -258,23 +259,23 @@ def meteor_search(debug=False):
     samples_per_second_numerator = 1000000
     samples_per_second_denominator = 1
     file_name = "mf"
-    os.system("mkdir -p %s"%(pc.mf_isr_metadata_dir))
-
-    dmw_isr = drf.DigitalMetadataWriter(
-        pc.mf_isr_metadata_dir,
-        subdirectory_cadence_seconds,
-        file_cadence_seconds,
-        samples_per_second_numerator,
-        samples_per_second_denominator,
-        file_name,
-    )
+#    os.system("mkdir -p %s"%(pc.mf_isr_metadata_dir))
+#
+ #   dmw_isr = drf.DigitalMetadataWriter(
+  #      pc.mf_isr_metadata_dir,
+   #     subdirectory_cadence_seconds,
+    #    file_cadence_seconds,
+     #   samples_per_second_numerator,
+      #  samples_per_second_denominator,
+       # file_name,
+#    )
 
 
     # see if results already exist
     dm_mf2 = drf.DigitalMetadataReader(mf_metadata_dir)
 
     # see if results already exist
-    dm_mf_isr = drf.DigitalMetadataReader(pc.mf_isr_metadata_dir)
+ #   dm_mf_isr = drf.DigitalMetadataReader(pc.mf_isr_metadata_dir)
 
     # this is where the data is
     d=drf.DigitalRFReader("/media/archive/")
@@ -318,10 +319,10 @@ def meteor_search(debug=False):
 
     d_analysis=file_cadence_seconds*1000000
 
-    b_mf_isr=dm_mf_isr.get_bounds()
+#    b_mf_isr=dm_mf_isr.get_bounds()
 
     # start analysis where the previous one left off
-    start_idx=d_analysis*int(n.floor((n.max((db_mf[1],b_mf_isr[1])))/d_analysis))
+    start_idx=d_analysis*int(n.floor(db_mf[1]/d_analysis))
     # stay 6 minutes behind realtime to avoid underfull metadata files
     end_idx=d_analysis*int(n.ceil(db[1]/d_analysis))-6*d_analysis
 
@@ -365,54 +366,43 @@ def meteor_search(debug=False):
                 print("rank %d already processed %d-%d %d results"%(rank,i0,i1,len(mf2out.keys())))
                 continue
 
-            mf2out=dm_mf_isr.read(i0,i1,["tx_pwr"])
-            if len(mf2out.keys())>0:
-                print("rank %d already processed %d-%d %d results"%(rank,i0,i1,len(mf2out.keys())))
-                continue
+#            mf2out=dm_mf_isr.read(i0,i1,["tx_pwr"])
+ #           if len(mf2out.keys())>0:
+  #              print("rank %d already processed %d-%d %d results"%(rank,i0,i1,len(mf2out.keys())))
+   #             continue
 
             keys=data_dict.keys()
             n_keys=len(keys)
             n_meso=0
-            n_isr=0
+    #        n_isr=0
             #print("%d processing %d pulses"%(rank,20*n_keys))
             for key in keys:
                 keyi=int(key)
                 try:
                     if  data_dict[key] == 1:
- #                       print("meso mode %s"%(stuffr.unix2datestr(key/1e6)))
+                        print("meso mode %s"%(stuffr.unix2datestr(key/1e6)))
                         process_m_mode(key,d,rds,dmw,dm_mf2,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"])
 
                         n_meso+=1
-                    elif data_dict[key] == 2:
+     #               elif data_dict[key] == 2:
 #                        print("isr mode %s"%(stuffr.unix2datestr(key/1e6)))
-                        process_isr_mode(key,d,rds_isr,dmw_isr,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"])
-                        n_isr+=1
+      #                  process_isr_mode(key,d,rds_isr,dmw_isr,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"])
+       #                 n_isr+=1
 #                    else:
                         
                         #                    else:
                         #                       print("unknown mode %d"%(data_dict[key]))
                 except:
-                    import traceback
-                    traceback.print_exc()
+                    print("problem with processing. probably data gap.")
+#                    import traceback
+ #                   traceback.print_exc()
 
 
         cput1=time.time()
-        if (n_isr + n_meso) > 0:
-            print("rank %d %d isr %d meso %s cputime/realtime %1.2f"% (rank,n_isr,n_meso*20,stuffr.unix2datestr(i0/1e6), (cput1-cput0)/(size*(n_meso*20*1.6e-3+n_isr*12.5e-3))))
+        if (n_meso) > 0:
+            print("rank %d %d meso %s cputime/realtime %1.2f"% (rank,n_meso*20,stuffr.unix2datestr(i0/1e6), (cput1-cput0)/(size*(n_meso*20*1.6e-3))))
         else:
-            try:
-                # store a placeholder to avoid reanalyzing this part!
-                odata_dict={}
-                odata_dict["tx_pwr"]=0
-                odata_dict["max_snr"]=0
-                odata_dict["max_range"]=0
-                odata_dict["max_dopvel"]=0
-                odata_dict["noise_floor"]=0
-                odata_dict["tx_idxs"]=0
-                dmw_isr.write([i0+10],odata_dict)
-            except:
-                import traceback
-                traceback.print_exc()
+            print("no meso mode found")
 
             
 
