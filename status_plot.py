@@ -13,6 +13,8 @@ import process_cut_meteor as pcm
 import healpix_radiant as hpr
 import pansy_plot
 
+STATUS_RSYNC_BWLIMIT = os.environ.get("PANSY_STATUS_RSYNC_BWLIMIT", "1000")
+
 def metadata_bounds(path, label):
     try:
         reader = drf.DigitalMetadataReader(path)
@@ -299,7 +301,7 @@ def plot_status():
         pansy_plot.plot_raw(show_plot=False,fname="/tmp/raw.png")
     except Exception as exc:
         print("status_plot: raw plot unavailable: %s"%(exc))
-    os.system("rsync -avz --bwlimit 1 /tmp/fit_data.h5 /tmp/raw.png /tmp/latest_meteor.png /tmp/latest_radiants.png /tmp/latest_hist.png status.png processing.png j@4.235.86.214:/var/www/html/pansy/")
+    os.system("rsync -avz --bwlimit %s /tmp/fit_data.h5 /tmp/raw.png /tmp/latest_meteor.png /tmp/latest_radiants.png /tmp/latest_hist.png status.png processing.png j@4.235.86.214:/var/www/html/pansy/"%(STATUS_RSYNC_BWLIMIT))
 
 
 if __name__ == "__main__":
