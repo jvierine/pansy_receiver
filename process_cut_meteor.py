@@ -22,6 +22,14 @@ comm = MPI.COMM_WORLD
 size = comm.Get_size()
 rank = comm.Get_rank()
 
+def metadata_bounds(path, label):
+    try:
+        reader = drf.DigitalMetadataReader(path)
+        return reader, reader.get_bounds()
+    except Exception as exc:
+        print("couldn't read %s metadata bounds yet: %s"%(label, exc))
+        return None, [-1, -1]
+
 phasecal = n.zeros([5,7])
 imaging=[]
 mmdict=pmm.get_m_mode()
@@ -389,23 +397,29 @@ def process_cut(data,
 def process_latest():
     mddir=pc.cut_metadata_dir
   #  mddir="../pansy_test_data/metadata/cut"
-    dm = drf.DigitalMetadataReader(mddir)
-    b = dm.get_bounds()
+    dm, b = metadata_bounds(mddir, "cut")
+    if b[1] == -1:
+        print("cut metadata is not readable yet; waiting")
+        return
     dt=120000000
 #    os.system("mkdir -p caldata")
 
     start_idx=b[0]
 
-    try:
-        dmf=drf.DigitalMetadataReader(pc.simple_fit_metadata_dir)
-        fitb=dmf.get_bounds()
+    dmf, fitb = metadata_bounds(pc.simple_fit_metadata_dir, "simple_fit")
+    if fitb[1] != -1:
         start_idx=fitb[1]
-    except:
+    else:
         print("no fit boundary found")
     
     n_block=int(n.ceil((b[1]-start_idx)/dt))
     print(stuffr.unix2datestr(b[1]/1e6))
     print(stuffr.unix2datestr(start_idx/1e6))
+    if n_block <= 0:
+        print("process_cut_meteor waiting: start %s is not before cut end %s"%(
+            stuffr.unix2datestr(start_idx/1e6),
+            stuffr.unix2datestr(b[1]/1e6)))
+        return
 
     subdirectory_cadence_seconds = 3600
     file_cadence_seconds = 60

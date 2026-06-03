@@ -8,9 +8,23 @@ import time
 import pansy_config as pc
 import cluster_mf as cmf
 import traceback
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    message="The read_vector_c81d method is deprecated.*",
+    category=FutureWarning,
+)
 
 os.system("mkdir -p %s"%(pc.cut_metadata_dir))
 
+def metadata_bounds(path, label):
+    try:
+        reader = drf.DigitalMetadataReader(path)
+        return reader, reader.get_bounds()
+    except Exception as exc:
+        print("couldn't read %s metadata bounds yet: %s"%(label, exc))
+        return None, [-1, -1]
 
 
 
@@ -133,8 +147,12 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
 def cut_block():
 
     # meteor detections
-    dm = drf.DigitalMetadataReader(pc.detections_metadata_dir)
-    bm = dm.get_bounds()
+    dm, bm = metadata_bounds(pc.detections_metadata_dir, "detections")
+    if bm[1] == -1:
+        print("detections metadata is not readable yet; waiting")
+        return
+    d_raw=drf.DigitalRFReader(pc.raw_voltage_dir)
+    raw_bounds=d_raw.get_bounds("ch000")
 
     # match function outputs
 #    dmf = drf.DigitalMetadataReader(pc.mf_metadata_dir)
@@ -160,15 +178,25 @@ def cut_block():
     sr=1000000
 
     start_idx=bm[0]
-    try:
-        dmcut = drf.DigitalMetadataReader(pc.cut_metadata_dir)
-        b_cut = dmcut.get_bounds()
+    dmcut, b_cut = metadata_bounds(pc.cut_metadata_dir, "cut")
+    if b_cut[1] != -1:
         start_idx=b_cut[1]
-    except:
+    else:
         print("found no cut end. using start of detections")
         start_idx=bm[0]
 
     n_block=int(n.floor((bm[1]-start_idx)/dt))
+    if n_block <= 0:
+        print("cut_meteors waiting: start %s is not before detection end %s"%(
+            stuffr.unix2datestr(start_idx/1e6),
+            stuffr.unix2datestr(bm[1]/1e6)))
+        return
+    print("cut_meteors processing %d minute windows from %s to %s; raw ch000 %s - %s"%(
+        n_block,
+        stuffr.unix2datestr(start_idx/1e6),
+        stuffr.unix2datestr((start_idx+n_block*dt*sr)/1e6),
+        stuffr.unix2datestr(raw_bounds[0]/1e6),
+        stuffr.unix2datestr(raw_bounds[1]/1e6)))
 
     # go through all blocks of data
     for i in range(n_block):
@@ -224,15 +252,29 @@ def cut_block():
             # store between i0 and i1 plus padding ch000-ch006
             # store +/- 64 samples around the tx pulse of length 128 samples
             # pad by X samples
-            cut_res=cut_raw_voltage(n.min(tx_idx)-61*1600,n.max(tx_idx)+61*1600,
-                                    rmodel,
-                                    beams=beams,
-                                    rx_ch=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"],
-                                    tx_ch="ch007",
-                                    txlen=132,
-                                    pad=64,
-                                    plot=False
-                                    )
+            cut_i0=n.min(tx_idx)-61*1600
+            cut_i1=n.max(tx_idx)+61*1600
+            if cut_i0 < raw_bounds[0] or cut_i1+20*1600 > raw_bounds[1]:
+                print("%s skipping cut outside raw ringbuffer %s - %s"%(
+                    stuffr.unix2datestr(k/1e6),
+                    stuffr.unix2datestr(cut_i0/1e6),
+                    stuffr.unix2datestr((cut_i1+20*1600)/1e6)))
+                continue
+            try:
+                cut_res=cut_raw_voltage(cut_i0,cut_i1,
+                                        rmodel,
+                                        beams=beams,
+                                        rx_ch=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"],
+                                        tx_ch="ch007",
+                                        txlen=132,
+                                        pad=64,
+                                        plot=False
+                                        )
+            except Exception:
+                traceback.print_exc()
+                continue
+            if len(cut_res.keys()) == 0:
+                continue
             cut_res["c_snr"]=[snr]
             cut_res["c_tx_idx"]=[tx_idx]
             cut_res["c_beam_idx"]=[beam_idx]
@@ -301,4 +343,4 @@ while True:
     except:
         import traceback
         traceback.print_exc()
-    time.sleep(3600)
+    time.sleep(300)
