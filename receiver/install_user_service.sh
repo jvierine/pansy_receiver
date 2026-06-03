@@ -7,6 +7,16 @@ SYSTEMD_DIR="$HOME/.config/systemd/user"
 LOGROTATE_TEMPLATE="$REPO_DIR/receiver/logrotate/pansy-receiver"
 LOGROTATE_CONF="/etc/logrotate.d/pansy-receiver"
 
+sudo_cmd() {
+  if sudo -n true 2>/dev/null; then
+    sudo "$@"
+  elif [ -n "${PANSY_SUDO_PASSWORD:-}" ]; then
+    printf '%s\n' "$PANSY_SUDO_PASSWORD" | sudo -S -p '' "$@"
+  else
+    sudo "$@"
+  fi
+}
+
 UNITS=(
   pansy-uhd-rx.service
   pansy-uhd-watchdog.service
@@ -51,9 +61,9 @@ chmod +x \
 if command -v sudo >/dev/null 2>&1; then
   tmp_logrotate="$(mktemp)"
   sed "s#__PANSY_RECEIVER_REPO__#$REPO_DIR#g" "$LOGROTATE_TEMPLATE" > "$tmp_logrotate"
-  sudo install -m 0644 "$tmp_logrotate" "$LOGROTATE_CONF"
+  sudo_cmd install -m 0644 "$tmp_logrotate" "$LOGROTATE_CONF"
   rm -f "$tmp_logrotate"
-  sudo loginctl enable-linger "$USER" >/dev/null 2>&1 || true
+  sudo_cmd loginctl enable-linger "$USER" >/dev/null 2>&1 || true
 fi
 
 systemctl --user daemon-reload
