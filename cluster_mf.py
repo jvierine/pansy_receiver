@@ -15,6 +15,14 @@ import pansy_config as pc
 import glob
 import h5py 
 
+def metadata_bounds(path, label):
+    try:
+        reader = drf.DigitalMetadataReader(path)
+        return reader, reader.get_bounds()
+    except Exception as exc:
+        print("couldn't read %s metadata bounds yet: %s"%(label, exc))
+        return None, [-1, -1]
+
 def fit_obs(tx_idx,rg,dop,fit_acc=False,return_model=False):
     """
     given range and doppler measurements, find best fit radial trajectory
@@ -398,14 +406,9 @@ def analyze_until_now():
     analysis_end=-1
     if os.path.exists(det_md_dir):
         print("metadata directory exists. searching for last timestamp")
-        try:
-            det_md = drf.DigitalMetadataReader(det_md_dir)
-            b_det = det_md.get_bounds()
+        det_md, b_det = metadata_bounds(det_md_dir, "det")
+        if b_det[1] != -1:
             print(b_det)
-        except:
-            import traceback
-            traceback.print_exc()
-            print("couldn't read det metadata")
 
         try:
             # look for mf search output to determine where it has reached. only analyze that far
@@ -416,15 +419,13 @@ def analyze_until_now():
                 print(f)
                 latest_idx.append(h["latest"][()])
                 h.close()
-            analysis_end=n.min(latest_idx)
-        except:
-            import traceback
-            traceback.print_exc()
+            if len(latest_idx) > 0:
+                analysis_end=n.min(latest_idx)
+        except Exception as exc:
             print("couldn't read latest file. waiting for quicksource to finish")
-            analysis_end=b_det[1]
+            print(exc)
     else:
         os.system("mkdir -p %s"%(det_md_dir))
-    print("%s"%(stuffr.unix2datestr(analysis_end/1e6)))
 #    exit(0)
     # setup the directory and file cadence.
     # use 1 MHz, as this is the sample-rate and thus a
@@ -446,8 +447,18 @@ def analyze_until_now():
 
     mf_metadata_dir=pc.mf_metadata_dir
     #mf_metadata_dir = "/media/archive/metadata/mf"
-    dm_mf = drf.DigitalMetadataReader(mf_metadata_dir)
-    db_mf = dm_mf.get_bounds()
+    dm_mf, db_mf = metadata_bounds(mf_metadata_dir, "mf")
+    if db_mf[1] == -1:
+        print("mf metadata is not readable yet; waiting")
+        return
+    if analysis_end == -1:
+        analysis_end=db_mf[1]
+    else:
+        analysis_end=min(analysis_end, db_mf[1])
+    print("cluster_mf analysis_end %s; mf bounds %s - %s"%(
+        stuffr.unix2datestr(analysis_end/1e6),
+        stuffr.unix2datestr(db_mf[0]/1e6),
+        stuffr.unix2datestr(db_mf[1]/1e6)))
 
     dt=10000000
     #n_min=int(n.floor((db_mf[1]-db_mf[0])/dt))
@@ -466,10 +477,18 @@ def analyze_until_now():
     if analysis_end == -1:
         # don't know how long to analyze!
         print("don't know how to analyze. quick_search_meteor.py not running?")
-        exit(0)
-        analysis_end=db_mf[1]
+        return
 
     n_min=int(n.floor((analysis_end-start_idx)/dt))
+    if n_min <= 0:
+        print("cluster_mf waiting: start %s is not before analysis_end %s"%(
+            stuffr.unix2datestr(start_idx/1e6),
+            stuffr.unix2datestr(analysis_end/1e6)))
+        return
+    print("cluster_mf processing %d ten-second windows from %s to %s"%(
+        n_min,
+        stuffr.unix2datestr(start_idx/1e6),
+        stuffr.unix2datestr((start_idx+n_min*dt)/1e6)))
     for i in range(n_min):
         i0=start_idx+i*dt
         i1=start_idx+i*dt+dt
@@ -484,4 +503,4 @@ if __name__ == "__main__":
         except:
             import traceback
             traceback.print_exc()
-        time.sleep(3600)
+        time.sleep(300)
