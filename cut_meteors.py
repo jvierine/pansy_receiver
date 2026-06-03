@@ -185,7 +185,7 @@ def cut_block():
         print("found no cut end. using start of detections")
         start_idx=bm[0]
 
-    n_block=int(n.floor((bm[1]-start_idx)/dt))
+    n_block=int(n.floor((bm[1]-start_idx)/(dt*sr)))
     if n_block <= 0:
         print("cut_meteors waiting: start %s is not before detection end %s"%(
             stuffr.unix2datestr(start_idx/1e6),
@@ -283,8 +283,11 @@ def cut_block():
             okey=n.min(tx_idx)
             try:
                 dmw.write([okey],cut_res)
-            except:
-                traceback.print_exc()
+            except Exception as exc:
+                if "already in data" in str(exc):
+                    print("%s cut already exists; skipping"%(stuffr.unix2datestr(okey/1e6)))
+                else:
+                    traceback.print_exc()
 
     #    return({"tx_idx":txidx, # these are the indices of the transmit pulses
     #            "beam_id":beam_ids,  # these are the beam directions
