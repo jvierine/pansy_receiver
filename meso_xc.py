@@ -261,13 +261,13 @@ def analyze_xc():
     try:
         dmxc = drf.DigitalMetadataReader(pc.xc_metadata_dir)
         xcb=dmxc.get_bounds()
+        t0=xcb[1]
     except Exception:
         traceback.print_exc()
-        print("no readable xc metadata yet")
-        return
+        print("no readable xc metadata yet; starting from first mesomode block")
+        t0=dmb[0]
 
     b=d.get_bounds("ch000")
-    t0=xcb[1]
     dd=dmm.read(t0,dmb[1])
     kl=list(dd.keys())
     for ki in range(rank,len(kl),size):
