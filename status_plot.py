@@ -13,7 +13,7 @@ import process_cut_meteor as pcm
 import healpix_radiant as hpr
 import pansy_plot
 
-STATUS_RSYNC_BWLIMIT = os.environ.get("PANSY_STATUS_RSYNC_BWLIMIT", "1000")
+STATUS_RSYNC_BWLIMIT = os.environ.get("PANSY_STATUS_RSYNC_BWLIMIT", "1")
 
 def metadata_bounds(path, label):
     try:
