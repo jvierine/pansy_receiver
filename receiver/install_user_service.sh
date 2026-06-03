@@ -56,7 +56,8 @@ chmod +x \
   "$REPO_DIR/receiver/scripts/pansy_uhd_rx_service.sh" \
   "$REPO_DIR/receiver/scripts/pansy_uhd_watchdog.py" \
   "$REPO_DIR/receiver/scripts/pansy_processing_service.sh" \
-  "$REPO_DIR/receiver/scripts/pansy_delete_old_rf.sh"
+  "$REPO_DIR/receiver/scripts/pansy_delete_old_rf.sh" \
+  "$REPO_DIR/receiver/scripts/pansy_wait_for_paths.sh"
 
 if command -v sudo >/dev/null 2>&1; then
   tmp_logrotate="$(mktemp)"
