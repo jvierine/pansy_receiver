@@ -195,7 +195,6 @@ def plot_status():
         print("status_plot: latest meteor plot unavailable: %s"%(exc))
 
     d0,mfb=metadata_bounds(pc.mf_metadata_dir, "mf")
-    d0_isr,mfb_isr=metadata_bounds(pc.mf_isr_metadata_dir, "mf_isr")
     d1,txb=metadata_bounds(pc.tx_metadata_dir, "tx")
     d2,detb=metadata_bounds(pc.detections_metadata_dir, "detections")
     d3,cutb=metadata_bounds(pc.cut_metadata_dir, "cut")
@@ -213,8 +212,7 @@ def plot_status():
 
 
     tnow=time.time()*1e6
-    b_mf = max(mfb[1], mfb_isr[1])
-    mf_bounds = [-1, b_mf]
+    mf_bounds = mfb
     latest_mf=latest_label(mf_bounds)
     latest_tx=latest_label(txb)
     latest_det=latest_label(detb)
@@ -248,7 +246,7 @@ def plot_status():
     print("raw voltage extent %s (%1.0f s behind)"%(extent_label(b),raw_delay))
     tx_delay=(tnow-txb[1])/1e6 if txb[1] != -1 else n.nan
     print("latest tx %s (%1.0f s behind)"%(latest_tx,tx_delay))
-    mf_delay=(tnow-b_mf)/1e6 if b_mf != -1 else n.nan
+    mf_delay=(tnow-mf_bounds[1])/1e6 if mf_bounds[1] != -1 else n.nan
     print("latest mf %s (%1.0f s behind)"%(latest_mf,mf_delay))
     det_delay=(tnow-detb[1])/1e6 if detb[1] != -1 else n.nan
     print("latest det %s (%1.0f s behind)"%(latest_det,det_delay))

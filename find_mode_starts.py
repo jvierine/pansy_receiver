@@ -8,6 +8,8 @@ import time
 import pansy_config as pc
 import traceback
 
+ENABLE_ISR_MODE = os.environ.get("PANSY_ENABLE_ISR_MODE", "0") == "1"
+
 def update_tx_pulses():
     """
     Find transmit pulses for the mesosphere mode.
@@ -88,25 +90,26 @@ def update_tx_pulses():
                 except Exception:
                     traceback.print_exc()
 
-        # find 7-bit Barker codes associated with ISR mdoe
-        start_idx=pd.find_isr_mode_start(d,
-                                         i0=idx0,
-                                         i1=idx1)
-        
-        print("%s found %d pulses isr mode"%(stuffr.unix2datestr((i0+i*dt)/1e6),20*len(start_idx)))
-
-        if len(start_idx) > 0:
-            data_dict={}
-            # let's use 2 as id of standard isr-mode
-            mode_id=n.repeat(2,len(start_idx))
-            gidx=n.where( (start_idx >= idx0) & (start_idx < idx1) )[0]
+        if ENABLE_ISR_MODE:
+            # find 7-bit Barker codes associated with ISR mode
+            start_idx=pd.find_isr_mode_start(d,
+                                             i0=idx0,
+                                             i1=idx1)
             
-            if len(gidx)>0:
-                try:
-                    data_dict["id"]=mode_id[gidx]
-                    dmw.write(start_idx[gidx],data_dict)
-                except Exception:
-                    traceback.print_exc()
+            print("%s found %d pulses isr mode"%(stuffr.unix2datestr((i0+i*dt)/1e6),20*len(start_idx)))
+
+            if len(start_idx) > 0:
+                data_dict={}
+                # let's use 2 as id of standard isr-mode
+                mode_id=n.repeat(2,len(start_idx))
+                gidx=n.where( (start_idx >= idx0) & (start_idx < idx1) )[0]
+                
+                if len(gidx)>0:
+                    try:
+                        data_dict["id"]=mode_id[gidx]
+                        dmw.write(start_idx[gidx],data_dict)
+                    except Exception:
+                        traceback.print_exc()
 
 
         # search for the start of a continuous 20 IPP sequence
