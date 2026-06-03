@@ -248,13 +248,23 @@ def analyze_block(i0,
 
 def analyze_xc():
     # mesospheric mode boundaries
-    dmm = drf.DigitalMetadataReader(pc.mesomode_metadata_dir)
-    dmb=dmm.get_bounds()
+    try:
+        dmm = drf.DigitalMetadataReader(pc.mesomode_metadata_dir)
+        dmb=dmm.get_bounds()
+    except Exception:
+        traceback.print_exc()
+        print("no readable mesomode metadata yet")
+        return
     # raw voltage 
     d = drf.DigitalRFReader(pc.raw_voltage_dir)
     # cross-spectral metadata
-    dmxc = drf.DigitalMetadataReader(pc.xc_metadata_dir)
-    xcb=dmxc.get_bounds()
+    try:
+        dmxc = drf.DigitalMetadataReader(pc.xc_metadata_dir)
+        xcb=dmxc.get_bounds()
+    except Exception:
+        traceback.print_exc()
+        print("no readable xc metadata yet")
+        return
 
     b=d.get_bounds("ch000")
     t0=xcb[1]
@@ -269,8 +279,7 @@ def analyze_xc():
             print("long enough")
             try:
                 analyze_block(i0,i1)
-            except:
-                import traceback
+            except Exception:
                 traceback.print_exc()
 
 
