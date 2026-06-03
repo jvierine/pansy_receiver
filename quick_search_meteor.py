@@ -13,6 +13,13 @@ import pyfftw
 import h5py
 import pansy_config as pc
 import traceback
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    message="The read_vector_c81d method is deprecated.*",
+    category=FutureWarning,
+)
 
 fft = pyfftw.interfaces.scipy_fftpack.fft
 #fft=fp.fft
