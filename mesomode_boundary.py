@@ -16,7 +16,8 @@ def find_blocks():
     """
 
     dmr = drf.DigitalMetadataReader(pc.tx_metadata_dir)
-    start_idx=dmr.get_bounds()[0]
+    db = dmr.get_bounds()
+    start_idx=db[0]
     # if we already have something. continue from end
     try:
         dmm = drf.DigitalMetadataReader(pc.mesomode_metadata_dir)
@@ -41,20 +42,30 @@ def find_blocks():
         file_name,
     )
 
-    db = dmr.get_bounds()
     max_gap = 20*1600+1600
     block=10*60*1000000
+    processing_lag=2*block
+    process_end=db[1]-processing_lag
+    print("tx bounds %s - %s; processing through %s"%(
+        stuffr.unix2datestr(db[0]/1e6),
+        stuffr.unix2datestr(db[1]/1e6),
+        stuffr.unix2datestr(process_end/1e6)))
+    if start_idx >= process_end:
+        print("not enough tx metadata yet for mesomode boundary processing")
+        return
+
     i0=start_idx
 #    meso_blocks=[]
     meso_start=-1
     meso_prev=-1
-    while i0<(db[1]-2*block):
-        i1=i0+block
+    last_written_end=-1
+    while i0<process_end:
+        i1=min(i0+block, process_end)
         data_dict = dmr.read(i0, i1, "id")
         if len(data_dict.keys()) == 0:
             print("no meso-mode")
         else:
-            for k in data_dict.keys():
+            for k in sorted(data_dict.keys()):
                 if data_dict[k] != 1:
                     continue
                 if meso_start == -1:
@@ -71,15 +82,28 @@ def find_blocks():
                     odata_dict["end"]=[meso_end]
                     try:
                         dmw.write([meso_end],odata_dict)
+                        last_written_end=meso_end
                     except Exception:
                         traceback.print_exc()
                     # start new
                     meso_start=k
                     meso_prev=k
         i0+=block
+    if meso_start != -1 and meso_prev > last_written_end:
+        print("%s writing open meso mode through %s (%1.2f s)"%(
+            stuffr.unix2datestr(meso_start/1e6),
+            stuffr.unix2datestr(meso_prev/1e6),
+            (meso_prev-meso_start)/1e6))
+        odata_dict={}
+        odata_dict["start"]=[meso_start]
+        odata_dict["end"]=[meso_prev]
+        try:
+            dmw.write([meso_prev],odata_dict)
+        except Exception:
+            traceback.print_exc()
 
 
 if __name__ == "__main__":
     while True:
         find_blocks()
-        time.sleep(3600)
+        time.sleep(300)
