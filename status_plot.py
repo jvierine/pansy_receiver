@@ -3,17 +3,37 @@ import matplotlib.pyplot as plt
 import scipy.constants as c
 import digital_rf as drf
 import os
+import json
+import shutil
+import subprocess
 import stuffr
 import time
 import pansy_config as pc
 import traceback
 import h5py
+from datetime import datetime, timezone
 import plot_simple_fits as psf
 import process_cut_meteor as pcm
 import healpix_radiant as hpr
 import pansy_plot
 
 STATUS_RSYNC_BWLIMIT = os.environ.get("PANSY_STATUS_RSYNC_BWLIMIT", "1")
+OPS_STATUS_PATH = "ops_status.json"
+PANSY_SERVICE_NAMES = [
+    "pansy-uhd-rx.service",
+    "pansy-uhd-watchdog.service",
+    "pansy-delete-old-rf.service",
+    "pansy-find-mode-starts.service",
+    "pansy-status-plot.service",
+    "pansy-mesomode-boundary.service",
+    "pansy-cluster-mf.service",
+    "pansy-quick-search-meteor.service",
+    "pansy-meso-xc.service",
+    "pansy-tx-xphase.service",
+    "pansy-cut-meteors.service",
+    "pansy-process-cut-meteor.service",
+]
+DISK_PATHS = ["/media/analysis", "/media/old_analysis", "/media/archive"]
 
 def metadata_bounds(path, label):
     try:
@@ -49,6 +69,71 @@ def delay_hours(tnow, bounds, scale=1.0):
 def plot_unavailable(ax, title, exc):
     ax.text(0.5, 0.5, "%s unavailable\n%s"%(title, exc), ha="center", va="center", transform=ax.transAxes)
     ax.set_title(title)
+
+def run_command(args):
+    return subprocess.run(args, check=False, capture_output=True, text=True)
+
+def service_status():
+    services=[]
+    for service in PANSY_SERVICE_NAMES:
+        active=run_command(["systemctl", "--user", "is-active", service]).stdout.strip()
+        state_cmd=run_command([
+            "systemctl", "--user", "show", service,
+            "--property=ActiveState",
+            "--property=SubState",
+            "--property=MainPID",
+            "--property=MemoryCurrent",
+            "--property=NRestarts",
+        ])
+        state={}
+        for line in state_cmd.stdout.splitlines():
+            key, sep, value=line.partition("=")
+            if sep:
+                state[key]=value
+        active_state=state.get("ActiveState", active)
+        sub_state=state.get("SubState", "")
+        main_pid=state.get("MainPID", "")
+        memory_current=state.get("MemoryCurrent", "")
+        n_restarts=state.get("NRestarts", "")
+        services.append({
+            "name": service,
+            "active": active == "active",
+            "active_state": active_state,
+            "sub_state": sub_state,
+            "main_pid": int(main_pid) if main_pid.isdigit() else None,
+            "memory_current_bytes": int(memory_current) if memory_current.isdigit() else None,
+            "n_restarts": int(n_restarts) if n_restarts.isdigit() else None,
+        })
+    return services
+
+def disk_status():
+    disks=[]
+    for path in DISK_PATHS:
+        try:
+            usage=shutil.disk_usage(path)
+            used_fraction=usage.used/usage.total if usage.total else None
+            disks.append({
+                "path": path,
+                "total_bytes": usage.total,
+                "used_bytes": usage.used,
+                "free_bytes": usage.free,
+                "used_percent": used_fraction*100.0 if used_fraction is not None else None,
+                "warning": used_fraction is not None and used_fraction >= 0.80,
+                "critical": used_fraction is not None and used_fraction >= 0.95,
+            })
+        except Exception as exc:
+            disks.append({"path": path, "error": str(exc), "warning": True, "critical": True})
+    return disks
+
+def write_ops_status():
+    status={
+        "generated_utc": datetime.now(timezone.utc).isoformat(),
+        "services": service_status(),
+        "disks": disk_status(),
+    }
+    with open(OPS_STATUS_PATH, "w") as fh:
+        json.dump(status, fh, indent=2, sort_keys=True)
+    return status
 
 def get_meteors(fig,ax,dt=24*3600*1000000):
     """
@@ -185,6 +270,7 @@ def get_xc(fig,ax,dt=24*3600*1000000):
 
 def plot_status():
     #hpr.plot_last_48()
+    write_ops_status()
     try:
         psf.plot_latest_fits(save_png=True)
     except Exception as exc:
@@ -299,7 +385,7 @@ def plot_status():
         pansy_plot.plot_raw(show_plot=False,fname="/tmp/raw.png")
     except Exception as exc:
         print("status_plot: raw plot unavailable: %s"%(exc))
-    os.system("rsync -avz --bwlimit %s /tmp/fit_data.h5 /tmp/raw.png /tmp/latest_meteor.png /tmp/latest_radiants.png /tmp/latest_hist.png status.png processing.png j@4.235.86.214:/var/www/html/pansy/"%(STATUS_RSYNC_BWLIMIT))
+    os.system("rsync -avz --bwlimit %s /tmp/fit_data.h5 /tmp/raw.png /tmp/latest_meteor.png /tmp/latest_radiants.png /tmp/latest_hist.png status.png processing.png %s j@4.235.86.214:/var/www/html/pansy/"%(STATUS_RSYNC_BWLIMIT, OPS_STATUS_PATH))
 
 
 if __name__ == "__main__":
