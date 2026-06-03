@@ -1,0 +1,18 @@
+[Unit]
+Description=PANSY quick meteor search
+After=pansy-cluster-mf.service
+Wants=pansy-cluster-mf.service
+
+[Service]
+Type=simple
+Environment=PANSY_RECEIVER_REPO=__PANSY_RECEIVER_REPO__
+Environment=PANSY_RECEIVER_CONFIG=%h/.config/pansy-receiver/pansy-receiver.env
+WorkingDirectory=__PANSY_RECEIVER_REPO__
+ExecStart=__PANSY_RECEIVER_REPO__/receiver/scripts/pansy_processing_service.sh mpirun -np 5 python3 quick_search_meteor.py
+Restart=always
+RestartSec=30
+StandardOutput=append:__PANSY_RECEIVER_REPO__/logs/pansy_quick_search_meteor.log
+StandardError=append:__PANSY_RECEIVER_REPO__/logs/pansy_quick_search_meteor.log
+
+[Install]
+WantedBy=default.target

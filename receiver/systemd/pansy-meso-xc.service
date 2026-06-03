@@ -1,0 +1,18 @@
+[Unit]
+Description=PANSY mesosphere cross-correlation
+After=pansy-mesomode-boundary.service
+Wants=pansy-mesomode-boundary.service
+
+[Service]
+Type=simple
+Environment=PANSY_RECEIVER_REPO=__PANSY_RECEIVER_REPO__
+Environment=PANSY_RECEIVER_CONFIG=%h/.config/pansy-receiver/pansy-receiver.env
+WorkingDirectory=__PANSY_RECEIVER_REPO__
+ExecStart=__PANSY_RECEIVER_REPO__/receiver/scripts/pansy_processing_service.sh python3 meso_xc.py
+Restart=always
+RestartSec=30
+StandardOutput=append:__PANSY_RECEIVER_REPO__/logs/pansy_meso_xc.log
+StandardError=append:__PANSY_RECEIVER_REPO__/logs/pansy_meso_xc.log
+
+[Install]
+WantedBy=default.target

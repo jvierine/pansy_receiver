@@ -1,0 +1,10 @@
+__PANSY_RECEIVER_REPO__/logs/*.log {
+    daily
+    rotate 21
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    create 0644 radar radar
+}
