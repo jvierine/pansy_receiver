@@ -347,9 +347,13 @@ def process_cut(data,
             if write_dm:
                 try:
                     write_simple_fit_metadata(dmw, txidxs[0], dout)
-                except:
-                    import traceback
-                    traceback.print_exc()
+                except Exception as exc:
+                    if "already in data" in str(exc):
+                        print("%d %s simple_fit already exists; skipping"%(
+                            rank, stuffr.unix2datestr(txidxs[0]/1e6)))
+                    else:
+                        import traceback
+                        traceback.print_exc()
                     return False
             if do_cnn_image:
                 return(RTI[:,n.min(delays):(n.max(delays)+rds.n_rg)].T,DTI[:,n.min(delays):(n.max(delays)+rds.n_rg)].T)
@@ -464,7 +468,7 @@ def process_latest():
 
     dmf, fitb = metadata_bounds(pc.simple_fit_metadata_dir, "simple_fit")
     if fitb[1] != -1:
-        start_idx=fitb[1]
+        start_idx=fitb[1]+1000000
     else:
         if rank == 0:
             print("no fit boundary found")
