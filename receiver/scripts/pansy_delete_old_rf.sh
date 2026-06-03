@@ -18,6 +18,6 @@ fi
 
 echo "Deleting $ROOT/ch*/rf*.h5 older than mtime $MTIME every $INTERVAL seconds"
 while true; do
-  find "${FIND_RACE_ARGS[@]}" "$ROOT"/ch* -type f -name 'rf*.h5' -mtime "$MTIME" -delete || true
+  find "$ROOT"/ch* "${FIND_RACE_ARGS[@]}" -type f -name 'rf*.h5' -mtime "$MTIME" -delete || true
   sleep "$INTERVAL"
 done
