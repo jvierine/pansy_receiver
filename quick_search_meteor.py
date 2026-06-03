@@ -355,6 +355,7 @@ def meteor_search(debug=False):
         i1=bi*60*1000000 + 60*1000000
             
         b=d.get_bounds("ch000")
+        n_meso=0
 
         # only process if we have raw voltage data in ringbuffer
         if (i0 > b[0]) & (i1 < b[1]):
@@ -373,7 +374,6 @@ def meteor_search(debug=False):
 
             keys=data_dict.keys()
             n_keys=len(keys)
-            n_meso=0
     #        n_isr=0
             #print("%d processing %d pulses"%(rank,20*n_keys))
             for key in keys:
