@@ -31,6 +31,10 @@ SIMPLE_FIT_WRITER_ARGS = {
     "samples_per_second_denominator": 1,
     "file_name": "fit",
 }
+PROCESS_CUT_BLOCK_SECONDS = float(os.environ.get("PANSY_PROCESS_CUT_BLOCK_SECONDS", "30"))
+PROCESS_CUT_SLEEP_SECONDS = float(os.environ.get("PANSY_PROCESS_CUT_SLEEP_SECONDS", "15"))
+PROCESS_CUT_IDLE_LOG_SECONDS = float(os.environ.get("PANSY_PROCESS_CUT_IDLE_LOG_SECONDS", "300"))
+last_idle_log_time = 0.0
 
 def metadata_bounds(path, label):
     try:
@@ -39,6 +43,14 @@ def metadata_bounds(path, label):
     except Exception as exc:
         print("couldn't read %s metadata bounds yet: %s"%(label, exc))
         return None, [-1, -1]
+
+def should_log_idle():
+    global last_idle_log_time
+    now = time.time()
+    if rank == 0 and now - last_idle_log_time >= PROCESS_CUT_IDLE_LOG_SECONDS:
+        last_idle_log_time = now
+        return True
+    return False
 
 def simple_fit_writer(omddir):
     return drf.DigitalMetadataWriter(
@@ -249,7 +261,7 @@ def process_cut(data,
     c_snr=data["c_snr"]
     if n.max(c_snr) < 20:# or (0 not in beam_id):        
 #        print("low snr and no zenith beam")
-        return
+        return False
 
     if True:
         txlen=z_tx.shape[1]
@@ -335,6 +347,7 @@ def process_cut(data,
                 except:
                     import traceback
                     traceback.print_exc()
+                    return False
             if do_cnn_image:
                 return(RTI[:,n.min(delays):(n.max(delays)+rds.n_rg)].T,DTI[:,n.min(delays):(n.max(delays)+rds.n_rg)].T)
 
@@ -428,6 +441,9 @@ def process_cut(data,
 #                    plt.show()
                     plt.savefig("/tmp/pansy/hor-%1.1f.png"%(float(tx_idx[0]/1e6)))
                     plt.close()
+            return True
+
+    return False
 
 
 def process_latest():
@@ -435,9 +451,10 @@ def process_latest():
   #  mddir="../pansy_test_data/metadata/cut"
     dm, b = metadata_bounds(mddir, "cut")
     if b[1] == -1:
-        print("cut metadata is not readable yet; waiting")
-        return
-    dt=120000000
+        if should_log_idle():
+            print("cut metadata is not readable yet; waiting")
+        return 0
+    dt=int(PROCESS_CUT_BLOCK_SECONDS*1000000)
 #    os.system("mkdir -p caldata")
 
     start_idx=b[0]
@@ -446,16 +463,21 @@ def process_latest():
     if fitb[1] != -1:
         start_idx=fitb[1]
     else:
-        print("no fit boundary found")
+        if rank == 0:
+            print("no fit boundary found")
     
     n_block=int(n.ceil((b[1]-start_idx)/dt))
-    print(stuffr.unix2datestr(b[1]/1e6))
-    print(stuffr.unix2datestr(start_idx/1e6))
     if n_block <= 0:
-        print("process_cut_meteor waiting: start %s is not before cut end %s"%(
+        if should_log_idle():
+            print("process_cut_meteor waiting: start %s is not before cut end %s"%(
+                stuffr.unix2datestr(start_idx/1e6),
+                stuffr.unix2datestr(b[1]/1e6)))
+        return 0
+    if rank == 0:
+        print("process_cut_meteor range: start=%s end=%s block=%1.1fs"%(
             stuffr.unix2datestr(start_idx/1e6),
-            stuffr.unix2datestr(b[1]/1e6)))
-        return
+            stuffr.unix2datestr(b[1]/1e6),
+            PROCESS_CUT_BLOCK_SECONDS))
 
     omddir=pc.simple_fit_metadata_dir
     #omddir="/tmp/simple_fit"
@@ -464,6 +486,7 @@ def process_latest():
 
     dmw = simple_fit_writer(omddir)
 
+    n_processed = 0
     for bi in range(rank,n_block,size):
         data=dm.read(start_idx+bi*dt,start_idx+bi*dt+dt)
         kl=list(data.keys())
@@ -471,10 +494,15 @@ def process_latest():
             k=kl[ki]
             try:
                 print(stuffr.unix2datestr(k/1e6))
-                process_cut(data[k],dmw,plot=False,write_dm=True)
+                if process_cut(data[k],dmw,plot=False,write_dm=True):
+                    n_processed += 1
             except:
                 import traceback
                 traceback.print_exc()
+    n_processed_total = comm.allreduce(n_processed, op=MPI.SUM)
+    if rank == 0:
+        print("process_cut_meteor processed %d cuts"%(n_processed_total))
+    return n_processed_total
             
 def plot_last():
     #mddir="../pansy_test_data/metadata/cut"
@@ -495,6 +523,7 @@ def plot_last():
 if __name__ == "__main__":
     #plot_last()
     while True:
-        process_latest()
+        n_processed = process_latest()
         comm.Barrier()
-        time.sleep(60)
+        if n_processed == 0:
+            time.sleep(PROCESS_CUT_SLEEP_SECONDS)
