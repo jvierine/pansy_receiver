@@ -13,6 +13,41 @@ import process_cut_meteor as pcm
 import healpix_radiant as hpr
 import pansy_plot
 
+def metadata_bounds(path, label):
+    try:
+        reader = drf.DigitalMetadataReader(path)
+        return reader, reader.get_bounds()
+    except Exception as exc:
+        print("status_plot: %s metadata unavailable at %s: %s"%(label, path, exc))
+        return None, [-1, -1]
+
+def raw_bounds(path, channel):
+    try:
+        reader = drf.DigitalRFReader(path)
+        return reader, reader.get_bounds(channel)
+    except Exception as exc:
+        print("status_plot: raw voltage unavailable at %s/%s: %s"%(path, channel, exc))
+        return None, [-1, -1]
+
+def latest_label(bounds):
+    if bounds[1] == -1:
+        return "missing"
+    return stuffr.unix2datestr(bounds[1]/1e6)
+
+def extent_label(bounds):
+    if bounds[0] == -1 or bounds[1] == -1:
+        return "missing"
+    return "%s-%s"%(stuffr.unix2datestr(bounds[0]/1e6), stuffr.unix2datestr(bounds[1]/1e6))
+
+def delay_hours(tnow, bounds, scale=1.0):
+    if bounds[1] == -1:
+        return n.nan
+    return scale*(tnow-bounds[1])/3600.0/1e6
+
+def plot_unavailable(ax, title, exc):
+    ax.text(0.5, 0.5, "%s unavailable\n%s"%(title, exc), ha="center", va="center", transform=ax.transAxes)
+    ax.set_title(title)
+
 def get_meteors(fig,ax,dt=24*3600*1000000):
     """
     plot latest meteors
@@ -148,51 +183,44 @@ def get_xc(fig,ax,dt=24*3600*1000000):
 
 def plot_status():
     #hpr.plot_last_48()
-    psf.plot_latest_fits(save_png=True)
-    pcm.plot_last()
+    try:
+        psf.plot_latest_fits(save_png=True)
+    except Exception as exc:
+        print("status_plot: latest fit plot unavailable: %s"%(exc))
+    try:
+        pcm.plot_last()
+    except Exception as exc:
+        print("status_plot: latest meteor plot unavailable: %s"%(exc))
 
-    d0=drf.DigitalMetadataReader(pc.mf_metadata_dir)
-    d0_isr=drf.DigitalMetadataReader(pc.mf_isr_metadata_dir)
-
-    d1=drf.DigitalMetadataReader(pc.tx_metadata_dir)
-    d2=drf.DigitalMetadataReader(pc.detections_metadata_dir)
-    d3=drf.DigitalMetadataReader(pc.cut_metadata_dir)
-    d4=drf.DigitalMetadataReader(pc.mesomode_metadata_dir)
-    d5=drf.DigitalMetadataReader(pc.xc_metadata_dir)#meteor_cal_metadata_dir="/media/analysis/metadata/meteor_cal"
-    d6=drf.DigitalMetadataReader(pc.simple_fit_metadata_dir)
-    dr=drf.DigitalRFReader(pc.raw_voltage_dir)
+    d0,mfb=metadata_bounds(pc.mf_metadata_dir, "mf")
+    d0_isr,mfb_isr=metadata_bounds(pc.mf_isr_metadata_dir, "mf_isr")
+    d1,txb=metadata_bounds(pc.tx_metadata_dir, "tx")
+    d2,detb=metadata_bounds(pc.detections_metadata_dir, "detections")
+    d3,cutb=metadata_bounds(pc.cut_metadata_dir, "cut")
+    d4,modeb=metadata_bounds(pc.mesomode_metadata_dir, "mesomode")
+    d5,xcb=metadata_bounds(pc.xc_metadata_dir, "xc")
+    d6,fitb=metadata_bounds(pc.simple_fit_metadata_dir, "simple_fit")
+    dr,b=raw_bounds(pc.raw_voltage_dir, "ch000")
     #dgps=drf.DigitalMetadataReader(pc.gpslock_metadata_dir)
     #dclock=drf.DigitalMetadataReader(pc.clock_metadata_dir)
 
-    write_clock_offset()
+    if b[1] != -1:
+        write_clock_offset()
+    else:
+        print("status_plot: skipping clock offset write because raw bounds are unavailable")
 
 
     tnow=time.time()*1e6
-    mfb=d0.get_bounds()
-    mfb_isr=d0_isr.get_bounds()
-    b_mf = n.max((mfb[1],mfb_isr[1]))
-    latest_mf=stuffr.unix2datestr(b_mf/1e6)
-
-    txb=d1.get_bounds()
-    latest_tx=stuffr.unix2datestr(txb[1]/1e6)
-
-    detb=d2.get_bounds()
-    latest_det=stuffr.unix2datestr(detb[1]/1e6)
-
-    cutb=d3.get_bounds()
-    latest_cut=stuffr.unix2datestr(cutb[1]/1e6)
-
-    modeb=d4.get_bounds()
-    latest_mode=stuffr.unix2datestr(modeb[1]/1e6)
-
-    xcb=d5.get_bounds()
-    latest_xc=stuffr.unix2datestr(xcb[1]/1e6)
-
-    fitb=d6.get_bounds()
-    latest_fit=stuffr.unix2datestr(fitb[1]/1e6)
-
-    b=dr.get_bounds("ch000")
-    latest_raw=stuffr.unix2datestr(b[1]/1e6)
+    b_mf = max(mfb[1], mfb_isr[1])
+    mf_bounds = [-1, b_mf]
+    latest_mf=latest_label(mf_bounds)
+    latest_tx=latest_label(txb)
+    latest_det=latest_label(detb)
+    latest_cut=latest_label(cutb)
+    latest_mode=latest_label(modeb)
+    latest_xc=latest_label(xcb)
+    latest_fit=latest_label(fitb)
+    latest_raw=latest_label(b)
 
     #bg=dgps.get_bounds()
     #gdata=dgps.read(bg[1]-24*3600*1000000,bg[1])
@@ -214,31 +242,46 @@ def plot_status():
         pass
 
 
-    raw_delay=(tnow-b[1])/1e6
-    print("raw voltage extent %s-%s (%1.0f s behind)"%(stuffr.unix2datestr(b[0]/1e6),latest_raw,raw_delay))
-    tx_delay=(tnow-txb[1])/1e6
+    raw_delay=(tnow-b[1])/1e6 if b[1] != -1 else n.nan
+    print("raw voltage extent %s (%1.0f s behind)"%(extent_label(b),raw_delay))
+    tx_delay=(tnow-txb[1])/1e6 if txb[1] != -1 else n.nan
     print("latest tx %s (%1.0f s behind)"%(latest_tx,tx_delay))
-    mf_delay=(tnow-b_mf)/1e6
+    mf_delay=(tnow-b_mf)/1e6 if b_mf != -1 else n.nan
     print("latest mf %s (%1.0f s behind)"%(latest_mf,mf_delay))
-    det_delay=(tnow-detb[1])/1e6
+    det_delay=(tnow-detb[1])/1e6 if detb[1] != -1 else n.nan
     print("latest det %s (%1.0f s behind)"%(latest_det,det_delay))
-    cut_delay=(tnow-cutb[1])/1e6
+    cut_delay=(tnow-cutb[1])/1e6 if cutb[1] != -1 else n.nan
     print("latest cut %s (%1.0f s behind)"%(latest_cut,cut_delay))
-    mode_delay=(tnow-modeb[1])/1e6
+    mode_delay=(tnow-modeb[1])/1e6 if modeb[1] != -1 else n.nan
     print("latest mode %s (%1.0f s behind)"%(latest_mode,mode_delay))
-    xc_delay=(tnow-xcb[1])/1e6
+    xc_delay=(tnow-xcb[1])/1e6 if xcb[1] != -1 else n.nan
     print("latest xc %s (%1.0f s behind)"%(latest_xc,xc_delay))
-    fit_delay=(tnow-fitb[1])/1e6
+    fit_delay=(tnow-fitb[1])/1e6 if fitb[1] != -1 else n.nan
     print("latest fit %s (%1.0f s behind)"%(latest_fit,fit_delay))
 #    print("gpslock %s (%1.0f s holdover)"%(stuffr.unix2datestr(holdovert/1e6),holdover))
 
     labels=["Raw (s)","TX det","MF","Events","Cutting","Modes","FXC","fit"]
-    delays=n.array([3600*raw_delay,tx_delay,mf_delay,det_delay,cut_delay,mode_delay,xc_delay,fit_delay])/3600.0
+    delays=n.array([
+        delay_hours(tnow,b,scale=3600.0),
+        delay_hours(tnow,txb),
+        delay_hours(tnow,mf_bounds),
+        delay_hours(tnow,detb),
+        delay_hours(tnow,cutb),
+        delay_hours(tnow,modeb),
+        delay_hours(tnow,xcb),
+        delay_hours(tnow,fitb),
+    ])
 
     fig,(ax0,ax1)=plt.subplots(2,1,sharex=True,figsize=(8,8))
-    get_xc(fig,ax0)
+    try:
+        get_xc(fig,ax0)
+    except Exception as exc:
+        plot_unavailable(ax0, "Latest PMSE", exc)
     ax0.set_title(stuffr.unix2datestr(time.time()))
-    get_meteors(fig,ax1)
+    try:
+        get_meteors(fig,ax1)
+    except Exception as exc:
+        plot_unavailable(ax1, "Latest Meteors", exc)
     fig.tight_layout()
     plt.savefig("status.png")
     plt.close()
@@ -252,7 +295,10 @@ def plot_status():
     fig.tight_layout()
     plt.savefig("processing.png")
     plt.close()
-    pansy_plot.plot_raw(show_plot=False,fname="/tmp/raw.png")
+    try:
+        pansy_plot.plot_raw(show_plot=False,fname="/tmp/raw.png")
+    except Exception as exc:
+        print("status_plot: raw plot unavailable: %s"%(exc))
     os.system("rsync -avz --bwlimit 1 /tmp/fit_data.h5 /tmp/raw.png /tmp/latest_meteor.png /tmp/latest_radiants.png /tmp/latest_hist.png status.png processing.png j@4.235.86.214:/var/www/html/pansy/")
 
 
