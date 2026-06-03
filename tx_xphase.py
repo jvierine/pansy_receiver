@@ -49,9 +49,8 @@ def tx_xphase():
         dmp = drf.DigitalMetadataReader(pc.phase_metadata_dir)
         dmp_b=dmp.get_bounds()
         start_idx=dmp_b[1]
-    except:
-        import traceback
-        trackback.print_exc()
+    except Exception:
+        traceback.print_exc()
 
     n_block=int(n.ceil((b[1]-start_idx)/dt))
 

@@ -22,9 +22,8 @@ def find_blocks():
         dmm = drf.DigitalMetadataReader(pc.mesomode_metadata_dir)
         mmb=dmm.get_bounds()
         start_idx=mmb[1]
-    except:
-        print("no mm metadata")
-        exit(0)
+    except Exception:
+        print("no mm metadata; starting new mesomode metadata")
 
     subdirectory_cadence_seconds = 3600
     file_cadence_seconds = 600
@@ -72,7 +71,7 @@ def find_blocks():
                     odata_dict["end"]=[meso_end]
                     try:
                         dmw.write([meso_end],odata_dict)
-                    except:
+                    except Exception:
                         traceback.print_exc()
                     # start new
                     meso_start=k
@@ -84,4 +83,3 @@ if __name__ == "__main__":
     while True:
         find_blocks()
         time.sleep(3600)
-
