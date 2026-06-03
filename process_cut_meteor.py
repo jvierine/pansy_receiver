@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import scipy.constants as c
 import digital_rf as drf
 import os
+import fcntl
 import stuffr
 import time
 import pansy_config as pc
@@ -22,6 +23,15 @@ comm = MPI.COMM_WORLD
 size = comm.Get_size()
 rank = comm.Get_rank()
 
+SIMPLE_FIT_WRITE_LOCK = "/tmp/pansy_simple_fit_metadata.lock"
+SIMPLE_FIT_WRITER_ARGS = {
+    "subdirectory_cadence_seconds": 3600,
+    "file_cadence_seconds": 60,
+    "samples_per_second_numerator": 1000000,
+    "samples_per_second_denominator": 1,
+    "file_name": "fit",
+}
+
 def metadata_bounds(path, label):
     try:
         reader = drf.DigitalMetadataReader(path)
@@ -29,6 +39,32 @@ def metadata_bounds(path, label):
     except Exception as exc:
         print("couldn't read %s metadata bounds yet: %s"%(label, exc))
         return None, [-1, -1]
+
+def simple_fit_writer(omddir):
+    return drf.DigitalMetadataWriter(
+        omddir,
+        SIMPLE_FIT_WRITER_ARGS["subdirectory_cadence_seconds"],
+        SIMPLE_FIT_WRITER_ARGS["file_cadence_seconds"],
+        SIMPLE_FIT_WRITER_ARGS["samples_per_second_numerator"],
+        SIMPLE_FIT_WRITER_ARGS["samples_per_second_denominator"],
+        SIMPLE_FIT_WRITER_ARGS["file_name"],
+    )
+
+def write_simple_fit_metadata(dmw, sample_idx, payload):
+    with open(SIMPLE_FIT_WRITE_LOCK, "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            dmw.write(sample_idx, payload)
+        except ValueError as exc:
+            # MPI ranks can construct writers before the first fields dataset
+            # exists. Reopen under the lock if another rank created it first.
+            if "name already exists" not in str(exc):
+                raise
+            print("%d simple_fit metadata schema race; reopening writer"%(rank))
+            fresh_dmw = simple_fit_writer(pc.simple_fit_metadata_dir)
+            fresh_dmw.write(sample_idx, payload)
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
 
 phasecal = n.zeros([5,7])
 imaging=[]
@@ -295,7 +331,7 @@ def process_cut(data,
                                                                  n.linalg.norm(r0),n.linalg.norm(v0),eres*1e3,nres*1e3,ures*1e3))
             if write_dm:
                 try:
-                    dmw.write(txidxs[0],dout)
+                    write_simple_fit_metadata(dmw, txidxs[0], dout)
                 except:
                     import traceback
                     traceback.print_exc()
@@ -421,24 +457,12 @@ def process_latest():
             stuffr.unix2datestr(b[1]/1e6)))
         return
 
-    subdirectory_cadence_seconds = 3600
-    file_cadence_seconds = 60
-    samples_per_second_numerator = 1000000
-    samples_per_second_denominator = 1
-    file_name = "fit"
     omddir=pc.simple_fit_metadata_dir
     #omddir="/tmp/simple_fit"
 
     os.system("mkdir -p %s"%(omddir))#pc.simple_fit_metadata_dir))
 
-    dmw = drf.DigitalMetadataWriter(
-        omddir,
-        subdirectory_cadence_seconds,
-        file_cadence_seconds,
-        samples_per_second_numerator,
-        samples_per_second_denominator,
-        file_name,
-    )
+    dmw = simple_fit_writer(omddir)
 
     for bi in range(rank,n_block,size):
         data=dm.read(start_idx+bi*dt,start_idx+bi*dt+dt)
