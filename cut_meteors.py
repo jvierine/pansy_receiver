@@ -248,6 +248,8 @@ def cut_block():
                     beam_i1[bi]=n.max(tx_idx[n.where(beamnum==bi)[0]])
                     peak_snr=10.0*n.log10(n.max(snr[n.where(beamnum==bi)[0]]))
                     print("%s beam %d dur %1.2f (s) snr %1.2f (dB) count %d"%(stuffr.unix2datestr(k/1e6),bi,(beam_i1[bi]-beam_i0[bi])/1e6,peak_snr,beam_count[bi]))
+            if len(beams) == 0:
+                continue
             
             # store between i0 and i1 plus padding ch000-ch006
             # store +/- 64 samples around the tx pulse of length 128 samples
