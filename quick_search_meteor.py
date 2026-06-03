@@ -343,6 +343,16 @@ def meteor_search(debug=False):
     rds_isr=range_doppler_search(txlen=540)
 
     # analyze in parallel. one minute for each thread
+    summary = {
+        "assigned": 0,
+        "outside_raw": 0,
+        "already_processed": 0,
+        "no_meso": 0,
+        "processed_meso": 0,
+        "processing_errors": 0,
+        "first_i0": None,
+        "last_i1": None,
+    }
     for bi in range(start_minute,end_minute):
         if bi%size != rank:
 #            print("rank %d skipping minute for rank %d"%(rank,bi%size))
@@ -356,15 +366,18 @@ def meteor_search(debug=False):
             
         b=d.get_bounds("ch000")
         n_meso=0
+        summary["assigned"] += 1
+        if summary["first_i0"] is None:
+            summary["first_i0"] = i0
+        summary["last_i1"] = i1
 
         # only process if we have raw voltage data in ringbuffer
         if (i0 > b[0]) & (i1 < b[1]):
-            print("%d processing %s"%(rank,stuffr.unix2datestr(i0/1e6)))
             data_dict = dmr.read(i0, i1, "id")
 
             mf2out=dm_mf2.read(i0,i1,["beam_pos_idx"])
             if len(mf2out.keys())>0:
-                print("rank %d already processed %d-%d %d results"%(rank,i0,i1,len(mf2out.keys())))
+                summary["already_processed"] += 1
                 continue
 
 #            mf2out=dm_mf_isr.read(i0,i1,["tx_pwr"])
@@ -380,7 +393,6 @@ def meteor_search(debug=False):
                 keyi=int(key)
                 try:
                     if  data_dict[key] == 1:
-                        print("meso mode %s"%(stuffr.unix2datestr(key/1e6)))
                         process_m_mode(key,d,rds,dmw,dm_mf2,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"])
 
                         n_meso+=1
@@ -393,16 +405,56 @@ def meteor_search(debug=False):
                         #                    else:
                         #                       print("unknown mode %d"%(data_dict[key]))
                 except:
-                    print("problem with processing. probably data gap.")
+                    summary["processing_errors"] += 1
 #                    import traceback
  #                   traceback.print_exc()
+        else:
+            summary["outside_raw"] += 1
 
 
         cput1=time.time()
         if (n_meso) > 0:
             print("rank %d %d meso %s cputime/realtime %1.2f"% (rank,n_meso*20,stuffr.unix2datestr(i0/1e6), (cput1-cput0)/(size*(n_meso*20*1.6e-3))))
+            summary["processed_meso"] += n_meso
         else:
-            print("no meso mode found")
+            summary["no_meso"] += 1
+
+    all_summaries = comm.gather(summary, root=0)
+    if rank == 0:
+        totals = {
+            "assigned": 0,
+            "outside_raw": 0,
+            "already_processed": 0,
+            "no_meso": 0,
+            "processed_meso": 0,
+            "processing_errors": 0,
+        }
+        first_i0 = None
+        last_i1 = None
+        for item in all_summaries:
+            for key in totals:
+                totals[key] += item[key]
+            if item["first_i0"] is not None:
+                first_i0 = item["first_i0"] if first_i0 is None else min(first_i0, item["first_i0"])
+            if item["last_i1"] is not None:
+                last_i1 = item["last_i1"] if last_i1 is None else max(last_i1, item["last_i1"])
+        if first_i0 is None:
+            print("meteor search summary: no assigned minute windows")
+        else:
+            print(
+                "meteor search summary %s to %s: assigned=%d processed_meso=%d "
+                "no_meso_windows=%d already_processed=%d outside_raw=%d errors=%d"
+                % (
+                    stuffr.unix2datestr(first_i0/1e6),
+                    stuffr.unix2datestr(last_i1/1e6),
+                    totals["assigned"],
+                    totals["processed_meso"],
+                    totals["no_meso"],
+                    totals["already_processed"],
+                    totals["outside_raw"],
+                    totals["processing_errors"],
+                )
+            )
 
             
 
