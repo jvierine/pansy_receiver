@@ -22,10 +22,10 @@ def update_tx_pulses():
             dmr = drf.DigitalMetadataReader(metadata_dir)
             db = dmr.get_bounds()
             print(db)
-        except:
+        except Exception:
             traceback.print_exc()
-            print("couldn't read metadata")
-            exit(0)
+            print("couldn't read metadata; starting new tx metadata")
+            db=[-1,-1]
     else:
         os.system("mkdir -p %s"%(metadata_dir))
 
@@ -85,8 +85,7 @@ def update_tx_pulses():
                 try:
                     data_dict["id"]=mode_id[gidx]
                     dmw.write(start_idx[gidx],data_dict)
-                except:
-                    import traceback
+                except Exception:
                     traceback.print_exc()
 
         # find 7-bit Barker codes associated with ISR mdoe
@@ -106,8 +105,7 @@ def update_tx_pulses():
                 try:
                     data_dict["id"]=mode_id[gidx]
                     dmw.write(start_idx[gidx],data_dict)
-                except:
-                    import traceback
+                except Exception:
                     traceback.print_exc()
 
 
@@ -129,8 +127,7 @@ def update_tx_pulses():
                 try:
                     data_dict["id"]=mode_id[gidx]
                     dmw.write(start_idx[gidx],data_dict)
-                except:
-                    import traceback
+                except Exception:
                     traceback.print_exc()
     
 
