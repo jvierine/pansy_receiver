@@ -28,6 +28,10 @@ comm = MPI.COMM_WORLD
 size = comm.Get_size()
 rank = comm.Get_rank()
 
+def log0(message):
+    if rank == 0:
+        print(message)
+
 class range_doppler_search:
     def __init__(self,
                  txlen=132,
@@ -222,13 +226,15 @@ def meteor_search(debug=False):
     db_mf=[-1,-1]
     dm_mf=None
     if os.path.exists(mf_metadata_dir):
-        print("metadata directory exists. searching for last timestamp")
+        log0("mf metadata directory exists. searching for last timestamp")
         try:
             dm_mf = drf.DigitalMetadataReader(mf_metadata_dir)
             db_mf = dm_mf.get_bounds()
-            print(db_mf)
-        except:
-            print("couldn't read mf metadata")
+            log0("mf bounds %s - %s"%(
+                stuffr.unix2datestr(db_mf[0]/1e6),
+                stuffr.unix2datestr(db_mf[1]/1e6)))
+        except Exception:
+            log0("couldn't read mf metadata; starting from mesomode/raw overlap")
     else:
         os.system("mkdir -p %s"%(mf_metadata_dir))
 
@@ -288,7 +294,7 @@ def meteor_search(debug=False):
         # start where we left off, instead of the start
         i0=db_mf[1]+10
     
-    print("starting at %s"%(stuffr.unix2datestr(i0/1e6)))
+    log0("raw ch007 starts at %s"%(stuffr.unix2datestr(i0/1e6)))
 
     # 100 seconds per analysis window
     #dt=60000000
@@ -314,27 +320,46 @@ def meteor_search(debug=False):
 
     dmr = drf.DigitalMetadataReader(metadata_dir)
     db = dmr.get_bounds()
-    print(db)
-    b=d.get_bounds("ch000")
+    raw_bounds=d.get_bounds("ch000")
+    log0("tx bounds %s - %s"%(
+        stuffr.unix2datestr(db[0]/1e6),
+        stuffr.unix2datestr(db[1]/1e6)))
+    log0("raw ch000 bounds %s - %s"%(
+        stuffr.unix2datestr(raw_bounds[0]/1e6),
+        stuffr.unix2datestr(raw_bounds[1]/1e6)))
+
+    try:
+        dmm = drf.DigitalMetadataReader(pc.mesomode_metadata_dir)
+        mm_bounds=dmm.get_bounds()
+        mesomode_blocks=dmm.read(mm_bounds[0], mm_bounds[1])
+        log0("mesomode bounds %s - %s (%d blocks)"%(
+            stuffr.unix2datestr(mm_bounds[0]/1e6),
+            stuffr.unix2datestr(mm_bounds[1]/1e6),
+            len(mesomode_blocks)))
+    except Exception:
+        traceback.print_exc()
+        log0("no readable mesomode metadata yet; waiting")
+        return
 
     d_analysis=file_cadence_seconds*1000000
 
 #    b_mf_isr=dm_mf_isr.get_bounds()
 
-    # start analysis where the previous one left off
-    start_idx=d_analysis*int(n.floor(db_mf[1]/d_analysis))
-    # stay 6 minutes behind realtime to avoid underfull metadata files
-    end_idx=d_analysis*int(n.ceil(db[1]/d_analysis))-6*d_analysis
+    # Start where the previous matched-filter metadata ends. On a fresh disk
+    # mf metadata can be unreadable; in that case start at the first mesomode
+    # block that is still inside the raw-voltage ringbuffer.
+    if db_mf[1] != -1:
+        start_idx=db_mf[1]+10
+    else:
+        start_idx=max(mm_bounds[0], raw_bounds[0], db[0])
+    # Stay 6 minutes behind tx metadata to avoid underfull files.
+    end_idx=min(mm_bounds[1], db[1]-6*d_analysis, raw_bounds[1]-20*1600)
 
     if end_idx < start_idx:
-        print("end before start! waiting for more data.")
+        log0("meteor search waiting: start %s is after end %s"%(
+            stuffr.unix2datestr(start_idx/1e6),
+            stuffr.unix2datestr(end_idx/1e6)))
         return
-#        exit(0)
-
-    # minutes since 1970
-    end_minute=int(n.floor(end_idx/d_analysis))
-    start_minute=int(n.floor(start_idx/d_analysis))
-    n_minutes=end_minute-start_minute
 
     rds=range_doppler_search()
     N=20*1600
@@ -342,60 +367,63 @@ def meteor_search(debug=False):
 
     rds_isr=range_doppler_search(txlen=540)
 
-    # analyze in parallel. one minute for each thread
+    work_blocks=[]
+    for block_key, block in sorted(mesomode_blocks.items()):
+        block_start=int(block["start"])
+        block_end=int(block["end"])
+        i0=max(block_start, start_idx, raw_bounds[0])
+        i1=min(block_end, end_idx, raw_bounds[1]-20*1600)
+        if i1 > i0:
+            work_blocks.append((block_key, i0, i1))
+
+    log0("meteor search work queue %s to %s: %d mesomode blocks"%(
+        stuffr.unix2datestr(start_idx/1e6),
+        stuffr.unix2datestr(end_idx/1e6),
+        len(work_blocks)))
+
     summary = {
-        "assigned": 0,
-        "outside_raw": 0,
+        "assigned_blocks": 0,
+        "candidate_tx": 0,
         "already_processed": 0,
-        "no_meso": 0,
         "processed_meso": 0,
         "processing_errors": 0,
         "first_i0": None,
         "last_i1": None,
     }
-    for bi in range(start_minute,end_minute):
-        if bi%size != rank:
-#            print("rank %d skipping minute for rank %d"%(rank,bi%size))
+    for block_idx, (block_key, i0, i1) in enumerate(work_blocks):
+        if block_idx%size != rank:
             continue
-        
-        cput0=time.time()                      
-#        i0=start_minute*60*1000000 + bi*60*1000000
- #       i1=start_minute*60*1000000 + bi*60*1000000 + 60*1000000
-        i0=bi*60*1000000 
-        i1=bi*60*1000000 + 60*1000000
-            
-        b=d.get_bounds("ch000")
-        n_meso=0
-        summary["assigned"] += 1
+
+        cput0=time.time()
+        block_meso=0
+        summary["assigned_blocks"] += 1
         if summary["first_i0"] is None:
             summary["first_i0"] = i0
         summary["last_i1"] = i1
 
-        # only process if we have raw voltage data in ringbuffer
-        if (i0 > b[0]) & (i1 < b[1]):
-            data_dict = dmr.read(i0, i1, "id")
-
-            mf2out=dm_mf2.read(i0,i1,["beam_pos_idx"])
-            if len(mf2out.keys())>0:
-                summary["already_processed"] += 1
-                continue
+        data_dict = dmr.read(i0, i1, "id")
 
 #            mf2out=dm_mf_isr.read(i0,i1,["tx_pwr"])
  #           if len(mf2out.keys())>0:
   #              print("rank %d already processed %d-%d %d results"%(rank,i0,i1,len(mf2out.keys())))
    #             continue
 
-            keys=data_dict.keys()
-            n_keys=len(keys)
+        keys=sorted(data_dict.keys())
+        summary["candidate_tx"] += len(keys)
     #        n_isr=0
             #print("%d processing %d pulses"%(rank,20*n_keys))
-            for key in keys:
-                keyi=int(key)
-                try:
-                    if  data_dict[key] == 1:
-                        process_m_mode(key,d,rds,dmw,dm_mf2,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"])
+        for key in keys:
+            keyi=int(key)
+            try:
+                if data_dict[key] != 1:
+                    continue
+                mf2out=dm_mf2.read(keyi-100,keyi+100,["beam_pos_idx"])
+                if len(mf2out.keys())>0:
+                    summary["already_processed"] += 1
+                    continue
+                process_m_mode(keyi,d,rds,dmw,dm_mf2,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"])
 
-                        n_meso+=1
+                block_meso+=1
      #               elif data_dict[key] == 2:
 #                        print("isr mode %s"%(stuffr.unix2datestr(key/1e6)))
       #                  process_isr_mode(key,d,rds_isr,dmw_isr,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"])
@@ -404,28 +432,27 @@ def meteor_search(debug=False):
                         
                         #                    else:
                         #                       print("unknown mode %d"%(data_dict[key]))
-                except:
-                    summary["processing_errors"] += 1
+            except Exception:
+                summary["processing_errors"] += 1
 #                    import traceback
  #                   traceback.print_exc()
-        else:
-            summary["outside_raw"] += 1
-
 
         cput1=time.time()
-        if (n_meso) > 0:
-            print("rank %d %d meso %s cputime/realtime %1.2f"% (rank,n_meso*20,stuffr.unix2datestr(i0/1e6), (cput1-cput0)/(size*(n_meso*20*1.6e-3))))
-            summary["processed_meso"] += n_meso
-        else:
-            summary["no_meso"] += 1
+        if (block_meso) > 0:
+            print("rank %d processed %d meso starts in block %s-%s cputime/realtime %1.2f"% (
+                rank,
+                block_meso,
+                stuffr.unix2datestr(i0/1e6),
+                stuffr.unix2datestr(i1/1e6),
+                (cput1-cput0)/(size*(block_meso*20*1.6e-3))))
+            summary["processed_meso"] += block_meso
 
     all_summaries = comm.gather(summary, root=0)
     if rank == 0:
         totals = {
-            "assigned": 0,
-            "outside_raw": 0,
+            "assigned_blocks": 0,
+            "candidate_tx": 0,
             "already_processed": 0,
-            "no_meso": 0,
             "processed_meso": 0,
             "processing_errors": 0,
         }
@@ -439,19 +466,18 @@ def meteor_search(debug=False):
             if item["last_i1"] is not None:
                 last_i1 = item["last_i1"] if last_i1 is None else max(last_i1, item["last_i1"])
         if first_i0 is None:
-            print("meteor search summary: no assigned minute windows")
+            print("meteor search summary: no assigned mesomode blocks")
         else:
             print(
-                "meteor search summary %s to %s: assigned=%d processed_meso=%d "
-                "no_meso_windows=%d already_processed=%d outside_raw=%d errors=%d"
+                "meteor search summary %s to %s: blocks=%d candidate_tx=%d "
+                "processed_meso=%d already_processed=%d errors=%d"
                 % (
                     stuffr.unix2datestr(first_i0/1e6),
                     stuffr.unix2datestr(last_i1/1e6),
-                    totals["assigned"],
+                    totals["assigned_blocks"],
+                    totals["candidate_tx"],
                     totals["processed_meso"],
-                    totals["no_meso"],
                     totals["already_processed"],
-                    totals["outside_raw"],
                     totals["processing_errors"],
                 )
             )
@@ -464,7 +490,7 @@ def meteor_search(debug=False):
 if __name__ == "__main__":
     while True:
         meteor_search()
-        print("wait for all threads to finnish")
+        log0("wait for all quick-search ranks to finish")
         comm.Barrier()
         time.sleep(60)
     
