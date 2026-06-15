@@ -191,6 +191,11 @@ def extract_archive(archive_path: Path, data_dir: Path, force: bool = False) -> 
         raise RuntimeError("Need either `tar --zstd` support or both `zstd` and `tar`.")
 
 
+def extracted_dataset_exists(data_dir: Path) -> bool:
+    """Return True if the extracted Zenodo metadata needed by the example exists."""
+    return (data_dir / "metadata" / "simple_meteor_fit" / "dmd_properties.h5").exists()
+
+
 def run_one_event(args: argparse.Namespace) -> None:
     """Fit one event and write both metadata products.
 
@@ -259,14 +264,14 @@ def run_one_event(args: argparse.Namespace) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Download the PANSY Zenodo dataset and run one orbit-determination example.")
+    parser = argparse.ArgumentParser(description="Run one PANSY meteor orbit-determination example.")
     parser.add_argument("--data-dir", type=Path, default=Path("data"), help="Download and extraction directory.")
     parser.add_argument("--plot-dir", type=Path, default=Path("plots/orbit_determination_example"), help="Diagnostic plot directory.")
     parser.add_argument("--start", default=START, help="UTC start time for event selection.")
     parser.add_argument("--end", default=END, help="UTC end time for event selection.")
     parser.add_argument("--force-download", action="store_true", help="Download Zenodo files even if local copies exist.")
     parser.add_argument("--force-extract", action="store_true", help="Extract even if ./data/metadata already exists.")
-    parser.add_argument("--skip-download", action="store_true", help="Use an already downloaded/extracted dataset.")
+    parser.add_argument("--skip-download", action="store_true", help="Require an already extracted dataset; do not contact Zenodo.")
     parser.add_argument("--download-only", action="store_true", help="Download and verify, but do not fit anything.")
     parser.add_argument("--reanalyze", action="store_true", help="Delete existing ballistic_fit and orbital_parameters keys before writing.")
     parser.add_argument("--n-samples", type=int, default=200, help="Monte Carlo samples for orbital-parameter uncertainty.")
@@ -277,7 +282,19 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
 
-    if not args.skip_download:
+    if args.skip_download:
+        if not extracted_dataset_exists(args.data_dir):
+            raise FileNotFoundError(
+                f"Could not find extracted metadata in {args.data_dir / 'metadata' / 'simple_meteor_fit'}"
+            )
+    elif (
+        extracted_dataset_exists(args.data_dir)
+        and not args.force_download
+        and not args.force_extract
+        and not args.download_only
+    ):
+        print(f"Using existing extracted metadata: {args.data_dir / 'metadata'}")
+    else:
         archive_path, sha_path = download_dataset(args.data_dir, force=args.force_download)
         verify_sha256(archive_path, sha_path)
         if args.download_only:
