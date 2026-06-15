@@ -28,3 +28,8 @@ data/README.txt
 data/metadata/
 data/zenodo/
 plots/orbit_determination_example/
+
+# Local batch diagnostics and regenerated review plots
+test_plots/
+test_plots_smoke/
+texput.log

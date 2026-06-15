@@ -1,0 +1,3253 @@
+#!/usr/bin/env python3
+"""Make memo figures for PANSY interferometric alias disambiguation."""
+
+from __future__ import annotations
+
+import argparse
+import itertools
+import subprocess
+import sys
+from pathlib import Path
+
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import h5py
+import numpy as np
+import scipy.ndimage as ndi
+import scipy.optimize as opt
+import scipy.stats as st
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+
+import pansy_interferometry as pint
+import pansy_config as pc
+import pansy_modes as pmm
+import pansy_ballistic as pbal
+import pansy_orbit as porb
+from interferometer_alias_diagnostics import load_cut, recompute_cut_observables
+
+
+def plot_antenna_positions(output: Path):
+    """Plot PANSY antenna positions and the receiver modules used here."""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    ready = []
+    not_ready = []
+    rftx = None
+    for serial, ant in pc.antenna.items():
+        pos = [ant["x"], ant["y"], ant["z"]]
+        if serial == "RFTX":
+            rftx = pos
+            continue
+        try:
+            is_ready = int(ant["ready"]) == 1
+        except ValueError:
+            is_ready = str(ant["ready"]).strip().lower() in {"true", "yes", "ready"}
+        if is_ready:
+            ready.append(pos)
+        else:
+            not_ready.append(pos)
+
+    ready = np.asarray(ready, dtype=np.float64)
+    not_ready = np.asarray(not_ready, dtype=np.float64) if not_ready else np.empty((0, 3))
+    rx_centers = []
+    rx_labels = []
+    for i, name in enumerate(pc.connections):
+        if name == "RFTX" or name not in pc.module_center:
+            continue
+        rx_centers.append(pc.module_center[name])
+        rx_labels.append(str(i))
+    rx_centers = np.asarray(rx_centers, dtype=np.float64)
+
+    fig, ax = plt.subplots(figsize=(7.0, 6.8), constrained_layout=True)
+    if len(not_ready):
+        ax.scatter(not_ready[:, 0], not_ready[:, 1], s=12, color="0.75", label="not ready antennas")
+    ax.scatter(ready[:, 0], ready[:, 1], s=16, color="tab:blue", label="ready antennas")
+    if rftx is not None:
+        ax.scatter([rftx[0]], [rftx[1]], s=120, marker="*", color="black", label="RF reference")
+    if len(rx_centers):
+        ax.scatter(rx_centers[:, 0], rx_centers[:, 1], s=80, color="tab:red", label="receiver module centers")
+        for label, pos in zip(rx_labels, rx_centers):
+            ax.text(
+                pos[0],
+                pos[1],
+                label,
+                ha="center",
+                va="center",
+                fontsize=9,
+                bbox={"facecolor": "white", "edgecolor": "tab:red", "alpha": 0.8, "boxstyle": "circle"},
+            )
+    ax.set_xlabel("Array x coordinate (m)")
+    ax.set_ylabel("Array y coordinate (m)")
+    ax.set_title("PANSY antenna positions and meteor receiver modules")
+    ax.set_aspect("equal", adjustable="box")
+    ax.grid(True, alpha=0.25)
+    ax.legend(loc="upper right", fontsize=8)
+    fig.savefig(output, dpi=220)
+    plt.close(fig)
+
+
+def plot_tx_array_beam_patterns(output: Path, grid_n=501, model="module_incoherent"):
+    """Plot the five transmit array-factor beam patterns over the visible sky."""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    u, v, w, valid = horizon_grid(grid_n)
+    beam_vecs = tx_beam_unit_vectors()
+    gain_maps = precompute_tx_array_gain_maps(u, v, w, valid, beam_vecs=beam_vecs, model=model)
+    beam_names = ["Zenith", "North", "East", "South", "West"]
+
+    fig, axes = plt.subplots(1, len(beam_vecs), figsize=(16.0, 3.8), constrained_layout=True)
+    for beam_i, ax in enumerate(axes):
+        gain = gain_maps[beam_i]
+        im = ax.pcolormesh(v, u, gain, shading="auto", cmap="viridis", vmin=-20.0, vmax=0.0)
+        ax.contour(v, u, gain, levels=[-12.0, -6.0, -3.0], colors="white", linewidths=0.7)
+        ax.plot(beam_vecs[beam_i, 1], beam_vecs[beam_i, 0], "rx", ms=7, mew=1.5)
+        ax.add_patch(plt.Circle((0.0, 0.0), 1.0, color="black", fill=False, linewidth=0.9))
+        ax.set_title(f"{beam_i}: {beam_names[beam_i] if beam_i < len(beam_names) else 'beam'}")
+        ax.set_xlabel("v direction cosine")
+        if beam_i == 0:
+            ax.set_ylabel("u direction cosine")
+        ax.set_aspect("equal")
+        ax.set_xlim(-1.02, 1.02)
+        ax.set_ylim(-1.02, 1.02)
+        ax.grid(True, alpha=0.18)
+    fig.colorbar(im, ax=axes, label="Relative TX array-factor gain (dB)")
+    fig.suptitle(f"PANSY transmit beam patterns ({model.replace('_', ' ')})")
+    fig.savefig(output, dpi=220)
+    plt.close(fig)
+
+
+def horizon_grid(n: int):
+    """Return a square u/v grid covering all directions above the horizon."""
+    axis = np.linspace(-1.0, 1.0, n)
+    u, v = np.meshgrid(axis, axis)
+    rho2 = u**2 + v**2
+    valid = rho2 <= 1.0
+    w = np.full_like(u, np.nan)
+    w[valid] = -np.sqrt(1.0 - rho2[valid])
+    return u, v, w, valid
+
+
+def tx_beam_unit_vectors():
+    """Transmit beam pointing directions in the same u/v/w convention."""
+    mode = pmm.get_m_mode()
+    vecs = []
+    for az_deg, za_deg in mode["beam_pos_az_za"]:
+        el_deg = 90.0 - za_deg
+        p_h = np.cos(np.deg2rad(el_deg))
+        w = -np.sin(np.deg2rad(el_deg))
+        v = p_h * np.cos(-np.deg2rad(az_deg))
+        u = -p_h * np.sin(-np.deg2rad(az_deg))
+        vecs.append([u, v, w])
+    return np.asarray(vecs, dtype=np.float64)
+
+
+TX_BEAM_SHORT_NAMES = np.asarray(["Z", "N", "E", "S", "W"])
+
+
+def tx_beam_proximity_label(track, prefix="TX"):
+    """Compact plot label for the active commanded-beam proximity metric."""
+    mean_dc = track.get("tx_beam_snr_weighted_mean_dc", np.nan)
+    tx_term = track.get("combined_tx_term", np.nan)
+    if not np.isfinite(mean_dc):
+        return ""
+    if np.isfinite(mean_dc) and np.isfinite(tx_term):
+        return f"{prefix} d={mean_dc:.3f} T={tx_term:.1f}"
+    return f"{prefix} d={mean_dc:.3f}"
+
+
+def tx_beam_center_projection_points(track, candidates):
+    """Return SNR-weighted commanded beam-center EW/NS points for active beams."""
+    if "idx" not in track:
+        return []
+    beam_vecs = tx_beam_unit_vectors()
+    rows = [candidates[i] for i in track["idx"]]
+    if not rows:
+        return []
+    beam_id = np.asarray([r["beam_id"] for r in rows], dtype=np.int64)
+    ranges = np.asarray([r["range_km"] for r in rows], dtype=np.float64)
+    snr = np.asarray([r["snr"] for r in rows], dtype=np.float64)
+    distances = np.asarray(track.get("tx_beam_center_distance_dc", np.full(len(rows), np.nan)), dtype=np.float64)
+    out = []
+    for bid in np.unique(beam_id):
+        if bid < 0 or bid >= len(beam_vecs):
+            continue
+        mask = beam_id == bid
+        weight = np.maximum(snr[mask], 1e-6)
+        beam_pos = ranges[mask, None] * beam_vecs[bid, :2][None, :]
+        ew_ns = np.sum(weight[:, None] * beam_pos, axis=0) / np.sum(weight)
+        mean_range_km = float(np.sum(weight * ranges[mask]) / np.sum(weight))
+        d = distances[mask]
+        good = np.isfinite(d)
+        mean_d = float(np.sum(weight[good] * d[good]) / np.sum(weight[good])) if np.any(good) else np.nan
+        out.append(
+            {
+                "beam_id": int(bid),
+                "label": str(TX_BEAM_SHORT_NAMES[bid]),
+                "east_km": float(ew_ns[0]),
+                "north_km": float(ew_ns[1]),
+                "radius_10deg_km": float(mean_range_km * np.sin(np.deg2rad(10.0))),
+                "mean_dc": mean_d,
+                "weight": float(np.sum(weight)),
+            }
+        )
+    return sorted(out, key=lambda x: x["weight"], reverse=True)
+
+
+def draw_tx_beam_projection_marker(ax, beam, color="0.45", fontsize=6.5):
+    """Draw commanded TX beam center and its 10 degree angular footprint in EW/NS."""
+    beam_color = f"C{int(beam['beam_id']) % 10}"
+    ax.add_patch(
+        plt.Circle(
+            (beam["east_km"], beam["north_km"]),
+            beam["radius_10deg_km"],
+            facecolor="0.82",
+            edgecolor="none",
+            alpha=0.2,
+            zorder=0,
+        )
+    )
+    ax.scatter(
+        beam["east_km"],
+        beam["north_km"],
+        marker="D",
+        s=40,
+        facecolors="none",
+        edgecolors=beam_color,
+        linewidths=1.1,
+        alpha=0.85,
+        zorder=0.1,
+    )
+    ax.text(
+        beam["east_km"],
+        beam["north_km"],
+        f" {beam['label']}",
+        fontsize=fontsize,
+        color=beam_color,
+        ha="left",
+        va="center",
+        alpha=0.82,
+        zorder=0.2,
+    )
+
+
+def scatter_points_by_tx_beam(ax, points, beam_id, mask=None, marker=".", size=3.0, alpha=0.65):
+    """Scatter ENU points with categorical colors for transmit beam id."""
+    points = np.asarray(points, dtype=np.float64)
+    beam_id = np.asarray(beam_id, dtype=np.int64)
+    if mask is None:
+        mask = np.ones(len(points), dtype=bool)
+    else:
+        mask = np.asarray(mask, dtype=bool)
+    for bid in range(len(TX_BEAM_SHORT_NAMES)):
+        use = mask & (beam_id == bid)
+        if np.any(use):
+            ax.plot(
+                points[use, 0],
+                points[use, 1],
+                marker,
+                color=f"C{bid}",
+                ms=size,
+                alpha=alpha,
+                zorder=2.5,
+            )
+
+
+def tx_beam_decision_note(tracks):
+    """Explain whether TX beam proximity affected the final choice."""
+    scored = [
+        t
+        for t in tracks
+        if "combined_rank" in t
+        and "ballistic_reduced_chi2" in t
+        and np.isfinite(t.get("ballistic_reduced_chi2", np.nan))
+    ]
+    if len(scored) < 2:
+        return ""
+    by_combined = sorted(scored, key=lambda t: t["combined_rank"])
+    by_ballistic = sorted(scored, key=lambda t: t["ballistic_reduced_chi2"])
+    winner = by_combined[0]
+    best_ballistic = by_ballistic[0]
+    second_ballistic = by_ballistic[1]
+    close_ballistic = (
+        second_ballistic["ballistic_reduced_chi2"]
+        <= best_ballistic["ballistic_reduced_chi2"] + max(1.0, 0.35 * best_ballistic["ballistic_reduced_chi2"])
+    )
+    if winner is not best_ballistic:
+        return (
+            "TX proximity changed winner:\n"
+            f"combined {hypothesis_label(winner)} vs ballistic {hypothesis_label(best_ballistic)}\n"
+            f"{hypothesis_label(winner)} TX d={winner.get('tx_beam_snr_weighted_mean_dc', np.nan):.3f}, "
+            f"{hypothesis_label(best_ballistic)} d={best_ballistic.get('tx_beam_snr_weighted_mean_dc', np.nan):.3f}"
+        )
+    if close_ballistic:
+        return (
+            "Ballistic fits are close;\n"
+            "TX proximity helps choose:\n"
+            f"{hypothesis_label(winner)} d={winner.get('tx_beam_snr_weighted_mean_dc', np.nan):.3f}, "
+            f"{hypothesis_label(second_ballistic)} d={second_ballistic.get('tx_beam_snr_weighted_mean_dc', np.nan):.3f}"
+        )
+    return (
+        "Winner primarily ballistic;\n"
+        f"TX d={winner.get('tx_beam_snr_weighted_mean_dc', np.nan):.3f}"
+    )
+
+
+def tx_array_positions():
+    """Return ready transmit antenna positions for array-factor diagnostics."""
+    pos = []
+    for serial, ant in pc.antenna.items():
+        if serial == "RFTX":
+            continue
+        try:
+            ready = int(ant["ready"]) == 1
+        except ValueError:
+            ready = str(ant["ready"]).strip().lower() in {"true", "yes", "ready"}
+        if ready:
+            pos.append([ant["x"], ant["y"], ant["z"]])
+    if not pos:
+        raise RuntimeError("no ready transmit antennas found")
+    return np.asarray(pos, dtype=np.float64)
+
+
+def tx_array_module_positions():
+    """Ready transmit antenna positions grouped by physical module."""
+    groups = []
+    for name in sorted(pc.modules):
+        pos = []
+        for ant in pc.antenna.values():
+            if ant["name"] != name or ant["serial"] == "RFTX":
+                continue
+            try:
+                ready = int(ant["ready"]) == 1
+            except ValueError:
+                ready = str(ant["ready"]).strip().lower() in {"true", "yes", "ready"}
+            if ready:
+                pos.append([ant["x"], ant["y"], ant["z"]])
+        if pos:
+            groups.append(np.asarray(pos, dtype=np.float64))
+    if not groups:
+        raise RuntimeError("no ready transmit antenna modules found")
+    return groups
+
+
+def tx_module_center_positions():
+    """One coherent array element at each PANSY antenna module center."""
+    pos = []
+    for name, center in sorted(pc.module_center.items()):
+        if name == "RFTX":
+            continue
+        pos.append(np.asarray(center, dtype=np.float64))
+    if not pos:
+        raise RuntimeError("no transmit module centers found")
+    pos = np.asarray(pos, dtype=np.float64)
+    return pos - np.mean(pos, axis=0, keepdims=True)
+
+
+def tx_array_gain_db(uvw, beam_id, tx_pos=None, beam_vecs=None, model="module_center_coherent"):
+    """Relative transmit array-factor power gain in dB for each trial direction.
+
+    ``model='module_center_coherent'`` uses one coherent array element at each
+    PANSY module center.  This is the beam pattern used for the transmit-lobe
+    consistency diagnostic.
+    """
+    uvw = np.asarray(uvw, dtype=np.float64)
+    beam_id = np.asarray(beam_id, dtype=np.int64)
+    if beam_vecs is None:
+        beam_vecs = tx_beam_unit_vectors()
+    k0 = 2.0 * np.pi / pc.wavelength
+    gain = np.full(len(uvw), np.nan, dtype=np.float64)
+    if model == "module_center_coherent":
+        centers = tx_module_center_positions() if tx_pos is None else tx_pos
+        for i, direction in enumerate(uvw):
+            if not np.all(np.isfinite(direction)):
+                continue
+            steer = beam_vecs[beam_id[i]]
+            phase = k0 * (centers @ (direction - steer))
+            af = np.abs(np.mean(np.exp(1j * phase)))
+            gain[i] = 20.0 * np.log10(max(af, 1e-8))
+        return gain
+
+    if model == "module_incoherent":
+        modules = tx_array_module_positions() if tx_pos is None else tx_pos
+        for i, direction in enumerate(uvw):
+            if not np.all(np.isfinite(direction)):
+                continue
+            steer = beam_vecs[beam_id[i]]
+            powers = []
+            for pos in modules:
+                phase = k0 * (pos @ (direction - steer))
+                powers.append(np.abs(np.mean(np.exp(1j * phase))) ** 2)
+            gain[i] = 10.0 * np.log10(max(float(np.mean(powers)), 1e-16))
+        return gain
+
+    if tx_pos is None:
+        tx_pos = tx_array_positions()
+    for i, direction in enumerate(uvw):
+        if not np.all(np.isfinite(direction)):
+            continue
+        steer = beam_vecs[beam_id[i]]
+        phase = k0 * (tx_pos @ (direction - steer))
+        af = np.abs(np.mean(np.exp(1j * phase)))
+        gain[i] = 20.0 * np.log10(max(af, 1e-8))
+    return gain
+
+
+def precompute_tx_array_gain_maps(u, v, w, valid, tx_pos=None, beam_vecs=None, model="module_center_coherent"):
+    """Precompute TX array-factor gain maps for all transmit beams on a sky grid."""
+    if tx_pos is None and model == "module_center_coherent":
+        tx_pos = tx_module_center_positions()
+    if tx_pos is None and model == "element_coherent":
+        tx_pos = tx_array_positions()
+    if beam_vecs is None:
+        beam_vecs = tx_beam_unit_vectors()
+    uvw = np.column_stack([u[valid], v[valid], w[valid]])
+    gain_maps = np.full((len(beam_vecs),) + u.shape, np.nan, dtype=np.float32)
+    k0 = 2.0 * np.pi / pc.wavelength
+    if model == "module_center_coherent":
+        for beam_i, steer in enumerate(beam_vecs):
+            phase = k0 * (tx_pos @ (uvw - steer).T)
+            af = np.abs(np.mean(np.exp(1j * phase), axis=0))
+            flat = np.full(u.shape, np.nan, dtype=np.float32)
+            flat[valid] = (20.0 * np.log10(np.maximum(af, 1e-8))).astype(np.float32)
+            gain_maps[beam_i] = flat
+        return gain_maps
+
+    if model == "module_incoherent":
+        modules = tx_array_module_positions() if tx_pos is None else tx_pos
+        for beam_i, steer in enumerate(beam_vecs):
+            power = np.zeros(len(uvw), dtype=np.float64)
+            for pos in modules:
+                phase = k0 * (pos @ (uvw - steer).T)
+                power += np.abs(np.mean(np.exp(1j * phase), axis=0)) ** 2
+            power /= len(modules)
+            flat = np.full(u.shape, np.nan, dtype=np.float32)
+            flat[valid] = (10.0 * np.log10(np.maximum(power, 1e-16))).astype(np.float32)
+            gain_maps[beam_i] = flat
+        return gain_maps
+
+    for beam_i, steer in enumerate(beam_vecs):
+        phase = k0 * (tx_pos @ (uvw - steer).T)
+        af = np.abs(np.mean(np.exp(1j * phase), axis=0))
+        flat = np.full(u.shape, np.nan, dtype=np.float32)
+        flat[valid] = (20.0 * np.log10(np.maximum(af, 1e-8))).astype(np.float32)
+        gain_maps[beam_i] = flat
+    return gain_maps
+
+
+def tx_grating_lobe_centroids_from_gain_maps(
+    gain_maps,
+    u,
+    v,
+    valid,
+    gaussian_width_dc=0.1,
+    min_separation_dc=0.25,
+    threshold_rel=0.12,
+):
+    """Find smoothed TX grating-lobe centers on the full horizon in u/v space."""
+    du = float(np.nanmedian(np.diff(u[0, :])))
+    dv = float(np.nanmedian(np.diff(v[:, 0])))
+    pixel = max(abs(du), abs(dv))
+    sigma_pix = max(1.0, gaussian_width_dc / pixel)
+    sep_pix = max(3, int(round(min_separation_dc / pixel)))
+    if sep_pix % 2 == 0:
+        sep_pix += 1
+
+    centroids = []
+    smoothed_maps = []
+    for beam_i in range(gain_maps.shape[0]):
+        power = 10.0 ** (np.asarray(gain_maps[beam_i], dtype=np.float64) / 10.0)
+        power = np.where(valid & np.isfinite(power), power, 0.0)
+        smooth = ndi.gaussian_filter(power, sigma=sigma_pix, mode="constant", cval=0.0)
+        smooth = np.where(valid, smooth, np.nan)
+        maxval = np.nanmax(smooth)
+        smoothed_maps.append(smooth / maxval if np.isfinite(maxval) and maxval > 0.0 else smooth)
+        if not np.isfinite(maxval) or maxval <= 0.0:
+            centroids.append(np.empty((0, 3), dtype=np.float64))
+            continue
+        local = ndi.maximum_filter(np.nan_to_num(smooth, nan=-np.inf), size=sep_pix, mode="constant", cval=-np.inf)
+        mask = valid & np.isfinite(smooth) & (smooth == local) & (smooth >= threshold_rel * maxval)
+        ii, jj = np.where(mask)
+        if len(ii) == 0:
+            centroids.append(np.empty((0, 3), dtype=np.float64))
+            continue
+        rel = smooth[ii, jj] / maxval
+        order = np.argsort(rel)[::-1]
+        centroids.append(np.column_stack([u[ii[order], jj[order]], v[ii[order], jj[order]], rel[order]]))
+    return centroids, np.asarray(smoothed_maps)
+
+
+def nearest_tx_grating_lobe_distances(dirs, beam_id, centroids):
+    """Distance in direction-cosine space to nearest active-beam lobe centroid."""
+    dirs = np.asarray(dirs, dtype=np.float64)
+    beam_id = np.asarray(beam_id, dtype=np.int64)
+    dist = np.full(len(dirs), np.nan, dtype=np.float64)
+    for beam in range(len(centroids)):
+        use = beam_id == beam
+        if not np.any(use) or len(centroids[beam]) == 0:
+            continue
+        centers = centroids[beam][:, :2]
+        uv = dirs[use, :2]
+        dist[use] = np.sqrt(np.min(np.sum((uv[:, None, :] - centers[None, :, :]) ** 2, axis=2), axis=1))
+    return dist
+
+
+def plot_tx_grating_lobe_centroids(u, v, valid, smoothed_maps, centroids, output: Path):
+    output.parent.mkdir(parents=True, exist_ok=True)
+    beam_names = ["Zenith", "North", "East", "South", "West"]
+    fig, axes = plt.subplots(3, 3, figsize=(10.5, 10.0), constrained_layout=True)
+    panel_locs = {1: (0, 1), 4: (1, 0), 0: (1, 1), 2: (1, 2), 3: (2, 1)}
+    for ax in axes.ravel():
+        ax.axis("off")
+    im = None
+    for beam, (row, col) in panel_locs.items():
+        ax = axes[row, col]
+        ax.axis("on")
+        panel = np.where(valid, smoothed_maps[beam], np.nan)
+        im = ax.pcolormesh(u, v, panel, shading="auto", cmap="turbo", vmin=0.0, vmax=1.0)
+        ax.contour(u, v, panel, levels=[0.12, 0.25, 0.5, 0.75], colors="white", linewidths=0.55, alpha=0.75)
+        if len(centroids[beam]):
+            ax.scatter(centroids[beam][:, 0], centroids[beam][:, 1], s=22, facecolors="none", edgecolors="black", linewidths=0.9)
+        ax.add_patch(plt.Circle((0.0, 0.0), 1.0, color="black", fill=False, linewidth=0.8))
+        ax.set_xlim(-1.0, 1.0)
+        ax.set_ylim(-1.0, 1.0)
+        ax.set_aspect("equal")
+        ax.set_title(f"{beam}: {beam_names[beam]} ({len(centroids[beam])})")
+        ax.set_xlabel("u direction cosine")
+        if col == 0:
+            ax.set_ylabel("v direction cosine")
+    fig.colorbar(im, ax=axes.ravel().tolist(), label="Gaussian-smoothed normalized TX power")
+    fig.suptitle("Full-horizon TX grating-lobe centroids in direction-cosine space")
+    fig.savefig(output, dpi=220)
+    plt.close(fig)
+
+
+def steering_matrix(dmat: np.ndarray, u: np.ndarray, v: np.ndarray, w: np.ndarray, valid: np.ndarray):
+    """Precompute interferometer steering vectors on the horizon grid."""
+    import pansy_config as pc
+
+    uvw = np.column_stack([u[valid], v[valid], w[valid]])
+    k0 = 2.0 * np.pi / pc.wavelength
+    phase = -1j * k0 * (dmat @ uvw.T)
+    return np.exp(phase).astype(np.complex64), uvw
+
+
+def coherence_map(xc, beam_id, phasecal, ch_pairs, steering, valid, shape):
+    """Compute normalized interferometric coherence on the u/v grid."""
+    z = np.exp(1j * (np.angle(xc) + phasecal[beam_id, ch_pairs[:, 0]] - phasecal[beam_id, ch_pairs[:, 1]]))
+    coh_flat = np.abs(z @ steering) / len(ch_pairs)
+    out = np.full(shape, np.nan, dtype=np.float32)
+    out[valid] = coh_flat.astype(np.float32)
+    return out
+
+
+def local_coherence_peaks(coh: np.ndarray, threshold: float):
+    """Find isolated high-coherence local maxima."""
+    filled = np.nan_to_num(coh, nan=-np.inf)
+    maxima = ndi.maximum_filter(filled, size=9, mode="constant", cval=-np.inf)
+    mask = (filled == maxima) & (filled >= threshold)
+    return np.where(mask)
+
+
+def plot_single_echo(u, v, coh, peak_ij, obs, pulse_idx, output: Path):
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(7.2, 6.2), constrained_layout=True)
+    im = ax.pcolormesh(v, u, coh, shading="auto", cmap="viridis", vmin=0.0, vmax=1.0)
+    ax.contour(v, u, coh, levels=[0.9], colors="white", linewidths=0.9)
+    if len(peak_ij[0]) > 0:
+        ax.scatter(v[peak_ij], u[peak_ij], s=18, facecolors="none", edgecolors="red", linewidths=0.8)
+    ax.set_xlabel("v direction cosine")
+    ax.set_ylabel("u direction cosine")
+    ax.set_title(
+        "Single-pulse interferometer coherence\n"
+        f"tx_idx={int(obs['tx_idx'][pulse_idx])}, SNR={10*np.log10(obs['snr'][pulse_idx]):.1f} dB"
+    )
+    ax.set_aspect("equal")
+    ax.grid(True, alpha=0.2)
+    fig.colorbar(im, ax=ax, label="Normalized coherence")
+    fig.savefig(output, dpi=220)
+    plt.close(fig)
+
+
+def plot_all_candidates(u, v, obs, candidates, output: Path):
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(7.2, 6.2), constrained_layout=True)
+    circle = plt.Circle((0.0, 0.0), 1.0, color="black", fill=False, linewidth=1.0)
+    ax.add_patch(circle)
+    if candidates:
+        t = np.asarray([c["t_rel"] for c in candidates])
+        coh = np.asarray([c["coherence"] for c in candidates])
+        sc = ax.scatter(
+            [c["v"] for c in candidates],
+            [c["u"] for c in candidates],
+            c=t,
+            s=10.0 + 50.0 * np.clip(coh - 0.9, 0.0, 0.1) / 0.1,
+            cmap="plasma",
+            alpha=0.75,
+            edgecolors="none",
+        )
+        fig.colorbar(sc, ax=ax, label="Time since cut start (s)")
+    ax.set_xlabel("v direction cosine")
+    ax.set_ylabel("u direction cosine")
+    ax.set_title(r"All local interferometer maxima with coherence $\geq 0.9$")
+    ax.set_xlim(-1.03, 1.03)
+    ax.set_ylim(-1.03, 1.03)
+    ax.set_aspect("equal")
+    ax.grid(True, alpha=0.2)
+    ax.text(
+        0.02,
+        0.02,
+        f"{len(candidates)} candidates from {len(obs['snr'])} pulses",
+        transform=ax.transAxes,
+        ha="left",
+        va="bottom",
+        bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.75},
+    )
+    fig.savefig(output, dpi=220)
+    plt.close(fig)
+
+
+def fit_candidate_tracks(candidates, min_unique_pulses=None, tol=0.035, max_tracks=24, n_trials=30000):
+    """Group high-coherence maxima into approximate u/v tracks.
+
+    This is a deliberately simple multi-hypothesis finder for memo diagnostics.
+    It fits straight lines in direction-cosine/time space and extracts the
+    strongest remaining tracks one at a time.
+    """
+    if not candidates:
+        return []
+
+    rng = np.random.default_rng(20260615)
+    t = np.asarray([c["t_rel"] for c in candidates], dtype=np.float64)
+    u = np.asarray([c["u"] for c in candidates], dtype=np.float64)
+    v = np.asarray([c["v"] for c in candidates], dtype=np.float64)
+    pulse = np.asarray([c["pulse"] for c in candidates], dtype=np.int64)
+    total_unique_pulses = len(np.unique(pulse))
+    if min_unique_pulses is None:
+        min_unique_pulses = int(min(10, max(5, total_unique_pulses)))
+    duration_s = float(np.nanmax(t) - np.nanmin(t)) if len(t) else 0.0
+    min_seed_dt = min(0.20, max(0.005, 0.20 * duration_s))
+    active = np.ones(len(candidates), dtype=bool)
+    tracks = []
+
+    for _track_i in range(max_tracks):
+        idx_active = np.flatnonzero(active)
+        if len(idx_active) < min_unique_pulses:
+            break
+
+        best = None
+        for _ in range(n_trials):
+            i, j = rng.choice(idx_active, size=2, replace=False)
+            dt = t[j] - t[i]
+            if abs(dt) < min_seed_dt:
+                continue
+            bu = (u[j] - u[i]) / dt
+            bv = (v[j] - v[i]) / dt
+            au = u[i] - bu * t[i]
+            av = v[i] - bv * t[i]
+            resid = np.hypot(u[idx_active] - (au + bu * t[idx_active]), v[idx_active] - (av + bv * t[idx_active]))
+            inliers = idx_active[resid < tol]
+            unique_pulses = len(np.unique(pulse[inliers]))
+            if unique_pulses < min_unique_pulses:
+                continue
+            score = unique_pulses + 0.01 * len(inliers)
+            if best is None or score > best["score"]:
+                best = {"score": score, "inliers": inliers}
+
+        if best is None:
+            break
+
+        inliers = best["inliers"]
+        design = np.column_stack([np.ones(len(inliers)), t[inliers]])
+        u_coeff = np.linalg.lstsq(design, u[inliers], rcond=None)[0]
+        v_coeff = np.linalg.lstsq(design, v[inliers], rcond=None)[0]
+        resid = np.hypot(u[inliers] - (u_coeff[0] + u_coeff[1] * t[inliers]), v[inliers] - (v_coeff[0] + v_coeff[1] * t[inliers]))
+        keep = inliers[resid < tol]
+        if len(np.unique(pulse[keep])) < min_unique_pulses:
+            active[inliers] = False
+            continue
+
+        tracks.append(
+            {
+                "hypothesis_id": len(tracks) + 1,
+                "idx": keep,
+                "u_coeff": u_coeff,
+                "v_coeff": v_coeff,
+                "n": int(len(keep)),
+                "unique_pulses": int(len(np.unique(pulse[keep]))),
+                "min_unique_pulses": int(min_unique_pulses),
+            }
+        )
+        active[keep] = False
+
+    return tracks
+
+
+def classify_track_visibility(track, candidates, t_start, t_end):
+    """Reject tracks whose fitted 3D path is below horizon or wraps in direction."""
+    rows = [candidates[i] for i in track["idx"]]
+    t = np.asarray([r["t_rel"] for r in rows], dtype=np.float64)
+    u = np.asarray([r["u"] for r in rows], dtype=np.float64)
+    v = np.asarray([r["v"] for r in rows], dtype=np.float64)
+    rg = np.asarray([r["range_km"] for r in rows], dtype=np.float64)
+    up = np.sqrt(np.maximum(0.0, 1.0 - u**2 - v**2))
+    points = np.column_stack([rg * u, rg * v, rg * up])
+
+    design = np.column_stack([np.ones(len(t)), t])
+    coeff = np.linalg.lstsq(design, points, rcond=None)[0]
+    td = np.linspace(t_start, t_end, 400)
+    model = np.column_stack([
+        coeff[0, 0] + coeff[1, 0] * td,
+        coeff[0, 1] + coeff[1, 1] * td,
+        coeff[0, 2] + coeff[1, 2] * td,
+    ])
+    radius = np.linalg.norm(model, axis=1)
+    direction = model / np.maximum(radius[:, None], 1e-9)
+    uv_radius = np.hypot(direction[:, 0], direction[:, 1])
+    angle_step = np.arccos(np.clip(np.sum(direction[:-1] * direction[1:], axis=1), -1.0, 1.0))
+
+    below_horizon = bool(np.any(model[:, 2] <= 0.0))
+    wraps = bool(np.min(radius) < 20.0 or np.nanmax(angle_step) > np.deg2rad(20.0) or np.nanmax(uv_radius) > 1.0)
+    reason = "kept"
+    if below_horizon:
+        reason = "below horizon"
+    elif wraps:
+        reason = "wraps"
+
+    track.update(
+        {
+            "fit_points": points,
+            "fit_t": t,
+            "dense_t": td,
+            "dense_model": model,
+            "dense_direction": direction,
+            "below_horizon": below_horizon,
+            "wraps": wraps,
+            "reason": reason,
+            "min_up_km": float(np.min(model[:, 2])),
+            "min_range_km": float(np.min(radius)),
+            "max_angle_step_deg": float(np.rad2deg(np.nanmax(angle_step))) if len(angle_step) else 0.0,
+        }
+    )
+    return track
+
+
+def classify_track_linearity(
+    track,
+    candidates,
+    angular_sigma_deg=0.25,
+    range_sigma_km=0.15,
+    p_threshold=0.01,
+    rms_threshold_km=0.6,
+    max_threshold_km=2.0,
+):
+    """Test whether candidate points are statistically consistent with one 3D line."""
+    rows = [candidates[i] for i in track["idx"]]
+    u = np.asarray([r["u"] for r in rows], dtype=np.float64)
+    v = np.asarray([r["v"] for r in rows], dtype=np.float64)
+    rg = np.asarray([r["range_km"] for r in rows], dtype=np.float64)
+    snr = np.asarray([r["snr"] for r in rows], dtype=np.float64)
+    up = np.sqrt(np.maximum(0.0, 1.0 - u**2 - v**2))
+    points = np.column_stack([rg * u, rg * v, rg * up])
+
+    center = np.mean(points, axis=0)
+    _, _, vh = np.linalg.svd(points - center, full_matrices=False)
+    direction = vh[0]
+    along = (points - center) @ direction
+    model = center + np.outer(along, direction)
+    residual = points - model
+    perp = np.linalg.norm(residual, axis=1)
+
+    snr_db = 10.0 * np.log10(np.maximum(snr, 1e-12))
+    empirical_angular_sigma_deg = np.clip(0.85 / np.sqrt(np.maximum(snr, 1.0)), 0.08, 0.45)
+    angular_sigma_rad = np.deg2rad(np.maximum(angular_sigma_deg, empirical_angular_sigma_deg))
+    sigma_km = np.sqrt((rg * angular_sigma_rad) ** 2 + range_sigma_km**2)
+    chi2 = float(np.sum((perp / np.maximum(sigma_km, 1e-6)) ** 2))
+    dof = max(1, 2 * len(points) - 4)
+    p_value = float(st.chi2.sf(chi2, dof))
+    reduced_chi2 = chi2 / dof
+    line_rms_km = float(np.sqrt(np.mean(perp**2)))
+    line_max_km = float(np.max(perp))
+    path_length_km = float(np.nanmax(along) - np.nanmin(along)) if len(along) else np.nan
+    line_rms_fraction = float(line_rms_km / max(path_length_km, 1e-6)) if np.isfinite(path_length_km) else np.nan
+    line_length_adjusted_redchi = float(reduced_chi2 / max(path_length_km / 10.0, 1.0)) if np.isfinite(path_length_km) else float(reduced_chi2)
+    statistical_reject = bool(p_value < p_threshold)
+    rms_reject = bool(line_rms_km > rms_threshold_km)
+    max_reject = bool(line_max_km > max_threshold_km)
+    linearity_reject = bool(statistical_reject or rms_reject or max_reject)
+    reasons = []
+    if statistical_reject:
+        reasons.append("chi2")
+    if rms_reject:
+        reasons.append("rms")
+    if max_reject:
+        reasons.append("max")
+
+    track.update(
+        {
+            "line_center": center,
+            "line_direction": direction,
+            "line_model_points": model,
+            "line_perp_km": perp,
+            "line_sigma_km": sigma_km,
+            "line_empirical_angular_sigma_deg": empirical_angular_sigma_deg,
+            "line_snr_db": snr_db,
+            "line_path_length_km": path_length_km,
+            "line_rms_fraction": line_rms_fraction,
+            "line_length_adjusted_reduced_chi2": line_length_adjusted_redchi,
+            "detection_min_altitude_km": float(np.min(points[:, 2])),
+            "detection_max_altitude_km": float(np.max(points[:, 2])),
+            "low_detection_altitude_reject": bool(np.min(points[:, 2]) < 25.0),
+            "line_chi2": chi2,
+            "line_dof": dof,
+            "line_p_value": p_value,
+            "line_reduced_chi2": reduced_chi2,
+            "linearity_reject": linearity_reject,
+            "linearity_reason": ",".join(reasons) if reasons else "linear",
+            "line_rms_km": line_rms_km,
+            "line_max_km": line_max_km,
+            "line_rms_threshold_km": rms_threshold_km,
+            "line_max_threshold_km": max_threshold_km,
+            "line_median_sigma_km": float(np.median(sigma_km)),
+        }
+    )
+    return track
+
+
+def classify_track_descent(track):
+    """Meteors should move downward in local altitude during the observed path."""
+    t = np.asarray(track["fit_t"], dtype=np.float64)
+    up = np.asarray(track["fit_points"][:, 2], dtype=np.float64)
+    if len(t) < 2:
+        slope = np.nan
+    else:
+        design = np.column_stack([np.ones(len(t)), t - np.mean(t)])
+        slope = float(np.linalg.lstsq(design, up, rcond=None)[0][1])
+    track["descent_rate_km_s"] = slope
+    track["descent_reject"] = bool(np.isfinite(slope) and slope >= 0.0)
+    return track
+
+
+def robust_std(x, floor=1e-3):
+    x = np.asarray(x, dtype=np.float64)
+    x = x[np.isfinite(x)]
+    if len(x) < 3:
+        return floor
+    med = np.median(x)
+    sig = 1.4826 * np.median(np.abs(x - med))
+    if not np.isfinite(sig) or sig < floor:
+        sig = np.std(x)
+    return float(max(sig, floor))
+
+
+def propagate_drag_model(params, t, rho_of_alt_m):
+    """Propagate an ENU state with MSIS drag and return km / km/s arrays."""
+    t = np.asarray(t, dtype=np.float64)
+    t_ref = float(np.min(t))
+    tau = t - t_ref
+    order = np.argsort(tau)
+    pos_m, vel_mps, beta = pbal.propagate(params, tau[order], rho_of_alt_m)
+    pos = np.empty_like(pos_m)
+    vel = np.empty_like(vel_mps)
+    pos[order] = pos_m
+    vel[order] = vel_mps
+    return pos / 1e3, vel / 1e3, beta, t_ref
+
+
+def ballistic_residuals(params, t, points, doppler_km_s, rho_of_alt_m, sigma_pos_km, sigma_dop_km_s):
+    model, vel, _beta, _t_ref = propagate_drag_model(params, t, rho_of_alt_m)
+    rng = np.linalg.norm(model, axis=1)
+    pred_dop = np.sum(model * vel, axis=1) / np.maximum(rng, 1e-9)
+    pos_res = ((points - model) / sigma_pos_km).ravel()
+    dop_res = (doppler_km_s - pred_dop) / sigma_dop_km_s
+    return np.concatenate([pos_res, dop_res])
+
+
+def drag_initial_guess(t, points, log10_beta=0.0):
+    t = np.asarray(t, dtype=np.float64)
+    tau = t - np.min(t)
+    design = np.column_stack([np.ones(len(tau)), tau, 0.5 * tau**2])
+    coeff = np.linalg.lstsq(design, points * 1e3, rcond=None)[0]
+    pos0 = coeff[0]
+    vel0 = coeff[1]
+    acc0 = coeff[2]
+    # If the quadratic fit is poorly conditioned, fall back to the linear term.
+    if not np.all(np.isfinite(pos0)) or not np.all(np.isfinite(vel0)) or not np.all(np.isfinite(acc0)):
+        design = np.column_stack([np.ones(len(tau)), tau])
+        coeff = np.linalg.lstsq(design, points * 1e3, rcond=None)[0]
+        pos0 = coeff[0]
+        vel0 = coeff[1]
+    pos0[2] = np.clip(pos0[2], 30e3, 220e3)
+    vel0 = np.clip(vel0, -90e3, 90e3)
+    return np.concatenate([pos0, vel0, [float(log10_beta)]])
+
+
+def fit_ballistic_track(track, candidates, rho_of_alt_m, sigma_pos_km=0.5, sigma_dop_km_s=1.0, clip_sigma=3.5):
+    rows = [candidates[i] for i in track["idx"]]
+    t = np.asarray([r["t_rel"] for r in rows], dtype=np.float64)
+    doppler_km_s = np.asarray([r["doppler_mps"] for r in rows], dtype=np.float64) / 1e3
+    snr_db = 10.0 * np.log10(np.maximum(np.asarray([r["snr"] for r in rows], dtype=np.float64), 1e-12))
+    points = np.asarray(track["fit_points"], dtype=np.float64)
+    p0 = drag_initial_guess(t, points, log10_beta=0.0)
+    bounds = (
+        np.array([-np.inf, -np.inf, 20e3, -90e3, -90e3, -90e3, -4.0]),
+        np.array([np.inf, np.inf, 220e3, 90e3, 90e3, 90e3, 6.0]),
+    )
+    x_scale = np.array([1e5, 1e5, 1e5, 7e4, 7e4, 7e4, 1.0])
+
+    def fun(p, keep=None):
+        if keep is None:
+            keep = np.ones(len(t), dtype=bool)
+        return ballistic_residuals(
+            p,
+            t[keep],
+            points[keep],
+            doppler_km_s[keep],
+            rho_of_alt_m,
+            sigma_pos_km,
+            sigma_dop_km_s,
+        )
+
+    keep = np.ones(len(t), dtype=bool)
+    result = opt.least_squares(
+        fun,
+        p0,
+        bounds=bounds,
+        x_scale=x_scale,
+        loss="soft_l1",
+        f_scale=1.0,
+        max_nfev=350,
+    )
+
+    for _ in range(2):
+        tfit = t[keep]
+        pfit = points[keep]
+        dfit = doppler_km_s[keep]
+        result = opt.least_squares(
+            lambda p: ballistic_residuals(p, tfit, pfit, dfit, rho_of_alt_m, sigma_pos_km, sigma_dop_km_s),
+            result.x,
+            bounds=bounds,
+            x_scale=x_scale,
+            loss="soft_l1",
+            f_scale=1.0,
+            max_nfev=350,
+        )
+        model, vel, beta, t_ref = propagate_drag_model(result.x, t, rho_of_alt_m)
+        rng = np.linalg.norm(model, axis=1)
+        pred_dop = np.sum(model * vel, axis=1) / np.maximum(rng, 1e-9)
+        pos_res = points - model
+        dop_res = doppler_km_s - pred_dop
+        point_norm = np.sqrt(np.sum((pos_res / sigma_pos_km) ** 2, axis=1) + (dop_res / sigma_dop_km_s) ** 2)
+        new_keep = point_norm < clip_sigma
+        if np.count_nonzero(new_keep) < 10 or np.array_equal(new_keep, keep):
+            keep = new_keep if np.count_nonzero(new_keep) >= 10 else keep
+            break
+        keep = new_keep
+
+    model, vel, beta, t_ref = propagate_drag_model(result.x, t, rho_of_alt_m)
+    rng = np.linalg.norm(model, axis=1)
+    pred_dop = np.sum(model * vel, axis=1) / np.maximum(rng, 1e-9)
+    pos_res = points - model
+    dop_res = doppler_km_s - pred_dop
+    pos_res_keep = pos_res[keep]
+    dop_res_keep = dop_res[keep]
+    chi2 = float(np.sum((pos_res_keep / sigma_pos_km) ** 2) + np.sum((dop_res_keep / sigma_dop_km_s) ** 2))
+    dof = max(1, 4 * np.count_nonzero(keep) - 7)
+    p_value = float(st.chi2.sf(chi2, dof))
+    param_cov, param_std, cov_ok, cov_dof, cov_res_var = pbal.covariance_from_lsq(result, 4 * np.count_nonzero(keep))
+
+    speed_km_s = np.linalg.norm(vel, axis=1)
+    order = np.argsort(t)
+    speed_t = t[order][keep[order]]
+    speed_fit = speed_km_s[order][keep[order]]
+    if len(speed_fit) >= 3:
+        speed_design = np.column_stack([np.ones(len(speed_t)), speed_t - np.mean(speed_t)])
+        speed_slope_km_s2 = float(np.linalg.lstsq(speed_design, speed_fit, rcond=None)[0][1])
+        speed_delta_km_s = float(speed_fit[-1] - speed_fit[0])
+    elif len(speed_fit) >= 2:
+        dt = max(float(speed_t[-1] - speed_t[0]), 1e-9)
+        speed_delta_km_s = float(speed_fit[-1] - speed_fit[0])
+        speed_slope_km_s2 = speed_delta_km_s / dt
+    else:
+        speed_delta_km_s = np.nan
+        speed_slope_km_s2 = np.nan
+    speedup_flag = bool(np.isfinite(speed_slope_km_s2) and speed_slope_km_s2 > 0.0)
+    start_altitude_km = np.nan
+    if np.any(keep):
+        first_keep = np.flatnonzero(keep)[np.argmin(t[keep])]
+        start_altitude_km = float(model[first_keep, 2])
+    low_start_altitude_reject = bool(np.isfinite(start_altitude_km) and start_altitude_km < 50.0)
+
+    return {
+        "ballistic_params": result.x,
+        "ballistic_param_names": np.asarray(["east_m", "north_m", "up_m", "ve_mps", "vn_mps", "vu_mps", "log10_beta_kg_m2"]),
+        "ballistic_parameter_covariance": param_cov,
+        "ballistic_parameter_std": param_std,
+        "ballistic_covariance_available": bool(cov_ok),
+        "ballistic_covariance_dof": int(cov_dof),
+        "ballistic_covariance_residual_variance": float(cov_res_var),
+        "ballistic_t_ref_s": t_ref,
+        "ballistic_initial_guess": "quadratic_polynomial_position_time",
+        "ballistic_coefficient_kg_m2": beta,
+        "ballistic_keep": keep,
+        "ballistic_model": model,
+        "ballistic_velocity_km_s": vel,
+        "ballistic_start_altitude_km": start_altitude_km,
+        "ballistic_low_start_altitude_reject": low_start_altitude_reject,
+        "ballistic_speed_km_s": speed_km_s,
+        "ballistic_speed_slope_km_s2": speed_slope_km_s2,
+        "ballistic_speed_delta_km_s": speed_delta_km_s,
+        "ballistic_speedup_flag": speedup_flag,
+        "ballistic_pred_doppler_km_s": pred_dop,
+        "ballistic_pos_res_km": pos_res,
+        "ballistic_dop_res_km_s": dop_res,
+        "ballistic_pos_rms_km": float(np.sqrt(np.mean(np.sum(pos_res_keep**2, axis=1)))),
+        "ballistic_dop_rms_km_s": float(np.sqrt(np.mean(dop_res_keep**2))),
+        "ballistic_chi2": chi2,
+        "ballistic_dof": dof,
+        "ballistic_reduced_chi2": chi2 / dof,
+        "ballistic_p_value": p_value,
+        "ballistic_n": int(np.count_nonzero(keep)),
+        "ballistic_n_outliers": int(len(keep) - np.count_nonzero(keep)),
+        "ballistic_t": t,
+        "ballistic_doppler_km_s": doppler_km_s,
+        "ballistic_snr_db": snr_db,
+        "ballistic_sigma_pos_km": sigma_pos_km,
+        "ballistic_sigma_dop_km_s": sigma_dop_km_s,
+    }
+
+
+def fit_ballistic_survivors(tracks, candidates, event_epoch_unix, p_threshold=0.01):
+    strict = [
+        t
+        for t in tracks
+        if t["reason"] == "kept"
+        and not t.get("linearity_reject", False)
+        and not t.get("low_detection_altitude_reject", False)
+        and not t.get("descent_reject", False)
+    ]
+    relaxed = [
+        t
+        for t in tracks
+        if t["reason"] == "kept"
+        and "fit_points" in t
+        and not t.get("low_detection_altitude_reject", False)
+    ]
+    horizon_visible = [
+        t
+        for t in tracks
+        if t["reason"] == "kept"
+        and "fit_points" in t
+    ]
+    if strict:
+        survivors = strict
+        fallback_level = "strict"
+    elif relaxed:
+        survivors = relaxed
+        fallback_level = "relaxed_physical"
+    else:
+        survivors = horizon_visible
+        fallback_level = "horizon_visible"
+    if not survivors:
+        return np.nan, np.nan
+
+    rho_of_alt_m, msis_meta = pbal.density_interpolator(event_epoch_unix)
+    preliminary = [
+        fit_ballistic_track(track, candidates, rho_of_alt_m, sigma_pos_km=0.5, sigma_dop_km_s=1.0)
+        for track in survivors
+    ]
+    best_i = int(np.argmin([p["ballistic_pos_rms_km"] / 0.5 + p["ballistic_dop_rms_km_s"] / 1.0 for p in preliminary]))
+    best = preliminary[best_i]
+    best_keep = best["ballistic_keep"]
+    sigma_pos = float(np.sqrt(np.mean(best["ballistic_pos_res_km"][best_keep] ** 2)))
+    sigma_dop = float(np.sqrt(np.mean(best["ballistic_dop_res_km_s"][best_keep] ** 2)))
+    sigma_pos = max(sigma_pos, 0.05)
+    sigma_dop = max(sigma_dop, 0.05)
+
+    for track in survivors:
+        fit = fit_ballistic_track(track, candidates, rho_of_alt_m, sigma_pos_km=sigma_pos, sigma_dop_km_s=sigma_dop)
+        fit["ballistic_reject"] = bool(
+            fit["ballistic_p_value"] < p_threshold
+            or fit["ballistic_low_start_altitude_reject"]
+        )
+        fit["ballistic_model_type"] = "msis_drag"
+        fit["ballistic_selection_level"] = fallback_level
+        fit["msis_alt_grid_km"] = msis_meta["msis_alt_grid_km"]
+        fit["msis_density_kg_m3"] = msis_meta["msis_density_kg_m3"]
+        track.update(fit)
+
+    survivors.sort(key=lambda t: (t["ballistic_reduced_chi2"], t["ballistic_dop_rms_km_s"], t["ballistic_pos_rms_km"]))
+    for rank, track in enumerate(survivors):
+        track["ballistic_rank"] = rank
+    return sigma_pos, sigma_dop
+
+
+def score_tx_beam_consistency(tracks, candidates):
+    """Score how well each candidate lies near the active transmit beam."""
+    beam_vecs = tx_beam_unit_vectors()
+    for track in tracks:
+        if track["reason"] != "kept" or track.get("linearity_reject", False) or track.get("descent_reject", False):
+            continue
+        rows = [candidates[i] for i in track["idx"]]
+        dirs = np.asarray([[r["u"], r["v"], r["w"]] for r in rows], dtype=np.float64)
+        beam_id = np.asarray([r["beam_id"] for r in rows], dtype=np.int64)
+        snr = np.asarray([r["snr"] for r in rows], dtype=np.float64)
+        t = np.asarray([r["t_rel"] for r in rows], dtype=np.float64)
+        active = beam_vecs[beam_id]
+        dot = np.sum(dirs * active, axis=1)
+        angle_deg = np.rad2deg(np.arccos(np.clip(dot, -1.0, 1.0)))
+        beam_center_dcos = np.linalg.norm(dirs[:, :2] - active[:, :2], axis=1)
+        weight = np.maximum(snr, 1e-6)
+        track["tx_beam_angle_deg"] = angle_deg
+        track["tx_beam_center_distance_dc"] = beam_center_dcos
+        track["tx_beam_time"] = t
+        track["tx_beam_id"] = beam_id
+        track["tx_beam_snr"] = snr
+        track["tx_beam_snr_weighted_mean_dc"] = float(np.sum(weight * beam_center_dcos) / np.sum(weight))
+        track["tx_beam_snr_weighted_rms_dc"] = float(np.sqrt(np.sum(weight * beam_center_dcos**2) / np.sum(weight)))
+        track["tx_beam_weighted_rms_deg"] = float(np.sqrt(np.sum(weight * angle_deg**2) / np.sum(weight)))
+        track["tx_beam_weighted_mean_deg"] = float(np.sum(weight * angle_deg) / np.sum(weight))
+        track["tx_beam_median_deg"] = float(np.median(angle_deg))
+        track["tx_beam_p90_deg"] = float(np.percentile(angle_deg, 90.0))
+
+    scored = [t for t in tracks if "tx_beam_weighted_rms_deg" in t]
+    scored.sort(key=lambda t: t["tx_beam_weighted_rms_deg"])
+    for rank, track in enumerate(scored):
+        track["tx_beam_rank"] = rank
+
+
+def score_candidate_diagnostics(tracks, candidates, tx_gain_maps=None, tx_lobe_centroids=None):
+    """Attach non-decision diagnostic metrics to ranked candidate tracks."""
+    beam_vecs = tx_beam_unit_vectors()
+    for track in tracks:
+        if "ballistic_reduced_chi2" not in track:
+            continue
+        rows = [candidates[i] for i in track["idx"]]
+        coherence = np.asarray([r["coherence"] for r in rows], dtype=np.float64)
+        snr = np.asarray([r["snr"] for r in rows], dtype=np.float64)
+        weight = np.maximum(snr, 1e-6)
+        track["coherence_weighted_mean"] = float(np.sum(weight * coherence) / np.sum(weight))
+        track["coherence_p10"] = float(np.percentile(coherence, 10.0))
+        track["coherence_min"] = float(np.min(coherence))
+        track["track_unique_pulse_fraction"] = float(track["unique_pulses"] / max(1, len({r["pulse"] for r in candidates})))
+
+        dirs = np.asarray([[r["u"], r["v"], r["w"]] for r in rows], dtype=np.float64)
+        beam_id = np.asarray([r["beam_id"] for r in rows], dtype=np.int64)
+        ranges = np.asarray([r["range_km"] for r in rows], dtype=np.float64)
+        t = np.asarray([r["t_rel"] for r in rows], dtype=np.float64)
+        if tx_lobe_centroids is not None:
+            lobe_dist = nearest_tx_grating_lobe_distances(dirs, beam_id, tx_lobe_centroids)
+            good_lobe = np.isfinite(lobe_dist)
+            track["tx_lobe_distance_dc"] = lobe_dist
+            if np.any(good_lobe):
+                lobe_weight = weight[good_lobe]
+                track["tx_lobe_snr_weighted_mean_dc"] = float(np.sum(lobe_weight * lobe_dist[good_lobe]) / np.sum(lobe_weight))
+                track["tx_lobe_snr_weighted_rms_dc"] = float(np.sqrt(np.sum(lobe_weight * lobe_dist[good_lobe] ** 2) / np.sum(lobe_weight)))
+                track["tx_lobe_p90_dc"] = float(np.percentile(lobe_dist[good_lobe], 90.0))
+            else:
+                track["tx_lobe_snr_weighted_mean_dc"] = np.nan
+                track["tx_lobe_snr_weighted_rms_dc"] = np.nan
+                track["tx_lobe_p90_dc"] = np.nan
+            per_beam_lobe = np.full(5, np.nan, dtype=np.float64)
+            per_beam_lobe_n = np.zeros(5, dtype=np.int64)
+            for beam in range(5):
+                bgood = good_lobe & (beam_id == beam)
+                per_beam_lobe_n[beam] = int(np.count_nonzero(bgood))
+                if per_beam_lobe_n[beam] > 0:
+                    bw = weight[bgood]
+                    per_beam_lobe[beam] = float(np.sum(bw * lobe_dist[bgood]) / np.sum(bw))
+            track["tx_lobe_snr_weighted_mean_dc_by_beam"] = per_beam_lobe
+            track["tx_lobe_n_by_beam"] = per_beam_lobe_n
+        if tx_gain_maps is not None and all("grid_row" in r and "grid_col" in r for r in rows):
+            grid_row = np.asarray([r["grid_row"] for r in rows], dtype=np.int64)
+            grid_col = np.asarray([r["grid_col"] for r in rows], dtype=np.int64)
+            gain_db = tx_gain_maps[beam_id, grid_row, grid_col].astype(np.float64)
+        else:
+            gain_db = tx_array_gain_db(dirs, beam_id, beam_vecs=beam_vecs)
+        snr_db = 10.0 * np.log10(np.maximum(snr, 1e-6))
+        range_corr_snr_db = snr_db + 40.0 * np.log10(np.maximum(ranges, 1e-6) / np.nanmedian(ranges))
+        good = np.isfinite(gain_db) & np.isfinite(range_corr_snr_db)
+        track["tx_array_time"] = t
+        track["tx_array_gain_db"] = gain_db
+        track["tx_array_range_corrected_snr_db"] = range_corr_snr_db
+        per_beam_rms = np.full(5, np.nan, dtype=np.float64)
+        per_beam_mad = np.full(5, np.nan, dtype=np.float64)
+        per_beam_corr = np.full(5, np.nan, dtype=np.float64)
+        per_beam_n = np.zeros(5, dtype=np.int64)
+        for beam in range(5):
+            bgood = good & (beam_id == beam)
+            per_beam_n[beam] = int(np.count_nonzero(bgood))
+            if per_beam_n[beam] >= 3:
+                gain_rel_b = gain_db[bgood] - np.nanmedian(gain_db[bgood])
+                snr_rel_b = range_corr_snr_db[bgood] - np.nanmedian(range_corr_snr_db[bgood])
+                resid_b = snr_rel_b - gain_rel_b
+                per_beam_rms[beam] = float(np.sqrt(np.mean(resid_b**2)))
+                per_beam_mad[beam] = float(1.4826 * np.median(np.abs(resid_b - np.median(resid_b))))
+                per_beam_corr[beam] = (
+                    float(np.corrcoef(snr_rel_b, gain_rel_b)[0, 1])
+                    if np.std(gain_rel_b) > 1e-6 and np.std(snr_rel_b) > 1e-6
+                    else np.nan
+                )
+        track["tx_array_snr_rms_db_by_beam"] = per_beam_rms
+        track["tx_array_snr_mad_db_by_beam"] = per_beam_mad
+        track["tx_array_snr_corr_by_beam"] = per_beam_corr
+        track["tx_array_snr_n_by_beam"] = per_beam_n
+        if np.count_nonzero(good) >= 8:
+            gain_rel = gain_db[good] - np.nanmedian(gain_db[good])
+            snr_rel = range_corr_snr_db[good] - np.nanmedian(range_corr_snr_db[good])
+            resid = snr_rel - gain_rel
+            track["tx_array_snr_rms_db"] = float(np.sqrt(np.mean(resid**2)))
+            track["tx_array_snr_mad_db"] = float(1.4826 * np.median(np.abs(resid - np.median(resid))))
+            track["tx_array_snr_corr"] = (
+                float(np.corrcoef(snr_rel, gain_rel)[0, 1])
+                if np.std(gain_rel) > 1e-6 and np.std(snr_rel) > 1e-6
+                else np.nan
+            )
+            track["tx_array_gain_span_db"] = float(np.nanpercentile(gain_db[good], 95) - np.nanpercentile(gain_db[good], 5))
+        else:
+            track["tx_array_snr_rms_db"] = np.nan
+            track["tx_array_snr_mad_db"] = np.nan
+            track["tx_array_snr_corr"] = np.nan
+            track["tx_array_gain_span_db"] = np.nan
+
+
+def score_combined_hypotheses(tracks):
+    """Rank hypotheses with ballistic fit dominant and soft geometry diagnostics."""
+    scored = [t for t in tracks if "ballistic_reduced_chi2" in t]
+    tx_beam_scale_dc = 0.035
+    tx_beam_weight = 1.0
+    line_weight = 0.10
+    if not scored:
+        fallback = [t for t in tracks if t["reason"] == "kept" and "line_reduced_chi2" in t]
+        if not fallback:
+            return np.nan
+        for track in fallback:
+            track["combined_tx_sigma_deg"] = np.nan
+            track["combined_tx_term"] = np.nan
+            track["combined_score"] = float(track["line_reduced_chi2"])
+            track["combined_score_source"] = "line_reduced_chi2"
+        fallback.sort(
+            key=lambda t: (
+                bool(t.get("low_detection_altitude_reject", False)),
+                bool(t.get("linearity_reject", False)),
+                float(t.get("line_reduced_chi2", np.inf)),
+            )
+        )
+        for rank, track in enumerate(fallback):
+            track["combined_rank"] = rank
+            track["combined_reject"] = rank != 0
+        delta = fallback[1]["combined_score"] - fallback[0]["combined_score"] if len(fallback) > 1 else np.inf
+        odds = float(np.exp(0.5 * delta)) if np.isfinite(delta) and delta < 1400 else np.inf
+        for track in fallback:
+            track["combined_delta_to_next"] = float(delta)
+            track["combined_odds_best_vs_second"] = float(odds)
+        return np.nan
+    for track in scored:
+        track["combined_tx_sigma_deg"] = np.nan
+        tx_beam = float(track.get("tx_beam_snr_weighted_mean_dc", np.nan))
+        tx_term = 0.0 if not np.isfinite(tx_beam) else (tx_beam / tx_beam_scale_dc) ** 2
+        line_term = float(track.get("line_length_adjusted_reduced_chi2", track.get("line_reduced_chi2", 0.0)))
+        line_term = min(line_term, 100.0) / 25.0 if np.isfinite(line_term) else 0.0
+        track["combined_tx_term"] = float(tx_term)
+        track["combined_line_term"] = float(line_term)
+        track["combined_tx_beam_scale_dc"] = float(tx_beam_scale_dc)
+        track["combined_tx_beam_weight"] = float(tx_beam_weight)
+        track["combined_line_weight"] = float(line_weight)
+        track["combined_score"] = float(track["ballistic_reduced_chi2"] + tx_beam_weight * tx_term + line_weight * line_term)
+        track["combined_score_source"] = "ballistic_reduced_chi2_plus_tx_beam_center_proximity"
+    scored.sort(
+        key=lambda t: (
+            bool(t.get("ballistic_low_start_altitude_reject", False)),
+            t["combined_score"],
+        )
+    )
+    for rank, track in enumerate(scored):
+        track["combined_rank"] = rank
+        track["combined_reject"] = (
+            rank != 0
+            or bool(track.get("ballistic_low_start_altitude_reject", False))
+        )
+    if len(scored) > 1:
+        delta = scored[1]["combined_score"] - scored[0]["combined_score"]
+        odds = float(np.exp(0.5 * delta))
+    else:
+        delta = np.inf
+        odds = np.inf
+    for track in scored:
+        track["combined_delta_to_next"] = float(delta)
+        track["combined_odds_best_vs_second"] = float(odds)
+    return np.nan
+
+
+def candidate_number(track):
+    """Human-facing one-based candidate number derived from the final rank."""
+    rank = track.get("combined_rank", track.get("ballistic_rank", None))
+    if rank is None:
+        return "?"
+    return int(rank) + 1
+
+
+def hypothesis_label(track):
+    return f"H{int(track.get('hypothesis_id', 0)):02d}"
+
+
+def snr_weighted_track_coherence(track, candidates):
+    rows = [candidates[j] for j in track["idx"]]
+    coherence = np.asarray([r["coherence"] for r in rows], dtype=np.float64)
+    snr = np.asarray([r["snr"] for r in rows], dtype=np.float64)
+    good = np.isfinite(coherence) & np.isfinite(snr) & (snr > 0.0)
+    if not np.any(good):
+        return np.nan
+    return float(np.sum(snr[good] * coherence[good]) / np.sum(snr[good]))
+
+
+def plot_visibility_rejections(candidates, tracks, output: Path):
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig, axes = plt.subplots(1, 2, figsize=(12.0, 5.6), constrained_layout=True)
+
+    ax = axes[0]
+    circle = plt.Circle((0.0, 0.0), 1.0, color="black", fill=False, linewidth=1.0)
+    ax.add_patch(circle)
+    colors = {"kept": "tab:green", "below horizon": "tab:red", "wraps": "tab:orange"}
+    labels_done = set()
+    for track in tracks:
+        rows = [candidates[j] for j in track["idx"]]
+        vv = np.asarray([r["v"] for r in rows])
+        uu = np.asarray([r["u"] for r in rows])
+        label = track["reason"] if track["reason"] not in labels_done else None
+        labels_done.add(track["reason"])
+        ax.plot(vv, uu, ".", ms=3.0, color=colors[track["reason"]], alpha=0.65, label=label)
+        dd = track["dense_direction"]
+        ax.plot(dd[:, 1], dd[:, 0], "-", lw=1.1, color=colors[track["reason"]], alpha=0.9)
+        mid = len(dd) // 2
+        ax.text(dd[mid, 1], dd[mid, 0], hypothesis_label(track), fontsize=7)
+    ax.set_xlabel("v direction cosine")
+    ax.set_ylabel("u direction cosine")
+    ax.set_title("Path hypotheses in direction-cosine space")
+    ax.set_xlim(-1.03, 1.03)
+    ax.set_ylim(-1.03, 1.03)
+    ax.set_aspect("equal")
+    ax.grid(True, alpha=0.2)
+    ax.legend(loc="lower right", fontsize=8)
+
+    ax = axes[1]
+    for track in tracks:
+        z = track["dense_model"][:, 2]
+        ax.plot(track["dense_t"], z, color=colors[track["reason"]], lw=1.2, alpha=0.9)
+        ax.text(track["dense_t"][-1], z[-1], hypothesis_label(track), fontsize=7, color=colors[track["reason"]])
+    ax.axhline(0.0, color="black", lw=1.0)
+    ax.set_xlabel("Time since cut start (s)")
+    ax.set_ylabel("Fitted local up coordinate (km)")
+    ax.set_title("Full-path horizon visibility test")
+    ax.grid(True, alpha=0.25)
+    fig.savefig(output, dpi=220)
+    plt.close(fig)
+
+
+def plot_linearity_rejections(candidates, tracks, output: Path):
+    output.parent.mkdir(parents=True, exist_ok=True)
+    visible = [t for t in tracks if t["reason"] == "kept"]
+    n_rejected = sum(t["linearity_reject"] for t in visible)
+    n_kept = len(visible) - n_rejected
+    fig, axes = plt.subplots(1, 3, figsize=(15.0, 5.3), constrained_layout=True)
+
+    ax = axes[0]
+    labels_done = set()
+    for track in visible:
+        color = "tab:red" if track["linearity_reject"] else "tab:green"
+        label = "rejected: nonlinear" if track["linearity_reject"] else "kept: linear"
+        if label in labels_done:
+            label = None
+        else:
+            labels_done.add(label)
+        pts = track["fit_points"]
+        model = track["line_model_points"]
+        order = np.argsort((model - track["line_center"]) @ track["line_direction"])
+        ax.plot(pts[:, 0], pts[:, 1], ".", ms=3.0, color=color, alpha=0.65, label=label)
+        ax.plot(model[order, 0], model[order, 1], "-", lw=1.0, color=color, alpha=0.85)
+        mid = len(order) // 2
+        ax.text(model[order[mid], 0], model[order[mid], 1], hypothesis_label(track), fontsize=7)
+    ax.set_xlabel("East (km)")
+    ax.set_ylabel("North (km)")
+    ax.set_title("3D candidate positions: horizontal projection")
+    ax.set_aspect("equal", adjustable="box")
+    ax.grid(True, alpha=0.25)
+    ax.legend(loc="best", fontsize=8)
+
+    ax = axes[1]
+    for track in visible:
+        color = "tab:red" if track["linearity_reject"] else "tab:green"
+        pts = track["fit_points"]
+        model = track["line_model_points"]
+        along = (model - track["line_center"]) @ track["line_direction"]
+        order = np.argsort(along)
+        ax.plot(along, pts[:, 2], ".", ms=3.0, color=color, alpha=0.65)
+        ax.plot(along[order], model[order, 2], "-", lw=1.0, color=color, alpha=0.85)
+        mid = len(order) // 2
+        ax.text(along[order[mid]], model[order[mid], 2], hypothesis_label(track), fontsize=7)
+    ax.set_xlabel("Along best-fit 3D line (km)")
+    ax.set_ylabel("Up (km)")
+    ax.set_title("3D candidate positions: vertical projection")
+    ax.grid(True, alpha=0.25)
+
+    ax = axes[2]
+    if visible:
+        labels = np.arange(len(visible))
+        hypothesis_labels = [hypothesis_label(t) for t in visible]
+        rms = [t["line_rms_km"] for t in visible]
+        colors = ["tab:red" if t["linearity_reject"] else "tab:green" for t in visible]
+        ax.scatter(labels, rms, c=colors, s=70, zorder=3)
+        for lab, y, hlabel in zip(labels, rms, hypothesis_labels):
+            ax.text(lab, y, hlabel, fontsize=8, ha="center", va="bottom")
+        ax.set_xticks(labels)
+        ax.set_xticklabels(hypothesis_labels, rotation=45, ha="right")
+        ax.axhline(visible[0]["line_rms_threshold_km"], color="black", lw=1.0, ls="--", label="RMS threshold")
+    ax.set_xlabel("Visible path hypothesis")
+    ax.set_ylabel("3D line RMS residual (km)")
+    ax.set_title(f"3D straight-line rejection: {n_rejected} rejected, {n_kept} kept")
+    ax.grid(True, alpha=0.25)
+    ax.legend(fontsize=8)
+    fig.savefig(output, dpi=220)
+    plt.close(fig)
+
+
+def plot_descent_rejections(tracks, output: Path):
+    output.parent.mkdir(parents=True, exist_ok=True)
+    scored = [
+        t
+        for t in tracks
+        if t["reason"] == "kept" and not t.get("linearity_reject", False) and "descent_rate_km_s" in t
+    ]
+    scored.sort(key=lambda t: t.get("hypothesis_id", 999))
+    if not scored:
+        return
+
+    n_rejected = sum(t.get("descent_reject", False) for t in scored)
+    n_kept = len(scored) - n_rejected
+    fig, axes = plt.subplots(1, 2, figsize=(12.2, 5.2), constrained_layout=True)
+
+    ax = axes[0]
+    for track in scored:
+        color = "tab:red" if track.get("descent_reject", False) else "tab:green"
+        t = np.asarray(track["fit_t"], dtype=np.float64)
+        z = np.asarray(track["fit_points"][:, 2], dtype=np.float64)
+        order = np.argsort(t)
+        design = np.column_stack([np.ones(len(t)), t - np.mean(t)])
+        coeff = np.linalg.lstsq(design, z, rcond=None)[0]
+        zfit = coeff[0] + coeff[1] * (t - np.mean(t))
+        ax.plot(t[order], zfit[order], "-", color=color, lw=1.3, alpha=0.9)
+        ax.plot(t[order], z[order], ".", color=color, ms=2.8, alpha=0.55)
+        ax.text(t[order][-1], zfit[order][-1], hypothesis_label(track), fontsize=8, color=color)
+    ax.set_xlabel("Time since cut start (s)")
+    ax.set_ylabel("Local up coordinate (km)")
+    ax.set_title("Altitude trend for line-valid hypotheses")
+    ax.grid(True, alpha=0.25)
+
+    ax = axes[1]
+    labels = [hypothesis_label(t) for t in scored]
+    rates = np.asarray([t["descent_rate_km_s"] for t in scored], dtype=np.float64)
+    colors = ["tab:red" if t.get("descent_reject", False) else "tab:green" for t in scored]
+    x = np.arange(len(scored))
+    ax.bar(x, rates, color=colors, alpha=0.85)
+    ax.axhline(0.0, color="black", lw=1.0, ls="--", label="upward rejection threshold")
+    for xx, yy in zip(x, rates):
+        va = "bottom" if yy >= 0 else "top"
+        offset = 0.25 if yy >= 0 else -0.25
+        ax.text(xx, yy + offset, f"{yy:.2f}", ha="center", va=va, fontsize=8)
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, rotation=45, ha="right")
+    ax.set_xlabel("Line-valid path hypothesis")
+    ax.set_ylabel("Fitted vertical velocity (km/s)")
+    ax.set_title(f"Downward-motion test: {n_rejected} rejected, {n_kept} kept")
+    ax.grid(True, axis="y", alpha=0.25)
+    ax.legend(fontsize=8)
+
+    fig.savefig(output, dpi=220)
+    plt.close(fig)
+
+
+def plot_ballistic_ranking(tracks, candidates, output: Path):
+    output.parent.mkdir(parents=True, exist_ok=True)
+    survivors = [
+        t
+        for t in tracks
+        if t["reason"] == "kept" and not t.get("linearity_reject", False) and not t.get("descent_reject", False)
+        and "ballistic_reduced_chi2" in t
+    ]
+    survivors.sort(key=lambda t: t.get("combined_rank", t.get("ballistic_rank", 999)))
+    n_rej = sum(t.get("combined_reject", False) for t in survivors)
+    n_keep = len(survivors) - n_rej
+    cmap = plt.get_cmap("plasma")
+    all_snr_parts = [np.asarray(t.get("ballistic_snr_db", []), dtype=np.float64) for t in survivors]
+    all_snr = np.concatenate(all_snr_parts) if all_snr_parts else np.array([], dtype=np.float64)
+    all_snr = all_snr[np.isfinite(all_snr)]
+    if len(all_snr):
+        snr_norm = mpl.colors.Normalize(vmin=float(np.nanmin(all_snr)), vmax=float(np.nanmax(all_snr)))
+    else:
+        snr_norm = mpl.colors.Normalize(vmin=0.0, vmax=1.0)
+    snr_cmap = plt.get_cmap("viridis")
+    chi_values = np.asarray([t["ballistic_reduced_chi2"] for t in survivors], dtype=np.float64)
+    finite_chi = chi_values[np.isfinite(chi_values) & (chi_values > 0.0)]
+    if len(finite_chi):
+        norm = mpl.colors.LogNorm(vmin=max(np.nanmin(finite_chi), 1e-2), vmax=max(np.nanmax(finite_chi), 1e-1))
+    else:
+        norm = mpl.colors.Normalize(vmin=0.0, vmax=1.0)
+
+    def track_color(track):
+        return cmap(norm(max(float(track["ballistic_reduced_chi2"]), 1e-6)))
+
+    def track_linestyle(track):
+        return "--" if track.get("combined_reject", False) else "-"
+
+    fig, axes = plt.subplots(1, 3, figsize=(15.0, 5.2), constrained_layout=True)
+    all_snr_parts = [np.asarray(t.get("ballistic_snr_db", []), dtype=np.float64) for t in survivors]
+    all_snr = np.concatenate(all_snr_parts) if all_snr_parts else np.array([], dtype=np.float64)
+    all_snr = all_snr[np.isfinite(all_snr)]
+    if len(all_snr):
+        snr_norm = mpl.colors.Normalize(vmin=float(np.nanmin(all_snr)), vmax=float(np.nanmax(all_snr)))
+    else:
+        snr_norm = mpl.colors.Normalize(vmin=0.0, vmax=1.0)
+    snr_cmap = plt.get_cmap("viridis")
+
+    ax = axes[0]
+    snr_scatter = None
+    for track in survivors:
+        label = hypothesis_label(track)
+        color = track_color(track)
+        t = track["ballistic_t"]
+        dop = track["ballistic_doppler_km_s"]
+        pred = track["ballistic_pred_doppler_km_s"]
+        snr = np.asarray(track.get("ballistic_snr_db", np.full_like(dop, np.nan)), dtype=np.float64)
+        order = np.argsort(t)
+        ax.plot(t[order], pred[order], color=color, lw=1.4, ls=track_linestyle(track), alpha=0.92)
+        snr_scatter = ax.scatter(
+            t[order],
+            dop[order],
+            c=snr[order],
+            cmap=snr_cmap,
+            norm=snr_norm,
+            s=13,
+            marker="o",
+            edgecolors="none",
+            alpha=0.75,
+        )
+        ax.text(t[order][-1], pred[order][-1], label, fontsize=8, color=color)
+    ax.set_xlabel("Time since cut start (s)")
+    ax.set_ylabel("Doppler/range rate (km/s)")
+    ax.set_title("Doppler fits; points colored by SNR")
+    ax.grid(True, alpha=0.25)
+    if len(survivors):
+        chi_cax = inset_axes(ax, width="3.5%", height="42%", loc="upper right", borderpad=0.8)
+        finite_chi = np.asarray([t["ballistic_reduced_chi2"] for t in survivors], dtype=np.float64)
+        finite_chi = finite_chi[np.isfinite(finite_chi) & (finite_chi > 0.0)]
+        if len(finite_chi):
+            chi_log_norm = mpl.colors.Normalize(
+                vmin=float(np.log10(max(np.nanmin(finite_chi), 1e-2))),
+                vmax=float(np.log10(max(np.nanmax(finite_chi), 1e-1))),
+            )
+        else:
+            chi_log_norm = mpl.colors.Normalize(vmin=0.0, vmax=1.0)
+        chi_sm = mpl.cm.ScalarMappable(norm=chi_log_norm, cmap=cmap)
+        chi_sm.set_array([])
+        chi_cb = fig.colorbar(chi_sm, cax=chi_cax)
+        chi_cb.set_label(r"$\log_{10}\chi^2_\nu$", fontsize=7)
+        chi_cb.ax.tick_params(labelsize=7)
+
+    ax = axes[1]
+    for track in survivors:
+        label = hypothesis_label(track)
+        color = track_color(track)
+        pts = track["fit_points"]
+        model = track["ballistic_model"]
+        keep = track["ballistic_keep"]
+        order = np.argsort(track["ballistic_t"])
+        ax.plot(model[order, 0], model[order, 1], color=color, lw=1.6, ls=track_linestyle(track), alpha=0.94)
+        rows = [candidates[i] for i in track["idx"]]
+        beam_id = np.asarray([r["beam_id"] for r in rows], dtype=np.int64)
+        scatter_points_by_tx_beam(ax, pts, beam_id, mask=keep, size=2.8, alpha=0.65)
+        for beam in tx_beam_center_projection_points(track, candidates):
+            draw_tx_beam_projection_marker(ax, beam, color=color, fontsize=7)
+        mid = order[len(order) // 2]
+        ax.text(
+            model[mid, 0],
+            model[mid, 1],
+            label,
+            fontsize=8,
+            color="black",
+            bbox={"facecolor": "white", "edgecolor": color, "alpha": 0.85},
+        )
+    ax.set_xlabel("East (km)")
+    ax.set_ylabel("North (km)")
+    ax.set_title(f"Combined-ranked candidate paths: {n_rej} rejected, {n_keep} kept")
+    ax.set_aspect("equal", adjustable="box")
+    ax.grid(True, alpha=0.25)
+    ax.plot([], [], "-", color="black", label="accepted")
+    ax.plot([], [], "--", color="black", label="rejected")
+    ax.plot([], [], marker="D", ls="none", mfc="none", mec="0.25", label="active TX beam center")
+    for bid, name in enumerate(TX_BEAM_SHORT_NAMES):
+        ax.plot([], [], ".", color=f"C{bid}", label=f"beam {name}")
+    ax.legend(loc="best", fontsize=8)
+
+    ax = axes[2]
+    coh = [t.get("coherence_weighted_mean", np.nan) for t in survivors]
+    bal_term = [t["ballistic_reduced_chi2"] for t in survivors]
+    colors = [track_color(t) for t in survivors]
+    markers = ["o" if not t.get("combined_reject", False) else "x" for t in survivors]
+    for track, x, y, color, marker in zip(survivors, coh, bal_term, colors, markers):
+        ax.scatter([x], [y], c=[color], s=95, marker=marker, linewidths=1.6)
+        ax.text(x, y, hypothesis_label(track), fontsize=8)
+    ax.set_xlabel("SNR-weighted mean coherence")
+    ax.set_ylabel("Ballistic reduced $\\chi^2$")
+    ax.set_title("Ballistic score and coherence diagnostic")
+    ax.grid(True, alpha=0.25)
+    sm = mpl.cm.ScalarMappable(norm=norm, cmap=cmap)
+    sm.set_array([])
+    fig.colorbar(sm, ax=axes.ravel().tolist(), label="Ballistic reduced $\\chi^2$")
+    fig.savefig(output, dpi=220)
+    plt.close(fig)
+
+
+def rotation_matrix_313(node_deg: float, inc_deg: float, argp_deg: float) -> np.ndarray:
+    node = np.deg2rad(node_deg)
+    inc = np.deg2rad(inc_deg)
+    argp = np.deg2rad(argp_deg)
+    cn, sn = np.cos(node), np.sin(node)
+    ci, si = np.cos(inc), np.sin(inc)
+    cw, sw = np.cos(argp), np.sin(argp)
+    rz_node = np.array([[cn, -sn, 0.0], [sn, cn, 0.0], [0.0, 0.0, 1.0]])
+    rx_inc = np.array([[1.0, 0.0, 0.0], [0.0, ci, -si], [0.0, si, ci]])
+    rz_argp = np.array([[cw, -sw, 0.0], [sw, cw, 0.0], [0.0, 0.0, 1.0]])
+    return rz_node @ rx_inc @ rz_argp
+
+
+def orbit_xy_from_elements(elements: np.ndarray, n_points: int = 360) -> tuple[np.ndarray, np.ndarray]:
+    a_au, e, inc_deg, node_deg, argp_deg, _nu_deg, q_au = [float(x) for x in elements]
+    if not np.all(np.isfinite(elements[:6])) or e < 0:
+        return np.array([]), np.array([])
+    if e < 1.0:
+        f = np.linspace(0.0, 2.0 * np.pi, n_points)
+        p = max(abs(a_au) * max(1.0 - e * e, 1e-12), 1e-9)
+    else:
+        fmax = np.arccos(np.clip(-1.0 / max(e, 1.0 + 1e-9), -1.0, 1.0)) - 1e-3
+        f = np.linspace(-fmax, fmax, n_points)
+        p = max(abs(q_au) * (1.0 + e), 1e-9)
+    denom = 1.0 + e * np.cos(f)
+    good = denom > 1e-6
+    r = p / denom[good]
+    f = f[good]
+    perifocal = np.vstack([r * np.cos(f), r * np.sin(f), np.zeros_like(r)])
+    xyz = rotation_matrix_313(node_deg, inc_deg, argp_deg) @ perifocal
+    return xyz[0], xyz[1]
+
+
+def plot_summary_orbit_panel(ax, orbit_h5_path: Path | None, hypothesis: str = "H03"):
+    planets = [
+        ("Mercury", 0.387, "0.62"),
+        ("Venus", 0.723, "#b08a5b"),
+        ("Earth", 1.000, "#4f8fd6"),
+        ("Mars", 1.524, "#c46852"),
+        ("Jupiter", 5.203, "#8d7658"),
+    ]
+    theta = np.linspace(0.0, 2.0 * np.pi, 361)
+    for name, radius, color in planets:
+        ax.plot(radius * np.cos(theta), radius * np.sin(theta), color=color, lw=0.8, alpha=0.75)
+        if name in {"Earth", "Jupiter"}:
+            ax.text(radius, 0.0, name, fontsize=6, color=color, ha="left", va="bottom")
+    ax.scatter([0.0], [0.0], s=45, color="#ffd21f", edgecolor="black", zorder=5)
+    if orbit_h5_path is None or not Path(orbit_h5_path).exists():
+        ax.text(0.5, 0.5, "DASST orbit\npending", transform=ax.transAxes, ha="center", va="center", fontsize=10)
+    else:
+        try:
+            with h5py.File(orbit_h5_path, "r") as h:
+                grp = h[hypothesis]
+                kep = grp["kepler"][()]
+                std = grp["kepler_std"][()]
+                samples = grp["kepler_samples"][()]
+                frac_e_gt_1 = float(grp.attrs.get("frac_e_gt_1", np.nan))
+            finite = samples[np.all(np.isfinite(samples), axis=1)][:120]
+            for sample in finite:
+                x, y = orbit_xy_from_elements(sample)
+                if len(x):
+                    ax.plot(x, y, color="0.25", alpha=0.045, lw=0.6)
+            x, y = orbit_xy_from_elements(kep)
+            if len(x):
+                ax.plot(x, y, color="black", alpha=0.88, lw=1.8)
+            ax.text(
+                0.02,
+                0.03,
+                (
+                    f"{hypothesis} DASST orbit\n"
+                    f"a={kep[0]:.1f}+/-{std[0]:.1f} AU\n"
+                    f"q={kep[6]:.3f}+/-{std[6]:.3f} AU\n"
+                    f"e={kep[1]:.4f}+/-{std[1]:.4f}\n"
+                    f"P(e>1)={frac_e_gt_1:.2f}"
+                ),
+                transform=ax.transAxes,
+                ha="left",
+                va="bottom",
+                fontsize=7,
+                bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.78},
+            )
+        except Exception as exc:
+            ax.text(0.5, 0.5, f"Orbit plot failed:\n{exc}", transform=ax.transAxes, ha="center", va="center", fontsize=7)
+    ax.set_title("3c. DASST-corrected orbit samples")
+    ax.set_xlabel("Heliocentric ecliptic x (AU)")
+    ax.set_ylabel("Heliocentric ecliptic y (AU)")
+    ax.set_xlim(-8.0, 8.0)
+    ax.set_ylim(-8.0, 8.0)
+    ax.set_aspect("equal", adjustable="box")
+    ax.grid(True, color="0.90", lw=0.8)
+
+
+def plot_disambiguation_summary(candidates, tracks, output: Path, orbit_h5_path: Path | None = None):
+    """Combine the main disambiguation tests into one 3x3 summary figure."""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig, axes = plt.subplots(3, 3, figsize=(16.0, 14.0), constrained_layout=True)
+
+    visibility_colors = {"kept": "tab:green", "below horizon": "tab:red", "wraps": "tab:orange"}
+
+    def annotate_panel(ax, text):
+        ax.text(
+            0.5,
+            0.5,
+            text,
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            fontsize=9,
+            color="0.25",
+            bbox={"facecolor": "white", "edgecolor": "0.7", "alpha": 0.88, "pad": 4.0},
+        )
+
+    def legend_if_any(ax, **kwargs):
+        handles, labels = ax.get_legend_handles_labels()
+        if handles:
+            ax.legend(**kwargs)
+
+    ax = axes[0, 0]
+    ax.add_patch(plt.Circle((0.0, 0.0), 1.0, color="black", fill=False, linewidth=1.0))
+    if candidates:
+        cand_u = np.asarray([c["u"] for c in candidates], dtype=np.float64)
+        cand_v = np.asarray([c["v"] for c in candidates], dtype=np.float64)
+        ax.plot(cand_v, cand_u, ".", ms=1.4, color="0.65", alpha=0.25, label="high-coherence peaks", zorder=1)
+    labels_done = set()
+    for track in sorted(tracks, key=lambda t: t.get("hypothesis_id", 999)):
+        rows = [candidates[j] for j in track["idx"]]
+        vv = np.asarray([r["v"] for r in rows])
+        uu = np.asarray([r["u"] for r in rows])
+        color = visibility_colors.get(track["reason"], "0.4")
+        label = track["reason"] if track["reason"] not in labels_done else None
+        labels_done.add(track["reason"])
+        ax.plot(vv, uu, ".", ms=2.8, color=color, alpha=0.45, label=label, zorder=2)
+        dd = track["dense_direction"]
+        ax.plot(dd[:, 1], dd[:, 0], "-", lw=1.25, color=color, alpha=0.95, zorder=3)
+        mid = len(dd) // 2
+        ax.text(
+            dd[mid, 1],
+            dd[mid, 0],
+            hypothesis_label(track),
+            fontsize=7,
+            ha="center",
+            va="center",
+            zorder=5,
+            bbox={"facecolor": "white", "edgecolor": color, "alpha": 0.86, "pad": 1.2},
+        )
+    if not tracks:
+        n_pulses = len({c["pulse"] for c in candidates}) if candidates else 0
+        annotate_panel(ax, f"No path hypotheses formed\n{len(candidates)} coherence peaks across {n_pulses} pulses")
+    ax.set_xlabel("v direction cosine")
+    ax.set_ylabel("u direction cosine")
+    ax.set_title(f"1a. Provisional path hypotheses (N={len(tracks)})")
+    ax.set_xlim(-1.03, 1.03)
+    ax.set_ylim(-1.03, 1.03)
+    ax.set_aspect("equal")
+    ax.grid(True, alpha=0.2)
+    legend_if_any(ax, loc="lower right", fontsize=7)
+
+    ax = axes[0, 1]
+    for track in tracks:
+        color = visibility_colors.get(track["reason"], "0.4")
+        z = track["dense_model"][:, 2]
+        ax.plot(track["dense_t"], z, color=color, lw=1.0, alpha=0.9)
+        ax.text(track["dense_t"][-1], z[-1], hypothesis_label(track), fontsize=7, color=color)
+    ax.axhline(0.0, color="black", lw=1.0)
+    ax.set_xlabel("Time since cut start (s)")
+    ax.set_ylabel("Local up coordinate (km)")
+    ax.set_title("1b. Full-path horizon test")
+    ax.grid(True, alpha=0.25)
+    if tracks and not any(t["reason"] == "kept" for t in tracks):
+        annotate_panel(ax, "No horizon-visible hypotheses\nAll paths cross horizon or wrap")
+    elif not tracks:
+        annotate_panel(ax, "No path hypotheses to test")
+
+    ax = axes[0, 2]
+    ordered = sorted(tracks, key=lambda t: t.get("hypothesis_id", 999))
+    x = np.arange(len(ordered))
+    coh = np.asarray([snr_weighted_track_coherence(t, candidates) for t in ordered], dtype=np.float64)
+    colors = [visibility_colors.get(t["reason"], "0.4") for t in ordered]
+    ax.bar(x, coh, color=colors, alpha=0.85)
+    for xx_i, yy, track in zip(x, coh, ordered):
+        if np.isfinite(yy):
+            ax.text(xx_i, yy + 0.002, hypothesis_label(track), fontsize=6, ha="center", va="bottom", rotation=90)
+    ax.set_xticks(x)
+    ax.set_xticklabels([hypothesis_label(t) for t in ordered], rotation=45, ha="right")
+    ax.set_ylim(0.88, 1.005)
+    ax.set_xlabel("Hypothesis")
+    ax.set_ylabel("SNR-weighted mean coherence")
+    ax.set_title("1c. SNR-weighted coherence averages")
+    ax.grid(True, axis="y", alpha=0.25)
+    if not ordered:
+        annotate_panel(ax, "No hypothesis-level coherence\nPath grouping rejected this event")
+
+    visible = [t for t in tracks if t["reason"] == "kept"]
+
+    def path_stage_rejected(track):
+        return bool(track.get("linearity_reject", False) or track.get("descent_reject", False))
+
+    def path_stage_label(track):
+        if track.get("linearity_reject", False) and track.get("descent_reject", False):
+            return "rejected: nonlinear/upward"
+        if track.get("linearity_reject", False):
+            return "rejected: nonlinear"
+        if track.get("descent_reject", False):
+            return "rejected: upward"
+        return "kept"
+
+    ax = axes[1, 0]
+    labels_done = set()
+    for track in visible:
+        color = "tab:red" if path_stage_rejected(track) else "tab:green"
+        label = path_stage_label(track)
+        label = label if label not in labels_done else None
+        if label:
+            labels_done.add(label)
+        pts = track["fit_points"]
+        model = track["line_model_points"]
+        order = np.argsort((model - track["line_center"]) @ track["line_direction"])
+        ax.plot(pts[:, 0], pts[:, 1], ".", ms=2.6, color=color, alpha=0.55, label=label)
+        ax.plot(model[order, 0], model[order, 1], "-", lw=1.0, color=color, alpha=0.85)
+        mid = order[len(order) // 2]
+        ax.text(
+            model[mid, 0],
+            model[mid, 1],
+            hypothesis_label(track),
+            fontsize=6.5,
+            bbox={"facecolor": "white", "edgecolor": color, "alpha": 0.82, "pad": 1.0},
+        )
+        for beam in tx_beam_center_projection_points(track, candidates):
+            draw_tx_beam_projection_marker(ax, beam, color=color, fontsize=6)
+    ax.set_xlabel("East (km)")
+    ax.set_ylabel("North (km)")
+    ax.set_title("2a. 3D line test: horizontal projection")
+    ax.set_aspect("equal", adjustable="box")
+    ax.grid(True, alpha=0.25)
+    ax.plot([], [], marker="D", ls="none", mfc="none", mec="0.25", label="active TX beam center")
+    if not visible:
+        annotate_panel(ax, "No horizon-visible hypotheses")
+    legend_if_any(ax, loc="best", fontsize=7)
+
+    ax = axes[1, 1]
+    for track in visible:
+        color = "tab:red" if path_stage_rejected(track) else "tab:green"
+        pts = track["fit_points"]
+        model = track["line_model_points"]
+        along = (model - track["line_center"]) @ track["line_direction"]
+        order = np.argsort(along)
+        ax.plot(along, pts[:, 2], ".", ms=2.6, color=color, alpha=0.55)
+        ax.plot(along[order], model[order, 2], "-", lw=1.0, color=color, alpha=0.85)
+        mid = order[len(order) // 2]
+        ax.text(along[mid], model[mid, 2], hypothesis_label(track), fontsize=7)
+    ax.set_xlabel("Along best-fit 3D line (km)")
+    ax.set_ylabel("Up (km)")
+    ax.set_title("2b. 3D line test: vertical projection")
+    ax.grid(True, alpha=0.25)
+    if not visible:
+        annotate_panel(ax, "No horizon-visible hypotheses")
+
+    ax = axes[1, 2]
+    if visible:
+        labels = [hypothesis_label(t) for t in visible]
+        redchi = np.asarray([t["line_reduced_chi2"] for t in visible], dtype=np.float64)
+        log_redchi = np.log10(np.maximum(redchi, 1e-12))
+        tx_dcos = np.asarray(
+            [t.get("tx_beam_snr_weighted_mean_dc", np.nan) for t in visible],
+            dtype=np.float64,
+        )
+        valid_tx = np.isfinite(tx_dcos) & (tx_dcos > 0.0)
+        if not np.any(valid_tx):
+            tx_dcos = np.asarray([t.get("tx_beam_weighted_rms_deg", np.nan) for t in visible], dtype=np.float64)
+            # Keep the panel defined even for legacy products missing the dcos metric.
+            tx_dcos = np.deg2rad(np.maximum(tx_dcos, 1e-6))
+        log_tx_dcos = np.log10(np.maximum(tx_dcos, 1e-6))
+        colors = ["tab:red" if path_stage_rejected(t) else "tab:green" for t in visible]
+        ax.scatter(log_tx_dcos, log_redchi, c=colors, s=60, zorder=3)
+        for xx_i, yy, label, chi in zip(log_tx_dcos, log_redchi, labels, redchi):
+            ax.text(xx_i, yy, label, fontsize=7, ha="center", va="bottom")
+            ax.text(xx_i, yy - 0.08, f"{chi:.1f}", fontsize=6, ha="center", va="top", color="0.25")
+        ax.axhline(0.0, color="black", lw=1.0, ls="--", label=r"$\chi^2_\nu=1$")
+    ax.set_xlabel(r"$\log_{10}$ SNR-weighted TX beam-center distance (dcos)")
+    ax.set_ylabel(r"$\log_{10}$ 3D-line reduced $\chi^2$")
+    ax.set_title("2c. TX beam-center distance vs. line chi-square")
+    ax.grid(True, alpha=0.25)
+    if not visible:
+        annotate_panel(ax, "No line-fit candidates")
+    legend_if_any(ax, fontsize=7)
+
+    survivors = [
+        t
+        for t in tracks
+        if t["reason"] == "kept" and not t.get("linearity_reject", False) and not t.get("descent_reject", False)
+        and "ballistic_reduced_chi2" in t
+    ]
+    survivors.sort(key=lambda t: t.get("combined_rank", t.get("ballistic_rank", 999)))
+    chi_values = np.asarray([t["ballistic_reduced_chi2"] for t in survivors], dtype=np.float64)
+    finite_chi = chi_values[np.isfinite(chi_values) & (chi_values > 0.0)]
+    if len(finite_chi):
+        norm = mpl.colors.LogNorm(vmin=max(np.nanmin(finite_chi), 1e-2), vmax=max(np.nanmax(finite_chi), 1e-1))
+    else:
+        norm = mpl.colors.Normalize(vmin=0.0, vmax=1.0)
+    cmap = plt.get_cmap("plasma")
+    all_snr_parts = [np.asarray(t.get("ballistic_snr_db", []), dtype=np.float64) for t in survivors]
+    all_snr = np.concatenate(all_snr_parts) if all_snr_parts else np.array([], dtype=np.float64)
+    all_snr = all_snr[np.isfinite(all_snr)]
+    if len(all_snr):
+        snr_norm = mpl.colors.Normalize(vmin=float(np.nanmin(all_snr)), vmax=float(np.nanmax(all_snr)))
+    else:
+        snr_norm = mpl.colors.Normalize(vmin=0.0, vmax=1.0)
+    snr_cmap = plt.get_cmap("viridis")
+
+    def bcolor(track):
+        return cmap(norm(max(float(track["ballistic_reduced_chi2"]), 1e-6)))
+
+    def bls(track):
+        return "--" if track.get("combined_reject", False) else "-"
+
+    ax = axes[2, 0]
+    snr_scatter = None
+    for track in survivors:
+        order = np.argsort(track["ballistic_t"])
+        color = bcolor(track)
+        snr = np.asarray(track.get("ballistic_snr_db", np.full_like(track["ballistic_doppler_km_s"], np.nan)), dtype=np.float64)
+        ax.plot(track["ballistic_t"][order], track["ballistic_pred_doppler_km_s"][order], color=color, lw=1.3, ls=bls(track))
+        snr_scatter = ax.scatter(
+            track["ballistic_t"][order],
+            track["ballistic_doppler_km_s"][order],
+            c=snr[order],
+            cmap=snr_cmap,
+            norm=snr_norm,
+            s=12,
+            marker="o",
+            edgecolors="none",
+            alpha=0.75,
+        )
+        ax.text(track["ballistic_t"][order][-1], track["ballistic_pred_doppler_km_s"][order][-1], hypothesis_label(track), fontsize=7, color=color)
+    ax.set_xlabel("Time since cut start (s)")
+    ax.set_ylabel("Doppler/range rate (km/s)")
+    ax.set_title("3a. MSIS-drag Doppler fit; points by SNR")
+    ax.grid(True, alpha=0.25)
+    if not survivors:
+        annotate_panel(ax, "No ballistic-fit candidates\nRejected before Doppler/drag fit")
+    if len(survivors):
+        chi_cax = inset_axes(ax, width="3.5%", height="42%", loc="upper right", borderpad=0.8)
+        if len(finite_chi):
+            chi_log_norm = mpl.colors.Normalize(
+                vmin=float(np.log10(max(np.nanmin(finite_chi), 1e-2))),
+                vmax=float(np.log10(max(np.nanmax(finite_chi), 1e-1))),
+            )
+        else:
+            chi_log_norm = mpl.colors.Normalize(vmin=0.0, vmax=1.0)
+        chi_sm = mpl.cm.ScalarMappable(norm=chi_log_norm, cmap=cmap)
+        chi_sm.set_array([])
+        chi_cb = fig.colorbar(chi_sm, cax=chi_cax)
+        chi_cb.set_label(r"$\log_{10}\chi^2_\nu$", fontsize=7)
+        chi_cb.ax.tick_params(labelsize=7)
+
+    ax = axes[2, 1]
+    for track in survivors:
+        order = np.argsort(track["ballistic_t"])
+        color = bcolor(track)
+        pts = track["fit_points"]
+        model = track["ballistic_model"]
+        keep = track["ballistic_keep"]
+        ax.plot(model[order, 0], model[order, 1], color=color, lw=1.4, ls=bls(track), alpha=0.94)
+        rows = [candidates[i] for i in track["idx"]]
+        beam_id = np.asarray([r["beam_id"] for r in rows], dtype=np.int64)
+        scatter_points_by_tx_beam(ax, pts, beam_id, mask=keep, size=2.6, alpha=0.65)
+        for beam in tx_beam_center_projection_points(track, candidates):
+            draw_tx_beam_projection_marker(ax, beam, color=color, fontsize=6.5)
+        mid = order[len(order) // 2]
+        ax.text(
+            model[mid, 0],
+            model[mid, 1],
+            hypothesis_label(track),
+            fontsize=6.4,
+            bbox={"facecolor": "white", "edgecolor": color, "alpha": 0.85, "pad": 1.2},
+        )
+    ax.set_xlabel("East (km)")
+    ax.set_ylabel("North (km)")
+    ax.set_title("3b. Final ballistic-ranked paths")
+    ax.set_aspect("equal", adjustable="box")
+    ax.grid(True, alpha=0.25)
+    ax.plot([], [], marker="D", ls="none", mfc="none", mec="0.25", label="active TX beam center")
+    for bid, name in enumerate(TX_BEAM_SHORT_NAMES):
+        ax.plot([], [], ".", color=f"C{bid}", label=f"beam {name}")
+    if not survivors:
+        annotate_panel(ax, "No final ballistic ranking\nSee rejection stages above")
+    legend_if_any(ax, loc="lower right", fontsize=7)
+    ax = axes[2, 2]
+    ranked = sorted(
+        [t for t in tracks if "combined_rank" in t and "ballistic_reduced_chi2" in t],
+        key=lambda t: t["combined_rank"],
+    )
+    orbit_hypothesis = hypothesis_label(ranked[0]) if ranked else "H03"
+    plot_summary_orbit_panel(ax, orbit_h5_path, hypothesis=orbit_hypothesis)
+
+    fig.savefig(output, dpi=240)
+    plt.close(fig)
+
+
+def plot_rejected_event_summary(output: Path, sample_idx: int, reason: str, details: str):
+    """Write the standard overview filename for events rejected before AOI search."""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig, axes = plt.subplots(3, 3, figsize=(16.0, 14.0), constrained_layout=True)
+    message = (
+        f"Event {sample_idx}\n"
+        "Rejected before interferometric disambiguation\n"
+        f"{reason}\n"
+        f"{details}"
+    )
+    for ax in axes.flat:
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.text(
+            0.5,
+            0.5,
+            message,
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            fontsize=10,
+            color="0.25",
+            bbox={"facecolor": "white", "edgecolor": "0.7", "alpha": 0.9, "pad": 5.0},
+        )
+        ax.set_frame_on(True)
+    axes[0, 0].set_title("1a. Provisional path hypotheses")
+    axes[0, 1].set_title("1b. Full-path horizon test")
+    axes[0, 2].set_title("1c. SNR-weighted coherence averages")
+    axes[1, 0].set_title("2a. 3D line horizontal projection")
+    axes[1, 1].set_title("2b. 3D line vertical projection")
+    axes[1, 2].set_title("2c. Straight-line chi-square metric")
+    axes[2, 0].set_title("3a. Ballistic Doppler fit")
+    axes[2, 1].set_title("3b. Final ballistic-ranked paths")
+    axes[2, 2].set_title("3c. Orbit samples")
+    fig.savefig(output, dpi=240)
+    plt.close(fig)
+
+
+def plot_empty_event_summary(output: Path, sample_idx: int, n_raw: int, snr_threshold: float):
+    """Write the standard overview filename for events with no usable detections."""
+    plot_rejected_event_summary(
+        output,
+        sample_idx,
+        f"0 measurement points above SNR threshold {snr_threshold:g}",
+        f"{n_raw} raw cut samples before thresholding",
+    )
+
+
+def _h5_set_scalar_attrs(group, attrs):
+    """Set HDF5 scalar attributes while skipping values that are awkward to serialize."""
+    for key, value in attrs.items():
+        if value is None:
+            continue
+        if isinstance(value, (str, bytes, bool, int, float, np.integer, np.floating, np.bool_)):
+            group.attrs[key] = value
+
+
+def _h5_create_array(group, name, value, dtype=np.float64):
+    arr = np.asarray(value, dtype=dtype)
+    group.create_dataset(name, data=arr)
+
+
+def write_rejected_disambiguation_diagnostics_h5(output: Path, sample_idx: int, reason: str, details: str):
+    """Write a minimal per-event diagnostic file for events rejected before path fitting."""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with h5py.File(output, "w") as h:
+        h.attrs["schema_version"] = "pansy_interferometric_disambiguation_diagnostics_v1"
+        h.attrs["source_program"] = "plot_interferometric_disambiguation.py"
+        h.attrs["sample_idx"] = int(sample_idx)
+        h.attrs["sample_epoch_unix"] = float(sample_idx / 1e6)
+        h.attrs["event_status"] = "rejected_before_interferometric_disambiguation"
+        h.attrs["rejection_reason"] = str(reason)
+        h.attrs["rejection_details"] = str(details)
+        h.attrs["position_frame"] = "PANSY local ENU"
+        h.attrs["position_units"] = "km"
+        h.attrs["direction_cosine_units"] = "dimensionless"
+        h.create_group("candidates")
+        h.create_group("hypotheses")
+
+
+def write_disambiguation_diagnostics_h5(
+    candidates,
+    tracks,
+    output: Path,
+    sample_idx: int,
+    state_h5_path: Path | None = None,
+    dasst_orbit_h5_path: Path | None = None,
+    sigma_pos_km=np.nan,
+    sigma_dop_km_s=np.nan,
+):
+    """Persist compact per-event products needed for later statistical summaries.
+
+    The key product for position histograms is the winning
+    hypotheses/Hxx/position_enu_km dataset. Non-winning hypotheses retain
+    scalar scores and flags, but not 3D position arrays.
+    """
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with h5py.File(output, "w") as h:
+        _h5_set_scalar_attrs(
+            h,
+            {
+                "schema_version": "pansy_interferometric_disambiguation_diagnostics_v1",
+                "source_program": "plot_interferometric_disambiguation.py",
+                "sample_idx": int(sample_idx),
+                "sample_epoch_unix": float(sample_idx / 1e6),
+                "event_status": "processed",
+                "position_frame": "PANSY local ENU",
+                "position_units": "km",
+                "direction_cosine_convention": "u=east, v=north, up=sqrt(1-u^2-v^2)",
+                "direction_cosine_units": "dimensionless",
+                "range_units": "km",
+                "doppler_units": "m/s",
+                "sigma_pos_km": float(sigma_pos_km),
+                "sigma_dop_km_s": float(sigma_dop_km_s),
+                "orbit_state_h5": str(state_h5_path) if state_h5_path is not None else "",
+                "dasst_orbit_h5": str(dasst_orbit_h5_path) if dasst_orbit_h5_path is not None else "",
+                "selection_metric": "combined_score",
+            },
+        )
+
+        cand_grp = h.create_group("candidates")
+        if candidates:
+            fields = {
+                "u": np.float64,
+                "v": np.float64,
+                "w": np.float64,
+                "grid_row": np.int64,
+                "grid_col": np.int64,
+                "coherence": np.float64,
+                "t_rel_s": np.float64,
+                "pulse": np.int64,
+                "range_km": np.float64,
+                "doppler_mps": np.float64,
+                "snr": np.float64,
+                "beam_id": np.int64,
+            }
+            for field, dtype in fields.items():
+                key = "t_rel" if field == "t_rel_s" else field
+                cand_grp.create_dataset(field, data=np.asarray([c[key] for c in candidates], dtype=dtype))
+
+        scored = [t for t in tracks if "combined_score" in t]
+        winners = sorted(
+            [t for t in scored if not t.get("combined_reject", False)],
+            key=lambda t: t.get("combined_rank", 999999),
+        )
+        if not winners:
+            winners = sorted(scored, key=lambda t: t.get("combined_rank", 999999))
+        selected = winners[0] if winners else None
+        if selected is not None:
+            _h5_set_scalar_attrs(
+                h,
+                {
+                    "selected_hypothesis": hypothesis_label(selected),
+                    "selected_hypothesis_id": int(selected.get("hypothesis_id", -1)),
+                    "selected_candidate_number": int(candidate_number(selected)),
+                    "selected_combined_rank": int(selected.get("combined_rank", -1)),
+                    "selected_combined_score": float(selected.get("combined_score", np.nan)),
+                },
+            )
+
+        hyp_grp = h.create_group("hypotheses")
+        for track in sorted(tracks, key=lambda t: t.get("hypothesis_id", 999999)):
+            label = hypothesis_label(track)
+            grp = hyp_grp.create_group(label)
+            _h5_set_scalar_attrs(
+                grp,
+                {
+                    "hypothesis_label": label,
+                    "hypothesis_id": int(track.get("hypothesis_id", -1)),
+                    "candidate_number": int(candidate_number(track)) if "combined_rank" in track else -1,
+                    "reason": str(track.get("reason", "unknown")),
+                    "unique_pulses": int(track.get("unique_pulses", 0)),
+                    "below_horizon": bool(track.get("below_horizon", False)),
+                    "wraps": bool(track.get("wraps", False)),
+                    "linearity_reject": bool(track.get("linearity_reject", False)),
+                    "descent_reject": bool(track.get("descent_reject", False)),
+                    "low_detection_altitude_reject": bool(track.get("low_detection_altitude_reject", False)),
+                    "ballistic_reject": bool(track.get("ballistic_reject", False)),
+                    "ballistic_low_start_altitude_reject": bool(track.get("ballistic_low_start_altitude_reject", False)),
+                    "combined_reject": bool(track.get("combined_reject", False)),
+                    "line_reduced_chi2": float(track.get("line_reduced_chi2", np.nan)),
+                    "line_rms_km": float(track.get("line_rms_km", np.nan)),
+                    "line_max_km": float(track.get("line_max_km", np.nan)),
+                    "descent_rate_km_s": float(track.get("descent_rate_km_s", np.nan)),
+                    "ballistic_rank": int(track.get("ballistic_rank", -1)) if "ballistic_rank" in track else -1,
+                    "ballistic_reduced_chi2": float(track.get("ballistic_reduced_chi2", np.nan)),
+                    "ballistic_pos_rms_km": float(track.get("ballistic_pos_rms_km", np.nan)),
+                    "ballistic_dop_rms_km_s": float(track.get("ballistic_dop_rms_km_s", np.nan)),
+                    "ballistic_start_altitude_km": float(track.get("ballistic_start_altitude_km", np.nan)),
+                    "combined_rank": int(track.get("combined_rank", -1)) if "combined_rank" in track else -1,
+                    "combined_score": float(track.get("combined_score", np.nan)),
+                    "combined_score_source": str(track.get("combined_score_source", "")),
+                    "combined_tx_term": float(track.get("combined_tx_term", np.nan)),
+                    "combined_line_term": float(track.get("combined_line_term", np.nan)),
+                    "combined_tx_beam_scale_dc": float(track.get("combined_tx_beam_scale_dc", np.nan)),
+                    "coherence_weighted_mean": float(track.get("coherence_weighted_mean", np.nan)),
+                    "tx_beam_rank": int(track.get("tx_beam_rank", -1)) if "tx_beam_rank" in track else -1,
+                    "tx_beam_snr_weighted_mean_dc": float(track.get("tx_beam_snr_weighted_mean_dc", np.nan)),
+                    "tx_beam_snr_weighted_rms_dc": float(track.get("tx_beam_snr_weighted_rms_dc", np.nan)),
+                    "tx_lobe_snr_weighted_mean_dc": float(track.get("tx_lobe_snr_weighted_mean_dc", np.nan)),
+                    "tx_lobe_snr_weighted_rms_dc": float(track.get("tx_lobe_snr_weighted_rms_dc", np.nan)),
+                },
+            )
+            idx = np.asarray(track.get("idx", []), dtype=np.int64)
+            grp.create_dataset("candidate_indices", data=idx)
+            if len(idx) and candidates:
+                rows = [candidates[int(i)] for i in idx]
+                for name, key, dtype in [
+                    ("pulse", "pulse", np.int64),
+                    ("t_rel_s", "t_rel", np.float64),
+                    ("range_km", "range_km", np.float64),
+                    ("doppler_mps", "doppler_mps", np.float64),
+                    ("snr", "snr", np.float64),
+                    ("beam_id", "beam_id", np.int64),
+                    ("coherence", "coherence", np.float64),
+                ]:
+                    grp.create_dataset(name, data=np.asarray([r[key] for r in rows], dtype=dtype))
+                grp.create_dataset(
+                    "direction_cosines_uvw",
+                    data=np.asarray([[r["u"], r["v"], r["w"]] for r in rows], dtype=np.float64),
+                )
+
+            if selected is not None and track is selected and "fit_points" in track:
+                grp.create_dataset("position_enu_km", data=np.asarray(track["fit_points"], dtype=np.float64))
+
+            for name, value in [
+                ("fit_t_s", track.get("fit_t")),
+                ("dense_t_s", track.get("dense_t")),
+                ("dense_direction_uvw", track.get("dense_direction")),
+                ("line_perpendicular_residual_km", track.get("line_perp_km")),
+                ("line_sigma_km", track.get("line_sigma_km")),
+                ("ballistic_keep", track.get("ballistic_keep")),
+                ("ballistic_params", track.get("ballistic_params")),
+                ("ballistic_parameter_covariance", track.get("ballistic_parameter_covariance")),
+                ("ballistic_parameter_std", track.get("ballistic_parameter_std")),
+                ("ballistic_velocity_km_s", track.get("ballistic_velocity_km_s")),
+                ("ballistic_speed_km_s", track.get("ballistic_speed_km_s")),
+                ("ballistic_t_s", track.get("ballistic_t")),
+                ("ballistic_doppler_km_s", track.get("ballistic_doppler_km_s")),
+                ("ballistic_pos_res_km", track.get("ballistic_pos_res_km")),
+                ("ballistic_dop_res_km_s", track.get("ballistic_dop_res_km_s")),
+                ("ballistic_pred_doppler_km_s", track.get("ballistic_pred_doppler_km_s")),
+                ("tx_beam_center_distance_dc", track.get("tx_beam_center_distance_dc")),
+                ("tx_lobe_distance_dc", track.get("tx_lobe_distance_dc")),
+            ]:
+                if value is not None:
+                    grp.create_dataset(name, data=np.asarray(value))
+
+
+def plot_ballistic_horizontal_ranking(tracks, candidates, output: Path):
+    output.parent.mkdir(parents=True, exist_ok=True)
+    survivors = [
+        t
+        for t in tracks
+        if t["reason"] == "kept" and not t.get("linearity_reject", False) and not t.get("descent_reject", False)
+    ]
+    survivors.sort(key=lambda t: t.get("ballistic_rank", 999))
+    fig, ax = plt.subplots(figsize=(7.6, 6.8), constrained_layout=True)
+
+    for track in survivors:
+        label = hypothesis_label(track)
+        color = "tab:red" if track.get("ballistic_reject", False) else "tab:green"
+        pts = track["fit_points"]
+        model = track["ballistic_model"]
+        keep = track["ballistic_keep"]
+        order = np.argsort(track["ballistic_t"])
+        ax.plot(model[order, 0], model[order, 1], "-", color=color, lw=1.5, alpha=0.9)
+        ax.plot(pts[keep, 0], pts[keep, 1], ".", color=color, ms=3.0, alpha=0.65)
+        if np.any(~keep):
+            ax.plot(pts[~keep, 0], pts[~keep, 1], "x", color=color, ms=4.0, alpha=0.45)
+        for beam in tx_beam_center_projection_points(track, candidates):
+            draw_tx_beam_projection_marker(ax, beam, color=color, fontsize=7)
+        mid = order[len(order) // 2]
+        ax.text(
+            model[mid, 0],
+            model[mid, 1],
+            label,
+            fontsize=8,
+            color="black",
+            bbox={"facecolor": "white", "edgecolor": color, "alpha": 0.85},
+        )
+
+    ax.set_xlabel("East (km)")
+    ax.set_ylabel("North (km)")
+    ax.set_title("Candidate paths ranked by robust ballistic statistical score")
+    ax.set_aspect("equal", adjustable="box")
+    ax.grid(True, alpha=0.25)
+    ax.plot([], [], "-", color="tab:green", label="survives ballistic fit")
+    ax.plot([], [], "-", color="tab:red", label="rejected by ballistic fit")
+    ax.plot([], [], "x", color="0.4", label="robust-fit outlier")
+    ax.plot([], [], marker="D", ls="none", mfc="none", mec="0.25", label="active TX beam center")
+    ax.legend(loc="best", fontsize=8)
+    fig.savefig(output, dpi=220)
+    plt.close(fig)
+
+
+def plot_tx_beam_consistency(tracks, output: Path):
+    output.parent.mkdir(parents=True, exist_ok=True)
+    scored = [t for t in tracks if "tx_beam_weighted_rms_deg" in t]
+    scored.sort(key=lambda t: t.get("combined_rank", t.get("ballistic_rank", 999)))
+
+    markers = ["o", "s", "^", "D", "v", "P", "X"]
+
+    def track_style(track, idx):
+        if not track.get("combined_reject", False):
+            return "#009E73", markers[idx % len(markers)], "accepted"
+        return "#CC3311", markers[idx % len(markers)], "rejected"
+
+    fig, axes = plt.subplots(2, 2, figsize=(13.5, 9.0), constrained_layout=True)
+
+    ax = axes[0, 0]
+    for idx, track in enumerate(scored):
+        color, marker, status = track_style(track, idx)
+        order = np.argsort(track["tx_beam_time"])
+        ax.plot(
+            track["tx_beam_time"][order],
+            track["tx_beam_angle_deg"][order],
+            linestyle="None",
+            marker=marker,
+            ms=3.8,
+            color=color,
+            alpha=0.70,
+            label=f"{hypothesis_label(track)} ({status})",
+        )
+        ax.text(
+            track["tx_beam_time"][order][-1],
+            track["tx_beam_angle_deg"][order][-1],
+            hypothesis_label(track),
+            color=color,
+            fontsize=8,
+        )
+    ax.set_xlabel("Time since cut start (s)")
+    ax.set_ylabel("Angular separation from active TX beam (deg)")
+    ax.set_title("Per-pulse TX beam pointing consistency")
+    ax.grid(True, alpha=0.25)
+    ax.legend(loc="best", fontsize=8)
+
+    ax = axes[0, 1]
+    lobe_scored = [t for t in scored if "tx_lobe_distance_dc" in t]
+    for idx, track in enumerate(lobe_scored):
+        color, marker, status = track_style(track, idx)
+        t = np.asarray(track["tx_beam_time"], dtype=np.float64)
+        dist = np.asarray(track["tx_lobe_distance_dc"], dtype=np.float64)
+        good = np.isfinite(t) & np.isfinite(dist)
+        if np.count_nonzero(good) < 2:
+            continue
+        order = np.argsort(t[good])
+        tt = t[good][order]
+        dd = dist[good][order]
+        ax.plot(
+            tt,
+            dd,
+            linestyle="None",
+            marker=marker,
+            ms=3.8,
+            color=color,
+            alpha=0.70,
+            label=f"{hypothesis_label(track)} ({status})",
+        )
+        ax.text(tt[-1], dd[-1], hypothesis_label(track), color=color, fontsize=8)
+    ax.set_xlabel("Time since cut start (s)")
+    ax.set_ylabel("Nearest TX lobe centroid distance")
+    ax.set_title("Per-pulse nearest grating-lobe centroid distance")
+    ax.grid(True, alpha=0.25)
+    ax.legend(loc="best", fontsize=8)
+
+    ax = axes[1, 0]
+    x = np.arange(len(scored))
+    labels = [hypothesis_label(t) for t in scored]
+    rms = [t["tx_beam_weighted_rms_deg"] for t in scored]
+    colors = [track_style(t, i)[0] for i, t in enumerate(scored)]
+    bars = ax.bar(x, rms, color=colors, alpha=0.88, edgecolor="black", linewidth=0.7)
+    for bar, track in zip(bars, scored):
+        if track.get("combined_reject", False):
+            bar.set_hatch("//")
+    for xx, y in zip(x, rms):
+        ax.text(xx, y, f"{y:.1f}", ha="center", va="bottom", fontsize=8)
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, rotation=45, ha="right")
+    ax.set_xlabel("Path hypothesis")
+    ax.set_ylabel("SNR-weighted RMS beam angle (deg)")
+    ax.set_title("TX beam pointing score")
+    ax.grid(True, axis="y", alpha=0.25)
+
+    ax = axes[1, 1]
+    lobe_labels = [hypothesis_label(t) for t in lobe_scored]
+    lobe_x = np.arange(len(lobe_scored))
+    lobe_mean = [t.get("tx_lobe_snr_weighted_mean_dc", np.nan) for t in lobe_scored]
+    lobe_rms = [t.get("tx_lobe_snr_weighted_rms_dc", np.nan) for t in lobe_scored]
+    lobe_colors = [track_style(t, i)[0] for i, t in enumerate(lobe_scored)]
+    bars_mean = ax.bar(lobe_x - 0.18, lobe_mean, width=0.36, color=lobe_colors, alpha=0.88, edgecolor="black", label="mean")
+    bars_rms = ax.bar(lobe_x + 0.18, lobe_rms, width=0.36, color=lobe_colors, alpha=0.35, edgecolor="black", label="RMS")
+    for bars in (bars_mean, bars_rms):
+        for bar, track in zip(bars, lobe_scored):
+            if track.get("combined_reject", False):
+                bar.set_hatch("//")
+    for x, y in zip(lobe_x, lobe_mean):
+        if np.isfinite(y):
+            ax.text(x - 0.18, y, f"{y:.3f}", ha="center", va="bottom", fontsize=8, rotation=90)
+    ax.set_xticks(lobe_x)
+    ax.set_xticklabels(lobe_labels, rotation=45, ha="right")
+    ax.set_xlabel("Path hypothesis")
+    ax.set_ylabel("Direction-cosine distance")
+    ax.set_title("SNR-weighted nearest-lobe centroid distance")
+    ax.grid(True, axis="y", alpha=0.25)
+    ax.legend(fontsize=8)
+    fig.savefig(output, dpi=220)
+    plt.close(fig)
+
+
+def plot_tx_array_snr_consistency(tracks, output: Path):
+    """Plot full TX array-factor gain against range-corrected SNR for aliases."""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    scored = [t for t in tracks if "tx_array_snr_rms_db" in t]
+    scored.sort(key=lambda t: t.get("combined_rank", t.get("ballistic_rank", 999)))
+    if not scored:
+        return
+
+    cmap = plt.get_cmap("viridis")
+
+    def track_color(track):
+        if track.get("combined_reject", False):
+            return "tab:red"
+        denom = max(1, len(scored) - 1)
+        return cmap(track.get("combined_rank", track.get("ballistic_rank", 0)) / denom)
+
+    fig, axes = plt.subplots(1, 3, figsize=(15.2, 5.2), constrained_layout=True)
+
+    ax = axes[0]
+    for track in scored:
+        color = track_color(track)
+        good = np.isfinite(track["tx_array_gain_db"]) & np.isfinite(track["tx_array_range_corrected_snr_db"])
+        if np.count_nonzero(good) < 2:
+            continue
+        gain_rel = track["tx_array_gain_db"][good] - np.nanmedian(track["tx_array_gain_db"][good])
+        snr_rel = track["tx_array_range_corrected_snr_db"][good] - np.nanmedian(
+            track["tx_array_range_corrected_snr_db"][good]
+        )
+        ax.scatter(gain_rel, snr_rel, s=8, color=color, alpha=0.45)
+        ax.text(
+            np.nanmedian(gain_rel),
+            np.nanmedian(snr_rel),
+            hypothesis_label(track),
+            color=color,
+            fontsize=9,
+        )
+    lim = np.nanmax(np.abs(ax.axis())) if np.all(np.isfinite(ax.axis())) else 20.0
+    lim = max(5.0, min(40.0, lim))
+    ax.plot([-lim, lim], [-lim, lim], color="black", lw=1.0, ls="--")
+    ax.set_xlim(-lim, lim)
+    ax.set_ylim(-lim, lim)
+    ax.set_xlabel("Relative TX array-factor gain (dB)")
+    ax.set_ylabel("Relative range-corrected SNR (dB)")
+    ax.set_title("Amplitude consistency scatter")
+    ax.grid(True, alpha=0.25)
+
+    ax = axes[1]
+    ranks = [t.get("combined_rank", t.get("ballistic_rank", 999)) + 1 for t in scored]
+    rms = [t["tx_array_snr_rms_db"] for t in scored]
+    colors = [track_color(t) for t in scored]
+    ax.bar(ranks, rms, color=colors, alpha=0.85)
+    for x, y in zip(ranks, rms):
+        if np.isfinite(y):
+            ax.text(x, y, f"{y:.1f}", ha="center", va="bottom", fontsize=8)
+    ax.set_xlabel("Combined statistical candidate number")
+    ax.set_ylabel("Array-factor/SNR RMS mismatch (dB)")
+    ax.set_title("Lower is more amplitude-consistent")
+    ax.grid(True, axis="y", alpha=0.25)
+
+    ax = axes[2]
+    corr = [t["tx_array_snr_corr"] for t in scored]
+    gain_span = [t["tx_array_gain_span_db"] for t in scored]
+    sc = ax.scatter(rms, corr, c=gain_span, cmap="plasma", s=90)
+    for track, x, y in zip(scored, rms, corr):
+        ax.text(x, y, hypothesis_label(track), fontsize=8)
+    ax.axhline(0.0, color="black", lw=1.0, ls="--")
+    ax.set_xlabel("RMS mismatch (dB)")
+    ax.set_ylabel("SNR/gain correlation")
+    ax.set_title("Diagnostic strength and consistency")
+    ax.grid(True, alpha=0.25)
+    fig.colorbar(sc, ax=ax, label="Predicted gain span (dB)")
+
+    fig.savefig(output, dpi=220)
+    plt.close(fig)
+
+
+def plot_tx_array_snr_overlay(tracks, output: Path, n_best=3):
+    """Line-overlay TX array factor and range-corrected SNR for best fits."""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    ranked = [t for t in tracks if "tx_array_snr_rms_db" in t and "ballistic_rank" in t]
+    ranked.sort(key=lambda t: t["ballistic_rank"])
+    ranked = ranked[:n_best]
+    if not ranked:
+        return
+
+    fig, axes = plt.subplots(len(ranked), 1, figsize=(10.5, 3.0 * len(ranked)), sharex=True, constrained_layout=True)
+    if len(ranked) == 1:
+        axes = [axes]
+    colors = plt.get_cmap("tab10").colors
+
+    for ax, track in zip(axes, ranked):
+        t = np.asarray(track["tx_array_time"], dtype=np.float64)
+        gain_db = np.asarray(track["tx_array_gain_db"], dtype=np.float64)
+        snr_db = np.asarray(track["tx_array_range_corrected_snr_db"], dtype=np.float64)
+        good = np.isfinite(t) & np.isfinite(gain_db) & np.isfinite(snr_db)
+        if np.count_nonzero(good) < 2:
+            continue
+
+        t = t[good]
+        gain_rel = gain_db[good] - np.nanmedian(gain_db[good])
+        snr_rel = snr_db[good] - np.nanmedian(snr_db[good])
+        order = np.argsort(t)
+        color = colors[int(track["ballistic_rank"]) % len(colors)]
+
+        ax.plot(t[order], gain_rel[order], "-", color=color, lw=1.6, label="TX array-factor gain")
+        ax.plot(t[order], snr_rel[order], "-", color="black", lw=1.2, alpha=0.85, label="range-corrected SNR")
+        ax.axhline(0.0, color="0.5", lw=0.8, ls="--")
+        ax.set_ylabel("Relative level (dB)")
+        ax.set_title(
+            f"{hypothesis_label(track)}: ballistic rank {track['ballistic_rank']}, "
+            f"candidate {track.get('combined_rank', track['ballistic_rank']) + 1}, "
+            f"$\\chi^2_\\nu$={track['ballistic_reduced_chi2']:.3f}, "
+            f"RMS={track['tx_array_snr_rms_db']:.2f} dB, "
+            f"corr={track['tx_array_snr_corr']:.2f}"
+        )
+        ax.grid(True, alpha=0.25)
+        ax.legend(loc="upper right", fontsize=8)
+
+    axes[-1].set_xlabel("Time since cut start (s)")
+    fig.savefig(output, dpi=220)
+    plt.close(fig)
+
+
+def plot_tx_array_snr_overlay_by_beam(tracks, output: Path, n_best=3):
+    """Overlay TX gain and SNR separately for each active transmit beam."""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    ranked = [t for t in tracks if "tx_array_snr_rms_db" in t and "ballistic_rank" in t]
+    ranked.sort(key=lambda t: t["ballistic_rank"])
+    ranked = ranked[:n_best]
+    if not ranked:
+        return
+
+    beam_names = ["Zenith", "North", "East", "South", "West"]
+    fig, axes = plt.subplots(
+        len(ranked),
+        len(beam_names),
+        figsize=(18.0, 3.0 * len(ranked)),
+        sharex=False,
+        sharey=True,
+        constrained_layout=True,
+    )
+    if len(ranked) == 1:
+        axes = np.asarray([axes])
+    colors = plt.get_cmap("tab10").colors
+
+    for row, track in enumerate(ranked):
+        t = np.asarray(track["tx_array_time"], dtype=np.float64)
+        gain_db = np.asarray(track["tx_array_gain_db"], dtype=np.float64)
+        snr_db = np.asarray(track["tx_array_range_corrected_snr_db"], dtype=np.float64)
+        beam_id = np.asarray(track["tx_beam_id"], dtype=np.int64)
+        good_all = np.isfinite(t) & np.isfinite(gain_db) & np.isfinite(snr_db)
+        color = colors[int(track["ballistic_rank"]) % len(colors)]
+
+        for beam in range(len(beam_names)):
+            ax = axes[row, beam]
+            good = good_all & (beam_id == beam)
+            if np.count_nonzero(good) >= 2:
+                tt = t[good]
+                gain_rel = gain_db[good] - np.nanmedian(gain_db[good])
+                snr_rel = snr_db[good] - np.nanmedian(snr_db[good])
+                order = np.argsort(tt)
+                ax.plot(tt[order], gain_rel[order], "-", color=color, lw=1.5, label="TX gain")
+                ax.plot(tt[order], snr_rel[order], "-", color="black", lw=1.2, alpha=0.9, label="SNR")
+            ax.axhline(0.0, color="0.55", lw=0.8, ls="--")
+            ax.grid(True, alpha=0.25)
+            if row == 0:
+                ax.set_title(f"{beam}: {beam_names[beam]}")
+            if beam == 0:
+                ax.set_ylabel(
+                    f"{hypothesis_label(track)}\n"
+                    f"ballistic rank {track['ballistic_rank']}\n"
+                    f"$\\chi^2_\\nu$={track['ballistic_reduced_chi2']:.2f}\n"
+                    "Relative dB"
+                )
+            if row == len(ranked) - 1:
+                ax.set_xlabel("Time since cut start (s)")
+            if row == 0 and beam == len(beam_names) - 1:
+                ax.legend(loc="upper right", fontsize=8)
+
+    fig.suptitle("TX array-factor gain and range-corrected SNR by active transmit beam")
+    fig.savefig(output, dpi=220)
+    plt.close(fig)
+
+
+def plot_tx_array_snr_overlay_separate_by_beam(tracks, output_dir: Path, sample_idx: int, n_best=3):
+    """Write one TX-gain/SNR overlay file per hypothesis and transmit beam."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    ranked = [t for t in tracks if "tx_array_snr_rms_db" in t and "ballistic_rank" in t]
+    ranked.sort(key=lambda t: t["ballistic_rank"])
+    ranked = ranked[:n_best]
+    beam_names = ["Zenith", "North", "East", "South", "West"]
+    colors = plt.get_cmap("tab10").colors
+    paths = []
+
+    for track in ranked:
+        t = np.asarray(track["tx_array_time"], dtype=np.float64)
+        gain_db = np.asarray(track["tx_array_gain_db"], dtype=np.float64)
+        snr_db = np.asarray(track["tx_array_range_corrected_snr_db"], dtype=np.float64)
+        beam_id = np.asarray(track["tx_beam_id"], dtype=np.int64)
+        good_all = np.isfinite(t) & np.isfinite(gain_db) & np.isfinite(snr_db)
+        color = colors[int(track["ballistic_rank"]) % len(colors)]
+
+        for beam, beam_name in enumerate(beam_names):
+            good = good_all & (beam_id == beam)
+            if np.count_nonzero(good) < 2:
+                continue
+            tt = t[good]
+            gain_rel = gain_db[good] - np.nanmedian(gain_db[good])
+            snr_rel = snr_db[good] - np.nanmedian(snr_db[good])
+            order = np.argsort(tt)
+
+            fig, ax = plt.subplots(figsize=(8.2, 4.8), constrained_layout=True)
+            ax.plot(tt[order], gain_rel[order], "-", color=color, lw=1.8, label="TX array-factor gain")
+            ax.plot(tt[order], snr_rel[order], "-", color="black", lw=1.5, alpha=0.9, label="range-corrected SNR")
+            ax.axhline(0.0, color="0.55", lw=0.9, ls="--")
+            ax.set_xlabel("Time since cut start (s)")
+            ax.set_ylabel("Relative level within beam (dB)")
+            ax.set_title(
+                f"Sample {sample_idx}, {hypothesis_label(track)}, "
+                f"ballistic rank {track['ballistic_rank']}, "
+                f"TX beam {beam}: {beam_name}\n"
+                f"$\\chi^2_\\nu$={track['ballistic_reduced_chi2']:.3f}, "
+                f"beam RMS={track['tx_array_snr_rms_db_by_beam'][beam]:.2f} dB, "
+                f"beam corr={track['tx_array_snr_corr_by_beam'][beam]:.2f}, "
+                f"n={track['tx_array_snr_n_by_beam'][beam]}"
+            )
+            ax.grid(True, alpha=0.25)
+            ax.legend(loc="best", fontsize=9)
+            path = output_dir / (
+                f"pansy_interferometer_tx_array_snr_overlay_{sample_idx}"
+                f"_{hypothesis_label(track).lower()}_rank{track['ballistic_rank']}_beam{beam}_{beam_name.lower()}.png"
+            )
+            fig.savefig(path, dpi=220)
+            plt.close(fig)
+            paths.append(path)
+    return paths
+
+
+def state_at_first_detection_from_ballistic_track(track):
+    """Return fitted ENU state at the first-detection fit epoch."""
+    params = np.asarray(track["ballistic_params"], dtype=np.float64)
+    t_ref = float(track.get("ballistic_t_ref_s", 0.0))
+    state_enu_m_mps = np.asarray(params[:6], dtype=np.float64)
+    return state_enu_m_mps, t_ref, float(state_enu_m_mps[2] / 1e3)
+
+
+def orbit_for_candidate_track(track, sample_epoch_unix):
+    state_enu, epoch_offset_s, alt_km = state_at_first_detection_from_ballistic_track(track)
+    epoch_unix = float(sample_epoch_unix) + epoch_offset_s
+    state_gcrs = pbal.enu_state_to_gcrs(state_enu, epoch_unix)
+    r_km, v_km_s = porb.heliocentric_state_from_gcrs(state_gcrs, epoch_unix)
+    kepler = porb.kepler_from_state(r_km, v_km_s)
+    return {
+        "epoch_unix": epoch_unix,
+        "alt_km": alt_km,
+        "state_epoch": "first_detection",
+        "state_enu_m_mps": state_enu,
+        "state_gcrs_m_mps": state_gcrs,
+        "heliocentric_state_km_kms": np.concatenate([r_km, v_km_s]),
+        "kepler": kepler,
+    }
+
+
+def first_detection_gcrs_state_samples(track, sample_epoch_unix, n_samples=300, seed=20260615):
+    cov = np.asarray(track.get("ballistic_parameter_covariance", np.nan), dtype=np.float64)
+    params = np.asarray(track.get("ballistic_params", np.nan), dtype=np.float64)
+    if cov.shape != (7, 7) or params.shape != (7,) or not np.all(np.isfinite(cov)) or not np.all(np.isfinite(params)):
+        return np.empty((0, 6), dtype=np.float64)
+    cov = 0.5 * (cov + cov.T)
+    rng = np.random.default_rng(seed + int(track.get("hypothesis_id", 0)))
+    try:
+        draws = rng.multivariate_normal(params, cov, size=n_samples, check_valid="ignore")
+    except np.linalg.LinAlgError:
+        return np.empty((0, 6), dtype=np.float64)
+    t_ref = float(track.get("ballistic_t_ref_s", 0.0))
+    epoch_unix = float(sample_epoch_unix) + t_ref
+    states = []
+    for sample_params in draws:
+        if not np.all(np.isfinite(sample_params)):
+            continue
+        sample_params[2] = np.clip(sample_params[2], 20e3, 220e3)
+        sample_params[6] = np.clip(sample_params[6], -4.0, 6.0)
+        try:
+            state_gcrs = pbal.enu_state_to_gcrs(sample_params[:6], epoch_unix)
+        except Exception:
+            continue
+        if np.all(np.isfinite(state_gcrs)):
+            states.append(state_gcrs)
+    return np.asarray(states, dtype=np.float64)
+
+
+def orbit_uncertainty_for_candidate_track(track, sample_epoch_unix, nominal_kepler, n_samples=300, seed=20260615):
+    t_ref = float(track.get("ballistic_t_ref_s", 0.0))
+    epoch_unix = float(sample_epoch_unix) + t_ref
+    state_samples = first_detection_gcrs_state_samples(track, sample_epoch_unix, n_samples=n_samples, seed=seed)
+    samples = []
+    for state_gcrs in state_samples:
+        try:
+            r_km, v_km_s = porb.heliocentric_state_from_gcrs(state_gcrs, epoch_unix)
+            kep = porb.kepler_from_state(r_km, v_km_s)
+        except Exception:
+            continue
+        if np.all(np.isfinite(kep)):
+            samples.append(kep)
+    if not samples:
+        return np.full(7, np.nan), 0
+    std, _cov = porb.summarize_samples(np.asarray(samples), np.asarray(nominal_kepler, dtype=np.float64))
+    return std, len(samples)
+
+
+def write_candidate_orbit_state_h5(orbits, output_path, sample_epoch_unix, n_samples=300):
+    if output_path is None or not orbits:
+        return
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with h5py.File(output_path, "w") as h:
+        h.attrs["source_program"] = "plot_interferometric_disambiguation.py"
+        h.attrs["sample_epoch_unix"] = float(sample_epoch_unix)
+        h.attrs["reference_frame"] = "GCRS"
+        h.attrs["state_epoch"] = "first_detection"
+        h.attrs["state_units"] = "m,m,m,m/s,m/s,m/s"
+        h.attrs["ballistic_coefficient_parameter"] = "log10_beta_kg_m2"
+        h.attrs["orbit_note"] = "Input states for DASST zenithal-attraction removal; no above-atmosphere back-propagation."
+        for track, orbit in orbits:
+            label = hypothesis_label(track)
+            grp = h.create_group(label)
+            params = np.asarray(track.get("ballistic_params", np.full(7, np.nan)), dtype=np.float64)
+            param_std = np.asarray(track.get("ballistic_parameter_std", np.full(7, np.nan)), dtype=np.float64)
+            state_samples = first_detection_gcrs_state_samples(track, sample_epoch_unix, n_samples=n_samples)
+            grp.attrs["hypothesis_label"] = label
+            grp.attrs["hypothesis_id"] = int(track.get("hypothesis_id", -1))
+            grp.attrs["candidate_number"] = int(candidate_number(track))
+            grp.attrs["combined_rank"] = int(track.get("combined_rank", -1))
+            grp.attrs["combined_score"] = float(track.get("combined_score", np.nan))
+            grp.attrs["first_alt_km"] = float(orbit["alt_km"])
+            grp.attrs["epoch_unix"] = float(orbit["epoch_unix"])
+            grp.attrs["log10_beta_kg_m2"] = float(params[6]) if params.shape == (7,) else np.nan
+            grp.attrs["sigma_log10_beta"] = float(param_std[6]) if param_std.shape == (7,) else np.nan
+            grp.create_dataset("state_gcrs_m_mps", data=np.asarray(orbit["state_gcrs_m_mps"], dtype=np.float64))
+            grp.create_dataset("state_gcrs_samples_m_mps", data=state_samples)
+            grp.create_dataset("ballistic_params", data=params)
+            grp.create_dataset("ballistic_parameter_covariance", data=np.asarray(track.get("ballistic_parameter_covariance", np.full((7, 7), np.nan)), dtype=np.float64))
+    print(f"candidate_orbit_state_h5 {output_path}")
+
+
+def print_candidate_orbits(tracks, sample_epoch_unix, n_candidates=3, state_h5_path=None, n_samples=300):
+    """Compute and print preliminary orbital elements for top-ranked aliases."""
+    ranked = sorted(
+        [t for t in tracks if "combined_score" in t and "ballistic_params" in t],
+        key=lambda t: t["combined_rank"],
+    )
+    top = ranked[:n_candidates]
+    if not top:
+        return []
+
+    print(
+        "candidate_orbit_columns "
+        "hypothesis_id candidate_number combined_rank combined_score log10_beta_kg_m2 first_alt_km v_gcrs_km_s "
+        "a_au e i_deg raan_deg argp_deg nu_deg q_au"
+    )
+    print(
+        "candidate_orbit_uncertainty_columns "
+        "hypothesis_id n_samples sigma_log10_beta sigma_a_au sigma_e sigma_i_deg sigma_raan_deg "
+        "sigma_argp_deg sigma_nu_deg sigma_q_au"
+    )
+    orbits = []
+    for track in top:
+        orbit = orbit_for_candidate_track(track, sample_epoch_unix)
+        track["candidate_orbit"] = orbit
+        kep = orbit["kepler"]
+        kep_std, n_unc = orbit_uncertainty_for_candidate_track(track, sample_epoch_unix, kep, n_samples=n_samples)
+        orbit["kepler_std"] = kep_std
+        orbit["n_uncertainty_samples"] = int(n_unc)
+        gcrs_speed_km_s = np.linalg.norm(np.asarray(orbit["state_gcrs_m_mps"][3:], dtype=np.float64)) / 1e3
+        params = np.asarray(track.get("ballistic_params", np.full(7, np.nan)), dtype=np.float64)
+        param_std = np.asarray(track.get("ballistic_parameter_std", np.full(7, np.nan)), dtype=np.float64)
+        log10_beta = float(params[6]) if params.shape == (7,) else float("nan")
+        sigma_log10_beta = float(param_std[6]) if param_std.shape == (7,) else float("nan")
+        print(
+            "candidate_orbit",
+            hypothesis_label(track),
+            candidate_number(track),
+            track["combined_rank"],
+            f"{track['combined_score']:.3f}",
+            f"{log10_beta:.3f}",
+            f"{orbit['alt_km']:.3f}",
+            f"{gcrs_speed_km_s:.3f}",
+            f"{kep[0]:.6g}",
+            f"{kep[1]:.6f}",
+            f"{kep[2]:.3f}",
+            f"{kep[3]:.3f}",
+            f"{kep[4]:.3f}",
+            f"{kep[5]:.3f}",
+            f"{kep[6]:.6g}",
+        )
+        print(
+            "candidate_orbit_uncertainty",
+            hypothesis_label(track),
+            int(n_unc),
+            f"{sigma_log10_beta:.3f}",
+            f"{kep_std[0]:.6g}",
+            f"{kep_std[1]:.6f}",
+            f"{kep_std[2]:.3f}",
+            f"{kep_std[3]:.3f}",
+            f"{kep_std[4]:.3f}",
+            f"{kep_std[5]:.3f}",
+            f"{kep_std[6]:.6g}",
+        )
+        orbits.append((track, orbit))
+    write_candidate_orbit_state_h5(orbits, state_h5_path, sample_epoch_unix, n_samples=n_samples)
+    return orbits
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Plot PANSY interferometric alias disambiguation memo figures.")
+    parser.add_argument("--sample-idx", type=int, default=1746494797212678)
+    parser.add_argument("--cut-dir", type=Path, default=Path("data/metadata/cut"))
+    parser.add_argument("--output-dir", type=Path, default=Path("../pansy_paper/memos/figures"))
+    parser.add_argument("--grid-n", type=int, default=501)
+    parser.add_argument("--coherence-threshold", type=float, default=0.9)
+    parser.add_argument("--snr-threshold", type=float, default=9.0)
+    parser.add_argument("--linearity-angular-sigma-deg", type=float, default=0.25)
+    parser.add_argument("--linearity-range-sigma-km", type=float, default=0.15)
+    parser.add_argument("--linearity-p-threshold", type=float, default=0.01)
+    parser.add_argument("--ballistic-p-threshold", type=float, default=0.01)
+    parser.add_argument("--orbit-state-h5", type=Path, default=None)
+    parser.add_argument("--dasst-orbit-h5", type=Path, default=None)
+    parser.add_argument("--orbit-metadata-dir", type=Path, default=Path("data/metadata/orbit_metadata"))
+    parser.add_argument("--run-dasst", action="store_true", help="Run DASST orbit determination after writing candidate state HDF5.")
+    parser.add_argument("--orbit-samples", type=int, default=300, help="Number of covariance samples for DASST orbit uncertainty.")
+    parser.add_argument("--overview-only", action="store_true", help="Only write the final disambiguation overview and orbit HDF5 products.")
+    args = parser.parse_args()
+
+    disambiguation_summary_out = args.output_dir / f"pansy_interferometer_disambiguation_summary_{args.sample_idx}.png"
+    diagnostics_h5 = args.output_dir / f"pansy_disambiguation_diagnostics_{args.sample_idx}.h5"
+    try:
+        cut = load_cut(args.cut_dir, args.sample_idx)
+        obs_all = recompute_cut_observables(cut)
+    except Exception as exc:
+        plot_rejected_event_summary(
+            disambiguation_summary_out,
+            args.sample_idx,
+            "cut observable recomputation failed",
+            f"{type(exc).__name__}: {exc}",
+        )
+        write_rejected_disambiguation_diagnostics_h5(
+            diagnostics_h5,
+            args.sample_idx,
+            "cut_observable_recomputation_failed",
+            f"{type(exc).__name__}: {exc}",
+        )
+        print(disambiguation_summary_out)
+        print(diagnostics_h5)
+        print("single_echo_high_coherence_peaks 0")
+        print("all_high_coherence_candidates 0")
+        print("tx_lobe_centroid_counts 0 0 0 0 0")
+        print("path_hypotheses 0")
+        print("path_hypotheses_kept 0")
+        print("path_hypotheses_below_horizon 0")
+        print("path_hypotheses_wrapping 0")
+        print("path_hypotheses_linearity_rejected 0")
+        print("path_hypotheses_after_linearity 0")
+        print("path_hypotheses_low_detection_altitude_rejected 0")
+        print("path_hypotheses_after_detection_altitude 0")
+        print("path_hypotheses_descent_rejected 0")
+        print("path_hypotheses_after_descent 0")
+        print("path_hypotheses_low_start_altitude_rejected 0")
+        print("ballistic_sigma_pos_km nan")
+        print("ballistic_sigma_dop_km_s nan")
+        print("tx_pointing_score_used False")
+        print("combined_hypotheses_rejected 0")
+        print("combined_hypotheses_after 0")
+        print("event_rejected_reason cut_observable_recomputation_failed")
+        return
+    good = obs_all["snr"] > args.snr_threshold
+    obs = {
+        key: val[good] if isinstance(val, np.ndarray) and len(val) == len(good) else val
+        for key, val in obs_all.items()
+    }
+    if len(obs["snr"]) == 0:
+        plot_empty_event_summary(disambiguation_summary_out, args.sample_idx, int(len(obs_all["snr"])), args.snr_threshold)
+        write_rejected_disambiguation_diagnostics_h5(
+            diagnostics_h5,
+            args.sample_idx,
+            "no_measurements_above_snr_threshold",
+            f"{int(len(obs_all['snr']))} raw cut samples before SNR threshold {args.snr_threshold:g}",
+        )
+        print(disambiguation_summary_out)
+        print(diagnostics_h5)
+        print("single_echo_high_coherence_peaks 0")
+        print("all_high_coherence_candidates 0")
+        print("tx_lobe_centroid_counts 0 0 0 0 0")
+        print("path_hypotheses 0")
+        print("path_hypotheses_kept 0")
+        print("path_hypotheses_below_horizon 0")
+        print("path_hypotheses_wrapping 0")
+        print("path_hypotheses_linearity_rejected 0")
+        print("path_hypotheses_after_linearity 0")
+        print("path_hypotheses_low_detection_altitude_rejected 0")
+        print("path_hypotheses_after_detection_altitude 0")
+        print("path_hypotheses_descent_rejected 0")
+        print("path_hypotheses_after_descent 0")
+        print("path_hypotheses_low_start_altitude_rejected 0")
+        print("ballistic_sigma_pos_km nan")
+        print("ballistic_sigma_dop_km_s nan")
+        print("tx_pointing_score_used False")
+        print("combined_hypotheses_rejected 0")
+        print("combined_hypotheses_after 0")
+        print("event_rejected_reason no_measurements_above_snr_threshold")
+        return
+
+    antpos = pint.get_antpos()
+    ch_pairs = np.asarray(list(itertools.combinations(np.arange(7), 2)))
+    dmat = pint.pair_mat(ch_pairs, antpos)
+    phasecal = pint.get_phasecal()
+    u, v, w, valid = horizon_grid(args.grid_n)
+    steering, _uvw = steering_matrix(dmat, u, v, w, valid)
+    tx_gain_maps = precompute_tx_array_gain_maps(u, v, w, valid)
+    tx_lobe_centroids, tx_lobe_smoothed_maps = tx_grating_lobe_centroids_from_gain_maps(tx_gain_maps, u, v, valid)
+
+    strongest = int(np.argmax(obs["snr"]))
+    single = coherence_map(obs["xc"][strongest], int(obs["beam_id"][strongest]), phasecal, ch_pairs, steering, valid, u.shape)
+    peak_ij = local_coherence_peaks(single, args.coherence_threshold)
+
+    candidates = []
+    t_rel = obs["tx_idx"] / 1e6 - obs["tx_idx"][0] / 1e6
+    for i in range(len(obs["snr"])):
+        coh = coherence_map(obs["xc"][i], int(obs["beam_id"][i]), phasecal, ch_pairs, steering, valid, u.shape)
+        ii, jj = local_coherence_peaks(coh, args.coherence_threshold)
+        for row, col in zip(ii, jj):
+            candidates.append(
+                {
+                    "u": float(u[row, col]),
+                    "v": float(v[row, col]),
+                    "w": float(w[row, col]),
+                    "grid_row": int(row),
+                    "grid_col": int(col),
+                    "coherence": float(coh[row, col]),
+                    "t_rel": float(t_rel[i]),
+                    "pulse": int(i),
+                    "range_km": float(obs["range_km"][i]),
+                    "doppler_mps": float(obs["doppler_mps"][i]),
+                    "snr": float(obs["snr"][i]),
+                    "beam_id": int(obs["beam_id"][i]),
+                }
+            )
+
+    single_out = args.output_dir / f"pansy_interferometer_single_echo_{args.sample_idx}.png"
+    all_out = args.output_dir / f"pansy_interferometer_alias_candidates_{args.sample_idx}.png"
+    visibility_out = args.output_dir / f"pansy_interferometer_visibility_rejections_{args.sample_idx}.png"
+    linearity_out = args.output_dir / f"pansy_interferometer_linearity_rejections_{args.sample_idx}.png"
+    descent_out = args.output_dir / f"pansy_interferometer_descent_rejections_{args.sample_idx}.png"
+    ballistic_out = args.output_dir / f"pansy_interferometer_ballistic_ranking_{args.sample_idx}.png"
+    dasst_orbit_h5 = args.dasst_orbit_h5 or (args.output_dir / f"pansy_candidate_orbits_dasst_{args.sample_idx}.h5")
+    ballistic_horizontal_out = args.output_dir / f"pansy_interferometer_ballistic_horizontal_ranking_{args.sample_idx}.png"
+    tx_beam_out = args.output_dir / f"pansy_interferometer_tx_beam_consistency_{args.sample_idx}.png"
+    tx_array_snr_out = args.output_dir / f"pansy_interferometer_tx_array_snr_consistency_{args.sample_idx}.png"
+    tx_array_snr_overlay_out = args.output_dir / f"pansy_interferometer_tx_array_snr_overlay_{args.sample_idx}.png"
+    tx_array_snr_overlay_by_beam_out = args.output_dir / f"pansy_interferometer_tx_array_snr_overlay_by_beam_{args.sample_idx}.png"
+    tx_lobe_centroids_out = args.output_dir / "pansy_tx_grating_lobe_centroids.png"
+    antennas_out = args.output_dir / "pansy_interferometer_antenna_positions.png"
+    if not args.overview_only:
+        plot_antenna_positions(antennas_out)
+        plot_tx_grating_lobe_centroids(u, v, valid, tx_lobe_smoothed_maps, tx_lobe_centroids, tx_lobe_centroids_out)
+        plot_single_echo(u, v, single, peak_ij, obs, strongest, single_out)
+        plot_all_candidates(u, v, obs, candidates, all_out)
+    tracks = fit_candidate_tracks(candidates)
+    t_start = float(np.min(t_rel))
+    t_end = float(np.max(t_rel))
+    tracks = [classify_track_visibility(track, candidates, t_start, t_end) for track in tracks]
+    tracks = [
+        classify_track_linearity(
+            track,
+            candidates,
+            angular_sigma_deg=args.linearity_angular_sigma_deg,
+            range_sigma_km=args.linearity_range_sigma_km,
+            p_threshold=args.linearity_p_threshold,
+        )
+        if track["reason"] == "kept"
+        else track
+        for track in tracks
+    ]
+    tracks = [
+        classify_track_descent(track)
+        if track["reason"] == "kept"
+        and not track.get("linearity_reject", False)
+        and not track.get("low_detection_altitude_reject", False)
+        else track
+        for track in tracks
+    ]
+    sigma_pos, sigma_dop = fit_ballistic_survivors(
+        tracks,
+        candidates,
+        event_epoch_unix=args.sample_idx / 1e6,
+        p_threshold=args.ballistic_p_threshold,
+    )
+    score_tx_beam_consistency(tracks, candidates)
+    score_candidate_diagnostics(tracks, candidates, tx_gain_maps=tx_gain_maps, tx_lobe_centroids=tx_lobe_centroids)
+    tx_sigma = score_combined_hypotheses(tracks)
+    best = sorted([t for t in tracks if "combined_score" in t], key=lambda t: t["combined_rank"])
+    state_h5 = args.orbit_state_h5 or (args.output_dir / f"pansy_candidate_orbit_states_{args.sample_idx}.h5")
+    orbit_best = [t for t in best if "ballistic_params" in t]
+    if orbit_best:
+        print_candidate_orbits(orbit_best, args.sample_idx / 1e6, n_candidates=5, state_h5_path=state_h5, n_samples=args.orbit_samples)
+        if args.run_dasst and state_h5.exists():
+            cmd = [
+                sys.executable,
+                str(Path(__file__).with_name("dasst_orbits_from_candidate_states.py")),
+                str(state_h5),
+                "--output-h5",
+                str(dasst_orbit_h5),
+                "--metadata-dir",
+                str(args.orbit_metadata_dir),
+            ]
+            try:
+                subprocess.run(cmd, check=True)
+            except subprocess.CalledProcessError as exc:
+                print(f"dasst_failed sample_idx={args.sample_idx} returncode={exc.returncode}")
+    if not args.overview_only:
+        plot_visibility_rejections(candidates, tracks, visibility_out)
+        plot_linearity_rejections(candidates, tracks, linearity_out)
+        plot_descent_rejections(tracks, descent_out)
+        plot_ballistic_ranking(tracks, candidates, ballistic_out)
+        plot_ballistic_horizontal_ranking(tracks, candidates, ballistic_horizontal_out)
+        plot_tx_beam_consistency(tracks, tx_beam_out)
+        plot_tx_array_snr_consistency(tracks, tx_array_snr_out)
+        plot_tx_array_snr_overlay(tracks, tx_array_snr_overlay_out, n_best=3)
+        plot_tx_array_snr_overlay_by_beam(tracks, tx_array_snr_overlay_by_beam_out, n_best=3)
+        separate_overlay_paths = plot_tx_array_snr_overlay_separate_by_beam(
+            tracks,
+            args.output_dir / "tx_array_snr_overlays",
+            args.sample_idx,
+            n_best=3,
+        )
+    else:
+        separate_overlay_paths = []
+    plot_disambiguation_summary(candidates, tracks, disambiguation_summary_out, orbit_h5_path=dasst_orbit_h5)
+    write_disambiguation_diagnostics_h5(
+        candidates,
+        tracks,
+        diagnostics_h5,
+        args.sample_idx,
+        state_h5_path=state_h5,
+        dasst_orbit_h5_path=dasst_orbit_h5,
+        sigma_pos_km=sigma_pos,
+        sigma_dop_km_s=sigma_dop,
+    )
+
+    if not args.overview_only:
+        print(antennas_out)
+        print(tx_lobe_centroids_out)
+        print(single_out)
+        print(all_out)
+        print(visibility_out)
+        print(linearity_out)
+        print(descent_out)
+        print(ballistic_out)
+    print(disambiguation_summary_out)
+    if not args.overview_only:
+        print(ballistic_horizontal_out)
+        print(tx_beam_out)
+        print(tx_array_snr_out)
+        print(tx_array_snr_overlay_out)
+        print(tx_array_snr_overlay_by_beam_out)
+    for path in separate_overlay_paths:
+            print(path)
+    print(diagnostics_h5)
+    print(f"single_echo_high_coherence_peaks {len(peak_ij[0])}")
+    print(f"all_high_coherence_candidates {len(candidates)}")
+    print("tx_lobe_centroid_counts " + " ".join(str(len(c)) for c in tx_lobe_centroids))
+    print(f"path_hypotheses {len(tracks)}")
+    print(f"path_hypotheses_kept {sum(t['reason'] == 'kept' for t in tracks)}")
+    print(f"path_hypotheses_below_horizon {sum(t['reason'] == 'below horizon' for t in tracks)}")
+    print(f"path_hypotheses_wrapping {sum(t['reason'] == 'wraps' for t in tracks)}")
+    print(f"path_hypotheses_linearity_rejected {sum(t.get('linearity_reject', False) for t in tracks)}")
+    print(f"path_hypotheses_after_linearity {sum(t['reason'] == 'kept' and not t.get('linearity_reject', False) for t in tracks)}")
+    print(f"path_hypotheses_low_detection_altitude_rejected {sum(t.get('low_detection_altitude_reject', False) for t in tracks)}")
+    print(f"path_hypotheses_after_detection_altitude {sum(t['reason'] == 'kept' and not t.get('linearity_reject', False) and not t.get('low_detection_altitude_reject', False) for t in tracks)}")
+    print(f"path_hypotheses_descent_rejected {sum(t.get('descent_reject', False) for t in tracks)}")
+    print(f"path_hypotheses_after_descent {sum(t['reason'] == 'kept' and not t.get('linearity_reject', False) and not t.get('low_detection_altitude_reject', False) and not t.get('descent_reject', False) for t in tracks)}")
+    print(f"path_hypotheses_low_start_altitude_rejected {sum(t.get('ballistic_low_start_altitude_reject', False) for t in tracks)}")
+    print(f"ballistic_sigma_pos_km {sigma_pos:.4f}")
+    print(f"ballistic_sigma_dop_km_s {sigma_dop:.4f}")
+    print("tx_pointing_score_used False")
+    print(f"combined_hypotheses_rejected {sum(t.get('combined_reject', False) for t in tracks)}")
+    print(f"combined_hypotheses_after {sum(t['reason'] == 'kept' and not t.get('linearity_reject', False) and not t.get('descent_reject', False) and not t.get('combined_reject', False) for t in tracks)}")
+    print(
+        "hypothesis_status_columns "
+        "hypothesis reason unique_pulses below_horizon wraps linearity_reject "
+        "line_redchi line_rms_km line_max_km min_detect_alt_km low_detection_altitude_reject "
+        "descent_rate_km_s descent_reject speedup_flag start_alt_km low_start_altitude_reject "
+        "ballistic_rank combined_rank candidate"
+    )
+    for track in sorted(tracks, key=lambda t: t.get("hypothesis_id", 999)):
+        print(
+            "hypothesis_status",
+            hypothesis_label(track),
+            track.get("reason", "unknown"),
+            track.get("unique_pulses", 0),
+            track.get("below_horizon", False),
+            track.get("wraps", False),
+            track.get("linearity_reject", False),
+            f"{track.get('line_reduced_chi2', np.nan):.3f}" if "line_reduced_chi2" in track else "NA",
+            f"{track.get('line_rms_km', np.nan):.3f}" if "line_rms_km" in track else "NA",
+            f"{track.get('line_max_km', np.nan):.3f}" if "line_max_km" in track else "NA",
+            f"{track.get('detection_min_altitude_km', np.nan):.3f}" if "detection_min_altitude_km" in track else "NA",
+            track.get("low_detection_altitude_reject", False),
+            f"{track.get('descent_rate_km_s', np.nan):.3f}" if "descent_rate_km_s" in track else "NA",
+            track.get("descent_reject", False),
+            track.get("ballistic_speedup_flag", False),
+            f"{track.get('ballistic_start_altitude_km', np.nan):.3f}" if "ballistic_start_altitude_km" in track else "NA",
+            track.get("ballistic_low_start_altitude_reject", False),
+            track.get("ballistic_rank", "NA"),
+            track.get("combined_rank", "NA"),
+            candidate_number(track) if "combined_rank" in track else "NA",
+        )
+    for track in sorted(
+        [
+            t
+            for t in tracks
+            if t["reason"] == "kept" and not t.get("linearity_reject", False) and not t.get("descent_reject", False)
+            and "ballistic_keep" in t
+        ],
+        key=lambda t: t.get("ballistic_rank", 999),
+    ):
+        fit_keep = track["ballistic_keep"]
+        chi_pos = float(np.sum((track["ballistic_pos_res_km"][fit_keep] / sigma_pos) ** 2))
+        chi_dop = float(np.sum((track["ballistic_dop_res_km_s"][fit_keep] / sigma_dop) ** 2))
+        print(
+            "ballistic_rank",
+            track["ballistic_rank"],
+            "hypothesis",
+            hypothesis_label(track),
+            "candidate",
+            candidate_number(track) if "combined_rank" in track else "unranked",
+            "redchi",
+            f"{track['ballistic_reduced_chi2']:.3f}",
+            "chi_pos",
+            f"{chi_pos:.1f}",
+            "chi_dop",
+            f"{chi_dop:.1f}",
+            "pos_rms_km",
+            f"{track['ballistic_pos_rms_km']:.3f}",
+            "dop_rms_km_s",
+            f"{track['ballistic_dop_rms_km_s']:.3f}",
+            "start_alt_km",
+            f"{track.get('ballistic_start_altitude_km', np.nan):.3f}",
+            "low_start_alt_reject",
+            track.get("ballistic_low_start_altitude_reject", False),
+            "speed_slope_km_s2",
+            f"{track.get('ballistic_speed_slope_km_s2', np.nan):.3f}",
+            "speed_delta_km_s",
+            f"{track.get('ballistic_speed_delta_km_s', np.nan):.3f}",
+            "speedup_flag",
+            track.get("ballistic_speedup_flag", False),
+            "n_out",
+            track["ballistic_n_outliers"],
+            "ballistic_reject",
+            track["ballistic_reject"],
+        )
+    for track in sorted(
+        [t for t in tracks if "combined_score" in t and "ballistic_reduced_chi2" in t],
+        key=lambda t: t.get("combined_rank", 999),
+    ):
+        print(
+            "combined_rank",
+            track["combined_rank"],
+            "hypothesis",
+            hypothesis_label(track),
+            "candidate",
+            candidate_number(track),
+            "ballistic_rank",
+            track.get("ballistic_rank", "NA"),
+            "tx_beam_rank",
+            track.get("tx_beam_rank", "NA"),
+            "combined_score",
+            f"{track['combined_score']:.3f}",
+            "ballistic_term",
+            f"{track['ballistic_reduced_chi2']:.3f}" if "ballistic_reduced_chi2" in track else "NA",
+            "coh_mean",
+            f"{track.get('coherence_weighted_mean', np.nan):.3f}",
+            "tx_af_snr_rms_db",
+            f"{track.get('tx_array_snr_rms_db', np.nan):.2f}",
+            "tx_af_snr_corr",
+            f"{track.get('tx_array_snr_corr', np.nan):.3f}",
+            "tx_af_gain_span_db",
+            f"{track.get('tx_array_gain_span_db', np.nan):.2f}",
+            "tx_rms_deg_diagnostic",
+            f"{track.get('tx_beam_weighted_rms_deg', np.nan):.2f}",
+            "tx_beam_mean_dc",
+            f"{track.get('tx_beam_snr_weighted_mean_dc', np.nan):.4f}",
+            "tx_beam_rms_dc",
+            f"{track.get('tx_beam_snr_weighted_rms_dc', np.nan):.4f}",
+            "tx_lobe_mean_dc",
+            f"{track.get('tx_lobe_snr_weighted_mean_dc', np.nan):.4f}",
+            "tx_lobe_rms_dc",
+            f"{track.get('tx_lobe_snr_weighted_rms_dc', np.nan):.4f}",
+            "speedup_flag",
+            track.get("ballistic_speedup_flag", False),
+            "low_start_alt_reject",
+            track.get("ballistic_low_start_altitude_reject", False),
+            "reject",
+            track["combined_reject"],
+        )
+        if "tx_array_snr_corr_by_beam" in track:
+            corr = track["tx_array_snr_corr_by_beam"]
+            rms = track["tx_array_snr_rms_db_by_beam"]
+            n_by_beam = track["tx_array_snr_n_by_beam"]
+            print(
+                "tx_af_snr_by_beam",
+                "combined_rank",
+                track["combined_rank"],
+                "corr",
+                ",".join(f"{x:.3f}" if np.isfinite(x) else "nan" for x in corr),
+                "rms_db",
+                ",".join(f"{x:.2f}" if np.isfinite(x) else "nan" for x in rms),
+                "n",
+                ",".join(str(int(x)) for x in n_by_beam),
+            )
+        if "tx_lobe_snr_weighted_mean_dc_by_beam" in track:
+            lobe = track["tx_lobe_snr_weighted_mean_dc_by_beam"]
+            n_by_beam = track["tx_lobe_n_by_beam"]
+            print(
+                "tx_lobe_distance_by_beam",
+                "combined_rank",
+                track["combined_rank"],
+                "mean_dc",
+                ",".join(f"{x:.4f}" if np.isfinite(x) else "nan" for x in lobe),
+                "n",
+                ",".join(str(int(x)) for x in n_by_beam),
+            )
+    if len(best) > 1:
+        print(f"combined_delta_best_second {best[0]['combined_delta_to_next']:.3f}")
+        print(f"combined_odds_best_vs_second {best[0]['combined_odds_best_vs_second']:.3f}")
+
+
+if __name__ == "__main__":
+    main()
