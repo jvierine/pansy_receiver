@@ -165,7 +165,7 @@ class range_doppler_search:
 
         drg=c.c/2/1e6/1e3
         self.rangev=self.rg*drg
-        self.frad=47.5e6
+        self.frad=pc.freq
         self.fvec=n.fft.fftshift(n.fft.fftfreq(self.fftlen,d=self.fdec/(interp*1e6)))
         self.dopv=self.fvec*c.c/2.0/self.frad
 
