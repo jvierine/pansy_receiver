@@ -34,6 +34,9 @@ class PipelineConfig:
     target_alt_km: float
 
 
+STANDARD_PIPELINE_NAME = "interferometric_disambiguation_v1"
+
+
 def sample_utc(sample_idx: int) -> str:
     return dt.datetime.fromtimestamp(sample_idx / 1e6, tz=dt.timezone.utc).isoformat(timespec="milliseconds")
 
@@ -122,14 +125,18 @@ def build_candidates(obs: dict, context: dict, coherence_threshold: float) -> tu
     return candidates, peak_ij, single
 
 
-def analyze_event(sample_idx: int, config: PipelineConfig, context: dict, make_event_plots: bool = True) -> dict:
-    cut = load_cut(config.cut_dir, sample_idx)
-    obs_all = recompute_cut_observables(cut)
-    good = obs_all["snr"] > config.snr_threshold
-    obs = {
+def filter_observations_by_snr(obs_all: dict, snr_threshold: float) -> dict:
+    """Keep pulse-wise cut observables above the standard SNR threshold."""
+    good = obs_all["snr"] > snr_threshold
+    return {
         key: val[good] if isinstance(val, np.ndarray) and len(val) == len(good) else val
         for key, val in obs_all.items()
     }
+
+
+def run_standard_disambiguation(obs_all: dict, sample_idx: int, config: PipelineConfig, context: dict) -> dict:
+    """Run the standard interferometric meteor-cut disambiguation pipeline."""
+    obs = filter_observations_by_snr(obs_all, config.snr_threshold)
     if len(obs["snr"]) < 10:
         raise RuntimeError(f"only {len(obs['snr'])} pulses above SNR threshold")
 
@@ -174,6 +181,34 @@ def analyze_event(sample_idx: int, config: PipelineConfig, context: dict, make_e
 
     for track in ranked[:3]:
         track["candidate_orbit"] = disamb.orbit_for_candidate_track(track, sample_idx / 1e6)
+
+    return {
+        "pipeline": STANDARD_PIPELINE_NAME,
+        "obs": obs,
+        "candidates": candidates,
+        "peak_ij": peak_ij,
+        "single": single,
+        "tracks": tracks,
+        "ranked": ranked,
+        "sigma_pos": sigma_pos,
+        "sigma_dop": sigma_dop,
+        "tx_sigma": tx_sigma,
+    }
+
+
+def analyze_event(sample_idx: int, config: PipelineConfig, context: dict, make_event_plots: bool = True) -> dict:
+    cut = load_cut(config.cut_dir, sample_idx)
+    obs_all = recompute_cut_observables(cut)
+    result = run_standard_disambiguation(obs_all, sample_idx, config, context)
+    obs = result["obs"]
+    candidates = result["candidates"]
+    peak_ij = result["peak_ij"]
+    single = result["single"]
+    tracks = result["tracks"]
+    ranked = result["ranked"]
+    sigma_pos = result["sigma_pos"]
+    sigma_dop = result["sigma_dop"]
+    tx_sigma = result["tx_sigma"]
 
     event_dir = config.output_dir / str(sample_idx)
     if make_event_plots:

@@ -54,12 +54,13 @@ def run_one(sample_idx: int, args, rank: int) -> tuple[bool, float, Path]:
         "--snr-threshold",
         str(args.snr_threshold),
         "--overview-only",
-        "--run-dasst",
         "--orbit-samples",
         str(args.orbit_samples),
         "--orbit-metadata-dir",
         str(args.orbit_metadata_dir),
     ]
+    if args.run_dasst:
+        cmd.append("--run-dasst")
     env = os.environ.copy()
     env.setdefault("OMP_NUM_THREADS", "1")
     env.setdefault("OPENBLAS_NUM_THREADS", "1")
@@ -82,6 +83,7 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--orbit-samples", type=int, default=20)
     parser.add_argument("--orbit-metadata-dir", type=Path, default=Path("data/metadata/orbit_metadata"))
+    parser.add_argument("--run-dasst", action="store_true", help="Run DASST for the winning hypothesis when the local DASST module is available.")
     parser.add_argument("--skip-existing", action="store_true")
     args = parser.parse_args()
 

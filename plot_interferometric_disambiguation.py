@@ -13,10 +13,10 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import h5py
 import numpy as np
+import scipy.constants as sc
 import scipy.ndimage as ndi
 import scipy.optimize as opt
 import scipy.stats as st
-from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 import pansy_interferometry as pint
 import pansy_config as pc
@@ -260,6 +260,248 @@ def winning_track_for_rti(tracks):
     return None
 
 
+def circular_phase_residual(observed_phase_rad, model_phase_rad):
+    return np.angle(np.exp(1j * observed_phase_rad) * np.exp(-1j * model_phase_rad))
+
+
+def ballistic_covariance_band(track, t, event_epoch_unix, observable):
+    """Linearized 95% band for a scalar observable of the ballistic state."""
+    params = np.asarray(track.get("ballistic_params", []), dtype=np.float64)
+    cov = np.asarray(track.get("ballistic_parameter_covariance", []), dtype=np.float64)
+    if params.shape != (7,) or cov.shape != (7, 7) or not np.all(np.isfinite(cov)):
+        return None
+    try:
+        rho_of_alt_m, _meta = pbal.density_interpolator(event_epoch_unix)
+    except Exception:
+        return None
+    steps = np.array([10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 1e-4], dtype=np.float64)
+    steps = np.maximum(steps, np.abs(params) * 1e-5)
+    jac = np.empty((len(t), len(params)), dtype=np.float64)
+    for i, step in enumerate(steps):
+        p_hi = params.copy()
+        p_lo = params.copy()
+        p_hi[i] += step
+        p_lo[i] -= step
+        try:
+            hi_pos, _hi_vel, _hi_beta, _ = propagate_drag_model(p_hi, t, rho_of_alt_m)
+            lo_pos, _lo_vel, _lo_beta, _ = propagate_drag_model(p_lo, t, rho_of_alt_m)
+            hi_vel = _hi_vel
+            lo_vel = _lo_vel
+        except Exception:
+            return None
+        if observable == "range":
+            hi_val = np.linalg.norm(hi_pos, axis=1)
+            lo_val = np.linalg.norm(lo_pos, axis=1)
+        elif observable == "doppler":
+            hi_rng = np.linalg.norm(hi_pos, axis=1)
+            lo_rng = np.linalg.norm(lo_pos, axis=1)
+            hi_val = np.sum(hi_pos * hi_vel, axis=1) / np.maximum(hi_rng, 1e-9)
+            lo_val = np.sum(lo_pos * lo_vel, axis=1) / np.maximum(lo_rng, 1e-9)
+        else:
+            raise ValueError(f"unknown observable {observable}")
+        jac[:, i] = (hi_val - lo_val) / (2.0 * step)
+    sigma2 = np.einsum("ij,jk,ik->i", jac, cov, jac)
+    sigma = np.sqrt(np.maximum(sigma2, 0.0))
+    sigma[~np.isfinite(sigma)] = np.nan
+    return 1.96 * sigma
+
+
+def range_uncertainty_from_ballistic_covariance(track, t, event_epoch_unix):
+    return ballistic_covariance_band(track, t, event_epoch_unix, "range")
+
+
+def doppler_uncertainty_from_ballistic_covariance(track, t, event_epoch_unix):
+    return ballistic_covariance_band(track, t, event_epoch_unix, "doppler")
+
+
+KEPLER_LABELS = ("a", "e", "i", "raan", "argp", "nu", "q")
+KEPLER_UNITS = ("AU", "", "deg", "deg", "deg", "deg", "AU")
+
+
+def read_dasst_orbit_group(orbit_h5_path: Path | None, hypothesis: str):
+    if orbit_h5_path is None or not Path(orbit_h5_path).exists():
+        return None
+    try:
+        with h5py.File(orbit_h5_path, "r") as h:
+            if hypothesis not in h:
+                return None
+            grp = h[hypothesis]
+            return {
+                "source": "DASST orbit",
+                "kepler": grp["kepler"][()],
+                "kepler_std": grp["kepler_std"][()] if "kepler_std" in grp else np.full(7, np.nan),
+                "kepler_samples": grp["kepler_samples"][()] if "kepler_samples" in grp else np.empty((0, 7)),
+                "frac_e_gt_1": float(grp.attrs.get("frac_e_gt_1", np.nan)),
+            }
+    except Exception:
+        return None
+
+
+def candidate_orbit_result(track):
+    orbit = track.get("candidate_orbit") if track is not None else None
+    if not orbit:
+        return None
+    kep = np.asarray(orbit.get("kepler", np.full(7, np.nan)), dtype=np.float64)
+    std = np.asarray(orbit.get("kepler_std", np.full(7, np.nan)), dtype=np.float64)
+    if kep.shape != (7,):
+        return None
+    return {
+        "source": "preliminary orbit",
+        "kepler": kep,
+        "kepler_std": std if std.shape == (7,) else np.full(7, np.nan),
+        "kepler_samples": np.empty((0, 7)),
+        "frac_e_gt_1": np.nan,
+    }
+
+
+def orbit_result_for_track(orbit_h5_path: Path | None, track):
+    hypothesis = hypothesis_label(track) if track is not None else "H03"
+    return read_dasst_orbit_group(orbit_h5_path, hypothesis) or candidate_orbit_result(track)
+
+
+def format_kepler_lines(result):
+    if result is None:
+        return []
+    kep = np.asarray(result["kepler"], dtype=np.float64)
+    std = np.asarray(result.get("kepler_std", np.full(7, np.nan)), dtype=np.float64)
+    lines = [str(result.get("source", "orbit"))]
+    for i, (label, unit) in enumerate(zip(KEPLER_LABELS, KEPLER_UNITS)):
+        value = kep[i] if i < len(kep) else np.nan
+        sigma = std[i] if i < len(std) else np.nan
+        unit_text = f" {unit}" if unit else ""
+        if np.isfinite(sigma):
+            lines.append(f"  {label:<5} {value:12.5g} +/- {sigma:.2g}{unit_text}")
+        else:
+            lines.append(f"  {label:<5} {value:12.5g}{unit_text}")
+    frac_e_gt_1 = float(result.get("frac_e_gt_1", np.nan))
+    if np.isfinite(frac_e_gt_1):
+        lines.append(f"  P(e>1) {frac_e_gt_1:12.3f}")
+    return lines
+
+
+def summary_orbit_text(orbit_h5_path: Path | None, track):
+    result = orbit_result_for_track(orbit_h5_path, track)
+    return "\n".join(format_kepler_lines(result))
+
+
+def plot_best_range_fit_panel(ax, winner, competitors, event_epoch_unix, annotate_panel):
+    if winner is None or "ballistic_model" not in winner:
+        annotate_panel(ax, "No ballistic winner available")
+        ax.set_title("1b. Range fit")
+        ax.set_xlabel("Time since cut start (s)")
+        ax.set_ylabel("Range (km)")
+        return
+    for track in competitors:
+        if track is winner or "ballistic_model" not in track or "ballistic_t" not in track:
+            continue
+        t_alt = np.asarray(track["ballistic_t"], dtype=np.float64)
+        model_alt = np.asarray(track["ballistic_model"], dtype=np.float64)
+        if len(t_alt) == 0 or len(model_alt) != len(t_alt):
+            continue
+        order_alt = np.argsort(t_alt)
+        ax.plot(
+            t_alt[order_alt],
+            np.linalg.norm(model_alt, axis=1)[order_alt],
+            color="0.70",
+            lw=1.0,
+            ls="--" if track.get("combined_reject", False) else "-",
+            alpha=0.72,
+            zorder=1,
+        )
+        if len(order_alt):
+            ax.text(
+                t_alt[order_alt][-1],
+                np.linalg.norm(model_alt, axis=1)[order_alt][-1],
+                hypothesis_label(track),
+                fontsize=6.5,
+                color="0.55",
+                ha="left",
+                va="center",
+                clip_on=True,
+            )
+    t = np.asarray(winner["ballistic_t"], dtype=np.float64)
+    order = np.argsort(t)
+    points = np.asarray(winner["fit_points"], dtype=np.float64)
+    model = np.asarray(winner["ballistic_model"], dtype=np.float64)
+    keep = np.asarray(winner.get("ballistic_keep", np.ones(len(t), dtype=bool)), dtype=bool)
+    measured_range = np.linalg.norm(points, axis=1)
+    model_range = np.linalg.norm(model, axis=1)
+    band_95 = range_uncertainty_from_ballistic_covariance(winner, t, event_epoch_unix)
+
+    ax.plot(t[order], measured_range[order], ".", ms=8.0, color="0.25", alpha=0.55, label="measurements", zorder=100)
+    if np.any(~keep):
+        out = order[~keep[order]]
+        ax.plot(t[out], measured_range[out], "x", ms=9.6, color="tab:red", alpha=0.85, label="clipped", zorder=101)
+    ax.plot(t[order], model_range[order], "-", lw=2.0, color="black", label=f"{hypothesis_label(winner)} best fit", zorder=5)
+    if band_95 is not None and np.any(np.isfinite(band_95)):
+        lo = model_range - band_95
+        hi = model_range + band_95
+        ax.fill_between(t[order], lo[order], hi[order], color="black", alpha=0.15, linewidth=0.0, label="95% fit region", zorder=2)
+    ax.set_xlabel("Time since cut start (s)")
+    ax.set_ylabel("Range (km)")
+    ax.set_title("1b. Range measurements and best fit")
+    ax.grid(True, alpha=0.25)
+    ax.legend(fontsize=7, loc="best")
+
+
+def plot_best_fit_summary_panel(ax, winner, orbit_h5_path, annotate_panel):
+    ax.axis("off")
+    if winner is None or "ballistic_params" not in winner:
+        annotate_panel(ax, "No ballistic fit summary available")
+        ax.set_title("2b. Fit summary")
+        return
+    params = np.asarray(winner.get("ballistic_params", np.full(7, np.nan)), dtype=np.float64)
+    std = np.asarray(winner.get("ballistic_parameter_std", np.full(7, np.nan)), dtype=np.float64)
+    points = np.asarray(winner.get("fit_points", np.empty((0, 3))), dtype=np.float64)
+    model = np.asarray(winner.get("ballistic_model", np.empty((0, 3))), dtype=np.float64)
+    keep = np.asarray(winner.get("ballistic_keep", np.ones(len(points), dtype=bool)), dtype=bool)
+    range_res_m = np.full(len(points), np.nan)
+    if len(points) and len(model) == len(points):
+        range_res_m = (np.linalg.norm(points, axis=1) - np.linalg.norm(model, axis=1)) * 1e3
+    kept_range = range_res_m[keep] if len(range_res_m) == len(keep) else range_res_m
+    kept_range = kept_range[np.isfinite(kept_range)]
+    range_rms_m = float(np.sqrt(np.mean(kept_range**2))) if len(kept_range) else np.nan
+    beta = float(winner.get("ballistic_coefficient_kg_m2", np.nan))
+    beta_sigma = np.log(10.0) * beta * std[6] if std.shape == (7,) and np.isfinite(beta) else np.nan
+    speed_km_s = np.linalg.norm(params[3:6]) / 1e3
+    speed_sigma_km_s = np.linalg.norm(std[3:6]) / 1e3 if std.shape == (7,) else np.nan
+    lines = [
+        f"Alias                 {hypothesis_label(winner)}  candidate {candidate_number(winner)}",
+        f"Alias ranking fit     {winner.get('ballistic_model_type', 'msis_drag')}",
+        f"Trajectory model      {winner.get('physics_best_model_label', winner.get('physics_best_model', 'not fit'))}",
+        f"Combined rank/score   {winner.get('combined_rank', -1)} / {winner.get('combined_score', np.nan):.3g}",
+        f"N kept / clipped      {winner.get('ballistic_n', 0)} / {winner.get('ballistic_n_outliers', 0)}",
+        "",
+        f"chi2 / dof            {winner.get('ballistic_chi2', np.nan):.1f} / {winner.get('ballistic_dof', 0)}",
+        f"reduced chi2          {winner.get('ballistic_reduced_chi2', np.nan):.3g}",
+        f"position RMS          {winner.get('ballistic_pos_rms_km', np.nan):.3g} km",
+        f"range RMS             {range_rms_m:.3g} m",
+        f"Doppler RMS           {winner.get('ballistic_dop_rms_km_s', np.nan) * 1e3:.3g} m/s",
+        "",
+        f"h0                    {params[2] / 1e3:.3f} +/- {std[2] / 1e3:.3f} km",
+        f"|v0|                  {speed_km_s:.3f} +/- {speed_sigma_km_s:.3f} km/s",
+        f"vE,vN,vU              {params[3]/1e3:.2f} {params[4]/1e3:.2f} {params[5]/1e3:.2f} km/s",
+        f"beta                  {beta:.3g} +/- {beta_sigma:.2g} kg/m2",
+    ]
+    if "physics_bic_fixed_velocity" in winner:
+        lines.extend(
+            [
+                "",
+                "Trajectory model BIC",
+                f"  fixed velocity       {winner.get('physics_bic_fixed_velocity', np.nan):.3g}",
+                f"  fixed CdA/m          {winner.get('physics_bic_fixed_am', np.nan):.3g}",
+                f"  shrinking radius     {winner.get('physics_bic_shrinking_radius', np.nan):.3g}",
+            ]
+        )
+    elif "physics_model_error" in winner:
+        lines.extend(["", f"Trajectory model fit failed: {winner['physics_model_error']}"])
+    orbit_line = summary_orbit_text(orbit_h5_path, winner)
+    if orbit_line:
+        lines.extend(["", orbit_line.replace("\n", "\n")])
+    ax.text(0.02, 0.98, "\n".join(lines), ha="left", va="top", transform=ax.transAxes, family="monospace", fontsize=8.5)
+    ax.set_title("2b. Best-fit summary")
+
+
 def doppler_series_for_rti(obs, tracks, fit_t0_s=None):
     """Best available per-pulse Doppler for Doppler-sliced RTI."""
     doppler_mps = np.asarray(obs["doppler_mps"], dtype=np.float64).copy()
@@ -281,6 +523,98 @@ def doppler_series_for_rti(obs, tracks, fit_t0_s=None):
         doppler_mps[:] = pred[good][0]
         return doppler_mps, f"{hypothesis_label(track)} ballistic Doppler"
     return doppler_mps, "measured peak Doppler"
+
+
+def pulse_pair_phase_from_cut(obs, cut, interp=1):
+    """Build same-beam pulse-pair phase from matched-filter bins.
+
+    The already-determined range/Doppler peak of the earlier pulse selects the
+    bin.  The later same-beam pulse is evaluated at that exact bin, using its
+    own transmit pulse, so the phase observable is repeatable and tied to the
+    initial within-pulse Doppler pick.
+    """
+    z_rx = np.asarray(cut["zrx_echoes_re"], dtype=np.complex64) + 1j * np.asarray(cut["zrx_echoes_im"], dtype=np.complex64)
+    z_tx = np.asarray(cut["ztx_pulses_re"], dtype=np.complex64) + 1j * np.asarray(cut["ztx_pulses_im"], dtype=np.complex64)
+    scale = amp_scale()
+    for i in range(z_rx.shape[1]):
+        z_rx[:, i, :] *= scale[i]
+
+    rds = RangeDopplerSearch(
+        txlen=z_tx.shape[1],
+        echolen=z_rx.shape[2],
+        n_channels=z_rx.shape[1],
+        interp=interp,
+    )
+    zf_by_pulse = []
+    for pulse in range(z_rx.shape[0]):
+        txi = np.repeat(z_tx[pulse, :], interp)
+        zf_channels = []
+        for chi in range(z_rx.shape[1]):
+            zr = np.repeat(z_rx[pulse, chi, :], interp)
+            z = zr[rds.idx_mat] * txi[None, :]
+            zd = rds.decim(z)
+            zf = np.fft.fftshift(np.fft.fft(zd, rds.fftlen, axis=1), axes=1)
+            zf_channels.append(zf)
+        zf_by_pulse.append(zf_channels)
+
+    tx_idx = np.asarray(obs["tx_idx"], dtype=np.float64)
+    beam_id = np.asarray(obs["beam_id"], dtype=np.int64)
+    doppler_mps = np.asarray(obs["doppler_mps"], dtype=np.float64)
+    range_km = np.asarray(obs["range_km"], dtype=np.float64)
+    snr = np.asarray(obs["snr"], dtype=np.float64)
+    delays = np.asarray(cut["delays"], dtype=np.float64)
+    drg_km = sc.c / 1e6 / 2.0 / 1e3 / interp
+    peak_rg = np.rint(range_km / drg_km - delays).astype(np.int64)
+    peak_di = np.asarray([int(np.argmin(np.abs(rds.dopv - dop))) for dop in doppler_mps], dtype=np.int64)
+    tx_time_s = tx_idx / 1e6
+
+    zpp = np.full(len(tx_idx), np.nan + 1j * np.nan, dtype=np.complex64)
+    phase_dt_s = np.full(len(tx_idx), np.nan, dtype=np.float64)
+    coarse_phase_rad = np.full(len(tx_idx), np.nan, dtype=np.float64)
+    pair_snr = np.full(len(tx_idx), np.nan, dtype=np.float64)
+    prev_t_rel = np.full(len(tx_idx), np.nan, dtype=np.float64)
+    prev_pulse = np.full(len(tx_idx), -1, dtype=np.int64)
+
+    for beam in np.unique(beam_id):
+        idx = np.where(beam_id == beam)[0]
+        idx = idx[np.argsort(tx_time_s[idx])]
+        for prev_i, cur_i in zip(idx[:-1], idx[1:]):
+            dt_s = tx_time_s[cur_i] - tx_time_s[prev_i]
+            if not np.isfinite(dt_s) or dt_s <= 0.0:
+                continue
+            rg = peak_rg[prev_i]
+            di = peak_di[prev_i]
+            if rg < 0 or rg >= rds.n_rg or di < 0 or di >= rds.fftlen:
+                continue
+            cross = 0.0j
+            for chi in range(z_rx.shape[1]):
+                cross += zf_by_pulse[prev_i][chi][rg, di] * np.conj(zf_by_pulse[cur_i][chi][rg, di])
+            if not np.isfinite(cross.real) or not np.isfinite(cross.imag) or np.abs(cross) == 0.0:
+                continue
+            zpp[cur_i] = cross / np.abs(cross)
+            phase_dt_s[cur_i] = dt_s
+            coarse_hz = 2.0 * doppler_mps[prev_i] / pc.wavelength
+            coarse_phase_rad[cur_i] = np.angle(np.exp(-1j * 2.0 * np.pi * coarse_hz * dt_s))
+            pair_snr[cur_i] = min(snr[prev_i], snr[cur_i])
+            prev_t_rel[cur_i] = tx_time_s[prev_i] - tx_time_s[0]
+            prev_pulse[cur_i] = prev_i
+    return zpp, phase_dt_s, coarse_phase_rad, pair_snr, prev_t_rel, prev_pulse
+
+
+def add_pulse_pair_phase_observables(obs, cut):
+    """Add wrapped same-beam pulse-to-pulse phase samples to cut observables."""
+    zpp, phase_dt_s, coarse_phase_rad, pair_snr, prev_t_rel, prev_pulse = pulse_pair_phase_from_cut(obs, cut, interp=1)
+    obs = dict(obs)
+    obs["zpp"] = zpp
+    obs["zpp_phase_rad"] = np.angle(zpp)
+    obs["zpp_phase_dt_s"] = phase_dt_s
+    obs["zpp_doppler_mps"] = -obs["zpp_phase_rad"] * pc.wavelength / (4.0 * np.pi * phase_dt_s)
+    obs["zpp_coarse_phase_rad"] = coarse_phase_rad
+    obs["zpp_coarse_doppler_mps"] = -coarse_phase_rad * pc.wavelength / (4.0 * np.pi * phase_dt_s)
+    obs["zpp_pair_snr"] = pair_snr
+    obs["zpp_prev_t_rel"] = prev_t_rel
+    obs["zpp_prev_pulse"] = prev_pulse
+    return obs
 
 
 def matched_filter_rti_at_doppler(cut, doppler_mps, interp=1):
@@ -995,6 +1329,160 @@ def ballistic_residuals(params, t, points, doppler_km_s, rho_of_alt_m, sigma_pos
     return np.concatenate([pos_res, dop_res])
 
 
+def model_pulse_pair_phase(params, t_now, t_prev, rho_of_alt_m):
+    t_eval = np.concatenate([t_prev, t_now])
+    model, _vel, _beta, _t_ref = propagate_drag_model(params, t_eval, rho_of_alt_m)
+    n_pair = len(t_now)
+    prev = model[:n_pair]
+    cur = model[n_pair:]
+    range_delta_m = (np.linalg.norm(prev, axis=1) - np.linalg.norm(cur, axis=1)) * 1e3
+    return np.exp(-1j * 4.0 * np.pi * range_delta_m / pc.wavelength)
+
+
+def ballistic_residuals_with_phase(
+    params,
+    t,
+    points,
+    doppler_km_s,
+    zpp,
+    zpp_prev_t,
+    rho_of_alt_m,
+    sigma_pos_km,
+    sigma_dop_km_s,
+    sigma_phase_rad,
+    keep=None,
+):
+    if keep is None:
+        keep = np.ones(len(t), dtype=bool)
+    base = ballistic_residuals(
+        params,
+        t[keep],
+        points[keep],
+        doppler_km_s[keep],
+        rho_of_alt_m,
+        sigma_pos_km,
+        sigma_dop_km_s,
+    )
+    phase_keep = (
+        keep
+        & np.isfinite(zpp.real)
+        & np.isfinite(zpp.imag)
+        & np.isfinite(zpp_prev_t)
+    )
+    if np.count_nonzero(phase_keep) == 0:
+        return base
+    model_zpp = model_pulse_pair_phase(params, t[phase_keep], zpp_prev_t[phase_keep], rho_of_alt_m)
+    phase_res = circular_phase_residual(np.angle(zpp[phase_keep]), np.angle(model_zpp)) / sigma_phase_rad
+    return np.concatenate([base, phase_res])
+
+
+def apply_final_phase_refit(
+    track,
+    rows,
+    t,
+    points,
+    doppler_km_s,
+    rho_of_alt_m,
+    bounds,
+    x_scale,
+    sigma_pos_km,
+    sigma_dop_km_s,
+):
+    zpp = np.asarray([r.get("zpp", np.nan + 1j * np.nan) for r in rows], dtype=np.complex64)
+    zpp_prev_t = np.asarray([r.get("zpp_prev_t_rel", np.nan) for r in rows], dtype=np.float64)
+    zpp_doppler_mps = np.asarray([r.get("zpp_doppler_mps", np.nan) for r in rows], dtype=np.float64)
+    zpp_coarse_doppler_mps = np.asarray([r.get("zpp_coarse_doppler_mps", np.nan) for r in rows], dtype=np.float64)
+    phase_valid = (
+        track["ballistic_keep"]
+        & np.isfinite(zpp.real)
+        & np.isfinite(zpp.imag)
+        & np.isfinite(zpp_prev_t)
+    )
+    if np.count_nonzero(phase_valid) < 3:
+        track["ballistic_phase_fit_available"] = False
+        track["ballistic_phase_n"] = int(np.count_nonzero(phase_valid))
+        return track
+
+    initial_model_zpp = model_pulse_pair_phase(track["ballistic_params"], t[phase_valid], zpp_prev_t[phase_valid], rho_of_alt_m)
+    initial_phase_res = circular_phase_residual(np.angle(zpp[phase_valid]), np.angle(initial_model_zpp))
+    sigma_phase_rad = robust_std(initial_phase_res, floor=0.10)
+    sigma_phase_rad = float(np.clip(sigma_phase_rad, 0.10, 1.0))
+
+    result = opt.least_squares(
+        lambda p: ballistic_residuals_with_phase(
+            p,
+            t,
+            points,
+            doppler_km_s,
+            zpp,
+            zpp_prev_t,
+            rho_of_alt_m,
+            sigma_pos_km,
+            sigma_dop_km_s,
+            sigma_phase_rad,
+            keep=track["ballistic_keep"],
+        ),
+        track["ballistic_params"],
+        bounds=bounds,
+        x_scale=x_scale,
+        loss="soft_l1",
+        f_scale=1.0,
+        max_nfev=350,
+    )
+
+    model, vel, beta, t_ref = propagate_drag_model(result.x, t, rho_of_alt_m)
+    rng = np.linalg.norm(model, axis=1)
+    pred_dop = np.sum(model * vel, axis=1) / np.maximum(rng, 1e-9)
+    pos_res = points - model
+    dop_res = doppler_km_s - pred_dop
+    final_model_zpp = model_pulse_pair_phase(result.x, t[phase_valid], zpp_prev_t[phase_valid], rho_of_alt_m)
+    final_phase_res = circular_phase_residual(np.angle(zpp[phase_valid]), np.angle(final_model_zpp))
+    phase_dt_s = t[phase_valid] - zpp_prev_t[phase_valid]
+    model_phase_rad = np.angle(final_model_zpp)
+    model_zpp_doppler_mps = -model_phase_rad * pc.wavelength / (4.0 * np.pi * phase_dt_s)
+    phase_order = np.argsort(t[phase_valid])
+    model_phase_unwrapped = np.full(np.count_nonzero(phase_valid), np.nan, dtype=np.float64)
+    observed_phase_model_branch = np.full(np.count_nonzero(phase_valid), np.nan, dtype=np.float64)
+    model_unwrapped_ordered = np.unwrap(np.angle(final_model_zpp)[phase_order])
+    observed_ordered = np.angle(zpp[phase_valid])[phase_order]
+    observed_branch_ordered = observed_ordered + 2.0 * np.pi * np.round((model_unwrapped_ordered - observed_ordered) / (2.0 * np.pi))
+    model_phase_unwrapped[phase_order] = model_unwrapped_ordered
+    observed_phase_model_branch[phase_order] = observed_branch_ordered
+
+    pre_params = track["ballistic_params"]
+    track.update(
+        {
+            "ballistic_pre_phase_params": pre_params,
+            "ballistic_phase_fit_available": True,
+            "ballistic_phase_n": int(np.count_nonzero(phase_valid)),
+            "ballistic_phase_sigma_rad": sigma_phase_rad,
+            "ballistic_phase_t": t[phase_valid],
+            "ballistic_phase_prev_t": zpp_prev_t[phase_valid],
+            "ballistic_phase_observed_rad": np.angle(zpp[phase_valid]),
+            "ballistic_phase_model_rad": model_phase_rad,
+            "ballistic_phase_doppler_mps": zpp_doppler_mps[phase_valid],
+            "ballistic_phase_coarse_doppler_mps": zpp_coarse_doppler_mps[phase_valid],
+            "ballistic_phase_model_doppler_mps": model_zpp_doppler_mps,
+            "ballistic_phase_model_unwrapped_rad": model_phase_unwrapped,
+            "ballistic_phase_observed_model_branch_rad": observed_phase_model_branch,
+            "ballistic_phase_initial_residual_rad": initial_phase_res,
+            "ballistic_phase_residual_rad": final_phase_res,
+            "ballistic_phase_rms_rad": float(np.sqrt(np.mean(final_phase_res**2))),
+            "ballistic_params": result.x,
+            "ballistic_t_ref_s": t_ref,
+            "ballistic_coefficient_kg_m2": beta,
+            "ballistic_model": model,
+            "ballistic_velocity_km_s": vel,
+            "ballistic_pred_doppler_km_s": pred_dop,
+            "ballistic_pos_res_km": pos_res,
+            "ballistic_dop_res_km_s": dop_res,
+            "ballistic_pos_rms_km": float(np.sqrt(np.mean(np.sum(pos_res[track["ballistic_keep"]] ** 2, axis=1)))),
+            "ballistic_dop_rms_km_s": float(np.sqrt(np.mean(dop_res[track["ballistic_keep"]] ** 2))),
+        }
+    )
+    return track
+
+
 def drag_initial_guess(t, points, log10_beta=0.0):
     t = np.asarray(t, dtype=np.float64)
     tau = t - np.min(t)
@@ -1110,7 +1598,7 @@ def fit_ballistic_track(track, candidates, rho_of_alt_m, sigma_pos_km=0.5, sigma
         start_altitude_km = float(model[first_keep, 2])
     low_start_altitude_reject = bool(np.isfinite(start_altitude_km) and start_altitude_km < 50.0)
 
-    return {
+    out = {
         "ballistic_params": result.x,
         "ballistic_param_names": np.asarray(["east_m", "north_m", "up_m", "ve_mps", "vn_mps", "vu_mps", "log10_beta_kg_m2"]),
         "ballistic_parameter_covariance": param_cov,
@@ -1147,6 +1635,35 @@ def fit_ballistic_track(track, candidates, rho_of_alt_m, sigma_pos_km=0.5, sigma
         "ballistic_sigma_pos_km": sigma_pos_km,
         "ballistic_sigma_dop_km_s": sigma_dop_km_s,
     }
+    zpp = np.asarray([r.get("zpp", np.nan + 1j * np.nan) for r in rows], dtype=np.complex64)
+    zpp_prev_t = np.asarray([r.get("zpp_prev_t_rel", np.nan) for r in rows], dtype=np.float64)
+    phase_valid = (
+        out["ballistic_keep"]
+        & np.isfinite(zpp.real)
+        & np.isfinite(zpp.imag)
+        & np.isfinite(zpp_prev_t)
+    )
+    out["ballistic_phase_fit_available"] = False
+    out["ballistic_phase_n"] = int(np.count_nonzero(phase_valid))
+    if np.count_nonzero(phase_valid):
+        model_zpp = model_pulse_pair_phase(out["ballistic_params"], t[phase_valid], zpp_prev_t[phase_valid], rho_of_alt_m)
+        phase_res = circular_phase_residual(np.angle(zpp[phase_valid]), np.angle(model_zpp))
+        phase_dt_s = t[phase_valid] - zpp_prev_t[phase_valid]
+        ipp_s = pmm.get_m_mode()["ipp_us"] * 1e-6
+        phase_ipp = phase_dt_s / ipp_s
+        out.update(
+            {
+                "ballistic_phase_t": t[phase_valid],
+                "ballistic_phase_prev_t": zpp_prev_t[phase_valid],
+                "ballistic_phase_dt_s": phase_dt_s,
+                "ballistic_phase_ipp": phase_ipp,
+                "ballistic_phase_observed_rad": np.angle(zpp[phase_valid]),
+                "ballistic_phase_model_rad": np.angle(model_zpp),
+                "ballistic_phase_residual_rad": phase_res,
+                "ballistic_phase_rms_rad": float(np.sqrt(np.mean(phase_res**2))),
+            }
+        )
+    return out
 
 
 def fit_ballistic_survivors(tracks, candidates, event_epoch_unix, p_threshold=0.01):
@@ -1389,6 +1906,7 @@ def score_combined_hypotheses(tracks):
         track["combined_score_source"] = "ballistic_reduced_chi2_plus_tx_beam_center_proximity"
     scored.sort(
         key=lambda t: (
+            bool(t.get("ballistic_reject", False)),
             bool(t.get("ballistic_low_start_altitude_reject", False)),
             t["combined_score"],
         )
@@ -1397,6 +1915,7 @@ def score_combined_hypotheses(tracks):
         track["combined_rank"] = rank
         track["combined_reject"] = (
             rank != 0
+            or bool(track.get("ballistic_reject", False))
             or bool(track.get("ballistic_low_start_altitude_reject", False))
         )
     if len(scored) > 1:
@@ -1409,6 +1928,94 @@ def score_combined_hypotheses(tracks):
         track["combined_delta_to_next"] = float(delta)
         track["combined_odds_best_vs_second"] = float(odds)
     return np.nan
+
+
+def fit_winning_physics_trajectory_model(tracks, event_epoch_unix, sigma_pos_km, sigma_dop_km_s):
+    """Run the three physics trajectory models only for the final winning alias."""
+    ranked = sorted(
+        [t for t in tracks if "combined_rank" in t and "ballistic_t" in t],
+        key=lambda t: t["combined_rank"],
+    )
+    if not ranked:
+        return None
+    winner = ranked[0]
+    try:
+        import fit_best_alias_physics_models as physics
+
+        t_s = np.asarray(winner["ballistic_t"], dtype=np.float64)
+        points_km = np.asarray(winner["fit_points"], dtype=np.float64)
+        doppler_km_s = np.asarray(winner["ballistic_doppler_km_s"], dtype=np.float64)
+        rho_of_alt_m, _msis_meta = pbal.density_interpolator(event_epoch_unix)
+        sigma_pos = float(sigma_pos_km) if np.isfinite(sigma_pos_km) and sigma_pos_km > 0 else physics.DEFAULT_SIGMA_POS_KM
+        sigma_dop = float(sigma_dop_km_s) if np.isfinite(sigma_dop_km_s) and sigma_dop_km_s > 0 else physics.DEFAULT_SIGMA_DOP_KM_S
+        p0_linear = physics.linear_initial_guess(t_s, points_km)
+        fixed_velocity = physics.fit_model(
+            "fixed_velocity",
+            t_s,
+            points_km,
+            doppler_km_s,
+            rho_of_alt_m,
+            sigma_pos,
+            sigma_dop,
+            [p0_linear],
+        )
+        fixed_am_starts = [np.concatenate([fixed_velocity["params"][:6], [log_b]]) for log_b in (-4.0, -2.0, 0.0, 1.0, 2.0)]
+        fixed_am = physics.fit_model(
+            "fixed_am",
+            t_s,
+            points_km,
+            doppler_km_s,
+            rho_of_alt_m,
+            sigma_pos,
+            sigma_dop,
+            fixed_am_starts,
+        )
+        radius_guess = 3.0 / (
+            4.0
+            * physics.SHRINKING_METEOROID_DENSITY_KG_M3
+            * max(float(fixed_am["cd_a_over_m_m2_kg"]), 1e-30)
+        )
+        radius_starts = sorted(
+            set(
+                float(np.clip(r, physics.SHRINKING_RADIUS_MIN_M, physics.SHRINKING_RADIUS_MAX_M))
+                for r in [radius_guess, *physics.SHRINKING_RADIUS_START_GRID_M]
+            )
+        )
+        shrinking_starts = [np.concatenate([fixed_am["params"][:6], [np.log10(radius)]]) for radius in radius_starts]
+        shrinking_radius = physics.fit_model(
+            "shrinking_radius",
+            t_s,
+            points_km,
+            doppler_km_s,
+            rho_of_alt_m,
+            sigma_pos,
+            sigma_dop,
+            shrinking_starts,
+        )
+        fits = {
+            "fixed_velocity": fixed_velocity,
+            "fixed_am": fixed_am,
+            "shrinking_radius": shrinking_radius,
+        }
+        best_name = physics.best_model_name(fits)
+        winner.update(
+            {
+                "physics_best_model": best_name,
+                "physics_best_model_label": physics.model_label(best_name),
+                "physics_bic_fixed_velocity": float(fixed_velocity["bic"]),
+                "physics_bic_fixed_am": float(fixed_am["bic"]),
+                "physics_bic_shrinking_radius": float(shrinking_radius["bic"]),
+                "physics_reduced_chi2_fixed_velocity": float(fixed_velocity["reduced_chi2"]),
+                "physics_reduced_chi2_fixed_am": float(fixed_am["reduced_chi2"]),
+                "physics_reduced_chi2_shrinking_radius": float(shrinking_radius["reduced_chi2"]),
+                "physics_fixed_am_cd_a_over_m_m2_kg": float(fixed_am["cd_a_over_m_m2_kg"]),
+                "physics_shrinking_radius0_m": float(shrinking_radius["radius_m"][0]),
+                "physics_shrinking_mass0_kg": float(shrinking_radius["mass_kg"][0]),
+            }
+        )
+    except Exception as exc:
+        winner["physics_model_error"] = f"{type(exc).__name__}: {exc}"
+    return winner
 
 
 def candidate_number(track):
@@ -1768,16 +2375,23 @@ def plot_summary_orbit_panel(ax, orbit_h5_path: Path | None, hypothesis: str = "
         if name in {"Earth", "Jupiter"}:
             ax.text(radius, 0.0, name, fontsize=6, color=color, ha="left", va="bottom")
     ax.scatter([0.0], [0.0], s=45, color="#ffd21f", edgecolor="black", zorder=5)
-    if orbit_h5_path is None or not Path(orbit_h5_path).exists():
-        ax.text(0.5, 0.5, "DASST orbit\npending", transform=ax.transAxes, ha="center", va="center", fontsize=10)
+    result = read_dasst_orbit_group(orbit_h5_path, hypothesis)
+    if result is None:
+        ax.text(
+            0.5,
+            0.5,
+            f"DASST orbit not available\nfor {hypothesis}",
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            fontsize=10,
+        )
     else:
         try:
-            with h5py.File(orbit_h5_path, "r") as h:
-                grp = h[hypothesis]
-                kep = grp["kepler"][()]
-                std = grp["kepler_std"][()]
-                samples = grp["kepler_samples"][()]
-                frac_e_gt_1 = float(grp.attrs.get("frac_e_gt_1", np.nan))
+            kep = np.asarray(result["kepler"], dtype=np.float64)
+            std = np.asarray(result.get("kepler_std", np.full(7, np.nan)), dtype=np.float64)
+            samples = np.asarray(result.get("kepler_samples", np.empty((0, 7))), dtype=np.float64)
+            frac_e_gt_1 = float(result.get("frac_e_gt_1", np.nan))
             finite = samples[np.all(np.isfinite(samples), axis=1)][:120]
             for sample in finite:
                 x, y = orbit_xy_from_elements(sample)
@@ -1791,9 +2405,13 @@ def plot_summary_orbit_panel(ax, orbit_h5_path: Path | None, hypothesis: str = "
                 0.03,
                 (
                     f"{hypothesis} DASST orbit\n"
-                    f"a={kep[0]:.1f}+/-{std[0]:.1f} AU\n"
-                    f"q={kep[6]:.3f}+/-{std[6]:.3f} AU\n"
-                    f"e={kep[1]:.4f}+/-{std[1]:.4f}\n"
+                    f"a={kep[0]:.2g}+/-{std[0]:.1g} AU\n"
+                    f"e={kep[1]:.4f}+/-{std[1]:.2g}\n"
+                    f"i={kep[2]:.1f}+/-{std[2]:.1g} deg\n"
+                    f"Omega={kep[3]:.1f}+/-{std[3]:.1g} deg\n"
+                    f"omega={kep[4]:.1f}+/-{std[4]:.1g} deg\n"
+                    f"nu={kep[5]:.1f}+/-{std[5]:.1g} deg\n"
+                    f"q={kep[6]:.3f}+/-{std[6]:.2g} AU\n"
                     f"P(e>1)={frac_e_gt_1:.2f}"
                 ),
                 transform=ax.transAxes,
@@ -1821,10 +2439,13 @@ def plot_disambiguation_summary(
     obs=None,
     cut=None,
     obs_rti=None,
+    event_epoch_unix=None,
 ):
     """Combine the main disambiguation tests into one 3x3 summary figure."""
     output.parent.mkdir(parents=True, exist_ok=True)
     fig, axes = plt.subplots(3, 3, figsize=(16.0, 14.0), constrained_layout=True)
+    range_fit_ax = axes[0, 1]
+    fit_summary_ax = axes[1, 1]
 
     visibility_colors = {"kept": "tab:green", "below horizon": "tab:red", "wraps": "tab:orange"}
 
@@ -1886,22 +2507,6 @@ def plot_disambiguation_summary(
     ax.grid(True, alpha=0.2)
     legend_if_any(ax, loc="lower right", fontsize=7)
 
-    ax = axes[0, 1]
-    for track in tracks:
-        color = "tab:red" if track.get("descent_reject", False) else visibility_colors.get(track["reason"], "0.4")
-        z = track["dense_model"][:, 2]
-        ax.plot(track["dense_t"], z, color=color, lw=1.0, alpha=0.9)
-        ax.text(track["dense_t"][-1], z[-1], hypothesis_label(track), fontsize=7, color=color)
-    ax.axhline(0.0, color="black", lw=1.0)
-    ax.set_xlabel("Time since cut start (s)")
-    ax.set_ylabel("Local up coordinate (km)")
-    ax.set_title("1b. Full-path horizon/descent test")
-    ax.grid(True, alpha=0.25)
-    if tracks and not any(t["reason"] == "kept" for t in tracks):
-        annotate_panel(ax, "No horizon-visible hypotheses\nAll paths cross horizon or wrap")
-    elif not tracks:
-        annotate_panel(ax, "No path hypotheses to test")
-
     ax = axes[0, 2]
     if obs is not None and cut is not None:
         rti_obs = obs if obs_rti is None else obs_rti
@@ -1960,51 +2565,34 @@ def plot_disambiguation_summary(
         annotate_panel(ax, "No line-surviving descending hypotheses")
     legend_if_any(ax, loc="best", fontsize=7)
 
-    ax = axes[1, 1]
-    for track in line_survivors:
-        color = "tab:green"
-        pts = track["fit_points"]
-        model = track["line_model_points"]
-        along = (model - track["line_center"]) @ track["line_direction"]
-        order = np.argsort(along)
-        ax.plot(along, pts[:, 2], ".", ms=2.6, color=color, alpha=0.55)
-        ax.plot(along[order], model[order, 2], "-", lw=1.0, color=color, alpha=0.85)
-        mid = order[len(order) // 2]
-        ax.text(along[mid], model[mid, 2], hypothesis_label(track), fontsize=7)
-    ax.set_xlabel("Along best-fit 3D line (km)")
-    ax.set_ylabel("Up (km)")
-    ax.set_title("2b. 3D line test: vertical projection")
-    ax.grid(True, alpha=0.25)
-    if not line_survivors:
-        annotate_panel(ax, "No line-surviving descending hypotheses")
-
     ax = axes[1, 2]
-    if visible:
-        labels = [hypothesis_label(t) for t in visible]
-        redchi = np.asarray([t["line_reduced_chi2"] for t in visible], dtype=np.float64)
+    ranking_visible = [t for t in visible if "ballistic_reduced_chi2" in t]
+    if ranking_visible:
+        labels = [hypothesis_label(t) for t in ranking_visible]
+        redchi = np.asarray([t["ballistic_reduced_chi2"] for t in ranking_visible], dtype=np.float64)
         log_redchi = np.log10(np.maximum(redchi, 1e-12))
         tx_dcos = np.asarray(
-            [t.get("tx_beam_snr_weighted_mean_dc", np.nan) for t in visible],
+            [t.get("tx_beam_snr_weighted_mean_dc", np.nan) for t in ranking_visible],
             dtype=np.float64,
         )
         valid_tx = np.isfinite(tx_dcos) & (tx_dcos > 0.0)
         if not np.any(valid_tx):
-            tx_dcos = np.asarray([t.get("tx_beam_weighted_rms_deg", np.nan) for t in visible], dtype=np.float64)
+            tx_dcos = np.asarray([t.get("tx_beam_weighted_rms_deg", np.nan) for t in ranking_visible], dtype=np.float64)
             # Keep the panel defined even for legacy products missing the dcos metric.
             tx_dcos = np.deg2rad(np.maximum(tx_dcos, 1e-6))
         log_tx_dcos = np.log10(np.maximum(tx_dcos, 1e-6))
-        colors = ["tab:red" if path_stage_rejected(t) else "tab:green" for t in visible]
+        colors = ["tab:red" if t.get("ballistic_reject", False) else "tab:green" for t in ranking_visible]
         ax.scatter(log_tx_dcos, log_redchi, c=colors, s=60, zorder=3)
         for xx_i, yy, label, chi in zip(log_tx_dcos, log_redchi, labels, redchi):
             ax.text(xx_i, yy, label, fontsize=7, ha="center", va="bottom")
             ax.text(xx_i, yy - 0.08, f"{chi:.1f}", fontsize=6, ha="center", va="top", color="0.25")
         ax.axhline(0.0, color="black", lw=1.0, ls="--", label=r"$\chi^2_\nu=1$")
     ax.set_xlabel(r"$\log_{10}$ SNR-weighted TX beam-center distance (dcos)")
-    ax.set_ylabel(r"$\log_{10}$ 3D-line reduced $\chi^2$")
-    ax.set_title("2c. TX beam-center distance vs. line chi-square")
+    ax.set_ylabel(r"$\log_{10}$ msis-trajectory reduced $\chi^2$")
+    ax.set_title("2c. TX beam-center distance vs. trajectory chi-square")
     ax.grid(True, alpha=0.25)
-    if not visible:
-        annotate_panel(ax, "No line-fit candidates")
+    if not ranking_visible:
+        annotate_panel(ax, "No trajectory-ranked candidates")
     legend_if_any(ax, fontsize=7)
 
     survivors = [
@@ -2041,6 +2629,11 @@ def plot_disambiguation_summary(
     def bls(track):
         return "--" if track.get("combined_reject", False) else "-"
 
+    if event_epoch_unix is None:
+        event_epoch_unix = np.nan
+    plot_best_range_fit_panel(range_fit_ax, winner, survivors, event_epoch_unix, annotate_panel)
+    plot_best_fit_summary_panel(fit_summary_ax, winner, orbit_h5_path, annotate_panel)
+
     ax = axes[2, 0]
     snr_scatter = None
     for track in survivors:
@@ -2055,21 +2648,35 @@ def plot_disambiguation_summary(
             ls=bls(track),
             alpha=0.96 if is_winner(track) else 0.75,
         )
+        if is_winner(track):
+            band_95 = doppler_uncertainty_from_ballistic_covariance(track, np.asarray(track["ballistic_t"], dtype=np.float64), event_epoch_unix)
+            if band_95 is not None and np.any(np.isfinite(band_95)):
+                pred = np.asarray(track["ballistic_pred_doppler_km_s"], dtype=np.float64)
+                ax.fill_between(
+                    track["ballistic_t"][order],
+                    (pred - band_95)[order],
+                    (pred + band_95)[order],
+                    color="black",
+                    alpha=0.13,
+                    linewidth=0.0,
+                    label="95% fit region",
+                )
         snr_scatter = ax.scatter(
             track["ballistic_t"][order],
             track["ballistic_doppler_km_s"][order],
             c=snr[order],
             cmap=snr_cmap,
             norm=snr_norm,
-            s=12,
+            s=24,
             marker="o",
             edgecolors="none",
             alpha=0.75,
+            zorder=100,
         )
         ax.text(track["ballistic_t"][order][-1], track["ballistic_pred_doppler_km_s"][order][-1], hypothesis_label(track), fontsize=7, color=color)
     ax.set_xlabel("Time since cut start (s)")
     ax.set_ylabel("Doppler/range rate (km/s)")
-    ax.set_title("3a. MSIS-drag Doppler fit; points by SNR")
+    ax.set_title("3a. MSIS-drag Doppler fit")
     ax.grid(True, alpha=0.25)
     if not survivors:
         annotate_panel(ax, "No ballistic-fit candidates\nRejected before Doppler/drag fit")
@@ -2269,6 +2876,14 @@ def write_disambiguation_diagnostics_h5(
                 "doppler_mps": np.float64,
                 "snr": np.float64,
                 "beam_id": np.int64,
+                "zpp": np.complex64,
+                "zpp_phase_rad": np.float64,
+                "zpp_phase_dt_s": np.float64,
+                "zpp_doppler_mps": np.float64,
+                "zpp_coarse_doppler_mps": np.float64,
+                "zpp_coarse_phase_rad": np.float64,
+                "zpp_prev_t_rel": np.float64,
+                "zpp_prev_pulse": np.int64,
             }
             for field, dtype in fields.items():
                 key = "t_rel" if field == "t_rel_s" else field
@@ -2322,6 +2937,10 @@ def write_disambiguation_diagnostics_h5(
                     "ballistic_reduced_chi2": float(track.get("ballistic_reduced_chi2", np.nan)),
                     "ballistic_pos_rms_km": float(track.get("ballistic_pos_rms_km", np.nan)),
                     "ballistic_dop_rms_km_s": float(track.get("ballistic_dop_rms_km_s", np.nan)),
+                    "ballistic_phase_fit_available": bool(track.get("ballistic_phase_fit_available", False)),
+                    "ballistic_phase_n": int(track.get("ballistic_phase_n", 0)),
+                    "ballistic_phase_sigma_rad": float(track.get("ballistic_phase_sigma_rad", np.nan)),
+                    "ballistic_phase_rms_rad": float(track.get("ballistic_phase_rms_rad", np.nan)),
                     "ballistic_start_altitude_km": float(track.get("ballistic_start_altitude_km", np.nan)),
                     "combined_rank": int(track.get("combined_rank", -1)) if "combined_rank" in track else -1,
                     "combined_score": float(track.get("combined_score", np.nan)),
@@ -2348,9 +2967,17 @@ def write_disambiguation_diagnostics_h5(
                     ("doppler_mps", "doppler_mps", np.float64),
                     ("snr", "snr", np.float64),
                     ("beam_id", "beam_id", np.int64),
+                    ("zpp", "zpp", np.complex64),
+                    ("zpp_phase_rad", "zpp_phase_rad", np.float64),
+                    ("zpp_phase_dt_s", "zpp_phase_dt_s", np.float64),
+                    ("zpp_doppler_mps", "zpp_doppler_mps", np.float64),
+                    ("zpp_coarse_doppler_mps", "zpp_coarse_doppler_mps", np.float64),
+                    ("zpp_coarse_phase_rad", "zpp_coarse_phase_rad", np.float64),
+                    ("zpp_prev_t_rel", "zpp_prev_t_rel", np.float64),
+                    ("zpp_prev_pulse", "zpp_prev_pulse", np.int64),
                     ("coherence", "coherence", np.float64),
                 ]:
-                    grp.create_dataset(name, data=np.asarray([r[key] for r in rows], dtype=dtype))
+                    grp.create_dataset(name, data=np.asarray([r.get(key, np.nan) for r in rows], dtype=dtype))
                 grp.create_dataset(
                     "direction_cosines_uvw",
                     data=np.asarray([[r["u"], r["v"], r["w"]] for r in rows], dtype=np.float64),
@@ -2376,6 +3003,18 @@ def write_disambiguation_diagnostics_h5(
                 ("ballistic_pos_res_km", track.get("ballistic_pos_res_km")),
                 ("ballistic_dop_res_km_s", track.get("ballistic_dop_res_km_s")),
                 ("ballistic_pred_doppler_km_s", track.get("ballistic_pred_doppler_km_s")),
+                ("ballistic_pre_phase_params", track.get("ballistic_pre_phase_params")),
+                ("ballistic_phase_t_s", track.get("ballistic_phase_t")),
+                ("ballistic_phase_prev_t_s", track.get("ballistic_phase_prev_t")),
+                ("ballistic_phase_observed_rad", track.get("ballistic_phase_observed_rad")),
+                ("ballistic_phase_model_rad", track.get("ballistic_phase_model_rad")),
+                ("ballistic_phase_doppler_mps", track.get("ballistic_phase_doppler_mps")),
+                ("ballistic_phase_coarse_doppler_mps", track.get("ballistic_phase_coarse_doppler_mps")),
+                ("ballistic_phase_model_doppler_mps", track.get("ballistic_phase_model_doppler_mps")),
+                ("ballistic_phase_model_unwrapped_rad", track.get("ballistic_phase_model_unwrapped_rad")),
+                ("ballistic_phase_observed_model_branch_rad", track.get("ballistic_phase_observed_model_branch_rad")),
+                ("ballistic_phase_initial_residual_rad", track.get("ballistic_phase_initial_residual_rad")),
+                ("ballistic_phase_residual_rad", track.get("ballistic_phase_residual_rad")),
                 ("tx_beam_center_distance_dc", track.get("tx_beam_center_distance_dc")),
                 ("tx_lobe_distance_dc", track.get("tx_lobe_distance_dc")),
             ]:
@@ -3087,6 +3726,14 @@ def main():
                     "doppler_mps": float(obs["doppler_mps"][i]),
                     "snr": float(obs["snr"][i]),
                     "beam_id": int(obs["beam_id"][i]),
+                    "zpp": complex(obs["zpp"][i]) if "zpp" in obs else complex(np.nan, np.nan),
+                    "zpp_phase_rad": float(obs["zpp_phase_rad"][i]) if "zpp_phase_rad" in obs else np.nan,
+                    "zpp_phase_dt_s": float(obs["zpp_phase_dt_s"][i]) if "zpp_phase_dt_s" in obs else np.nan,
+                    "zpp_doppler_mps": float(obs["zpp_doppler_mps"][i]) if "zpp_doppler_mps" in obs else np.nan,
+                    "zpp_coarse_doppler_mps": float(obs["zpp_coarse_doppler_mps"][i]) if "zpp_coarse_doppler_mps" in obs else np.nan,
+                    "zpp_coarse_phase_rad": float(obs["zpp_coarse_phase_rad"][i]) if "zpp_coarse_phase_rad" in obs else np.nan,
+                    "zpp_prev_t_rel": float(obs["zpp_prev_t_rel"][i]) if "zpp_prev_t_rel" in obs else np.nan,
+                    "zpp_prev_pulse": int(obs["zpp_prev_pulse"][i]) if "zpp_prev_pulse" in obs else -1,
                 }
             )
 
@@ -3140,11 +3787,12 @@ def main():
     score_tx_beam_consistency(tracks, candidates)
     score_candidate_diagnostics(tracks, candidates, tx_gain_maps=tx_gain_maps, tx_lobe_centroids=tx_lobe_centroids)
     tx_sigma = score_combined_hypotheses(tracks)
+    fit_winning_physics_trajectory_model(tracks, args.sample_idx / 1e6, sigma_pos, sigma_dop)
     best = sorted([t for t in tracks if "combined_score" in t], key=lambda t: t["combined_rank"])
     state_h5 = args.orbit_state_h5 or (args.output_dir / f"pansy_candidate_orbit_states_{args.sample_idx}.h5")
-    orbit_best = [t for t in best if "ballistic_params" in t]
+    orbit_best = [t for t in best if "ballistic_params" in t][:1]
     if orbit_best:
-        print_candidate_orbits(orbit_best, args.sample_idx / 1e6, n_candidates=5, state_h5_path=state_h5, n_samples=args.orbit_samples)
+        print_candidate_orbits(orbit_best, args.sample_idx / 1e6, n_candidates=1, state_h5_path=state_h5, n_samples=args.orbit_samples)
         if args.run_dasst and state_h5.exists():
             cmd = [
                 sys.executable,
@@ -3185,6 +3833,7 @@ def main():
         obs=obs,
         cut=cut,
         obs_rti=obs_all,
+        event_epoch_unix=args.sample_idx / 1e6,
     )
     write_disambiguation_diagnostics_h5(
         candidates,

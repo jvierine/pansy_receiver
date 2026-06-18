@@ -23,3 +23,16 @@ https://github.com/user-attachments/assets/849bf707-b011-4c54-bbf1-1a141d7f4ec6
 To run the python signal processing, use the standard environment, instead of the conda environment of SanDRA.  
 
 > conda deactivate
+
+## Meteor cut analysis
+
+The standard post-cut meteor analysis pipeline is the interferometric
+disambiguation pipeline in `run_meteor_analysis_pipeline.py`. It recomputes
+range-Doppler observables for each cut, constructs all high-coherence
+interferometer alias candidates, filters path hypotheses by visibility,
+linearity, and descent, then ranks surviving solutions with the ballistic fit
+and transmit-beam consistency diagnostics.
+
+Use this pipeline for science-quality meteor cut processing and for generating
+the accompanying candidate, ranking, orbit, HDF5 metadata, and LaTeX summary
+products.
