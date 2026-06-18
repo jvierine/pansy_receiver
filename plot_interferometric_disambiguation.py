@@ -1149,6 +1149,54 @@ def fit_candidate_tracks(candidates, min_unique_pulses=None, tol=0.035, max_trac
     return tracks
 
 
+def complete_tracks_to_common_pulses(tracks, candidates):
+    """Assign one candidate from every available pulse to every hypothesis.
+
+    The RANSAC-style finder is allowed to discover a hypothesis from a subset of
+    pulses, but model ranking must compare hypotheses on the same measurements.
+    This completion step evaluates the fitted direction-cosine line at each
+    pulse and assigns the nearest high-coherence peak from that pulse.
+    """
+    if not tracks or not candidates:
+        return tracks
+
+    pulse_values = np.asarray([c["pulse"] for c in candidates], dtype=np.int64)
+    t_values = np.asarray([c["t_rel"] for c in candidates], dtype=np.float64)
+    u_values = np.asarray([c["u"] for c in candidates], dtype=np.float64)
+    v_values = np.asarray([c["v"] for c in candidates], dtype=np.float64)
+    common_pulses = np.unique(pulse_values)
+    if len(common_pulses) == 0:
+        return tracks
+
+    for track in tracks:
+        completed_idx = []
+        completed_distance = []
+        for pulse in common_pulses:
+            pulse_idx = np.flatnonzero(pulse_values == pulse)
+            if len(pulse_idx) == 0:
+                continue
+            # All candidates from a pulse share the same time.
+            t_pulse = float(t_values[pulse_idx[0]])
+            pred_u = float(track["u_coeff"][0] + track["u_coeff"][1] * t_pulse)
+            pred_v = float(track["v_coeff"][0] + track["v_coeff"][1] * t_pulse)
+            dist = np.hypot(u_values[pulse_idx] - pred_u, v_values[pulse_idx] - pred_v)
+            best_local = int(pulse_idx[int(np.argmin(dist))])
+            completed_idx.append(best_local)
+            completed_distance.append(float(np.min(dist)))
+
+        if completed_idx:
+            track["seed_idx"] = np.asarray(track["idx"], dtype=np.int64)
+            track["seed_unique_pulses"] = int(track.get("unique_pulses", 0))
+            track["idx"] = np.asarray(completed_idx, dtype=np.int64)
+            track["n"] = int(len(completed_idx))
+            track["unique_pulses"] = int(len(np.unique(pulse_values[track["idx"]])))
+            track["common_pulse_count"] = int(len(common_pulses))
+            track["common_pulse_completion_distance_dc"] = np.asarray(completed_distance, dtype=np.float64)
+            track["common_pulse_completion_rms_dc"] = float(np.sqrt(np.mean(np.asarray(completed_distance) ** 2)))
+            track["common_pulse_completion_max_dc"] = float(np.max(completed_distance))
+    return tracks
+
+
 def classify_track_visibility(track, candidates, t_start, t_end):
     """Reject tracks whose fitted 3D path is below horizon or wraps in direction."""
     rows = [candidates[i] for i in track["idx"]]
@@ -1700,6 +1748,10 @@ def fit_ballistic_survivors(tracks, candidates, event_epoch_unix, p_threshold=0.
     if not survivors:
         return np.nan, np.nan
 
+    required_pulses = frozenset(int(c["pulse"]) for c in candidates)
+    required_unique_pulses = len(required_pulses)
+    if required_unique_pulses == 0:
+        required_unique_pulses = max(int(track.get("unique_pulses", 0)) for track in survivors)
     rho_of_alt_m, msis_meta = pbal.density_interpolator(event_epoch_unix)
     preliminary = [
         fit_ballistic_track(track, candidates, rho_of_alt_m, sigma_pos_km=0.5, sigma_dop_km_s=1.0)
@@ -1715,9 +1767,17 @@ def fit_ballistic_survivors(tracks, candidates, event_epoch_unix, p_threshold=0.
 
     for track in survivors:
         fit = fit_ballistic_track(track, candidates, rho_of_alt_m, sigma_pos_km=sigma_pos, sigma_dop_km_s=sigma_dop)
+        track_pulses = frozenset(int(candidates[i]["pulse"]) for i in track["idx"])
+        unique_pulses = int(track.get("unique_pulses", 0))
+        fit["ballistic_required_unique_pulses"] = int(required_unique_pulses)
+        fit["ballistic_pulse_coverage_reject"] = bool(
+            unique_pulses != required_unique_pulses
+            or (required_pulses and track_pulses != required_pulses)
+        )
         fit["ballistic_reject"] = bool(
             fit["ballistic_p_value"] < p_threshold
             or fit["ballistic_low_start_altitude_reject"]
+            or fit["ballistic_pulse_coverage_reject"]
         )
         fit["ballistic_model_type"] = "msis_drag"
         fit["ballistic_selection_level"] = fallback_level
@@ -1906,6 +1966,7 @@ def score_combined_hypotheses(tracks):
         track["combined_score_source"] = "ballistic_reduced_chi2_plus_tx_beam_center_proximity"
     scored.sort(
         key=lambda t: (
+            bool(t.get("ballistic_pulse_coverage_reject", False)),
             bool(t.get("ballistic_reject", False)),
             bool(t.get("ballistic_low_start_altitude_reject", False)),
             t["combined_score"],
@@ -1915,6 +1976,7 @@ def score_combined_hypotheses(tracks):
         track["combined_rank"] = rank
         track["combined_reject"] = (
             rank != 0
+            or bool(track.get("ballistic_pulse_coverage_reject", False))
             or bool(track.get("ballistic_reject", False))
             or bool(track.get("ballistic_low_start_altitude_reject", False))
         )
@@ -2921,12 +2983,18 @@ def write_disambiguation_diagnostics_h5(
                     "candidate_number": int(candidate_number(track)) if "combined_rank" in track else -1,
                     "reason": str(track.get("reason", "unknown")),
                     "unique_pulses": int(track.get("unique_pulses", 0)),
+                    "seed_unique_pulses": int(track.get("seed_unique_pulses", track.get("unique_pulses", 0))),
+                    "common_pulse_count": int(track.get("common_pulse_count", track.get("unique_pulses", 0))),
+                    "common_pulse_completion_rms_dc": float(track.get("common_pulse_completion_rms_dc", np.nan)),
+                    "common_pulse_completion_max_dc": float(track.get("common_pulse_completion_max_dc", np.nan)),
                     "below_horizon": bool(track.get("below_horizon", False)),
                     "wraps": bool(track.get("wraps", False)),
                     "linearity_reject": bool(track.get("linearity_reject", False)),
                     "descent_reject": bool(track.get("descent_reject", False)),
                     "low_detection_altitude_reject": bool(track.get("low_detection_altitude_reject", False)),
                     "ballistic_reject": bool(track.get("ballistic_reject", False)),
+                    "ballistic_pulse_coverage_reject": bool(track.get("ballistic_pulse_coverage_reject", False)),
+                    "ballistic_required_unique_pulses": int(track.get("ballistic_required_unique_pulses", 0)),
                     "ballistic_low_start_altitude_reject": bool(track.get("ballistic_low_start_altitude_reject", False)),
                     "combined_reject": bool(track.get("combined_reject", False)),
                     "line_reduced_chi2": float(track.get("line_reduced_chi2", np.nan)),
@@ -2958,6 +3026,13 @@ def write_disambiguation_diagnostics_h5(
             )
             idx = np.asarray(track.get("idx", []), dtype=np.int64)
             grp.create_dataset("candidate_indices", data=idx)
+            if "seed_idx" in track:
+                grp.create_dataset("seed_candidate_indices", data=np.asarray(track["seed_idx"], dtype=np.int64))
+            if "common_pulse_completion_distance_dc" in track:
+                grp.create_dataset(
+                    "common_pulse_completion_distance_dc",
+                    data=np.asarray(track["common_pulse_completion_distance_dc"], dtype=np.float64),
+                )
             if len(idx) and candidates:
                 rows = [candidates[int(i)] for i in idx]
                 for name, key, dtype in [
@@ -3756,7 +3831,7 @@ def main():
         plot_tx_grating_lobe_centroids(u, v, valid, tx_lobe_smoothed_maps, tx_lobe_centroids, tx_lobe_centroids_out)
         plot_single_echo(u, v, single, peak_ij, obs, strongest, single_out)
         plot_all_candidates(u, v, obs, candidates, all_out)
-    tracks = fit_candidate_tracks(candidates)
+    tracks = complete_tracks_to_common_pulses(fit_candidate_tracks(candidates), candidates)
     t_start = float(np.min(t_rel))
     t_end = float(np.max(t_rel))
     tracks = [classify_track_visibility(track, candidates, t_start, t_end) for track in tracks]
@@ -3889,7 +3964,7 @@ def main():
         "hypothesis reason unique_pulses below_horizon wraps linearity_reject "
         "line_redchi line_rms_km line_max_km min_detect_alt_km low_detection_altitude_reject "
         "descent_rate_km_s descent_reject speedup_flag start_alt_km low_start_altitude_reject "
-        "ballistic_rank combined_rank candidate"
+        "pulse_coverage_reject required_unique_pulses ballistic_rank combined_rank candidate"
     )
     for track in sorted(tracks, key=lambda t: t.get("hypothesis_id", 999)):
         print(
@@ -3910,6 +3985,8 @@ def main():
             track.get("ballistic_speedup_flag", False),
             f"{track.get('ballistic_start_altitude_km', np.nan):.3f}" if "ballistic_start_altitude_km" in track else "NA",
             track.get("ballistic_low_start_altitude_reject", False),
+            track.get("ballistic_pulse_coverage_reject", False),
+            track.get("ballistic_required_unique_pulses", "NA"),
             track.get("ballistic_rank", "NA"),
             track.get("combined_rank", "NA"),
             candidate_number(track) if "combined_rank" in track else "NA",
@@ -3955,6 +4032,10 @@ def main():
             track.get("ballistic_speedup_flag", False),
             "n_out",
             track["ballistic_n_outliers"],
+            "pulse_coverage_reject",
+            track.get("ballistic_pulse_coverage_reject", False),
+            "required_unique_pulses",
+            track.get("ballistic_required_unique_pulses", "NA"),
             "ballistic_reject",
             track["ballistic_reject"],
         )
@@ -3999,6 +4080,8 @@ def main():
             track.get("ballistic_speedup_flag", False),
             "low_start_alt_reject",
             track.get("ballistic_low_start_altitude_reject", False),
+            "pulse_coverage_reject",
+            track.get("ballistic_pulse_coverage_reject", False),
             "reject",
             track["combined_reject"],
         )
