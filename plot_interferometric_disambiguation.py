@@ -469,6 +469,7 @@ def plot_best_fit_summary_panel(ax, winner, orbit_h5_path, annotate_panel):
         f"Alias                 {hypothesis_label(winner)}  candidate {candidate_number(winner)}",
         f"Alias ranking fit     {winner.get('ballistic_model_type', 'msis_drag')}",
         f"Trajectory model      {winner.get('physics_best_model_label', winner.get('physics_best_model', 'not fit'))}",
+        f"Selection rule        TX center if chi2nu <= {winner.get('combined_good_fit_redchi_threshold', np.nan):.3g}",
         f"Combined rank/score   {winner.get('combined_rank', -1)} / {winner.get('combined_score', np.nan):.3g}",
         f"N kept / clipped      {winner.get('ballistic_n', 0)} / {winner.get('ballistic_n_outliers', 0)}",
         "",
@@ -1926,6 +1927,7 @@ def score_combined_hypotheses(tracks):
     tx_beam_scale_dc = 0.035
     tx_beam_weight = 1.0
     line_weight = 0.10
+    good_fit_redchi_threshold = 1.5
     if not scored:
         fallback = [t for t in tracks if t["reason"] == "kept" and "line_reduced_chi2" in t]
         if not fallback:
@@ -1957,27 +1959,41 @@ def score_combined_hypotheses(tracks):
         tx_term = 0.0 if not np.isfinite(tx_beam) else (tx_beam / tx_beam_scale_dc) ** 2
         line_term = float(track.get("line_length_adjusted_reduced_chi2", track.get("line_reduced_chi2", 0.0)))
         line_term = min(line_term, 100.0) / 25.0 if np.isfinite(line_term) else 0.0
+        redchi = float(track.get("ballistic_reduced_chi2", np.inf))
+        full_coverage = not bool(track.get("ballistic_pulse_coverage_reject", False))
+        low_start_reject = bool(track.get("ballistic_low_start_altitude_reject", False))
+        good_fit = bool(full_coverage and not low_start_reject and np.isfinite(redchi) and redchi <= good_fit_redchi_threshold)
         track["combined_tx_term"] = float(tx_term)
         track["combined_line_term"] = float(line_term)
         track["combined_tx_beam_scale_dc"] = float(tx_beam_scale_dc)
         track["combined_tx_beam_weight"] = float(tx_beam_weight)
         track["combined_line_weight"] = float(line_weight)
-        track["combined_score"] = float(track["ballistic_reduced_chi2"] + tx_beam_weight * tx_term + line_weight * line_term)
-        track["combined_score_source"] = "ballistic_reduced_chi2_plus_tx_beam_center_proximity"
+        track["combined_good_fit_redchi_threshold"] = float(good_fit_redchi_threshold)
+        track["combined_good_fit"] = good_fit
+        track["combined_tx_distance_dc"] = tx_beam
+        if good_fit:
+            track["combined_score"] = float(tx_beam if np.isfinite(tx_beam) else np.inf)
+            track["combined_score_source"] = "tx_beam_center_distance_among_redchi_le_1p5"
+        else:
+            tx_penalty = tx_term if np.isfinite(tx_term) else 1e6
+            track["combined_score"] = float(redchi + 0.01 * tx_penalty + line_weight * line_term)
+            track["combined_score_source"] = "fallback_reduced_chi2_plus_weak_tx_beam_center_proximity"
     scored.sort(
         key=lambda t: (
             bool(t.get("ballistic_pulse_coverage_reject", False)),
-            bool(t.get("ballistic_reject", False)),
             bool(t.get("ballistic_low_start_altitude_reject", False)),
+            not bool(t.get("combined_good_fit", False)),
+            float(t.get("combined_tx_distance_dc", np.inf)) if t.get("combined_good_fit", False) else float(t.get("ballistic_reduced_chi2", np.inf)),
             t["combined_score"],
         )
     )
     for rank, track in enumerate(scored):
         track["combined_rank"] = rank
+        ballistic_reject_blocks = bool(track.get("ballistic_reject", False)) and not bool(track.get("combined_good_fit", False))
         track["combined_reject"] = (
             rank != 0
             or bool(track.get("ballistic_pulse_coverage_reject", False))
-            or bool(track.get("ballistic_reject", False))
+            or ballistic_reject_blocks
             or bool(track.get("ballistic_low_start_altitude_reject", False))
         )
     if len(scored) > 1:
@@ -3013,6 +3029,9 @@ def write_disambiguation_diagnostics_h5(
                     "combined_rank": int(track.get("combined_rank", -1)) if "combined_rank" in track else -1,
                     "combined_score": float(track.get("combined_score", np.nan)),
                     "combined_score_source": str(track.get("combined_score_source", "")),
+                    "combined_good_fit": bool(track.get("combined_good_fit", False)),
+                    "combined_good_fit_redchi_threshold": float(track.get("combined_good_fit_redchi_threshold", np.nan)),
+                    "combined_tx_distance_dc": float(track.get("combined_tx_distance_dc", np.nan)),
                     "combined_tx_term": float(track.get("combined_tx_term", np.nan)),
                     "combined_line_term": float(track.get("combined_line_term", np.nan)),
                     "combined_tx_beam_scale_dc": float(track.get("combined_tx_beam_scale_dc", np.nan)),
@@ -4056,6 +4075,10 @@ def main():
             track.get("tx_beam_rank", "NA"),
             "combined_score",
             f"{track['combined_score']:.3f}",
+            "good_fit",
+            track.get("combined_good_fit", False),
+            "good_fit_redchi_threshold",
+            f"{track.get('combined_good_fit_redchi_threshold', np.nan):.3f}",
             "ballistic_term",
             f"{track['ballistic_reduced_chi2']:.3f}" if "ballistic_reduced_chi2" in track else "NA",
             "coh_mean",
