@@ -16,6 +16,7 @@ MULTI_METEOR_SAMPLE_581983 = 1746492577581983
 TRAIL_ECHO_SAMPLE_742042 = 1746493024742042
 TRAIL_ECHO_SAMPLE_606335 = 1746495226606335
 RANGE_FIT_SAMPLE_450693 = 1746575731450693
+RANGE_FIT_SAMPLE_895405 = 1746575072895405
 REGRESSION_EVENTS = [
     pytest.param(1746489745288806, "88806", 101, id="event_88806"),
     pytest.param(1746489819007216, "07216", 501, id="event_07216"),
@@ -309,5 +310,63 @@ def test_event_450693_correct_hypothesis_has_good_range_fit(tmp_path):
         range_res_m = (np.linalg.norm(points, axis=1) - np.linalg.norm(model, axis=1)) * 1e3
         kept_res = range_res_m[keep]
         assert len(kept_res) >= 30
+        assert abs(float(np.mean(kept_res))) < 25.0
+        assert float(np.sqrt(np.mean(kept_res**2))) < 100.0
+
+
+@pytest.mark.slow
+def test_event_895405_correct_hypothesis_has_good_range_fit(tmp_path):
+    cut_dir = PANSY_RECEIVER_ROOT / "data" / "metadata" / "cut"
+    if not cut_dir.exists():
+        pytest.skip(f"local cut metadata not available: {cut_dir}")
+
+    output_dir = tmp_path / "event_895405"
+    cmd = [
+        sys.executable,
+        str(PANSY_RECEIVER_ROOT / "plot_interferometric_disambiguation.py"),
+        "--sample-idx",
+        str(RANGE_FIT_SAMPLE_895405),
+        "--cut-dir",
+        str(cut_dir),
+        "--output-dir",
+        str(output_dir),
+        "--grid-n",
+        "501",
+        "--overview-only",
+        "--orbit-samples",
+        "0",
+    ]
+    result = subprocess.run(
+        cmd,
+        cwd=PANSY_RECEIVER_ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=300,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout
+
+    diagnostics_h5 = output_dir / f"pansy_disambiguation_diagnostics_{RANGE_FIT_SAMPLE_895405}.h5"
+    assert diagnostics_h5.exists(), result.stdout
+
+    with h5py.File(diagnostics_h5, "r") as h:
+        assert h.attrs["event_status"] == "processed"
+        selected = str(h.attrs["selected_hypothesis"])
+        assert selected == "H01"
+
+        hypothesis = h["hypotheses"][selected]
+        assert int(hypothesis.attrs["combined_rank"]) == 0
+        assert not bool(hypothesis.attrs["combined_reject"])
+        assert bool(hypothesis.attrs["combined_good_fit"])
+        assert str(hypothesis.attrs["selection_model_type"]) == "fixed_velocity"
+        assert float(hypothesis.attrs["selection_reduced_chi2"]) < 1.0
+
+        points = hypothesis["position_enu_km"][:]
+        model = hypothesis["selection_model"][:]
+        keep = hypothesis["selection_keep"][:]
+        range_res_m = (np.linalg.norm(points, axis=1) - np.linalg.norm(model, axis=1)) * 1e3
+        kept_res = range_res_m[keep]
+        assert len(kept_res) >= 65
         assert abs(float(np.mean(kept_res))) < 25.0
         assert float(np.sqrt(np.mean(kept_res**2))) < 100.0
