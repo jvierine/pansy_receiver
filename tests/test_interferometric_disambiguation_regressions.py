@@ -14,12 +14,18 @@ if str(PANSY_RECEIVER_ROOT) not in sys.path:
     sys.path.insert(0, str(PANSY_RECEIVER_ROOT))
 MULTI_METEOR_SAMPLE_581983 = 1746492577581983
 TRAIL_ECHO_SAMPLE_742042 = 1746493024742042
+TRAIL_ECHO_SAMPLE_606335 = 1746495226606335
 REGRESSION_EVENTS = [
     pytest.param(1746489745288806, "88806", 101, id="event_88806"),
     pytest.param(1746489819007216, "07216", 501, id="event_07216"),
     pytest.param(1746490224199270, "99270", 701, id="event_99270"),
     pytest.param(1746492411469961, "469961", 501, id="event_469961"),
     pytest.param(1746492839697218, "97218", 501, id="event_97218"),
+]
+
+TRAIL_ECHO_EVENTS = [
+    pytest.param(TRAIL_ECHO_SAMPLE_742042, "742042", True, id="event_742042"),
+    pytest.param(TRAIL_ECHO_SAMPLE_606335, "606335", False, id="event_606335"),
 ]
 
 
@@ -193,17 +199,18 @@ def test_event_581983_identifies_two_meteors_separately():
 
 
 @pytest.mark.slow
-def test_event_742042_trail_echo_is_not_accepted_as_head_echo(tmp_path):
+@pytest.mark.parametrize(("sample_idx", "suffix", "expect_speed_reject"), TRAIL_ECHO_EVENTS)
+def test_trail_echo_is_not_accepted_as_head_echo(sample_idx, suffix, expect_speed_reject, tmp_path):
     cut_dir = PANSY_RECEIVER_ROOT / "data" / "metadata" / "cut"
     if not cut_dir.exists():
         pytest.skip(f"local cut metadata not available: {cut_dir}")
 
-    output_dir = tmp_path / "event_742042"
+    output_dir = tmp_path / f"event_{suffix}"
     cmd = [
         sys.executable,
         str(PANSY_RECEIVER_ROOT / "plot_interferometric_disambiguation.py"),
         "--sample-idx",
-        str(TRAIL_ECHO_SAMPLE_742042),
+        str(sample_idx),
         "--cut-dir",
         str(cut_dir),
         "--output-dir",
@@ -225,7 +232,7 @@ def test_event_742042_trail_echo_is_not_accepted_as_head_echo(tmp_path):
     )
     assert result.returncode == 0, result.stdout
 
-    diagnostics_h5 = output_dir / f"pansy_disambiguation_diagnostics_{TRAIL_ECHO_SAMPLE_742042}.h5"
+    diagnostics_h5 = output_dir / f"pansy_disambiguation_diagnostics_{sample_idx}.h5"
     assert diagnostics_h5.exists(), result.stdout
 
     with h5py.File(diagnostics_h5, "r") as h:
@@ -235,10 +242,13 @@ def test_event_742042_trail_echo_is_not_accepted_as_head_echo(tmp_path):
             for hypothesis in h["hypotheses"].values()
             if int(hypothesis.attrs.get("combined_rank", -1)) >= 0
         ]
-        assert ranked, result.stdout
         assert not any(
             (not bool(hypothesis.attrs["combined_reject"])) and bool(hypothesis.attrs["combined_good_fit"])
             for hypothesis in ranked
         )
-        assert all(bool(hypothesis.attrs["head_echo_speed_reject"]) for hypothesis in ranked)
-        assert max(float(hypothesis.attrs["selection_speed_km_s"]) for hypothesis in ranked) < 5.0
+        if expect_speed_reject:
+            assert ranked, result.stdout
+            assert all(bool(hypothesis.attrs["head_echo_speed_reject"]) for hypothesis in ranked)
+            assert max(float(hypothesis.attrs["selection_speed_km_s"]) for hypothesis in ranked) < 5.0
+        else:
+            assert not ranked
