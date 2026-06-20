@@ -1109,7 +1109,7 @@ def fit_candidate_tracks(candidates, min_unique_pulses=None, tol=0.035, max_trac
     pulse = np.asarray([c["pulse"] for c in candidates], dtype=np.int64)
     total_unique_pulses = len(np.unique(pulse))
     if min_unique_pulses is None:
-        min_unique_pulses = int(min(10, max(5, np.ceil(0.75 * total_unique_pulses))))
+        min_unique_pulses = int(min(total_unique_pulses, 10, max(5, np.ceil(0.75 * total_unique_pulses))))
     duration_s = float(np.nanmax(t) - np.nanmin(t)) if len(t) else 0.0
     min_seed_dt = min(0.20, max(0.005, 0.20 * duration_s))
     active = np.ones(len(candidates), dtype=bool)
