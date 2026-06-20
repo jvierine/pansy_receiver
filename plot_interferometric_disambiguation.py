@@ -3966,7 +3966,7 @@ def main():
     parser.add_argument("--ballistic-p-threshold", type=float, default=0.01)
     parser.add_argument("--orbit-state-h5", type=Path, default=None)
     parser.add_argument("--dasst-orbit-h5", type=Path, default=None)
-    parser.add_argument("--orbit-metadata-dir", type=Path, default=Path("data/metadata/orbit_metadata"))
+    parser.add_argument("--orbit-metadata-dir", type=Path, default=Path("data/metadata/orbit"))
     parser.add_argument("--run-dasst", action="store_true", help="Run DASST orbit determination after writing candidate state HDF5.")
     parser.add_argument("--orbit-samples", type=int, default=300, help="Number of covariance samples for DASST orbit uncertainty.")
     parser.add_argument("--overview-only", action="store_true", help="Only write the final disambiguation overview and orbit HDF5 products.")

@@ -21,6 +21,8 @@ from astropy import units as u
 from astropy.coordinates import CartesianDifferential, CartesianRepresentation, GCRS, ITRS
 from astropy.time import Time
 
+import pansy_ballistic as pbal
+
 try:
     import dasst
 except Exception:
@@ -39,6 +41,7 @@ ORBIT_METADATA_WRITER_ARGS = {
     "samples_per_second_denominator": 1,
     "file_name": "orbit",
 }
+ORBIT_RESULT_SCHEMA_VERSION = "pansy_orbit_plausible_aliases_v2"
 
 
 def gcrs_to_itrs_state(state_gcrs_m_mps: np.ndarray, epoch: Time) -> np.ndarray:
@@ -143,6 +146,7 @@ def metadata_writer(path: Path) -> drf.DigitalMetadataWriter:
 
 
 def write_orbit_metadata(output_dir: Path, sample_key: int, payload: dict) -> None:
+    pbal.delete_metadata_key(output_dir, sample_key, ORBIT_METADATA_WRITER_ARGS["file_name"])
     writer = metadata_writer(output_dir)
     lock_path = output_dir / ".orbit_metadata.lock"
     with lock_path.open("w") as lock:
@@ -152,6 +156,7 @@ def write_orbit_metadata(output_dir: Path, sample_key: int, payload: dict) -> No
         except ValueError as exc:
             if "name already exists" not in str(exc):
                 raise
+            pbal.delete_metadata_key(output_dir, sample_key, ORBIT_METADATA_WRITER_ARGS["file_name"])
             writer = metadata_writer(output_dir)
             writer.write(int(sample_key), payload)
         finally:
@@ -331,11 +336,15 @@ def main() -> None:
         alias_interstellar_nominal = np.isfinite(alias_kepler[:, 1]) & (alias_kepler[:, 1] > 1.0)
         with h5py.File(args.state_h5, "r") as h:
             state_grp = h[label]
-            sample_key = int(round(float(state_grp.attrs["epoch_unix"]) * 1_000_000.0))
+            source_cut_sample_idx = int(round(float(h.attrs["sample_epoch_unix"]) * 1_000_000.0))
+            sample_key = source_cut_sample_idx
             fit_params, fit_cov = state_fit_payload_from_group(state_grp)
             payload = {
+                "schema_version": np.asarray(ORBIT_RESULT_SCHEMA_VERSION, dtype="S64"),
+                "result_version": np.asarray(ORBIT_RESULT_SCHEMA_VERSION, dtype="S64"),
+                "result_producer": np.asarray("dasst_orbits_from_candidate_states.py", dtype="S64"),
                 "sample_idx": int(sample_key),
-                "source_cut_sample_idx": int(round(float(h.attrs["sample_epoch_unix"]) * 1_000_000.0)),
+                "source_cut_sample_idx": int(source_cut_sample_idx),
                 "selected_hypothesis": np.asarray(label, dtype="S8"),
                 "candidate_number": int(attrs["candidate_number"]),
                 "combined_rank": int(attrs["combined_rank"]),

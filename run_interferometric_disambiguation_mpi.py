@@ -82,7 +82,7 @@ def main() -> None:
     parser.add_argument("--snr-threshold", type=float, default=9.0)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--orbit-samples", type=int, default=20)
-    parser.add_argument("--orbit-metadata-dir", type=Path, default=Path("data/metadata/orbit_metadata"))
+    parser.add_argument("--orbit-metadata-dir", type=Path, default=Path("data/metadata/orbit"))
     parser.add_argument("--run-dasst", action="store_true", help="Run DASST for the winning hypothesis when the local DASST module is available.")
     parser.add_argument("--skip-existing", action="store_true")
     args = parser.parse_args()
