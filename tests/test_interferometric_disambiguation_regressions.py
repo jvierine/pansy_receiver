@@ -12,6 +12,7 @@ REGRESSION_EVENTS = [
     pytest.param(1746489745288806, "88806", 101, id="event_88806"),
     pytest.param(1746489819007216, "07216", 501, id="event_07216"),
     pytest.param(1746490224199270, "99270", 701, id="event_99270"),
+    pytest.param(1746492411469961, "469961", 501, id="event_469961"),
 ]
 
 
