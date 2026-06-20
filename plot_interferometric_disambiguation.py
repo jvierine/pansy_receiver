@@ -2154,8 +2154,12 @@ def score_combined_hypotheses(tracks):
         track["combined_good_fit"] = good_fit
         track["combined_tx_distance_dc"] = tx_beam
         if good_fit:
-            track["combined_score"] = float(tx_beam if np.isfinite(tx_beam) else np.inf)
-            track["combined_score_source"] = f"tx_beam_center_distance_among_{track.get('selection_model_type', 'trajectory')}_redchi_le_1p5"
+            if np.isfinite(tx_beam):
+                track["combined_score"] = float(tx_beam)
+                track["combined_score_source"] = f"tx_beam_center_distance_among_{track.get('selection_model_type', 'trajectory')}_redchi_le_1p5"
+            else:
+                track["combined_score"] = float(redchi)
+                track["combined_score_source"] = f"{track.get('selection_model_type', 'trajectory')}_redchi_no_tx_beam_center_metric"
         else:
             tx_penalty = tx_term if np.isfinite(tx_term) else 1e6
             track["combined_score"] = float(redchi + 0.01 * tx_penalty + line_weight * line_term)
@@ -2165,7 +2169,11 @@ def score_combined_hypotheses(tracks):
             bool(t.get("ballistic_pulse_coverage_reject", False)),
             bool(t.get("ballistic_low_start_altitude_reject", False)) and t.get("selection_model_type") != "fixed_velocity",
             not bool(t.get("combined_good_fit", False)),
-            float(t.get("combined_tx_distance_dc", np.inf)) if t.get("combined_good_fit", False) else float(t.get("selection_reduced_chi2", np.inf)),
+            (
+                float(t.get("combined_tx_distance_dc", np.inf))
+                if t.get("combined_good_fit", False) and np.isfinite(t.get("combined_tx_distance_dc", np.nan))
+                else float(t.get("selection_reduced_chi2", np.inf))
+            ),
             t["combined_score"],
         )
     )
