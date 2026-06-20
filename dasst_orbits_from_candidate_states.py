@@ -146,15 +146,16 @@ def metadata_writer(path: Path) -> drf.DigitalMetadataWriter:
 
 
 def write_orbit_metadata(output_dir: Path, sample_key: int, payload: dict) -> None:
-    pbal.delete_metadata_key(output_dir, sample_key, ORBIT_METADATA_WRITER_ARGS["file_name"])
-    writer = metadata_writer(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
     lock_path = output_dir / ".orbit_metadata.lock"
     with lock_path.open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
+            pbal.delete_metadata_key(output_dir, sample_key, ORBIT_METADATA_WRITER_ARGS["file_name"])
+            writer = metadata_writer(output_dir)
             writer.write(int(sample_key), payload)
-        except ValueError as exc:
-            if "name already exists" not in str(exc):
+        except Exception as exc:
+            if "name already exists" not in str(exc) and "already in data" not in str(exc):
                 raise
             pbal.delete_metadata_key(output_dir, sample_key, ORBIT_METADATA_WRITER_ARGS["file_name"])
             writer = metadata_writer(output_dir)
