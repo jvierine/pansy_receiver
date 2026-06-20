@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import sys
 from pathlib import Path
 
 import digital_rf as drf
@@ -20,7 +21,13 @@ from astropy import units as u
 from astropy.coordinates import CartesianDifferential, CartesianRepresentation, GCRS, ITRS
 from astropy.time import Time
 
-import dasst
+try:
+    import dasst
+except Exception:
+    _dasst_src = Path(__file__).resolve().parent.parent / "dasst" / "src"
+    if _dasst_src.exists():
+        sys.path.insert(0, str(_dasst_src))
+    import dasst
 
 
 AU_M = 149_597_870_700.0
@@ -151,6 +158,23 @@ def write_orbit_metadata(output_dir: Path, sample_key: int, payload: dict) -> No
             fcntl.flock(lock, fcntl.LOCK_UN)
 
 
+def state_fit_payload_from_group(state_grp) -> tuple[np.ndarray, np.ndarray]:
+    if "selection_params" in state_grp:
+        params = state_grp["selection_params"][()]
+        cov = state_grp["selection_parameter_covariance"][()]
+    else:
+        params = state_grp["ballistic_params"][()]
+        cov = state_grp["ballistic_parameter_covariance"][()]
+    return np.asarray(params, dtype=np.float64), np.asarray(cov, dtype=np.float64)
+
+
+def fit_parameter_names_for_params(params: np.ndarray) -> np.ndarray:
+    names = ["east_m", "north_m", "up_m", "ve_mps", "vn_mps", "vu_mps"]
+    if len(params) == 7:
+        names.append("log10_beta_kg_m2")
+    return np.asarray(names, dtype="S32")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run DASST orbits for PANSY candidate GCRS state samples.")
     parser.add_argument("state_h5", type=Path)
@@ -171,6 +195,8 @@ def main() -> None:
             nominal_kep = dasst_kepler_from_gcrs(nominal_state, epoch, args.kernel)[:, 0]
             elems = reordered_elements(nominal_kep)
             sample_states = grp["state_gcrs_samples_m_mps"][()]
+            if sample_states.ndim != 2 or sample_states.shape[1] != 6:
+                sample_states = np.empty((0, 6), dtype=np.float64)
             sample_states = sample_states[np.all(np.isfinite(sample_states), axis=1)]
             if len(sample_states) > 0:
                 sample_kep = dasst_kepler_from_gcrs(sample_states, epoch, args.kernel)
@@ -255,9 +281,58 @@ def main() -> None:
         best_idx = int(np.argmin([int(attrs["combined_rank"]) for _label, attrs, _elems in rows]))
         label, attrs, elems = rows[best_idx]
         _ulabel, n_samples, sigma_beta, std, frac_e_gt_1, elem_cov = unc_rows[best_idx]
+        alias_labels = np.asarray([label_i for label_i, _attrs, _elems in rows], dtype="S8")
+        alias_candidate_numbers = np.asarray([int(attrs_i["candidate_number"]) for _label, attrs_i, _elems in rows], dtype=np.int64)
+        alias_combined_ranks = np.asarray([int(attrs_i["combined_rank"]) for _label, attrs_i, _elems in rows], dtype=np.int64)
+        alias_combined_scores = np.asarray([float(attrs_i["combined_score"]) for _label, attrs_i, _elems in rows], dtype=np.float64)
+        alias_selection_model_types = np.asarray(
+            [str(attrs_i.get("selection_model_type", "")).encode("utf-8") for _label, attrs_i, _elems in rows],
+            dtype="S32",
+        )
+        alias_plausibility_models = np.asarray(
+            [str(attrs_i.get("interstellar_alias_plausibility_model", "")).encode("utf-8") for _label, attrs_i, _elems in rows],
+            dtype="S32",
+        )
+        alias_plausibility_redchi = np.asarray(
+            [float(attrs_i.get("interstellar_alias_plausibility_redchi", np.nan)) for _label, attrs_i, _elems in rows],
+            dtype=np.float64,
+        )
+        alias_tx_beam_mean_dc = np.asarray(
+            [float(attrs_i.get("tx_beam_snr_weighted_mean_dc", np.nan)) for _label, attrs_i, _elems in rows],
+            dtype=np.float64,
+        )
+        alias_tx_beam_rms_dc = np.asarray(
+            [float(attrs_i.get("tx_beam_snr_weighted_rms_dc", np.nan)) for _label, attrs_i, _elems in rows],
+            dtype=np.float64,
+        )
+        alias_tx_beam_mean_deg = np.asarray(
+            [float(attrs_i.get("tx_beam_weighted_mean_deg", np.nan)) for _label, attrs_i, _elems in rows],
+            dtype=np.float64,
+        )
+        alias_tx_beam_rms_deg = np.asarray(
+            [float(attrs_i.get("tx_beam_weighted_rms_deg", np.nan)) for _label, attrs_i, _elems in rows],
+            dtype=np.float64,
+        )
+        alias_tx_lobe_mean_dc = np.asarray(
+            [float(attrs_i.get("tx_lobe_snr_weighted_mean_dc", np.nan)) for _label, attrs_i, _elems in rows],
+            dtype=np.float64,
+        )
+        alias_tx_lobe_rms_dc = np.asarray(
+            [float(attrs_i.get("tx_lobe_snr_weighted_rms_dc", np.nan)) for _label, attrs_i, _elems in rows],
+            dtype=np.float64,
+        )
+        alias_tx_lobe_p90_dc = np.asarray(
+            [float(attrs_i.get("tx_lobe_p90_dc", np.nan)) for _label, attrs_i, _elems in rows],
+            dtype=np.float64,
+        )
+        alias_kepler = np.asarray([elems_i for _label, _attrs, elems_i in rows], dtype=np.float64)
+        alias_kepler_std = np.asarray([std_i for _label, _n, _sigma_beta, std_i, _frac, _cov in unc_rows], dtype=np.float64)
+        alias_frac_e_gt_1 = np.asarray([frac for _label, _n, _sigma_beta, _std, frac, _cov in unc_rows], dtype=np.float64)
+        alias_interstellar_nominal = np.isfinite(alias_kepler[:, 1]) & (alias_kepler[:, 1] > 1.0)
         with h5py.File(args.state_h5, "r") as h:
             state_grp = h[label]
             sample_key = int(round(float(state_grp.attrs["epoch_unix"]) * 1_000_000.0))
+            fit_params, fit_cov = state_fit_payload_from_group(state_grp)
             payload = {
                 "sample_idx": int(sample_key),
                 "source_cut_sample_idx": int(round(float(h.attrs["sample_epoch_unix"]) * 1_000_000.0)),
@@ -265,16 +340,14 @@ def main() -> None:
                 "candidate_number": int(attrs["candidate_number"]),
                 "combined_rank": int(attrs["combined_rank"]),
                 "combined_score": float(attrs["combined_score"]),
+                "selection_model_type": np.asarray(str(attrs.get("selection_model_type", "")), dtype="S32"),
                 "state_epoch": np.asarray("first_detection", dtype="S32"),
                 "reference_frame": np.asarray("GCRS", dtype="S8"),
                 "initial_state_gcrs_m_mps": state_grp["state_gcrs_m_mps"][()],
                 "initial_state_samples_gcrs_m_mps": state_grp["state_gcrs_samples_m_mps"][()],
-                "fit_parameter_names": np.asarray(
-                    ["east_m", "north_m", "up_m", "ve_mps", "vn_mps", "vu_mps", "log10_beta_kg_m2"],
-                    dtype="S32",
-                ),
-                "fit_parameters": state_grp["ballistic_params"][()],
-                "fit_parameter_covariance": state_grp["ballistic_parameter_covariance"][()],
+                "fit_parameter_names": fit_parameter_names_for_params(fit_params),
+                "fit_parameters": fit_params,
+                "fit_parameter_covariance": fit_cov,
                 "log10_beta_kg_m2": float(attrs["log10_beta_kg_m2"]),
                 "sigma_log10_beta": float(sigma_beta),
                 "orbit_frame": np.asarray("HeliocentricMeanEcliptic", dtype="S32"),
@@ -286,6 +359,26 @@ def main() -> None:
                 "kepler_samples": sample_rows[label],
                 "n_uncertainty_samples": int(n_samples),
                 "frac_e_gt_1": float(frac_e_gt_1),
+                "alias_hypothesis_labels": alias_labels,
+                "alias_candidate_numbers": alias_candidate_numbers,
+                "alias_combined_ranks": alias_combined_ranks,
+                "alias_combined_scores": alias_combined_scores,
+                "alias_selection_model_types": alias_selection_model_types,
+                "alias_plausibility_models": alias_plausibility_models,
+                "alias_plausibility_redchi": alias_plausibility_redchi,
+                "alias_tx_beam_snr_weighted_mean_dc": alias_tx_beam_mean_dc,
+                "alias_tx_beam_snr_weighted_rms_dc": alias_tx_beam_rms_dc,
+                "alias_tx_beam_weighted_mean_deg": alias_tx_beam_mean_deg,
+                "alias_tx_beam_weighted_rms_deg": alias_tx_beam_rms_deg,
+                "alias_tx_lobe_snr_weighted_mean_dc": alias_tx_lobe_mean_dc,
+                "alias_tx_lobe_snr_weighted_rms_dc": alias_tx_lobe_rms_dc,
+                "alias_tx_lobe_p90_dc": alias_tx_lobe_p90_dc,
+                "alias_kepler": alias_kepler,
+                "alias_kepler_std": alias_kepler_std,
+                "alias_frac_e_gt_1": alias_frac_e_gt_1,
+                "alias_interstellar_nominal": alias_interstellar_nominal.astype(np.int8),
+                "all_aliases_interstellar_nominal": bool(np.all(alias_interstellar_nominal)) if len(alias_interstellar_nominal) else False,
+                "n_aliases_orbit_tested": int(len(alias_interstellar_nominal)),
                 "radiant_frame": np.asarray("GCRS", dtype="S8"),
                 "radiant_ra_deg": float(np.nan),
                 "radiant_dec_deg": float(np.nan),
