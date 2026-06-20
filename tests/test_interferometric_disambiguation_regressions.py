@@ -1,19 +1,96 @@
 import math
 import subprocess
 import sys
+import itertools
 from pathlib import Path
 
 import h5py
+import numpy as np
 import pytest
 
 
 PANSY_RECEIVER_ROOT = Path(__file__).resolve().parents[1]
+if str(PANSY_RECEIVER_ROOT) not in sys.path:
+    sys.path.insert(0, str(PANSY_RECEIVER_ROOT))
+MULTI_METEOR_SAMPLE_581983 = 1746492577581983
 REGRESSION_EVENTS = [
     pytest.param(1746489745288806, "88806", 101, id="event_88806"),
     pytest.param(1746489819007216, "07216", 501, id="event_07216"),
     pytest.param(1746490224199270, "99270", 701, id="event_99270"),
     pytest.param(1746492411469961, "469961", 501, id="event_469961"),
 ]
+
+
+def _subset_observations(obs, idx):
+    return {
+        key: val[idx] if isinstance(val, np.ndarray) and len(val) == len(obs["snr"]) else val
+        for key, val in obs.items()
+    }
+
+
+def _fit_best_component(obs, sample_idx, grid_n=501):
+    import pansy_interferometry as pint
+    import plot_interferometric_disambiguation as disamb
+
+    antpos = pint.get_antpos()
+    ch_pairs = np.asarray(list(itertools.combinations(np.arange(7), 2)))
+    dmat = pint.pair_mat(ch_pairs, antpos)
+    phasecal = pint.get_phasecal()
+    u, v, w, valid = disamb.horizon_grid(grid_n)
+    steering, _uvw = disamb.steering_matrix(dmat, u, v, w, valid)
+    tx_gain_maps = disamb.precompute_tx_array_gain_maps(u, v, w, valid)
+    tx_lobe_centroids, _tx_lobe_maps = disamb.tx_grating_lobe_centroids_from_gain_maps(tx_gain_maps, u, v, valid)
+
+    candidates = []
+    t_rel = obs["tx_idx"] / 1e6 - obs["tx_idx"][0] / 1e6
+    for i in range(len(obs["snr"])):
+        coh = disamb.coherence_map(obs["xc"][i], int(obs["beam_id"][i]), phasecal, ch_pairs, steering, valid, u.shape)
+        ii, jj = disamb.local_coherence_peaks(coh, 0.9)
+        for row, col in zip(ii, jj):
+            candidates.append(
+                {
+                    "u": float(u[row, col]),
+                    "v": float(v[row, col]),
+                    "w": float(w[row, col]),
+                    "grid_row": int(row),
+                    "grid_col": int(col),
+                    "coherence": float(coh[row, col]),
+                    "t_rel": float(t_rel[i]),
+                    "pulse": int(i),
+                    "range_km": float(obs["range_km"][i]),
+                    "doppler_mps": float(obs["doppler_mps"][i]),
+                    "snr": float(obs["snr"][i]),
+                    "beam_id": int(obs["beam_id"][i]),
+                }
+            )
+
+    tracks = disamb.complete_tracks_to_common_pulses(disamb.fit_candidate_tracks(candidates), candidates)
+    t_start = float(np.min(t_rel))
+    t_end = float(np.max(t_rel))
+    tracks = [disamb.classify_track_visibility(track, candidates, t_start, t_end) for track in tracks]
+    tracks = [
+        disamb.classify_track_descent(track) if track["reason"] == "kept" else track
+        for track in tracks
+    ]
+    tracks = [
+        disamb.classify_track_linearity(track, candidates)
+        if track["reason"] == "kept" and not track.get("descent_reject", False)
+        else track
+        for track in tracks
+    ]
+    sigma_pos, sigma_dop = disamb.fit_ballistic_survivors(tracks, candidates, event_epoch_unix=sample_idx / 1e6)
+    rho_of_alt_m, _msis_meta = disamb.pbal.density_interpolator(sample_idx / 1e6)
+    disamb.fit_fixed_velocity_survivors(tracks, rho_of_alt_m, sigma_pos, sigma_dop)
+    disamb.score_tx_beam_consistency(tracks, candidates)
+    disamb.score_candidate_diagnostics(
+        tracks,
+        candidates,
+        tx_gain_maps=tx_gain_maps,
+        tx_lobe_centroids=tx_lobe_centroids,
+    )
+    disamb.score_combined_hypotheses(tracks)
+    ranked = sorted([track for track in tracks if "combined_score" in track], key=lambda track: track["combined_rank"])
+    return ranked[0] if ranked else None
 
 
 @pytest.mark.slow
@@ -76,3 +153,38 @@ def test_event_finds_valid_trajectory(sample_idx, suffix, grid_n, tmp_path):
     with h5py.File(state_h5, "r") as h:
         assert selected in h
         assert int(h[selected].attrs["combined_rank"]) == 0
+
+
+@pytest.mark.slow
+def test_event_581983_identifies_two_meteors_separately():
+    import plot_interferometric_disambiguation as disamb
+
+    cut_dir = PANSY_RECEIVER_ROOT / "data" / "metadata" / "cut"
+    if not cut_dir.exists():
+        pytest.skip(f"local cut metadata not available: {cut_dir}")
+
+    cut = disamb.load_cut(cut_dir, MULTI_METEOR_SAMPLE_581983)
+    obs_all = disamb.recompute_cut_observables(cut)
+    good = obs_all["snr"] > 9.0
+    obs = {
+        key: val[good] if isinstance(val, np.ndarray) and len(val) == len(good) else val
+        for key, val in obs_all.items()
+    }
+
+    segments = disamb.split_observations_by_range_time(obs, min_points=3)
+    assert [len(segment) for segment in segments] == [6, 3]
+
+    best_tracks = []
+    for segment in segments:
+        segment_obs = _subset_observations(obs, segment)
+        assert float(segment_obs["range_km"][-1]) < float(segment_obs["range_km"][0])
+        best = _fit_best_component(segment_obs, MULTI_METEOR_SAMPLE_581983, grid_n=501)
+        assert best is not None
+        assert not bool(best.get("combined_reject", True))
+        assert str(best["selection_model_type"]) in {"fixed_velocity", "msis_drag"}
+        assert math.isfinite(float(best["selection_reduced_chi2"]))
+        assert int(best["unique_pulses"]) == len(segment)
+        best_tracks.append(best)
+
+    assert float(best_tracks[0]["selection_reduced_chi2"]) < 1.5
+    assert float(best_tracks[1]["selection_reduced_chi2"]) < 3.0

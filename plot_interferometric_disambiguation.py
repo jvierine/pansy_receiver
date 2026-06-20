@@ -1092,6 +1092,44 @@ def plot_all_candidates(u, v, obs, candidates, output: Path):
     plt.close(fig)
 
 
+def split_observations_by_range_time(
+    obs,
+    range_jump_km=1.0,
+    range_rate_km_s=8.0,
+    range_margin_km=0.4,
+    min_points=3,
+):
+    """Split pulse-wise meteor observables into simple range-time components."""
+    tx_idx = np.asarray(obs.get("tx_idx", []), dtype=np.float64)
+    range_km = np.asarray(obs.get("range_km", []), dtype=np.float64)
+    if len(tx_idx) != len(range_km) or len(tx_idx) == 0:
+        return []
+
+    good = np.isfinite(tx_idx) & np.isfinite(range_km)
+    order = np.flatnonzero(good)
+    if len(order) == 0:
+        return []
+    order = order[np.argsort(tx_idx[order], kind="mergesort")]
+
+    segments = []
+    start = 0
+    for j in range(1, len(order)):
+        prev_i = order[j - 1]
+        cur_i = order[j]
+        dt_s = max(0.0, float((tx_idx[cur_i] - tx_idx[prev_i]) / 1e6))
+        allowed_jump = max(float(range_jump_km), float(range_rate_km_s) * dt_s + float(range_margin_km))
+        if abs(float(range_km[cur_i] - range_km[prev_i])) > allowed_jump:
+            segment = order[start:j]
+            if len(segment) >= min_points:
+                segments.append(segment)
+            start = j
+
+    segment = order[start:]
+    if len(segment) >= min_points:
+        segments.append(segment)
+    return segments
+
+
 def fit_candidate_tracks(candidates, min_unique_pulses=None, tol=0.035, max_tracks=24, n_trials=30000):
     """Group high-coherence maxima into approximate u/v tracks.
 
