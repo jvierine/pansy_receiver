@@ -13,6 +13,7 @@ PANSY_RECEIVER_ROOT = Path(__file__).resolve().parents[1]
 if str(PANSY_RECEIVER_ROOT) not in sys.path:
     sys.path.insert(0, str(PANSY_RECEIVER_ROOT))
 MULTI_METEOR_SAMPLE_581983 = 1746492577581983
+TRAIL_ECHO_SAMPLE_742042 = 1746493024742042
 REGRESSION_EVENTS = [
     pytest.param(1746489745288806, "88806", 101, id="event_88806"),
     pytest.param(1746489819007216, "07216", 501, id="event_07216"),
@@ -189,3 +190,55 @@ def test_event_581983_identifies_two_meteors_separately():
 
     assert float(best_tracks[0]["selection_reduced_chi2"]) < 1.5
     assert float(best_tracks[1]["selection_reduced_chi2"]) < 3.0
+
+
+@pytest.mark.slow
+def test_event_742042_trail_echo_is_not_accepted_as_head_echo(tmp_path):
+    cut_dir = PANSY_RECEIVER_ROOT / "data" / "metadata" / "cut"
+    if not cut_dir.exists():
+        pytest.skip(f"local cut metadata not available: {cut_dir}")
+
+    output_dir = tmp_path / "event_742042"
+    cmd = [
+        sys.executable,
+        str(PANSY_RECEIVER_ROOT / "plot_interferometric_disambiguation.py"),
+        "--sample-idx",
+        str(TRAIL_ECHO_SAMPLE_742042),
+        "--cut-dir",
+        str(cut_dir),
+        "--output-dir",
+        str(output_dir),
+        "--grid-n",
+        "501",
+        "--overview-only",
+        "--orbit-samples",
+        "0",
+    ]
+    result = subprocess.run(
+        cmd,
+        cwd=PANSY_RECEIVER_ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=300,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout
+
+    diagnostics_h5 = output_dir / f"pansy_disambiguation_diagnostics_{TRAIL_ECHO_SAMPLE_742042}.h5"
+    assert diagnostics_h5.exists(), result.stdout
+
+    with h5py.File(diagnostics_h5, "r") as h:
+        assert h.attrs["event_status"] == "processed"
+        ranked = [
+            hypothesis
+            for hypothesis in h["hypotheses"].values()
+            if int(hypothesis.attrs.get("combined_rank", -1)) >= 0
+        ]
+        assert ranked, result.stdout
+        assert not any(
+            (not bool(hypothesis.attrs["combined_reject"])) and bool(hypothesis.attrs["combined_good_fit"])
+            for hypothesis in ranked
+        )
+        assert all(bool(hypothesis.attrs["head_echo_speed_reject"]) for hypothesis in ranked)
+        assert max(float(hypothesis.attrs["selection_speed_km_s"]) for hypothesis in ranked) < 5.0

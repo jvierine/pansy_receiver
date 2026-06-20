@@ -2146,6 +2146,7 @@ def score_combined_hypotheses(tracks):
     tx_beam_weight = 1.0
     line_weight = 0.10
     good_fit_redchi_threshold = 1.5
+    head_echo_min_speed_km_s = 5.0
     if not scored:
         fallback = [t for t in tracks if t["reason"] == "kept" and "line_reduced_chi2" in t]
         if not fallback:
@@ -2182,13 +2183,31 @@ def score_combined_hypotheses(tracks):
         low_start_reject = bool(track.get("ballistic_low_start_altitude_reject", False))
         if track.get("selection_model_type") == "fixed_velocity":
             low_start_reject = False
-        good_fit = bool(full_coverage and not low_start_reject and np.isfinite(redchi) and redchi <= good_fit_redchi_threshold)
+        selection_params = np.asarray(track.get("selection_params", []), dtype=np.float64)
+        selection_speed_km_s = (
+            float(np.linalg.norm(selection_params[3:6]) / 1e3)
+            if selection_params.size >= 6 and np.all(np.isfinite(selection_params[3:6]))
+            else np.nan
+        )
+        head_echo_speed_reject = bool(
+            np.isfinite(selection_speed_km_s) and selection_speed_km_s < head_echo_min_speed_km_s
+        )
+        good_fit = bool(
+            full_coverage
+            and not low_start_reject
+            and not head_echo_speed_reject
+            and np.isfinite(redchi)
+            and redchi <= good_fit_redchi_threshold
+        )
         track["combined_tx_term"] = float(tx_term)
         track["combined_line_term"] = float(line_term)
         track["combined_tx_beam_scale_dc"] = float(tx_beam_scale_dc)
         track["combined_tx_beam_weight"] = float(tx_beam_weight)
         track["combined_line_weight"] = float(line_weight)
         track["combined_good_fit_redchi_threshold"] = float(good_fit_redchi_threshold)
+        track["head_echo_min_speed_km_s"] = float(head_echo_min_speed_km_s)
+        track["selection_speed_km_s"] = float(selection_speed_km_s)
+        track["head_echo_speed_reject"] = head_echo_speed_reject
         track["combined_good_fit"] = good_fit
         track["combined_tx_distance_dc"] = tx_beam
         if good_fit:
@@ -2206,6 +2225,7 @@ def score_combined_hypotheses(tracks):
         key=lambda t: (
             bool(t.get("ballistic_pulse_coverage_reject", False)),
             bool(t.get("ballistic_low_start_altitude_reject", False)) and t.get("selection_model_type") != "fixed_velocity",
+            bool(t.get("head_echo_speed_reject", False)),
             not bool(t.get("combined_good_fit", False)),
             (
                 float(t.get("combined_tx_distance_dc", np.inf))
@@ -2225,6 +2245,7 @@ def score_combined_hypotheses(tracks):
             or bool(track.get("ballistic_pulse_coverage_reject", False))
             or ballistic_reject_blocks
             or (bool(track.get("ballistic_low_start_altitude_reject", False)) and track.get("selection_model_type") != "fixed_velocity")
+            or bool(track.get("head_echo_speed_reject", False))
         )
     if len(scored) > 1:
         delta = scored[1]["combined_score"] - scored[0]["combined_score"]
@@ -3287,6 +3308,9 @@ def write_disambiguation_diagnostics_h5(
                     "selection_dof": int(track.get("selection_dof", 0)),
                     "selection_pos_rms_km": float(track.get("selection_pos_rms_km", np.nan)),
                     "selection_dop_rms_km_s": float(track.get("selection_dop_rms_km_s", np.nan)),
+                    "selection_speed_km_s": float(track.get("selection_speed_km_s", np.nan)),
+                    "head_echo_min_speed_km_s": float(track.get("head_echo_min_speed_km_s", np.nan)),
+                    "head_echo_speed_reject": bool(track.get("head_echo_speed_reject", False)),
                     "combined_rank": int(track.get("combined_rank", -1)) if "combined_rank" in track else -1,
                     "combined_score": float(track.get("combined_score", np.nan)),
                     "combined_score_source": str(track.get("combined_score_source", "")),
