@@ -8,27 +8,31 @@ import pytest
 
 
 PANSY_RECEIVER_ROOT = Path(__file__).resolve().parents[1]
-REGRESSION_SAMPLE_88806 = 1746489745288806
+REGRESSION_EVENTS = [
+    pytest.param(1746489745288806, "88806", 101, id="event_88806"),
+    pytest.param(1746489819007216, "07216", 501, id="event_07216"),
+]
 
 
 @pytest.mark.slow
-def test_event_88806_finds_valid_trajectory(tmp_path):
+@pytest.mark.parametrize(("sample_idx", "suffix", "grid_n"), REGRESSION_EVENTS)
+def test_event_finds_valid_trajectory(sample_idx, suffix, grid_n, tmp_path):
     cut_dir = PANSY_RECEIVER_ROOT / "data" / "metadata" / "cut"
     if not cut_dir.exists():
         pytest.skip(f"local cut metadata not available: {cut_dir}")
 
-    output_dir = tmp_path / "event_88806"
+    output_dir = tmp_path / f"event_{suffix}"
     cmd = [
         sys.executable,
         str(PANSY_RECEIVER_ROOT / "plot_interferometric_disambiguation.py"),
         "--sample-idx",
-        str(REGRESSION_SAMPLE_88806),
+        str(sample_idx),
         "--cut-dir",
         str(cut_dir),
         "--output-dir",
         str(output_dir),
         "--grid-n",
-        "101",
+        str(grid_n),
         "--overview-only",
         "--orbit-samples",
         "0",
@@ -44,9 +48,9 @@ def test_event_88806_finds_valid_trajectory(tmp_path):
     )
     assert result.returncode == 0, result.stdout
 
-    diagnostics_h5 = output_dir / f"pansy_disambiguation_diagnostics_{REGRESSION_SAMPLE_88806}.h5"
-    state_h5 = output_dir / f"pansy_candidate_orbit_states_{REGRESSION_SAMPLE_88806}.h5"
-    summary_png = output_dir / f"pansy_interferometer_disambiguation_summary_{REGRESSION_SAMPLE_88806}.png"
+    diagnostics_h5 = output_dir / f"pansy_disambiguation_diagnostics_{sample_idx}.h5"
+    state_h5 = output_dir / f"pansy_candidate_orbit_states_{sample_idx}.h5"
+    summary_png = output_dir / f"pansy_interferometer_disambiguation_summary_{sample_idx}.png"
     assert diagnostics_h5.exists(), result.stdout
     assert state_h5.exists(), result.stdout
     assert summary_png.exists(), result.stdout
