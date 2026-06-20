@@ -18,6 +18,7 @@ TRAIL_ECHO_SAMPLE_606335 = 1746495226606335
 RANGE_FIT_SAMPLE_450693 = 1746575731450693
 RANGE_FIT_SAMPLE_895405 = 1746575072895405
 RANGE_FIT_SAMPLE_540174 = 1746574843540174
+HYPOTHESIS_PATH_SAMPLE_730489 = 1746574214730489
 REGRESSION_EVENTS = [
     pytest.param(1746489745288806, "88806", 101, id="event_88806"),
     pytest.param(1746489819007216, "07216", 501, id="event_07216"),
@@ -199,6 +200,61 @@ def test_event_581983_identifies_two_meteors_separately():
 
     assert float(best_tracks[0]["selection_reduced_chi2"]) < 1.5
     assert float(best_tracks[1]["selection_reduced_chi2"]) < 3.0
+
+
+@pytest.mark.slow
+def test_event_730489_uses_coherent_range_time_component_for_hypotheses(tmp_path):
+    cut_dir = PANSY_RECEIVER_ROOT / "data" / "metadata" / "cut"
+    if not cut_dir.exists():
+        pytest.skip(f"local cut metadata not available: {cut_dir}")
+
+    output_dir = tmp_path / "event_730489"
+    cmd = [
+        sys.executable,
+        str(PANSY_RECEIVER_ROOT / "plot_interferometric_disambiguation.py"),
+        "--sample-idx",
+        str(HYPOTHESIS_PATH_SAMPLE_730489),
+        "--cut-dir",
+        str(cut_dir),
+        "--output-dir",
+        str(output_dir),
+        "--grid-n",
+        "501",
+        "--overview-only",
+        "--orbit-samples",
+        "0",
+    ]
+    result = subprocess.run(
+        cmd,
+        cwd=PANSY_RECEIVER_ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=300,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout
+
+    diagnostics_h5 = output_dir / f"pansy_disambiguation_diagnostics_{HYPOTHESIS_PATH_SAMPLE_730489}.h5"
+    assert diagnostics_h5.exists(), result.stdout
+
+    with h5py.File(diagnostics_h5, "r") as h:
+        assert h.attrs["event_status"] == "processed"
+        np.testing.assert_array_equal(h["range_time_component_lengths"][:], np.array([6, 19, 11]))
+        assert int(h.attrs["selected_range_time_component"]) == 1
+
+        selected = str(h.attrs["selected_hypothesis"])
+        assert selected == "H01"
+
+        hypothesis = h["hypotheses"][selected]
+        assert int(hypothesis.attrs["combined_rank"]) == 0
+        assert not bool(hypothesis.attrs["combined_reject"])
+        assert bool(hypothesis.attrs["combined_good_fit"])
+        assert not bool(hypothesis.attrs["linearity_reject"])
+        assert str(hypothesis.attrs["selection_model_type"]) == "fixed_velocity"
+        assert int(hypothesis.attrs["unique_pulses"]) == 19
+        assert float(hypothesis.attrs["line_rms_km"]) < 0.5
+        assert float(hypothesis.attrs["selection_reduced_chi2"]) < 1.5
 
 
 @pytest.mark.slow

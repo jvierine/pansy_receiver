@@ -1130,6 +1130,15 @@ def split_observations_by_range_time(
     return segments
 
 
+def subset_pulse_observations(obs, idx):
+    idx = np.asarray(idx, dtype=np.int64)
+    n_pulse = len(obs.get("snr", []))
+    return {
+        key: val[idx] if isinstance(val, np.ndarray) and len(val) == n_pulse else val
+        for key, val in obs.items()
+    }
+
+
 def fit_candidate_tracks(candidates, min_unique_pulses=None, tol=0.035, max_tracks=24, n_trials=30000):
     """Group high-coherence maxima into approximate u/v tracks.
 
@@ -2414,16 +2423,16 @@ def plot_visibility_rejections(candidates, tracks, output: Path):
 
 def plot_linearity_rejections(candidates, tracks, output: Path):
     output.parent.mkdir(parents=True, exist_ok=True)
-    visible = [t for t in tracks if t["reason"] == "kept"]
-    n_rejected = sum(t["linearity_reject"] for t in visible)
+    visible = [t for t in tracks if t["reason"] == "kept" and "linearity_reject" in t]
+    n_rejected = sum(t.get("linearity_reject", False) for t in visible)
     n_kept = len(visible) - n_rejected
     fig, axes = plt.subplots(1, 3, figsize=(15.0, 5.3), constrained_layout=True)
 
     ax = axes[0]
     labels_done = set()
     for track in visible:
-        color = "tab:red" if track["linearity_reject"] else "tab:green"
-        label = "rejected: nonlinear" if track["linearity_reject"] else "kept: linear"
+        color = "tab:red" if track.get("linearity_reject", False) else "tab:green"
+        label = "rejected: nonlinear" if track.get("linearity_reject", False) else "kept: linear"
         if label in labels_done:
             label = None
         else:
@@ -2444,7 +2453,7 @@ def plot_linearity_rejections(candidates, tracks, output: Path):
 
     ax = axes[1]
     for track in visible:
-        color = "tab:red" if track["linearity_reject"] else "tab:green"
+        color = "tab:red" if track.get("linearity_reject", False) else "tab:green"
         pts = track["fit_points"]
         model = track["line_model_points"]
         along = (model - track["line_center"]) @ track["line_direction"]
@@ -2463,7 +2472,7 @@ def plot_linearity_rejections(candidates, tracks, output: Path):
         labels = np.arange(len(visible))
         hypothesis_labels = [hypothesis_label(t) for t in visible]
         rms = [t["line_rms_km"] for t in visible]
-        colors = ["tab:red" if t["linearity_reject"] else "tab:green" for t in visible]
+        colors = ["tab:red" if t.get("linearity_reject", False) else "tab:green" for t in visible]
         ax.scatter(labels, rms, c=colors, s=70, zorder=3)
         for lab, y, hlabel in zip(labels, rms, hypothesis_labels):
             ax.text(lab, y, hlabel, fontsize=8, ha="center", va="bottom")
@@ -3170,6 +3179,8 @@ def write_disambiguation_diagnostics_h5(
     dasst_orbit_h5_path: Path | None = None,
     sigma_pos_km=np.nan,
     sigma_dop_km_s=np.nan,
+    range_time_component_lengths=None,
+    selected_range_time_component=-1,
 ):
     """Persist compact per-event products needed for later statistical summaries.
 
@@ -3198,8 +3209,15 @@ def write_disambiguation_diagnostics_h5(
                 "orbit_state_h5": str(state_h5_path) if state_h5_path is not None else "",
                 "dasst_orbit_h5": str(dasst_orbit_h5_path) if dasst_orbit_h5_path is not None else "",
                 "selection_metric": "combined_score",
+                "range_time_component_count": int(len(range_time_component_lengths or [])),
+                "selected_range_time_component": int(selected_range_time_component),
             },
         )
+        if range_time_component_lengths is not None:
+            h.create_dataset(
+                "range_time_component_lengths",
+                data=np.asarray(range_time_component_lengths, dtype=np.int64),
+            )
 
         cand_grp = h.create_group("candidates")
         if candidates:
@@ -4120,6 +4138,14 @@ def main():
         print("event_rejected_reason no_measurements_above_snr_threshold")
         return
 
+    range_time_segments = split_observations_by_range_time(obs, min_points=3)
+    range_time_component_lengths = [int(len(segment)) for segment in range_time_segments]
+    selected_range_time_component = -1
+    if len(range_time_segments) >= 3 and max(range_time_component_lengths, default=0) >= 10:
+        weights = [float(np.nansum(np.asarray(obs["snr"], dtype=np.float64)[segment])) for segment in range_time_segments]
+        selected_range_time_component = int(np.argmax(weights))
+        obs = subset_pulse_observations(obs, range_time_segments[selected_range_time_component])
+
     antpos = pint.get_antpos()
     ch_pairs = np.asarray(list(itertools.combinations(np.arange(7), 2)))
     dmat = pint.pair_mat(ch_pairs, antpos)
@@ -4285,6 +4311,8 @@ def main():
         dasst_orbit_h5_path=dasst_orbit_h5,
         sigma_pos_km=sigma_pos,
         sigma_dop_km_s=sigma_dop,
+        range_time_component_lengths=range_time_component_lengths,
+        selected_range_time_component=selected_range_time_component,
     )
 
     if not args.overview_only:
@@ -4308,6 +4336,9 @@ def main():
     print(diagnostics_h5)
     print(f"single_echo_high_coherence_peaks {len(peak_ij[0])}")
     print(f"all_high_coherence_candidates {len(candidates)}")
+    print(f"range_time_components {len(range_time_component_lengths)}")
+    print("range_time_component_lengths " + " ".join(str(n) for n in range_time_component_lengths))
+    print(f"selected_range_time_component {selected_range_time_component}")
     print("tx_lobe_centroid_counts " + " ".join(str(len(c)) for c in tx_lobe_centroids))
     print(f"path_hypotheses {len(tracks)}")
     print(f"path_hypotheses_kept {sum(t['reason'] == 'kept' for t in tracks)}")
