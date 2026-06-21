@@ -7,6 +7,7 @@ import argparse
 import itertools
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import matplotlib as mpl
@@ -96,14 +97,14 @@ def plot_tx_array_beam_patterns(output: Path, grid_n=501, model="module_incohere
     fig, axes = plt.subplots(1, len(beam_vecs), figsize=(16.0, 3.8), constrained_layout=True)
     for beam_i, ax in enumerate(axes):
         gain = gain_maps[beam_i]
-        im = ax.pcolormesh(v, u, gain, shading="auto", cmap="viridis", vmin=-20.0, vmax=0.0)
-        ax.contour(v, u, gain, levels=[-12.0, -6.0, -3.0], colors="white", linewidths=0.7)
-        ax.plot(beam_vecs[beam_i, 1], beam_vecs[beam_i, 0], "rx", ms=7, mew=1.5)
+        im = ax.pcolormesh(u, v, gain, shading="auto", cmap="viridis", vmin=-20.0, vmax=0.0)
+        ax.contour(u, v, gain, levels=[-12.0, -6.0, -3.0], colors="white", linewidths=0.7)
+        ax.plot(beam_vecs[beam_i, 0], beam_vecs[beam_i, 1], "rx", ms=7, mew=1.5)
         ax.add_patch(plt.Circle((0.0, 0.0), 1.0, color="black", fill=False, linewidth=0.9))
         ax.set_title(f"{beam_i}: {beam_names[beam_i] if beam_i < len(beam_names) else 'beam'}")
-        ax.set_xlabel("v direction cosine")
+        ax.set_xlabel("u/east direction cosine")
         if beam_i == 0:
-            ax.set_ylabel("u direction cosine")
+            ax.set_ylabel("v/north direction cosine")
         ax.set_aspect("equal")
         ax.set_xlim(-1.02, 1.02)
         ax.set_ylim(-1.02, 1.02)
@@ -634,6 +635,91 @@ def add_pulse_pair_phase_observables(obs, cut):
     return obs
 
 
+def cached_cut_observables(cut: dict, interp: int = 1):
+    """Use cached cut detections and compute only interferometric phase at those bins."""
+    required = {"c_tx_idx", "c_beam_idx", "c_range_km", "c_doppler", "c_snr"}
+    if not required.issubset(cut):
+        raise KeyError("cut does not contain cached detection observables")
+
+    z_rx = np.asarray(cut["zrx_echoes_re"], dtype=np.complex64) + 1j * np.asarray(cut["zrx_echoes_im"], dtype=np.complex64)
+    z_tx = np.asarray(cut["ztx_pulses_re"], dtype=np.complex64) + 1j * np.asarray(cut["ztx_pulses_im"], dtype=np.complex64)
+    scale = amp_scale()
+    for i in range(z_rx.shape[1]):
+        z_rx[:, i, :] *= scale[i]
+
+    tx_idx_all = np.asarray(cut["tx_idx"], dtype=np.int64)
+    delays_all = np.asarray(cut["delays"], dtype=np.int64)
+    tx_idx = np.asarray(cut["c_tx_idx"], dtype=np.float64)
+    cached_beam = np.asarray(cut["c_beam_idx"], dtype=np.int64)
+    range_km = np.asarray(cut["c_range_km"], dtype=np.float64)
+    doppler_mps = np.asarray(cut["c_doppler"], dtype=np.float64)
+    snr = np.asarray(cut["c_snr"], dtype=np.float64)
+
+    pulse_lookup = {int(sample): i for i, sample in enumerate(tx_idx_all)}
+    pulse_i = np.asarray([pulse_lookup.get(int(sample), -1) for sample in tx_idx], dtype=np.int64)
+    ok = pulse_i >= 0
+    tx_idx = tx_idx[ok]
+    beam_id = np.asarray(cut["beam_id"], dtype=np.int64)[pulse_i[ok]]
+    if np.any((beam_id < 0) | (beam_id >= 5)):
+        beam_id = cached_beam[ok]
+    range_km = range_km[ok]
+    doppler_mps = doppler_mps[ok]
+    snr = snr[ok]
+    pulse_i = pulse_i[ok]
+
+    rds = RangeDopplerSearch(
+        txlen=z_tx.shape[1],
+        echolen=z_rx.shape[2],
+        interp=interp,
+        n_channels=z_rx.shape[1],
+    )
+    drg_km = sc.c / 1e6 / 2.0 / 1e3 / interp
+    xct = np.full((len(tx_idx), len(rds.ch_pairs)), np.nan + 1j * np.nan, dtype=np.complex64)
+    for out_i, pi in enumerate(pulse_i):
+        rg = int(np.rint(range_km[out_i] / drg_km - delays_all[pi]))
+        if rg < 0 or rg >= rds.n_rg:
+            continue
+        di = int(np.argmin(np.abs(rds.dopv - doppler_mps[out_i])))
+        txi = np.repeat(z_tx[pi, :], interp)
+        zf = []
+        row_idx = rg + np.arange(rds.txlen, dtype=np.int64)
+        for chi in range(z_rx.shape[1]):
+            zr = np.repeat(z_rx[pi, chi, :], interp)
+            z = zr[row_idx] * txi
+            new_width = int(rds.txlen / rds.fdec)
+            zd = np.zeros(new_width, dtype=np.complex64)
+            base = np.arange(new_width, dtype=np.int64) * rds.fdec
+            for dec_i in range(rds.fdec):
+                zd += z[base + dec_i]
+            spec = np.fft.fftshift(np.fft.fft(zd, rds.fftlen))
+            zf.append(spec[di])
+        for pair_i, (a, b) in enumerate(rds.ch_pairs):
+            xct[out_i, pair_i] = zf[a] * np.conj(zf[b])
+
+    rti_snr = np.zeros((len(tx_idx), 1600), dtype=np.float32)
+    dti_mps = np.zeros((len(tx_idx), 1600), dtype=np.float32)
+    full_range_grid_km = np.arange(1600, dtype=np.float64) * (sc.c / 1e6 / 2.0 / 1e3)
+    full_bin = np.rint(range_km / (sc.c / 1e6 / 2.0 / 1e3)).astype(np.int64)
+    for out_i, bin_i, val_snr, val_dop in zip(range(len(tx_idx)), full_bin, snr, doppler_mps):
+        if 0 <= bin_i < rti_snr.shape[1]:
+            rti_snr[out_i, bin_i] = val_snr
+            dti_mps[out_i, bin_i] = val_dop
+
+    return {
+        "tx_idx": tx_idx,
+        "beam_id": beam_id,
+        "range_km": range_km,
+        "doppler_mps": doppler_mps,
+        "snr": snr,
+        "xc": xct,
+        "rti_snr": rti_snr,
+        "dti_mps": dti_mps,
+        "range_grid_km": full_range_grid_km,
+        "cached_peak_rti": True,
+        "radar_frequency_hz": float(pc.freq),
+    }
+
+
 def matched_filter_rti_at_doppler(cut, doppler_mps, interp=1):
     """Compute RTI by slicing the range-Doppler matched filter at a specified Doppler per pulse."""
     z_rx = np.asarray(cut["zrx_echoes_re"], dtype=np.complex64) + 1j * np.asarray(cut["zrx_echoes_im"], dtype=np.complex64)
@@ -660,15 +746,41 @@ def matched_filter_rti_at_doppler(cut, doppler_mps, interp=1):
 
 def plot_matched_filter_rti_panel(ax, obs_rti, cut, tracks, fit_t0_s=None, obs_overlay=None):
     """Panel 1c: range-time-intensity at the best Doppler model."""
-    t0 = float(obs_rti["tx_idx"][0] / 1e6) if fit_t0_s is None else float(fit_t0_s)
-    t_rel = np.asarray(obs_rti["tx_idx"], dtype=np.float64) / 1e6 - t0
-    doppler_mps, label = doppler_series_for_rti(obs_rti, tracks, fit_t0_s=t0)
-    try:
-        rti = matched_filter_rti_at_doppler(cut, doppler_mps, interp=1)
-        title = f"1c. Range-Doppler RTI at {label}"
-    except Exception as exc:
-        rti = np.asarray(obs_rti.get("rti_snr", np.empty((0, 0))), dtype=np.float64)
-        title = f"1c. Range-Doppler RTI fallback ({type(exc).__name__})"
+    if bool(obs_rti.get("cached_peak_rti", False)):
+        raw_tx_idx = np.asarray(cut["tx_idx"], dtype=np.float64)
+        t0 = float(raw_tx_idx[0] / 1e6) if fit_t0_s is None else float(fit_t0_s)
+        t_rel = raw_tx_idx / 1e6 - t0
+        cached_tx_s = np.asarray(obs_rti["tx_idx"], dtype=np.float64) / 1e6
+        cached_dop = np.asarray(obs_rti["doppler_mps"], dtype=np.float64)
+        if len(cached_tx_s) and len(cached_dop):
+            order = np.argsort(cached_tx_s)
+            raw_dop = np.interp(raw_tx_idx / 1e6, cached_tx_s[order], cached_dop[order], left=cached_dop[order][0], right=cached_dop[order][-1])
+        else:
+            raw_dop = np.zeros_like(raw_tx_idx, dtype=np.float64)
+        raw_obs = {
+            "tx_idx": raw_tx_idx,
+            "doppler_mps": raw_dop,
+            "range_grid_km": np.asarray(obs_rti["range_grid_km"], dtype=np.float64),
+        }
+        doppler_mps, label = doppler_series_for_rti(raw_obs, tracks, fit_t0_s=t0)
+        try:
+            rti = matched_filter_rti_at_doppler(cut, doppler_mps, interp=1)
+            title = f"1c. Range-Doppler RTI at {label}"
+        except Exception as exc:
+            t0 = float(obs_rti["tx_idx"][0] / 1e6) if fit_t0_s is None else float(fit_t0_s)
+            t_rel = np.asarray(obs_rti["tx_idx"], dtype=np.float64) / 1e6 - t0
+            rti = np.asarray(obs_rti.get("rti_snr", np.empty((0, 0))), dtype=np.float64)
+            title = f"1c. Range-Doppler RTI fallback ({type(exc).__name__})"
+    else:
+        t0 = float(obs_rti["tx_idx"][0] / 1e6) if fit_t0_s is None else float(fit_t0_s)
+        t_rel = np.asarray(obs_rti["tx_idx"], dtype=np.float64) / 1e6 - t0
+        doppler_mps, label = doppler_series_for_rti(obs_rti, tracks, fit_t0_s=t0)
+        try:
+            rti = matched_filter_rti_at_doppler(cut, doppler_mps, interp=1)
+            title = f"1c. Range-Doppler RTI at {label}"
+        except Exception as exc:
+            rti = np.asarray(obs_rti.get("rti_snr", np.empty((0, 0))), dtype=np.float64)
+            title = f"1c. Range-Doppler RTI fallback ({type(exc).__name__})"
     rti_db = 10.0 * np.log10(np.maximum(rti, 1e-6))
     finite = rti_db[np.isfinite(rti_db)]
     if finite.size:
@@ -705,6 +817,63 @@ def winning_track_for_view(tracks):
     if ballistic:
         return sorted(ballistic, key=lambda t: t["ballistic_rank"])[0]
     return None
+
+
+def final_trajectory_tracks_for_view(tracks):
+    """Tracks with a final selected trajectory fit suitable for event summary panels."""
+    selected = [
+        t
+        for t in tracks
+        if t.get("reason") == "kept"
+        and "combined_rank" in t
+        and "fit_points" in t
+        and "selection_model" in t
+        and "selection_pred_doppler_km_s" in t
+        and not bool(t.get("combined_reject", False))
+    ]
+    if not selected:
+        selected = [
+            t
+            for t in tracks
+            if t.get("reason") == "kept"
+            and "combined_rank" in t
+            and "fit_points" in t
+            and "selection_model" in t
+            and "selection_pred_doppler_km_s" in t
+        ]
+    return sorted(selected, key=lambda t: t.get("combined_rank", 999))
+
+
+def straight_line_sumsq_km2(track):
+    """Sum squared distances to the line joining first/last kept fit points."""
+    points = np.asarray(track.get("fit_points", np.empty((0, 3))), dtype=np.float64)
+    if len(points) < 2:
+        return np.nan
+    keep = np.asarray(
+        track.get(
+            "selection_keep",
+            track.get("fixed_velocity_keep", track.get("ballistic_keep", np.ones(len(points), dtype=bool))),
+        ),
+        dtype=bool,
+    )
+    if len(keep) != len(points):
+        keep = np.ones(len(points), dtype=bool)
+    times = np.asarray(track.get("ballistic_t", track.get("fit_t", np.arange(len(points)))), dtype=np.float64)
+    if len(times) != len(points):
+        times = np.arange(len(points), dtype=np.float64)
+    idx = np.flatnonzero(keep & np.all(np.isfinite(points), axis=1) & np.isfinite(times))
+    if len(idx) < 2:
+        return np.nan
+    idx = idx[np.argsort(times[idx])]
+    p0 = points[idx[0]]
+    p1 = points[idx[-1]]
+    direction = p1 - p0
+    norm = float(np.linalg.norm(direction))
+    if not np.isfinite(norm) or norm <= 0.0:
+        return np.nan
+    direction = direction / norm
+    residual = points[idx] - (p0 + np.outer((points[idx] - p0) @ direction, direction))
+    return float(np.sum(np.linalg.norm(residual, axis=1) ** 2))
 
 
 def set_winning_path_view(ax, tracks, candidates, pad_km=8.0):
@@ -1037,12 +1206,12 @@ def local_coherence_peaks(coh: np.ndarray, threshold: float):
 def plot_single_echo(u, v, coh, peak_ij, obs, pulse_idx, output: Path):
     output.parent.mkdir(parents=True, exist_ok=True)
     fig, ax = plt.subplots(figsize=(7.2, 6.2), constrained_layout=True)
-    im = ax.pcolormesh(v, u, coh, shading="auto", cmap="viridis", vmin=0.0, vmax=1.0)
-    ax.contour(v, u, coh, levels=[0.9], colors="white", linewidths=0.9)
+    im = ax.pcolormesh(u, v, coh, shading="auto", cmap="viridis", vmin=0.0, vmax=1.0)
+    ax.contour(u, v, coh, levels=[0.9], colors="white", linewidths=0.9)
     if len(peak_ij[0]) > 0:
-        ax.scatter(v[peak_ij], u[peak_ij], s=18, facecolors="none", edgecolors="red", linewidths=0.8)
-    ax.set_xlabel("v direction cosine")
-    ax.set_ylabel("u direction cosine")
+        ax.scatter(u[peak_ij], v[peak_ij], s=18, facecolors="none", edgecolors="red", linewidths=0.8)
+    ax.set_xlabel("u/east direction cosine")
+    ax.set_ylabel("v/north direction cosine")
     ax.set_title(
         "Single-pulse interferometer coherence\n"
         f"tx_idx={int(obs['tx_idx'][pulse_idx])}, SNR={10*np.log10(obs['snr'][pulse_idx]):.1f} dB"
@@ -1063,8 +1232,8 @@ def plot_all_candidates(u, v, obs, candidates, output: Path):
         t = np.asarray([c["t_rel"] for c in candidates])
         coh = np.asarray([c["coherence"] for c in candidates])
         sc = ax.scatter(
-            [c["v"] for c in candidates],
             [c["u"] for c in candidates],
+            [c["v"] for c in candidates],
             c=t,
             s=10.0 + 50.0 * np.clip(coh - 0.9, 0.0, 0.1) / 0.1,
             cmap="plasma",
@@ -1072,8 +1241,8 @@ def plot_all_candidates(u, v, obs, candidates, output: Path):
             edgecolors="none",
         )
         fig.colorbar(sc, ax=ax, label="Time since cut start (s)")
-    ax.set_xlabel("v direction cosine")
-    ax.set_ylabel("u direction cosine")
+    ax.set_xlabel("u/east direction cosine")
+    ax.set_ylabel("v/north direction cosine")
     ax.set_title(r"All local interferometer maxima with coherence $\geq 0.9$")
     ax.set_xlim(-1.03, 1.03)
     ax.set_ylim(-1.03, 1.03)
@@ -1260,11 +1429,14 @@ def complete_tracks_to_common_pulses(tracks, candidates):
             track["common_pulse_completion_distance_dc"] = np.asarray(completed_distance, dtype=np.float64)
             track["common_pulse_completion_rms_dc"] = float(np.sqrt(np.mean(np.asarray(completed_distance) ** 2)))
             track["common_pulse_completion_max_dc"] = float(np.max(completed_distance))
+            track["common_pulse_completion_reject"] = bool(
+                track["common_pulse_completion_rms_dc"] > 0.25
+            )
     return tracks
 
 
-def classify_track_visibility(track, candidates, t_start, t_end):
-    """Reject tracks whose fitted 3D path is below horizon or wraps in direction."""
+def classify_track_visibility(track, candidates, t_start, t_end, min_elevation_deg=5.0):
+    """Reject tracks whose fitted 3D path is below or too close to the horizon."""
     rows = [candidates[i] for i in track["idx"]]
     t = np.asarray([r["t_rel"] for r in rows], dtype=np.float64)
     u = np.asarray([r["u"] for r in rows], dtype=np.float64)
@@ -1286,11 +1458,17 @@ def classify_track_visibility(track, candidates, t_start, t_end):
     uv_radius = np.hypot(direction[:, 0], direction[:, 1])
     angle_step = np.arccos(np.clip(np.sum(direction[:-1] * direction[1:], axis=1), -1.0, 1.0))
 
+    min_up_direction = float(np.nanmin(direction[:, 2])) if len(direction) else np.nan
     below_horizon = bool(np.any(model[:, 2] <= 0.0))
+    near_horizon = bool(np.isfinite(min_up_direction) and min_up_direction < np.sin(np.deg2rad(min_elevation_deg)))
     wraps = bool(np.min(radius) < 20.0 or np.nanmax(angle_step) > np.deg2rad(20.0) or np.nanmax(uv_radius) > 1.0)
     reason = "kept"
-    if below_horizon:
+    if bool(track.get("common_pulse_completion_reject", False)):
+        reason = "completion mismatch"
+    elif below_horizon:
         reason = "below horizon"
+    elif near_horizon:
+        reason = "near horizon"
     elif wraps:
         reason = "wraps"
 
@@ -1302,6 +1480,9 @@ def classify_track_visibility(track, candidates, t_start, t_end):
             "dense_model": model,
             "dense_direction": direction,
             "below_horizon": below_horizon,
+            "near_horizon": near_horizon,
+            "min_elevation_deg": float(np.rad2deg(np.arcsin(np.clip(min_up_direction, -1.0, 1.0)))) if np.isfinite(min_up_direction) else np.nan,
+            "min_elevation_threshold_deg": float(min_elevation_deg),
             "wraps": wraps,
             "reason": reason,
             "min_up_km": float(np.min(model[:, 2])),
@@ -1781,38 +1962,15 @@ def fit_ballistic_track(track, candidates, rho_of_alt_m, sigma_pos_km=0.5, sigma
 
 
 def fit_ballistic_survivors(tracks, candidates, event_epoch_unix, p_threshold=0.01):
-    strict = [
-        t
-        for t in tracks
-        if t["reason"] == "kept"
-        and not t.get("linearity_reject", False)
-        and not t.get("low_detection_altitude_reject", False)
-        and not t.get("descent_reject", False)
-    ]
-    relaxed = [
-        t
-        for t in tracks
-        if t["reason"] == "kept"
-        and "fit_points" in t
-        and not t.get("low_detection_altitude_reject", False)
-    ]
-    horizon_visible = [
+    survivors = [
         t
         for t in tracks
         if t["reason"] == "kept"
         and "fit_points" in t
     ]
-    if strict:
-        survivors = strict
-        fallback_level = "strict"
-    elif relaxed:
-        survivors = relaxed
-        fallback_level = "relaxed_physical"
-    else:
-        survivors = horizon_visible
-        fallback_level = "horizon_visible"
     if not survivors:
         return np.nan, np.nan
+    fallback_level = "horizon_clear"
 
     required_pulses = frozenset(int(c["pulse"]) for c in candidates)
     required_unique_pulses = len(required_pulses)
@@ -1857,7 +2015,7 @@ def fit_ballistic_survivors(tracks, candidates, event_epoch_unix, p_threshold=0.
     return sigma_pos, sigma_dop
 
 
-def fit_fixed_velocity_survivors(tracks, rho_of_alt_m, sigma_pos_km, sigma_dop_km_s):
+def fit_fixed_velocity_survivors(tracks, candidates, rho_of_alt_m, sigma_pos_km, sigma_dop_km_s, fit_fixed_am=False):
     """Fit a constant-velocity range/Doppler trajectory for alias scoring."""
     try:
         import fit_best_alias_physics_models as physics
@@ -1868,12 +2026,27 @@ def fit_fixed_velocity_survivors(tracks, rho_of_alt_m, sigma_pos_km, sigma_dop_k
         return
 
     for track in tracks:
-        if "ballistic_t" not in track or "fit_points" not in track or "ballistic_doppler_km_s" not in track:
+        if "fit_points" not in track:
             continue
         try:
-            t_s = np.asarray(track["ballistic_t"], dtype=np.float64)
+            rows = [candidates[i] for i in track["idx"]]
+            t_s = np.asarray(track.get("ballistic_t", track.get("fit_t")), dtype=np.float64)
             points_km = np.asarray(track["fit_points"], dtype=np.float64)
-            doppler_km_s = np.asarray(track["ballistic_doppler_km_s"], dtype=np.float64)
+            doppler_km_s = np.asarray(
+                track.get("ballistic_doppler_km_s", [r["doppler_mps"] / 1e3 for r in rows]),
+                dtype=np.float64,
+            )
+            snr_db = np.asarray(
+                track.get("ballistic_snr_db", [10.0 * np.log10(max(r["snr"], 1e-6)) for r in rows]),
+                dtype=np.float64,
+            )
+            track["ballistic_t"] = t_s
+            track["ballistic_doppler_km_s"] = doppler_km_s
+            track["ballistic_snr_db"] = snr_db
+            track["ballistic_required_unique_pulses"] = int(track.get("common_pulse_count", track.get("unique_pulses", 0)))
+            track["ballistic_pulse_coverage_reject"] = False
+            track["ballistic_low_start_altitude_reject"] = False
+            track["ballistic_reject"] = False
             p0 = physics.linear_initial_guess(t_s, points_km)
             fit = physics.fit_model(
                 "fixed_velocity",
@@ -1912,6 +2085,13 @@ def fit_fixed_velocity_survivors(tracks, rho_of_alt_m, sigma_pos_km, sigma_dop_k
                 "fixed_velocity_t_ref_s": float(np.min(t_s)) if len(t_s) else 0.0,
             }
         )
+        if not fit_fixed_am:
+            plausibility_redchi = float(track.get("fixed_velocity_reduced_chi2", np.inf))
+            track["interstellar_alias_plausible"] = bool(np.isfinite(plausibility_redchi) and plausibility_redchi < 1.0)
+            track["interstellar_alias_plausibility_redchi_threshold"] = 1.0
+            track["interstellar_alias_plausibility_redchi"] = plausibility_redchi
+            track["interstellar_alias_plausibility_model"] = "fixed_velocity" if track["interstellar_alias_plausible"] else ""
+            continue
         try:
             fixed_am_starts = [
                 np.concatenate([fit["params"][:6], [log_b]])
@@ -2021,7 +2201,7 @@ def score_tx_beam_consistency(tracks, candidates):
     """Score how well each candidate lies near the active transmit beam."""
     beam_vecs = tx_beam_unit_vectors()
     for track in tracks:
-        if track["reason"] != "kept" or track.get("linearity_reject", False) or track.get("descent_reject", False):
+        if "fit_points" not in track:
             continue
         rows = [candidates[i] for i in track["idx"]]
         dirs = np.asarray([[r["u"], r["v"], r["w"]] for r in rows], dtype=np.float64)
@@ -2055,7 +2235,7 @@ def score_candidate_diagnostics(tracks, candidates, tx_gain_maps=None, tx_lobe_c
     """Attach non-decision diagnostic metrics to ranked candidate tracks."""
     beam_vecs = tx_beam_unit_vectors()
     for track in tracks:
-        if "ballistic_reduced_chi2" not in track:
+        if "fit_points" not in track:
             continue
         rows = [candidates[i] for i in track["idx"]]
         coherence = np.asarray([r["coherence"] for r in rows], dtype=np.float64)
@@ -2069,7 +2249,12 @@ def score_candidate_diagnostics(tracks, candidates, tx_gain_maps=None, tx_lobe_c
         dirs = np.asarray([[r["u"], r["v"], r["w"]] for r in rows], dtype=np.float64)
         beam_id = np.asarray([r["beam_id"] for r in rows], dtype=np.int64)
         ranges = np.asarray([r["range_km"] for r in rows], dtype=np.float64)
+        doppler_km_s = np.asarray([r["doppler_mps"] / 1e3 for r in rows], dtype=np.float64)
         t = np.asarray([r["t_rel"] for r in rows], dtype=np.float64)
+        track["measurement_range_span_km"] = float(np.nanmax(ranges) - np.nanmin(ranges)) if len(ranges) else np.nan
+        track["measurement_doppler_span_km_s"] = (
+            float(np.nanmax(doppler_km_s) - np.nanmin(doppler_km_s)) if len(doppler_km_s) else np.nan
+        )
         if tx_lobe_centroids is not None:
             lobe_dist = nearest_tx_grating_lobe_distances(dirs, beam_id, tx_lobe_centroids)
             good_lobe = np.isfinite(lobe_dist)
@@ -2174,7 +2359,8 @@ def score_combined_hypotheses(tracks):
         )
         for rank, track in enumerate(fallback):
             track["combined_rank"] = rank
-            track["combined_reject"] = rank != 0
+            track["combined_good_fit"] = False
+            track["combined_reject"] = True
         delta = fallback[1]["combined_score"] - fallback[0]["combined_score"] if len(fallback) > 1 else np.inf
         odds = float(np.exp(0.5 * delta)) if np.isfinite(delta) and delta < 1400 else np.inf
         for track in fallback:
@@ -2201,10 +2387,18 @@ def score_combined_hypotheses(tracks):
         head_echo_speed_reject = bool(
             np.isfinite(selection_speed_km_s) and selection_speed_km_s < head_echo_min_speed_km_s
         )
+        range_span_km = float(track.get("measurement_range_span_km", np.nan))
+        short_static_measurement_reject = bool(
+            int(track.get("unique_pulses", 0)) <= 4
+            and np.isfinite(range_span_km)
+            and range_span_km < 0.2
+        )
         good_fit = bool(
             full_coverage
+            and not bool(track.get("common_pulse_completion_reject", False))
             and not low_start_reject
             and not head_echo_speed_reject
+            and not short_static_measurement_reject
             and np.isfinite(redchi)
             and redchi <= good_fit_redchi_threshold
         )
@@ -2217,6 +2411,7 @@ def score_combined_hypotheses(tracks):
         track["head_echo_min_speed_km_s"] = float(head_echo_min_speed_km_s)
         track["selection_speed_km_s"] = float(selection_speed_km_s)
         track["head_echo_speed_reject"] = head_echo_speed_reject
+        track["short_static_measurement_reject"] = short_static_measurement_reject
         track["combined_good_fit"] = good_fit
         track["combined_tx_distance_dc"] = tx_beam
         if good_fit:
@@ -2233,6 +2428,7 @@ def score_combined_hypotheses(tracks):
     scored.sort(
         key=lambda t: (
             bool(t.get("ballistic_pulse_coverage_reject", False)),
+            bool(t.get("common_pulse_completion_reject", False)),
             bool(t.get("ballistic_low_start_altitude_reject", False)) and t.get("selection_model_type") != "fixed_velocity",
             bool(t.get("head_echo_speed_reject", False)),
             not bool(t.get("combined_good_fit", False)),
@@ -2251,10 +2447,13 @@ def score_combined_hypotheses(tracks):
             ballistic_reject_blocks = False
         track["combined_reject"] = (
             rank != 0
+            or not bool(track.get("combined_good_fit", False))
+            or bool(track.get("common_pulse_completion_reject", False))
             or bool(track.get("ballistic_pulse_coverage_reject", False))
             or ballistic_reject_blocks
             or (bool(track.get("ballistic_low_start_altitude_reject", False)) and track.get("selection_model_type") != "fixed_velocity")
             or bool(track.get("head_echo_speed_reject", False))
+            or bool(track.get("short_static_measurement_reject", False))
         )
     if len(scored) > 1:
         delta = scored[1]["combined_score"] - scored[0]["combined_score"]
@@ -2368,6 +2567,33 @@ def hypothesis_label(track):
     return f"H{int(track.get('hypothesis_id', 0)):02d}"
 
 
+def track_cluster_indices(track):
+    """Candidate indices belonging to the discovered visual cluster."""
+    return np.asarray(track.get("seed_idx", track.get("idx", [])), dtype=np.int64)
+
+
+def track_cluster_direction(track, candidates, n_points=120):
+    """Direction-cosine line over the time span of the discovered cluster."""
+    idx = track_cluster_indices(track)
+    if len(idx) == 0:
+        return np.empty((0, 3), dtype=np.float64)
+    t = np.asarray([candidates[i]["t_rel"] for i in idx], dtype=np.float64)
+    if not np.any(np.isfinite(t)):
+        return np.empty((0, 3), dtype=np.float64)
+    t0 = float(np.nanmin(t))
+    t1 = float(np.nanmax(t))
+    if not np.isfinite(t0) or not np.isfinite(t1):
+        return np.empty((0, 3), dtype=np.float64)
+    if t1 <= t0:
+        td = np.asarray([t0], dtype=np.float64)
+    else:
+        td = np.linspace(t0, t1, int(n_points))
+    u = track["u_coeff"][0] + track["u_coeff"][1] * td
+    v = track["v_coeff"][0] + track["v_coeff"][1] * td
+    w = np.sqrt(np.maximum(0.0, 1.0 - u**2 - v**2))
+    return np.column_stack([u, v, w])
+
+
 def snr_weighted_track_coherence(track, candidates):
     rows = [candidates[j] for j in track["idx"]]
     coherence = np.asarray([r["coherence"] for r in rows], dtype=np.float64)
@@ -2388,18 +2614,20 @@ def plot_visibility_rejections(candidates, tracks, output: Path):
     colors = {"kept": "tab:green", "below horizon": "tab:red", "wraps": "tab:orange"}
     labels_done = set()
     for track in tracks:
-        rows = [candidates[j] for j in track["idx"]]
-        vv = np.asarray([r["v"] for r in rows])
+        rows = [candidates[j] for j in track_cluster_indices(track)]
         uu = np.asarray([r["u"] for r in rows])
+        vv = np.asarray([r["v"] for r in rows])
         label = track["reason"] if track["reason"] not in labels_done else None
         labels_done.add(track["reason"])
-        ax.plot(vv, uu, ".", ms=3.0, color=colors[track["reason"]], alpha=0.65, label=label)
-        dd = track["dense_direction"]
-        ax.plot(dd[:, 1], dd[:, 0], "-", lw=1.1, color=colors[track["reason"]], alpha=0.9)
-        mid = len(dd) // 2
-        ax.text(dd[mid, 1], dd[mid, 0], hypothesis_label(track), fontsize=7)
-    ax.set_xlabel("v direction cosine")
-    ax.set_ylabel("u direction cosine")
+        color = colors.get(track["reason"], "0.4")
+        ax.plot(uu, vv, ".", ms=3.0, color=color, alpha=0.65, label=label)
+        dd = track_cluster_direction(track, candidates)
+        if len(dd):
+            ax.plot(dd[:, 0], dd[:, 1], "-", lw=1.1, color=color, alpha=0.9)
+            mid = len(dd) // 2
+            ax.text(dd[mid, 0], dd[mid, 1], hypothesis_label(track), fontsize=7)
+    ax.set_xlabel("u/east direction cosine")
+    ax.set_ylabel("v/north direction cosine")
     ax.set_title("Path hypotheses in direction-cosine space")
     ax.set_xlim(-1.03, 1.03)
     ax.set_ylim(-1.03, 1.03)
@@ -2545,12 +2773,7 @@ def plot_descent_rejections(tracks, output: Path):
 
 def plot_ballistic_ranking(tracks, candidates, output: Path):
     output.parent.mkdir(parents=True, exist_ok=True)
-    survivors = [
-        t
-        for t in tracks
-        if t["reason"] == "kept" and not t.get("linearity_reject", False) and not t.get("descent_reject", False)
-        and "ballistic_reduced_chi2" in t
-    ]
+    survivors = final_trajectory_tracks_for_view(tracks)
     survivors.sort(key=lambda t: t.get("combined_rank", t.get("ballistic_rank", 999)))
     n_rej = sum(t.get("combined_reject", False) for t in survivors)
     n_keep = len(survivors) - n_rej
@@ -2563,7 +2786,7 @@ def plot_ballistic_ranking(tracks, candidates, output: Path):
     else:
         snr_norm = mpl.colors.Normalize(vmin=0.0, vmax=1.0)
     snr_cmap = plt.get_cmap("viridis")
-    chi_values = np.asarray([t["ballistic_reduced_chi2"] for t in survivors], dtype=np.float64)
+    chi_values = np.asarray([t.get("selection_reduced_chi2", t.get("ballistic_reduced_chi2", np.nan)) for t in survivors], dtype=np.float64)
     finite_chi = chi_values[np.isfinite(chi_values) & (chi_values > 0.0)]
     if len(finite_chi):
         norm = mpl.colors.LogNorm(vmin=max(np.nanmin(finite_chi), 1e-2), vmax=max(np.nanmax(finite_chi), 1e-1))
@@ -2781,7 +3004,8 @@ def plot_disambiguation_summary(
 ):
     """Combine the main disambiguation tests into one 3x3 summary figure."""
     output.parent.mkdir(parents=True, exist_ok=True)
-    fig, axes = plt.subplots(3, 3, figsize=(16.0, 14.0), constrained_layout=True)
+    fig, axes = plt.subplots(3, 3, figsize=(16.0, 14.0), constrained_layout=False)
+    fig.subplots_adjust(left=0.055, right=0.985, bottom=0.055, top=0.955, wspace=0.24, hspace=0.35)
     range_fit_ax = axes[0, 1]
     fit_summary_ax = axes[1, 1]
 
@@ -2810,34 +3034,48 @@ def plot_disambiguation_summary(
     if candidates:
         cand_u = np.asarray([c["u"] for c in candidates], dtype=np.float64)
         cand_v = np.asarray([c["v"] for c in candidates], dtype=np.float64)
-        ax.plot(cand_v, cand_u, ".", ms=1.4, color="0.65", alpha=0.25, label="high-coherence peaks", zorder=1)
+        ax.plot(cand_u, cand_v, ".", ms=1.4, color="0.65", alpha=0.25, label="high-coherence peaks", zorder=1)
+    beam_vecs = tx_beam_unit_vectors()
+    for bid, (u_b, v_b, _w_b) in enumerate(beam_vecs):
+        ax.scatter([u_b], [v_b], marker="x", s=48, color=f"C{bid}", linewidths=1.4, zorder=6)
+        ax.text(
+            u_b,
+            v_b,
+            f" {TX_BEAM_SHORT_NAMES[bid] if bid < len(TX_BEAM_SHORT_NAMES) else bid}",
+            fontsize=7,
+            color=f"C{bid}",
+            va="center",
+            ha="left",
+            zorder=7,
+        )
     labels_done = set()
     for track in sorted(tracks, key=lambda t: t.get("hypothesis_id", 999)):
-        rows = [candidates[j] for j in track["idx"]]
-        vv = np.asarray([r["v"] for r in rows])
+        rows = [candidates[j] for j in track_cluster_indices(track)]
         uu = np.asarray([r["u"] for r in rows])
+        vv = np.asarray([r["v"] for r in rows])
         color = visibility_colors.get(track["reason"], "0.4")
         label = track["reason"] if track["reason"] not in labels_done else None
         labels_done.add(track["reason"])
-        ax.plot(vv, uu, ".", ms=2.8, color=color, alpha=0.45, label=label, zorder=2)
-        dd = track["dense_direction"]
-        ax.plot(dd[:, 1], dd[:, 0], "-", lw=1.25, color=color, alpha=0.95, zorder=3)
-        mid = len(dd) // 2
-        ax.text(
-            dd[mid, 1],
-            dd[mid, 0],
-            hypothesis_label(track),
-            fontsize=7,
-            ha="center",
-            va="center",
-            zorder=5,
-            bbox={"facecolor": "white", "edgecolor": color, "alpha": 0.86, "pad": 1.2},
-        )
+        ax.plot(uu, vv, ".", ms=2.8, color=color, alpha=0.45, label=label, zorder=2)
+        dd = track_cluster_direction(track, candidates)
+        if len(dd):
+            ax.plot(dd[:, 0], dd[:, 1], "-", lw=1.25, color=color, alpha=0.95, zorder=3)
+            mid = len(dd) // 2
+            ax.text(
+                dd[mid, 0],
+                dd[mid, 1],
+                hypothesis_label(track),
+                fontsize=7,
+                ha="center",
+                va="center",
+                zorder=5,
+                bbox={"facecolor": "white", "edgecolor": color, "alpha": 0.86, "pad": 1.2},
+            )
     if not tracks:
         n_pulses = len({c["pulse"] for c in candidates}) if candidates else 0
         annotate_panel(ax, f"No path hypotheses formed\n{len(candidates)} coherence peaks across {n_pulses} pulses")
-    ax.set_xlabel("v direction cosine")
-    ax.set_ylabel("u direction cosine")
+    ax.set_xlabel("u/east direction cosine")
+    ax.set_ylabel("v/north direction cosine")
     ax.set_title(f"1a. Provisional path hypotheses (N={len(tracks)})")
     ax.set_xlim(-1.03, 1.03)
     ax.set_ylim(-1.03, 1.03)
@@ -2872,39 +3110,40 @@ def plot_disambiguation_summary(
     line_survivors = [t for t in visible if not path_stage_rejected(t)]
 
     ax = axes[1, 0]
-    labels_done = set()
-    for track in line_survivors:
-        color = "tab:green"
-        label = path_stage_label(track)
-        label = label if label not in labels_done else None
-        if label:
-            labels_done.add(label)
-        pts = track["fit_points"]
-        model = track["line_model_points"]
-        order = np.argsort((model - track["line_center"]) @ track["line_direction"])
-        ax.plot(pts[:, 0], pts[:, 1], ".", ms=2.6, color=color, alpha=0.55, label=label)
-        ax.plot(model[order, 0], model[order, 1], "-", lw=1.0, color=color, alpha=0.85)
-        mid = order[len(order) // 2]
-        ax.text(
-            model[mid, 0],
-            model[mid, 1],
-            hypothesis_label(track),
-            fontsize=6.5,
-            bbox={"facecolor": "white", "edgecolor": color, "alpha": 0.82, "pad": 1.0},
-        )
-        for beam in tx_beam_center_projection_points(track, candidates):
-            draw_tx_beam_projection_marker(ax, beam, color=color, fontsize=6)
-    ax.set_xlabel("East (km)")
-    ax.set_ylabel("North (km)")
-    ax.set_title("2a. 3D line test: horizontal projection")
-    ax.set_aspect("equal", adjustable="box")
-    ax.grid(True, alpha=0.25)
-    if not line_survivors:
-        annotate_panel(ax, "No line-surviving descending hypotheses")
+    tested = [t for t in tracks if "fit_points" in t and ("selection_reduced_chi2" in t or "fixed_velocity_reduced_chi2" in t)]
+    if tested:
+        x = np.asarray([straight_line_sumsq_km2(t) for t in tested], dtype=np.float64)
+        y = np.asarray([t.get("selection_reduced_chi2", t.get("fixed_velocity_reduced_chi2", np.nan)) for t in tested], dtype=np.float64)
+        colors = ["tab:green" if not t.get("combined_reject", True) else "tab:red" for t in tested]
+        markers = ["o" if not t.get("combined_reject", True) else "x" for t in tested]
+        for track, xx, yy, color, marker in zip(tested, x, y, colors, markers):
+            if not (np.isfinite(xx) and np.isfinite(yy)):
+                continue
+            ax.scatter([max(xx, 1e-8)], [max(yy, 1e-8)], c=[color], marker=marker, s=58, linewidths=1.3, zorder=3)
+            ax.text(max(xx, 1e-8), max(yy, 1e-8), hypothesis_label(track), fontsize=7, ha="left", va="bottom")
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.axhline(1.0, color="black", lw=0.9, ls="--", alpha=0.8, label=r"$\chi^2_\nu=1$")
+        ax.plot([], [], "o", color="tab:green", label="accepted")
+        ax.plot([], [], "x", color="tab:red", label="rejected")
+    else:
+        annotate_panel(ax, "No trajectory-fit hypotheses")
+    ax.set_xlabel("Straight-line residual sum of squares (km$^2$)")
+    ax.set_ylabel("Constant-velocity reduced $\\chi^2$")
+    ax.set_title("2a. Trajectory fit vs. straight-line norm")
+    ax.grid(True, alpha=0.25, which="both")
     legend_if_any(ax, loc="best", fontsize=7)
 
     ax = axes[1, 2]
-    ranking_visible = [t for t in visible if "selection_reduced_chi2" in t]
+    ranking_visible = sorted(
+        [
+            t
+            for t in tracks
+            if "combined_rank" in t
+            and "selection_reduced_chi2" in t
+        ],
+        key=lambda t: t.get("combined_rank", 999),
+    )
     if ranking_visible:
         labels = [hypothesis_label(t) for t in ranking_visible]
         redchi = np.asarray([t["selection_reduced_chi2"] for t in ranking_visible], dtype=np.float64)
@@ -2915,6 +3154,12 @@ def plot_disambiguation_summary(
         )
         valid_tx = np.isfinite(tx_dcos) & (tx_dcos > 0.0)
         if not np.any(valid_tx):
+            tx_dcos = np.asarray(
+                [t.get("tx_lobe_snr_weighted_mean_dc", np.nan) for t in ranking_visible],
+                dtype=np.float64,
+            )
+        valid_tx = np.isfinite(tx_dcos) & (tx_dcos > 0.0)
+        if not np.any(valid_tx):
             tx_dcos = np.asarray([t.get("tx_beam_weighted_rms_deg", np.nan) for t in ranking_visible], dtype=np.float64)
             # Keep the panel defined even for legacy products missing the dcos metric.
             tx_dcos = np.deg2rad(np.maximum(tx_dcos, 1e-6))
@@ -2922,7 +3167,7 @@ def plot_disambiguation_summary(
         colors = ["tab:red" if t.get("combined_reject", False) else "tab:green" for t in ranking_visible]
         ax.scatter(log_tx_dcos, log_redchi, c=colors, s=60, zorder=3)
         for xx_i, yy, label, chi, track in zip(log_tx_dcos, log_redchi, labels, redchi, ranking_visible):
-            ax.text(xx_i, yy, label, fontsize=7, ha="center", va="bottom")
+            ax.text(xx_i, yy, label, fontsize=7, ha="center", va="bottom", clip_on=True)
             ax.text(
                 xx_i,
                 yy - 0.08,
@@ -2931,6 +3176,7 @@ def plot_disambiguation_summary(
                 ha="center",
                 va="top",
                 color="0.25",
+                clip_on=True,
             )
         ax.axhline(0.0, color="black", lw=1.0, ls="--", label=r"$\chi^2_\nu=1$")
     ax.set_xlabel(r"$\log_{10}$ SNR-weighted TX beam-center distance (dcos)")
@@ -2941,14 +3187,9 @@ def plot_disambiguation_summary(
         annotate_panel(ax, "No trajectory-ranked candidates")
     legend_if_any(ax, fontsize=7)
 
-    survivors = [
-        t
-        for t in tracks
-        if t["reason"] == "kept" and not t.get("linearity_reject", False) and not t.get("descent_reject", False)
-        and "ballistic_reduced_chi2" in t
-    ]
+    survivors = final_trajectory_tracks_for_view(tracks)
     survivors.sort(key=lambda t: t.get("combined_rank", t.get("ballistic_rank", 999)))
-    chi_values = np.asarray([t["ballistic_reduced_chi2"] for t in survivors], dtype=np.float64)
+    chi_values = np.asarray([t.get("selection_reduced_chi2", t.get("ballistic_reduced_chi2", np.nan)) for t in survivors], dtype=np.float64)
     finite_chi = chi_values[np.isfinite(chi_values) & (chi_values > 0.0)]
     if len(finite_chi):
         norm = mpl.colors.LogNorm(vmin=max(np.nanmin(finite_chi), 1e-2), vmax=max(np.nanmax(finite_chi), 1e-1))
@@ -2987,7 +3228,9 @@ def plot_disambiguation_summary(
         color = bcolor(track)
         snr = np.asarray(track.get("ballistic_snr_db", np.full_like(track["ballistic_doppler_km_s"], np.nan)), dtype=np.float64)
         pred_dop = np.asarray(
-            track.get("selection_pred_doppler_km_s", track["ballistic_pred_doppler_km_s"]),
+            track["selection_pred_doppler_km_s"]
+            if "selection_pred_doppler_km_s" in track
+            else track["ballistic_pred_doppler_km_s"],
             dtype=np.float64,
         )
         ax.plot(
@@ -3028,7 +3271,7 @@ def plot_disambiguation_summary(
     ax.set_title("3a. Selected-model Doppler fit")
     ax.grid(True, alpha=0.25)
     if not survivors:
-        annotate_panel(ax, "No ballistic-fit candidates\nRejected before Doppler/drag fit")
+        annotate_panel(ax, "No final trajectory-fit candidates")
     ax = axes[2, 1]
     summary_tracks = survivors
     set_winning_path_view(ax, survivors, candidates)
@@ -3044,8 +3287,8 @@ def plot_disambiguation_summary(
         order = np.argsort(track["ballistic_t"])
         color = bcolor(track)
         pts = track["fit_points"]
-        model = track["ballistic_model"]
-        keep = track["ballistic_keep"]
+        model = np.asarray(track.get("selection_model", track.get("ballistic_model")), dtype=np.float64)
+        keep = np.asarray(track.get("selection_keep", track.get("ballistic_keep")), dtype=bool)
         ax.plot(
             model[order, 0],
             model[order, 1],
@@ -3079,11 +3322,7 @@ def plot_disambiguation_summary(
     if not summary_tracks:
         annotate_panel(ax, "No final ballistic ranking\nSee rejection stages above")
     ax = axes[2, 2]
-    ranked = sorted(
-        [t for t in tracks if "combined_rank" in t and "ballistic_reduced_chi2" in t],
-        key=lambda t: t["combined_rank"],
-    )
-    orbit_hypothesis = hypothesis_label(ranked[0]) if ranked else "H03"
+    orbit_hypothesis = hypothesis_label(winner) if winner is not None else "H03"
     plot_summary_orbit_panel(ax, orbit_h5_path, hypothesis=orbit_hypothesis)
 
     fig.savefig(output, dpi=240)
@@ -3252,8 +3491,6 @@ def write_disambiguation_diagnostics_h5(
             [t for t in scored if not t.get("combined_reject", False)],
             key=lambda t: t.get("combined_rank", 999999),
         )
-        if not winners:
-            winners = sorted(scored, key=lambda t: t.get("combined_rank", 999999))
         selected = winners[0] if winners else None
         if selected is not None:
             _h5_set_scalar_attrs(
@@ -3264,6 +3501,17 @@ def write_disambiguation_diagnostics_h5(
                     "selected_candidate_number": int(candidate_number(selected)),
                     "selected_combined_rank": int(selected.get("combined_rank", -1)),
                     "selected_combined_score": float(selected.get("combined_score", np.nan)),
+                },
+            )
+        else:
+            _h5_set_scalar_attrs(
+                h,
+                {
+                    "selected_hypothesis": "",
+                    "selected_hypothesis_id": -1,
+                    "selected_candidate_number": -1,
+                    "selected_combined_rank": -1,
+                    "selected_combined_score": np.nan,
                 },
             )
 
@@ -3283,7 +3531,11 @@ def write_disambiguation_diagnostics_h5(
                     "common_pulse_count": int(track.get("common_pulse_count", track.get("unique_pulses", 0))),
                     "common_pulse_completion_rms_dc": float(track.get("common_pulse_completion_rms_dc", np.nan)),
                     "common_pulse_completion_max_dc": float(track.get("common_pulse_completion_max_dc", np.nan)),
+                    "common_pulse_completion_reject": bool(track.get("common_pulse_completion_reject", False)),
                     "below_horizon": bool(track.get("below_horizon", False)),
+                    "near_horizon": bool(track.get("near_horizon", False)),
+                    "min_elevation_deg": float(track.get("min_elevation_deg", np.nan)),
+                    "min_elevation_threshold_deg": float(track.get("min_elevation_threshold_deg", np.nan)),
                     "wraps": bool(track.get("wraps", False)),
                     "linearity_reject": bool(track.get("linearity_reject", False)),
                     "descent_reject": bool(track.get("descent_reject", False)),
@@ -3329,12 +3581,18 @@ def write_disambiguation_diagnostics_h5(
                     "selection_speed_km_s": float(track.get("selection_speed_km_s", np.nan)),
                     "head_echo_min_speed_km_s": float(track.get("head_echo_min_speed_km_s", np.nan)),
                     "head_echo_speed_reject": bool(track.get("head_echo_speed_reject", False)),
+                    "measurement_range_span_km": float(track.get("measurement_range_span_km", np.nan)),
+                    "measurement_doppler_span_km_s": float(track.get("measurement_doppler_span_km_s", np.nan)),
+                    "short_static_measurement_reject": bool(track.get("short_static_measurement_reject", False)),
                     "combined_rank": int(track.get("combined_rank", -1)) if "combined_rank" in track else -1,
                     "combined_score": float(track.get("combined_score", np.nan)),
                     "combined_score_source": str(track.get("combined_score_source", "")),
                     "combined_good_fit": bool(track.get("combined_good_fit", False)),
                     "combined_good_fit_redchi_threshold": float(track.get("combined_good_fit_redchi_threshold", np.nan)),
                     "combined_tx_distance_dc": float(track.get("combined_tx_distance_dc", np.nan)),
+                    "combined_tx_metric_dc": float(track.get("combined_tx_metric_dc", np.nan)),
+                    "combined_tx_metric_source": str(track.get("combined_tx_metric_source", "")),
+                    "combined_completion_term": float(track.get("combined_completion_term", np.nan)),
                     "combined_tx_term": float(track.get("combined_tx_term", np.nan)),
                     "combined_line_term": float(track.get("combined_line_term", np.nan)),
                     "combined_tx_beam_scale_dc": float(track.get("combined_tx_beam_scale_dc", np.nan)),
@@ -3846,7 +4104,10 @@ def plot_tx_array_snr_overlay_separate_by_beam(tracks, output_dir: Path, sample_
 
 def state_at_first_detection_from_ballistic_track(track):
     """Return fitted ENU state at the first-detection fit epoch."""
-    params = np.asarray(track.get("selection_params", track["ballistic_params"]), dtype=np.float64)
+    params = np.asarray(
+        track["selection_params"] if "selection_params" in track else track["ballistic_params"],
+        dtype=np.float64,
+    )
     t_ref = float(track.get("selection_t_ref_s", track.get("ballistic_t_ref_s", 0.0)))
     state_enu_m_mps = np.asarray(params[:6], dtype=np.float64)
     return state_enu_m_mps, t_ref, float(state_enu_m_mps[2] / 1e3)
@@ -4058,13 +4319,39 @@ def main():
     parser.add_argument("--run-dasst", action="store_true", help="Run DASST orbit determination after writing candidate state HDF5.")
     parser.add_argument("--orbit-samples", type=int, default=300, help="Number of covariance samples for DASST orbit uncertainty.")
     parser.add_argument("--overview-only", action="store_true", help="Only write the final disambiguation overview and orbit HDF5 products.")
+    parser.add_argument("--path-max-tracks", type=int, default=16, help="Maximum direction-cosine path hypotheses to extract.")
+    parser.add_argument("--path-trials", type=int, default=5000, help="Random two-point path trials per extracted hypothesis.")
+    parser.add_argument(
+        "--alias-fit-models",
+        choices=("fixed_velocity", "fixed_velocity_and_drag", "drag_and_fixed_am"),
+        default="fixed_velocity",
+        help="Models fit to every interferometric alias for ranking.",
+    )
+    parser.add_argument("--skip-secondary-models", action="store_true", help="Skip final winning-alias fixed-A/m and shrinking-radius refits.")
+    parser.add_argument("--skip-orbit-products", action="store_true", help="Skip candidate orbit computation and orbit-state HDF5 output.")
+    parser.add_argument("--recompute-cut-observables", action="store_true", help="Recompute full per-pulse range-Doppler observables instead of using cached cut detections.")
+    parser.add_argument("--stage-timing", action="store_true", help="Print wall-clock timing for major processing stages.")
     args = parser.parse_args()
+
+    stage_t0 = time.perf_counter()
+    stage_last = stage_t0
+
+    def stage(label):
+        nonlocal stage_last
+        if not args.stage_timing:
+            return
+        now = time.perf_counter()
+        print(f"stage_timing {label} dt_s {now - stage_last:.3f} elapsed_s {now - stage_t0:.3f}", flush=True)
+        stage_last = now
 
     disambiguation_summary_out = args.output_dir / f"pansy_interferometer_disambiguation_summary_{args.sample_idx}.png"
     diagnostics_h5 = args.output_dir / f"pansy_disambiguation_diagnostics_{args.sample_idx}.h5"
     try:
         cut = load_cut(args.cut_dir, args.sample_idx)
-        obs_all = recompute_cut_observables(cut)
+        if args.recompute_cut_observables:
+            obs_all = recompute_cut_observables(cut)
+        else:
+            obs_all = cached_cut_observables(cut)
     except Exception as exc:
         plot_rejected_event_summary(
             disambiguation_summary_out,
@@ -4101,6 +4388,7 @@ def main():
         print("combined_hypotheses_after 0")
         print("event_rejected_reason cut_observable_recomputation_failed")
         return
+    stage("load_and_recompute_observables")
     good = obs_all["snr"] > args.snr_threshold
     obs = {
         key: val[good] if isinstance(val, np.ndarray) and len(val) == len(good) else val
@@ -4141,10 +4429,11 @@ def main():
     range_time_segments = split_observations_by_range_time(obs, min_points=3)
     range_time_component_lengths = [int(len(segment)) for segment in range_time_segments]
     selected_range_time_component = -1
-    if len(range_time_segments) >= 3 and max(range_time_component_lengths, default=0) >= 10:
+    if len(range_time_segments) >= 2 and max(range_time_component_lengths, default=0) >= 3:
         weights = [float(np.nansum(np.asarray(obs["snr"], dtype=np.float64)[segment])) for segment in range_time_segments]
         selected_range_time_component = int(np.argmax(weights))
         obs = subset_pulse_observations(obs, range_time_segments[selected_range_time_component])
+    stage("snr_and_range_time_filter")
 
     antpos = pint.get_antpos()
     ch_pairs = np.asarray(list(itertools.combinations(np.arange(7), 2)))
@@ -4154,6 +4443,7 @@ def main():
     steering, _uvw = steering_matrix(dmat, u, v, w, valid)
     tx_gain_maps = precompute_tx_array_gain_maps(u, v, w, valid)
     tx_lobe_centroids, tx_lobe_smoothed_maps = tx_grating_lobe_centroids_from_gain_maps(tx_gain_maps, u, v, valid)
+    stage("grid_and_tx_maps")
 
     strongest = int(np.argmax(obs["snr"]))
     single = coherence_map(obs["xc"][strongest], int(obs["beam_id"][strongest]), phasecal, ch_pairs, steering, valid, u.shape)
@@ -4189,6 +4479,7 @@ def main():
                     "zpp_prev_pulse": int(obs["zpp_prev_pulse"][i]) if "zpp_prev_pulse" in obs else -1,
                 }
             )
+    stage("coherence_candidates")
 
     single_out = args.output_dir / f"pansy_interferometer_single_echo_{args.sample_idx}.png"
     all_out = args.output_dir / f"pansy_interferometer_alias_candidates_{args.sample_idx}.png"
@@ -4209,7 +4500,15 @@ def main():
         plot_tx_grating_lobe_centroids(u, v, valid, tx_lobe_smoothed_maps, tx_lobe_centroids, tx_lobe_centroids_out)
         plot_single_echo(u, v, single, peak_ij, obs, strongest, single_out)
         plot_all_candidates(u, v, obs, candidates, all_out)
-    tracks = complete_tracks_to_common_pulses(fit_candidate_tracks(candidates), candidates)
+    tracks = complete_tracks_to_common_pulses(
+        fit_candidate_tracks(
+            candidates,
+            max_tracks=args.path_max_tracks,
+            n_trials=args.path_trials,
+        ),
+        candidates,
+    )
+    stage("path_hypotheses")
     t_start = float(np.min(t_rel))
     t_end = float(np.max(t_rel))
     tracks = [classify_track_visibility(track, candidates, t_start, t_end) for track in tracks]
@@ -4227,22 +4526,40 @@ def main():
             range_sigma_km=args.linearity_range_sigma_km,
             p_threshold=args.linearity_p_threshold,
         )
-        if track["reason"] == "kept" and not track.get("descent_reject", False)
+        if track["reason"] == "kept"
         else track
         for track in tracks
     ]
-    sigma_pos, sigma_dop = fit_ballistic_survivors(
-        tracks,
-        candidates,
-        event_epoch_unix=args.sample_idx / 1e6,
-        p_threshold=args.ballistic_p_threshold,
-    )
+    stage("path_diagnostics")
     rho_of_alt_m, _msis_meta = pbal.density_interpolator(args.sample_idx / 1e6)
-    fit_fixed_velocity_survivors(tracks, rho_of_alt_m, sigma_pos, sigma_dop)
+    if args.alias_fit_models in {"fixed_velocity_and_drag", "drag_and_fixed_am"}:
+        sigma_pos, sigma_dop = fit_ballistic_survivors(
+            tracks,
+            candidates,
+            event_epoch_unix=args.sample_idx / 1e6,
+            p_threshold=args.ballistic_p_threshold,
+        )
+        stage("msis_drag_fits")
+        fit_fixed_velocity_survivors(
+            tracks,
+            candidates,
+            rho_of_alt_m,
+            sigma_pos,
+            sigma_dop,
+            fit_fixed_am=args.alias_fit_models == "drag_and_fixed_am",
+        )
+        stage("fixed_velocity_alias_fits")
+    else:
+        sigma_pos, sigma_dop = 0.5, 1.0
+        fit_fixed_velocity_survivors(tracks, candidates, rho_of_alt_m, sigma_pos, sigma_dop, fit_fixed_am=False)
+        stage("fixed_velocity_alias_fits")
     score_tx_beam_consistency(tracks, candidates)
     score_candidate_diagnostics(tracks, candidates, tx_gain_maps=tx_gain_maps, tx_lobe_centroids=tx_lobe_centroids)
     tx_sigma = score_combined_hypotheses(tracks)
-    fit_winning_physics_trajectory_model(tracks, args.sample_idx / 1e6, sigma_pos, sigma_dop)
+    stage("scoring")
+    if not args.skip_secondary_models:
+        fit_winning_physics_trajectory_model(tracks, args.sample_idx / 1e6, sigma_pos, sigma_dop)
+        stage("winning_secondary_models")
     best = sorted([t for t in tracks if "combined_score" in t], key=lambda t: t["combined_rank"])
     state_h5 = args.orbit_state_h5 or (args.output_dir / f"pansy_candidate_orbit_states_{args.sample_idx}.h5")
     plausible_orbit_aliases = [
@@ -4251,8 +4568,16 @@ def main():
         if ("selection_params" in t or "ballistic_params" in t)
         and bool(t.get("interstellar_alias_plausible", False))
     ]
-    orbit_aliases = plausible_orbit_aliases or [t for t in best if "selection_params" in t or "ballistic_params" in t][:1]
-    if orbit_aliases:
+    selected_orbit_aliases = [t for t in best if "selection_params" in t or "ballistic_params" in t][:1]
+    orbit_aliases = []
+    seen_hypothesis_ids = set()
+    for track in selected_orbit_aliases + plausible_orbit_aliases:
+        hyp_id = int(track.get("hypothesis_id", -1))
+        if hyp_id in seen_hypothesis_ids:
+            continue
+        orbit_aliases.append(track)
+        seen_hypothesis_ids.add(hyp_id)
+    if orbit_aliases and not args.skip_orbit_products:
         print_candidate_orbits(
             orbit_aliases,
             args.sample_idx / 1e6,
@@ -4274,6 +4599,7 @@ def main():
                 subprocess.run(cmd, check=True)
             except subprocess.CalledProcessError as exc:
                 print(f"dasst_failed sample_idx={args.sample_idx} returncode={exc.returncode}")
+        stage("orbit_products")
     if not args.overview_only:
         plot_visibility_rejections(candidates, tracks, visibility_out)
         plot_linearity_rejections(candidates, tracks, linearity_out)
@@ -4302,6 +4628,7 @@ def main():
         obs_rti=obs_all,
         event_epoch_unix=args.sample_idx / 1e6,
     )
+    stage("summary_plot")
     write_disambiguation_diagnostics_h5(
         candidates,
         tracks,
@@ -4314,6 +4641,7 @@ def main():
         range_time_component_lengths=range_time_component_lengths,
         selected_range_time_component=selected_range_time_component,
     )
+    stage("diagnostics_h5")
 
     if not args.overview_only:
         print(antennas_out)
@@ -4354,15 +4682,19 @@ def main():
     print(f"ballistic_sigma_pos_km {sigma_pos:.4f}")
     print(f"ballistic_sigma_dop_km_s {sigma_dop:.4f}")
     print("tx_pointing_score_used False")
-    print(f"combined_hypotheses_rejected {sum(t.get('combined_reject', False) for t in tracks)}")
-    print(f"combined_hypotheses_after {sum(t['reason'] == 'kept' and not t.get('linearity_reject', False) and not t.get('descent_reject', False) and not t.get('combined_reject', False) for t in tracks)}")
+    ranked_tracks = [t for t in tracks if "combined_rank" in t]
+    accepted_tracks = [t for t in ranked_tracks if not bool(t.get("combined_reject", False))]
+    print(f"combined_hypotheses_ranked {len(ranked_tracks)}")
+    print(f"combined_hypotheses_rejected {sum(t.get('combined_reject', False) for t in ranked_tracks)}")
+    print(f"combined_hypotheses_after {len(accepted_tracks)}")
     print(
         "hypothesis_status_columns "
         "hypothesis reason unique_pulses below_horizon wraps linearity_reject "
         "line_redchi line_rms_km line_max_km min_detect_alt_km low_detection_altitude_reject "
         "descent_rate_km_s descent_reject speedup_flag start_alt_km low_start_altitude_reject "
         "pulse_coverage_reject required_unique_pulses ballistic_rank combined_rank candidate "
-        "selection_model selection_redchi fixed_velocity_redchi fixed_am_redchi interstellar_plausible"
+        "selection_model selection_redchi fixed_velocity_redchi fixed_am_redchi "
+        "short_static_measurement_reject range_span_km interstellar_plausible"
     )
     for track in sorted(tracks, key=lambda t: t.get("hypothesis_id", 999)):
         print(
@@ -4392,6 +4724,8 @@ def main():
             f"{track.get('selection_reduced_chi2', np.nan):.3f}" if "selection_reduced_chi2" in track else "NA",
             f"{track.get('fixed_velocity_reduced_chi2', np.nan):.3f}" if "fixed_velocity_reduced_chi2" in track else "NA",
             f"{track.get('fixed_am_reduced_chi2', np.nan):.3f}" if "fixed_am_reduced_chi2" in track else "NA",
+            track.get("short_static_measurement_reject", False),
+            f"{track.get('measurement_range_span_km', np.nan):.3f}",
             track.get("interstellar_alias_plausible", False),
         )
     for track in sorted(
@@ -4499,6 +4833,10 @@ def main():
             track.get("ballistic_low_start_altitude_reject", False),
             "pulse_coverage_reject",
             track.get("ballistic_pulse_coverage_reject", False),
+            "short_static_measurement_reject",
+            track.get("short_static_measurement_reject", False),
+            "range_span_km",
+            f"{track.get('measurement_range_span_km', np.nan):.3f}",
             "reject",
             track["combined_reject"],
         )

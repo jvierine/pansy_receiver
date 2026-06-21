@@ -71,7 +71,7 @@ def circular_std_deg(values_deg: np.ndarray) -> float:
     return float(np.rad2deg(np.nanstd(delta, ddof=1)))
 
 
-def dasst_kepler_from_gcrs(states_gcrs_m_mps: np.ndarray, epoch_unix: float, kernel: Path) -> np.ndarray:
+def dasst_orbit_from_gcrs(states_gcrs_m_mps: np.ndarray, epoch_unix: float, kernel: Path) -> dict:
     epoch = Time(float(epoch_unix), format="unix", scale="utc")
     itrs_states = np.asarray([gcrs_to_itrs_state(s, epoch) for s in states_gcrs_m_mps], dtype=np.float64).T
     od = dasst.orbit_determination.rebound_od(
@@ -85,7 +85,31 @@ def dasst_kepler_from_gcrs(states_gcrs_m_mps: np.ndarray, epoch_unix: float, ker
         max_t=7 * 24 * 3600.0,
         progress_bar=False,
     )
+    return od
+
+
+def dasst_kepler_from_gcrs(states_gcrs_m_mps: np.ndarray, epoch_unix: float, kernel: Path) -> np.ndarray:
+    od = dasst_orbit_from_gcrs(states_gcrs_m_mps, epoch_unix, kernel)
     return np.asarray(od["kepler_HeliocentricMeanEcliptic"][:, -1, :], dtype=np.float64)
+
+
+def radiant_payload_from_dasst(od: dict) -> dict[str, np.ndarray]:
+    payload = {}
+    for frame in ("GCRS", "GeocentricMeanEcliptic"):
+        for prefix in ("radiant_obs", "radiant_orbit", "radiant_sun", "radiant_obs_states", "radiant_orbit_states"):
+            key = f"{prefix}_{frame}"
+            if key in od:
+                payload[key] = np.asarray(od[key], dtype=np.float64)
+    return payload
+
+
+def first_radiant_column(payload: dict[str, np.ndarray], key: str, n: int) -> np.ndarray:
+    arr = np.asarray(payload.get(key, np.full((n, 1), np.nan)), dtype=np.float64)
+    if arr.ndim == 1:
+        return arr[:n]
+    if arr.ndim == 2 and arr.shape[1] > 0:
+        return arr[:n, 0]
+    return np.full(n, np.nan)
 
 
 def reordered_elements(kepler: np.ndarray) -> np.ndarray:
@@ -192,14 +216,17 @@ def main() -> None:
     rows = []
     unc_rows = []
     sample_rows = {}
+    radiant_rows = {}
     with h5py.File(args.state_h5, "r") as h:
         labels = sorted(h.keys(), key=lambda k: int(h[k].attrs["combined_rank"]))
         for label in labels:
             grp = h[label]
             epoch = float(grp.attrs["epoch_unix"])
             nominal_state = grp["state_gcrs_m_mps"][()][None, :]
-            nominal_kep = dasst_kepler_from_gcrs(nominal_state, epoch, args.kernel)[:, 0]
+            nominal_od = dasst_orbit_from_gcrs(nominal_state, epoch, args.kernel)
+            nominal_kep = np.asarray(nominal_od["kepler_HeliocentricMeanEcliptic"][:, -1, :], dtype=np.float64)[:, 0]
             elems = reordered_elements(nominal_kep)
+            radiant_rows[label] = radiant_payload_from_dasst(nominal_od)
             sample_states = grp["state_gcrs_samples_m_mps"][()]
             if sample_states.ndim != 2 or sample_states.shape[1] != 6:
                 sample_states = np.empty((0, 6), dtype=np.float64)
@@ -281,6 +308,8 @@ def main() -> None:
                 grp.create_dataset("kepler_std", data=std)
                 grp.create_dataset("kepler_covariance", data=elem_cov)
                 grp.create_dataset("kepler_samples", data=sample_rows[label])
+                for key, val in radiant_rows.get(label, {}).items():
+                    grp.create_dataset(key, data=val)
         print(f"dasst_orbit_h5 {args.output_h5}")
 
     if args.metadata_dir is not None and rows:
@@ -337,6 +366,14 @@ def main() -> None:
         alias_interstellar_nominal = np.isfinite(alias_kepler[:, 1]) & (alias_kepler[:, 1] > 1.0)
         with h5py.File(args.state_h5, "r") as h:
             state_grp = h[label]
+            radiant_payload = radiant_rows.get(label, {})
+            radiant_gcrs = first_radiant_column(radiant_payload, "radiant_orbit_GCRS", 2)
+            radiant_gme = first_radiant_column(radiant_payload, "radiant_orbit_GeocentricMeanEcliptic", 2)
+            radiant_sun_gme = first_radiant_column(radiant_payload, "radiant_sun_GeocentricMeanEcliptic", 2)
+            radiant_state_gme = first_radiant_column(radiant_payload, "radiant_orbit_states_GeocentricMeanEcliptic", 6)
+            radiant_speed_km_s = float(np.linalg.norm(radiant_state_gme[3:6]) / 1e3)
+            if not np.isfinite(radiant_speed_km_s):
+                radiant_speed_km_s = float(np.linalg.norm(state_grp["state_gcrs_m_mps"][()][3:]) / 1e3)
             source_cut_sample_idx = int(round(float(h.attrs["sample_epoch_unix"]) * 1_000_000.0))
             sample_key = source_cut_sample_idx
             fit_params, fit_cov = state_fit_payload_from_group(state_grp)
@@ -390,9 +427,14 @@ def main() -> None:
                 "all_aliases_interstellar_nominal": bool(np.all(alias_interstellar_nominal)) if len(alias_interstellar_nominal) else False,
                 "n_aliases_orbit_tested": int(len(alias_interstellar_nominal)),
                 "radiant_frame": np.asarray("GCRS", dtype="S8"),
-                "radiant_ra_deg": float(np.nan),
-                "radiant_dec_deg": float(np.nan),
-                "radiant_speed_km_s": float(np.linalg.norm(state_grp["state_gcrs_m_mps"][()][3:]) / 1e3),
+                "radiant_ra_deg": float(radiant_gcrs[0]),
+                "radiant_dec_deg": float(radiant_gcrs[1]),
+                "radiant_speed_km_s": radiant_speed_km_s,
+                "radiant_ecliptic_frame": np.asarray("GeocentricMeanEcliptic", dtype="S32"),
+                "radiant_ecliptic_lon_deg": float(radiant_gme[0]),
+                "radiant_ecliptic_lat_deg": float(radiant_gme[1]),
+                "radiant_sun_ecliptic_lon_deg": float(radiant_sun_gme[0]),
+                "radiant_sun_ecliptic_lat_deg": float(radiant_sun_gme[1]),
                 "mass_density_assumption_g_cm3": float(3.0),
                 "mass_estimate_kg": float(np.nan),
                 "mass_estimate_note": np.asarray("placeholder; requires calibrated RCS/ablation model", dtype="S64"),

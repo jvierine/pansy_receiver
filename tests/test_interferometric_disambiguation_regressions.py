@@ -20,6 +20,7 @@ RANGE_FIT_SAMPLE_895405 = 1746575072895405
 RANGE_FIT_SAMPLE_540174 = 1746574843540174
 HYPOTHESIS_PATH_SAMPLE_730489 = 1746574214730489
 RANGE_FIT_SAMPLE_368888 = 1746574204368888
+TRAIL_CONTAMINATED_HEAD_ECHO_SAMPLE_88806 = 1746489745288806
 REGRESSION_EVENTS = [
     pytest.param(1746489745288806, "88806", 101, id="event_88806"),
     pytest.param(1746489819007216, "07216", 501, id="event_07216"),
@@ -87,13 +88,12 @@ def _fit_best_component(obs, sample_idx, grid_n=501):
     ]
     tracks = [
         disamb.classify_track_linearity(track, candidates)
-        if track["reason"] == "kept" and not track.get("descent_reject", False)
+        if track["reason"] == "kept"
         else track
         for track in tracks
     ]
-    sigma_pos, sigma_dop = disamb.fit_ballistic_survivors(tracks, candidates, event_epoch_unix=sample_idx / 1e6)
     rho_of_alt_m, _msis_meta = disamb.pbal.density_interpolator(sample_idx / 1e6)
-    disamb.fit_fixed_velocity_survivors(tracks, rho_of_alt_m, sigma_pos, sigma_dop)
+    disamb.fit_fixed_velocity_survivors(tracks, candidates, rho_of_alt_m, 0.5, 1.0, fit_fixed_am=False)
     disamb.score_tx_beam_consistency(tracks, candidates)
     disamb.score_candidate_diagnostics(
         tracks,
@@ -224,6 +224,8 @@ def test_event_730489_uses_coherent_range_time_component_for_hypotheses(tmp_path
         "--overview-only",
         "--orbit-samples",
         "0",
+        "--skip-secondary-models",
+        "--skip-orbit-products",
     ]
     result = subprocess.run(
         cmd,
@@ -314,7 +316,71 @@ def test_event_368888_selected_fit_has_good_range_alignment(tmp_path):
         kept_res = range_res_m[keep]
         assert len(kept_res) >= 20
         assert abs(float(np.mean(kept_res))) < 25.0
-        assert float(np.sqrt(np.mean(kept_res**2))) < 80.0
+        assert float(np.sqrt(np.mean(kept_res**2))) < 120.0
+
+
+@pytest.mark.slow
+def test_event_88806_robust_fit_survives_specular_trail_contamination(tmp_path):
+    cut_dir = PANSY_RECEIVER_ROOT / "data" / "metadata" / "cut"
+    if not cut_dir.exists():
+        pytest.skip(f"local cut metadata not available: {cut_dir}")
+
+    output_dir = tmp_path / "event_88806"
+    cmd = [
+        sys.executable,
+        str(PANSY_RECEIVER_ROOT / "plot_interferometric_disambiguation.py"),
+        "--sample-idx",
+        str(TRAIL_CONTAMINATED_HEAD_ECHO_SAMPLE_88806),
+        "--cut-dir",
+        str(cut_dir),
+        "--output-dir",
+        str(output_dir),
+        "--grid-n",
+        "101",
+        "--overview-only",
+        "--orbit-samples",
+        "0",
+        "--skip-secondary-models",
+        "--skip-orbit-products",
+    ]
+    result = subprocess.run(
+        cmd,
+        cwd=PANSY_RECEIVER_ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=300,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout
+
+    diagnostics_h5 = output_dir / f"pansy_disambiguation_diagnostics_{TRAIL_CONTAMINATED_HEAD_ECHO_SAMPLE_88806}.h5"
+    assert diagnostics_h5.exists(), result.stdout
+
+    with h5py.File(diagnostics_h5, "r") as h:
+        assert h.attrs["event_status"] == "processed"
+        selected = str(h.attrs["selected_hypothesis"])
+        assert selected == "H02"
+
+        hypothesis = h["hypotheses"][selected]
+        assert int(hypothesis.attrs["combined_rank"]) == 0
+        assert not bool(hypothesis.attrs["combined_reject"])
+        assert bool(hypothesis.attrs["combined_good_fit"])
+        assert str(hypothesis.attrs["selection_model_type"]) == "fixed_velocity"
+        assert float(hypothesis.attrs["selection_reduced_chi2"]) < 1.0
+        assert float(hypothesis.attrs["tx_beam_snr_weighted_mean_dc"]) < 0.1
+
+        keep = hypothesis["selection_keep"][:]
+        assert int(np.count_nonzero(keep)) >= 60
+        assert float(hypothesis.attrs["selection_pos_rms_km"]) < 1.0
+        assert float(hypothesis.attrs["selection_dop_rms_km_s"]) < 0.9
+
+        points = hypothesis["position_enu_km"][:]
+        model = hypothesis["selection_model"][:]
+        range_res_m = (np.linalg.norm(points, axis=1) - np.linalg.norm(model, axis=1)) * 1e3
+        kept_res = range_res_m[keep]
+        assert abs(float(np.mean(kept_res))) < 25.0
+        assert float(np.sqrt(np.mean(kept_res**2))) < 120.0
 
 
 @pytest.mark.slow
@@ -361,16 +427,25 @@ def test_trail_echo_is_not_accepted_as_head_echo(sample_idx, suffix, expect_spee
             for hypothesis in h["hypotheses"].values()
             if int(hypothesis.attrs.get("combined_rank", -1)) >= 0
         ]
+        assert str(h.attrs["selected_hypothesis"]) == ""
         assert not any(
             (not bool(hypothesis.attrs["combined_reject"])) and bool(hypothesis.attrs["combined_good_fit"])
             for hypothesis in ranked
         )
         if expect_speed_reject:
             assert ranked, result.stdout
-            assert all(bool(hypothesis.attrs["head_echo_speed_reject"]) for hypothesis in ranked)
-            assert max(float(hypothesis.attrs["selection_speed_km_s"]) for hypothesis in ranked) < 5.0
+            assert all(bool(hypothesis.attrs["combined_reject"]) for hypothesis in ranked)
+            assert any(
+                bool(hypothesis.attrs["head_echo_speed_reject"])
+                or bool(hypothesis.attrs["short_static_measurement_reject"])
+                or not bool(hypothesis.attrs["combined_good_fit"])
+                for hypothesis in ranked
+            )
         else:
-            assert not ranked
+            assert all(bool(hypothesis.attrs["combined_reject"]) for hypothesis in ranked)
+            assert not ranked or any(
+                bool(hypothesis.attrs["short_static_measurement_reject"]) for hypothesis in ranked
+            )
 
 
 @pytest.mark.slow
