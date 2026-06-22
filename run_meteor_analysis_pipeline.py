@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import datetime as dt
 import itertools
 from dataclasses import dataclass
@@ -26,6 +25,7 @@ class PipelineConfig:
     table_dir: Path
     grid_n: int
     coherence_threshold: float
+    max_peaks_per_pulse: int
     snr_threshold: float
     linearity_angular_sigma_deg: float
     linearity_range_sigma_km: float
@@ -85,7 +85,12 @@ def make_context(grid_n: int):
     }
 
 
-def build_candidates(obs: dict, context: dict, coherence_threshold: float) -> tuple[list[dict], tuple[np.ndarray, np.ndarray], np.ndarray]:
+def build_candidates(
+    obs: dict,
+    context: dict,
+    coherence_threshold: float,
+    max_peaks_per_pulse: int = 32,
+) -> tuple[list[dict], tuple[np.ndarray, np.ndarray], np.ndarray]:
     """Find all high-coherence interferometer aliases for one event."""
     u = context["u"]
     v = context["v"]
@@ -98,13 +103,13 @@ def build_candidates(obs: dict, context: dict, coherence_threshold: float) -> tu
     single = disamb.coherence_map(
         obs["xc"][strongest], int(obs["beam_id"][strongest]), phasecal, ch_pairs, steering, valid, u.shape
     )
-    peak_ij = disamb.local_coherence_peaks(single, coherence_threshold)
+    peak_ij = disamb.local_coherence_peaks(single, coherence_threshold, max_peaks=max_peaks_per_pulse)
 
     candidates = []
     t_rel = obs["tx_idx"] / 1e6 - obs["tx_idx"][0] / 1e6
     for i in range(len(obs["snr"])):
         coh = disamb.coherence_map(obs["xc"][i], int(obs["beam_id"][i]), phasecal, ch_pairs, steering, valid, u.shape)
-        ii, jj = disamb.local_coherence_peaks(coh, coherence_threshold)
+        ii, jj = disamb.local_coherence_peaks(coh, coherence_threshold, max_peaks=max_peaks_per_pulse)
         for row, col in zip(ii, jj):
             candidates.append(
                 {
@@ -140,7 +145,12 @@ def run_standard_disambiguation(obs_all: dict, sample_idx: int, config: Pipeline
     if len(obs["snr"]) < 10:
         raise RuntimeError(f"only {len(obs['snr'])} pulses above SNR threshold")
 
-    candidates, peak_ij, single = build_candidates(obs, context, config.coherence_threshold)
+    candidates, peak_ij, single = build_candidates(
+        obs,
+        context,
+        config.coherence_threshold,
+        max_peaks_per_pulse=config.max_peaks_per_pulse,
+    )
     tracks = disamb.fit_candidate_tracks(candidates)
     t_rel = obs["tx_idx"] / 1e6 - obs["tx_idx"][0] / 1e6
     t_start = float(np.min(t_rel))
@@ -270,13 +280,22 @@ def analyze_event(sample_idx: int, config: PipelineConfig, context: dict, make_e
     }
 
 
-def write_csv(rows: list[dict], path: Path) -> None:
+def write_summary_h5(rows: list[dict], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = list(rows[0].keys())
-    with path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
+    string_dtype = h5py.string_dtype(encoding="utf-8")
+    with h5py.File(path, "w") as handle:
+        handle.attrs["schema"] = "pansy_meteor_pipeline_summary_v1"
+        handle.attrs["n_events"] = int(len(rows))
+        for field in rows[0]:
+            values = [row[field] for row in rows]
+            if all(isinstance(value, (bool, np.bool_)) for value in values):
+                handle.create_dataset(field, data=np.asarray(values, dtype=np.bool_))
+            elif all(isinstance(value, (int, np.integer)) and not isinstance(value, (bool, np.bool_)) for value in values):
+                handle.create_dataset(field, data=np.asarray(values, dtype=np.int64))
+            elif all(isinstance(value, (float, int, np.floating, np.integer, bool, np.bool_)) for value in values):
+                handle.create_dataset(field, data=np.asarray(values, dtype=np.float64))
+            else:
+                handle.create_dataset(field, data=np.asarray([str(value) for value in values], dtype=object), dtype=string_dtype)
 
 
 def write_latex_table(rows: list[dict], path: Path) -> None:
@@ -351,8 +370,9 @@ def main() -> int:
     parser.add_argument("--table-dir", type=Path, default=Path("../pansy_paper/memos/tables"))
     parser.add_argument("--n-events", type=int, default=10)
     parser.add_argument("--grid-n", type=int, default=401)
-    parser.add_argument("--coherence-threshold", type=float, default=0.9)
-    parser.add_argument("--snr-threshold", type=float, default=9.0)
+    parser.add_argument("--coherence-threshold", type=float, default=0.80)
+    parser.add_argument("--max-peaks-per-pulse", type=int, default=32)
+    parser.add_argument("--snr-threshold", type=float, default=7.0)
     parser.add_argument("--linearity-angular-sigma-deg", type=float, default=0.25)
     parser.add_argument("--linearity-range-sigma-km", type=float, default=0.15)
     parser.add_argument("--linearity-p-threshold", type=float, default=0.01)
@@ -368,6 +388,7 @@ def main() -> int:
         table_dir=args.table_dir,
         grid_n=args.grid_n,
         coherence_threshold=args.coherence_threshold,
+        max_peaks_per_pulse=args.max_peaks_per_pulse,
         snr_threshold=args.snr_threshold,
         linearity_angular_sigma_deg=args.linearity_angular_sigma_deg,
         linearity_range_sigma_km=args.linearity_range_sigma_km,
@@ -398,13 +419,13 @@ def main() -> int:
     if not rows:
         raise RuntimeError("no events completed")
 
-    csv_path = args.table_dir / "pansy_meteor_pipeline_10.csv"
+    h5_path = args.table_dir / "pansy_meteor_pipeline_10.h5"
     tex_path = args.table_dir / "pansy_meteor_pipeline_10.tex"
     summary_path = args.output_dir / "pansy_meteor_pipeline_10_summary.png"
-    write_csv(rows, csv_path)
+    write_summary_h5(rows, h5_path)
     write_latex_table(rows, tex_path)
     plot_summary(rows, summary_path)
-    print(f"wrote {csv_path}")
+    print(f"wrote {h5_path}")
     print(f"wrote {tex_path}")
     print(f"wrote {summary_path}")
     return 0

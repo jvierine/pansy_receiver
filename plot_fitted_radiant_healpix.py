@@ -9,6 +9,9 @@ from pathlib import Path
 import h5py
 import healpy as hp
 import matplotlib.pyplot as plt
+from matplotlib.patches import PathPatch
+from matplotlib.path import Path as MplPath
+from matplotlib.transforms import Affine2D
 import numpy as np
 
 
@@ -61,18 +64,21 @@ def write_h5(path: Path, input_h5: Path, nside: int, count, mean_speed, n_radian
 
 def plot_healpix(count, output_png: Path, n_radiants: int):
     output_png.parent.mkdir(parents=True, exist_ok=True)
-    masked = hp.ma(count)
-    masked.mask = count <= 0.0
+    plot_count = np.asarray(count, dtype=np.float64).copy()
+    plot_count[~np.isfinite(plot_count) | (plot_count <= 0.0)] = 1.0
     cmap = plt.get_cmap("plasma").copy()
-    cmap.set_bad("white")
-    cmap.set_under("white")
+    cmap.set_bad(cmap(0.0))
+    cmap.set_under(cmap(0.0))
     hp.mollview(
-        masked,
+        plot_count,
         fig=1,
         rot=(PLOT_CENTER_LONGITUDE_DEG, 0.0, 0.0),
         flip="astro",
         cmap=cmap,
+        badcolor=cmap(0.0),
+        bgcolor="white",
         min=1.0,
+        norm="log",
         title="",
         unit="Count / pixel",
         cbar=True,
@@ -83,6 +89,21 @@ def plot_healpix(count, output_png: Path, n_radiants: int):
     fig.patch.set_facecolor("white")
     for ax in fig.axes:
         ax.set_facecolor("white")
+        for image in ax.images:
+            image.set_clip_path(ax.patch)
+        if ax.images:
+            rect = MplPath(
+                [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.0, 0.0)],
+                [MplPath.MOVETO, MplPath.LINETO, MplPath.LINETO, MplPath.LINETO, MplPath.CLOSEPOLY],
+            )
+            theta = np.linspace(2.0 * np.pi, 0.0, 241)
+            ellipse_vertices = np.column_stack((0.5 + 0.5 * np.cos(theta), 0.5 + 0.5 * np.sin(theta)))
+            ellipse_codes = np.full(len(ellipse_vertices), MplPath.LINETO, dtype=np.uint8)
+            ellipse_codes[0] = MplPath.MOVETO
+            ellipse_codes[-1] = MplPath.CLOSEPOLY
+            ellipse = MplPath(ellipse_vertices, ellipse_codes)
+            outside = MplPath.make_compound_path(rect, ellipse)
+            ax.add_patch(PathPatch(outside, transform=ax.transAxes, facecolor="white", edgecolor="none", zorder=4))
     fig.text(
         0.5,
         0.035,

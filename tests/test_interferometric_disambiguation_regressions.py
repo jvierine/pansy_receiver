@@ -15,6 +15,7 @@ if str(PANSY_RECEIVER_ROOT) not in sys.path:
 MULTI_METEOR_SAMPLE_581983 = 1746492577581983
 TRAIL_ECHO_SAMPLE_742042 = 1746493024742042
 TRAIL_ECHO_SAMPLE_606335 = 1746495226606335
+LOW_DOPPLER_HEAD_ECHO_SAMPLE_6904845 = 1746490036904845
 RANGE_FIT_SAMPLE_450693 = 1746575731450693
 RANGE_FIT_SAMPLE_895405 = 1746575072895405
 RANGE_FIT_SAMPLE_540174 = 1746574843540174
@@ -178,7 +179,7 @@ def test_event_581983_identifies_two_meteors_separately():
 
     cut = disamb.load_cut(cut_dir, MULTI_METEOR_SAMPLE_581983)
     obs_all = disamb.recompute_cut_observables(cut)
-    good = obs_all["snr"] > 9.0
+    good = obs_all["snr"] > 7.0
     obs = {
         key: val[good] if isinstance(val, np.ndarray) and len(val) == len(good) else val
         for key, val in obs_all.items()
@@ -381,6 +382,67 @@ def test_event_88806_robust_fit_survives_specular_trail_contamination(tmp_path):
         kept_res = range_res_m[keep]
         assert abs(float(np.mean(kept_res))) < 25.0
         assert float(np.sqrt(np.mean(kept_res**2))) < 120.0
+
+
+@pytest.mark.slow
+def test_event_6904845_keeps_low_doppler_head_echo_measurements(tmp_path):
+    cut_dir = PANSY_RECEIVER_ROOT / "data" / "metadata" / "cut"
+    if not cut_dir.exists():
+        pytest.skip(f"local cut metadata not available: {cut_dir}")
+
+    output_dir = tmp_path / "event_6904845"
+    cmd = [
+        sys.executable,
+        str(PANSY_RECEIVER_ROOT / "plot_interferometric_disambiguation.py"),
+        "--sample-idx",
+        str(LOW_DOPPLER_HEAD_ECHO_SAMPLE_6904845),
+        "--cut-dir",
+        str(cut_dir),
+        "--output-dir",
+        str(output_dir),
+        "--grid-n",
+        "501",
+        "--overview-only",
+        "--orbit-samples",
+        "0",
+        "--skip-secondary-models",
+        "--skip-orbit-products",
+        "--recompute-cut-observables",
+    ]
+    result = subprocess.run(
+        cmd,
+        cwd=PANSY_RECEIVER_ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=300,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout
+
+    diagnostics_h5 = output_dir / f"pansy_disambiguation_diagnostics_{LOW_DOPPLER_HEAD_ECHO_SAMPLE_6904845}.h5"
+    assert diagnostics_h5.exists(), result.stdout
+
+    with h5py.File(diagnostics_h5, "r") as h:
+        assert h.attrs["event_status"] == "processed"
+        np.testing.assert_array_equal(h["range_time_component_lengths"][:], np.array([69]))
+        selected = str(h.attrs["selected_hypothesis"])
+        assert selected.startswith("H")
+
+        hypothesis = h["hypotheses"][selected]
+        assert int(hypothesis.attrs["combined_rank"]) == 0
+        assert not bool(hypothesis.attrs["combined_reject"])
+        assert bool(hypothesis.attrs["combined_good_fit"])
+        assert str(hypothesis.attrs["selection_model_type"]) == "fixed_velocity"
+        assert int(hypothesis.attrs["unique_pulses"]) == 69
+        assert float(hypothesis.attrs["selection_reduced_chi2"]) < 0.5
+
+        doppler_mps = hypothesis["doppler_mps"][:]
+        low_doppler = np.abs(doppler_mps) < 1000.0
+        assert int(np.count_nonzero(low_doppler)) >= 7
+
+        keep = hypothesis["selection_keep"][:]
+        assert int(np.count_nonzero(keep & low_doppler)) >= 5
 
 
 @pytest.mark.slow

@@ -51,6 +51,8 @@ def run_one(sample_idx: int, args, rank: int) -> tuple[bool, float, Path]:
         str(args.grid_n),
         "--coherence-threshold",
         str(args.coherence_threshold),
+        "--max-peaks-per-pulse",
+        str(args.max_peaks_per_pulse),
         "--snr-threshold",
         str(args.snr_threshold),
         "--overview-only",
@@ -61,6 +63,8 @@ def run_one(sample_idx: int, args, rank: int) -> tuple[bool, float, Path]:
     ]
     if args.run_dasst:
         cmd.append("--run-dasst")
+    if args.recompute_cut_observables:
+        cmd.append("--recompute-cut-observables")
     env = os.environ.copy()
     env.setdefault("OMP_NUM_THREADS", "1")
     env.setdefault("OPENBLAS_NUM_THREADS", "1")
@@ -78,12 +82,14 @@ def main() -> None:
     parser.add_argument("--cut-dir", type=Path, default=Path("data/metadata/cut"))
     parser.add_argument("--output-dir", type=Path, default=Path("test_plots"))
     parser.add_argument("--grid-n", type=int, default=501)
-    parser.add_argument("--coherence-threshold", type=float, default=0.9)
-    parser.add_argument("--snr-threshold", type=float, default=9.0)
+    parser.add_argument("--coherence-threshold", type=float, default=0.80)
+    parser.add_argument("--max-peaks-per-pulse", type=int, default=32)
+    parser.add_argument("--snr-threshold", type=float, default=7.0)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--orbit-samples", type=int, default=20)
     parser.add_argument("--orbit-metadata-dir", type=Path, default=Path("data/metadata/orbit"))
     parser.add_argument("--run-dasst", action="store_true", help="Run DASST for the winning hypothesis when the local DASST module is available.")
+    parser.add_argument("--recompute-cut-observables", action="store_true", help="Recompute full per-pulse range-Doppler observables instead of using cached cut detections.")
     parser.add_argument("--skip-existing", action="store_true")
     args = parser.parse_args()
 

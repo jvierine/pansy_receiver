@@ -277,8 +277,8 @@ def main():
     parser.add_argument("--cut-dir", type=Path, default=Path("data/metadata/cut"))
     parser.add_argument("--output-h5", type=Path, default=None)
     parser.add_argument("--grid-n", type=int, default=501)
-    parser.add_argument("--coherence-threshold", type=float, default=0.9)
-    parser.add_argument("--snr-threshold", type=float, default=9.0)
+    parser.add_argument("--coherence-threshold", type=float, default=0.80)
+    parser.add_argument("--snr-threshold", type=float, default=7.0)
     parser.add_argument("--recompute-cut-observables", action="store_true")
     args = parser.parse_args()
     if args.output_h5 is None:

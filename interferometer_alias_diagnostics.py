@@ -461,7 +461,7 @@ def main():
     parser.add_argument("--sample-idx", type=int, default=1746494797212678)
     parser.add_argument("--cut-dir", type=Path, default=Path("data/metadata/cut"))
     parser.add_argument("--output", type=Path, default=Path("plots/orbit_determination_example/aliases/alias_branches_1746494797212678.png"))
-    parser.add_argument("--snr-threshold", type=float, default=9.0)
+    parser.add_argument("--snr-threshold", type=float, default=7.0)
     parser.add_argument("--grid-n", type=int, default=360)
     args = parser.parse_args()
 

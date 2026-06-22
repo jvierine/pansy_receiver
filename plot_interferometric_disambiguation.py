@@ -800,6 +800,18 @@ def plot_matched_filter_rti_panel(ax, obs_rti, cut, tracks, fit_t0_s=None, obs_o
     )
     overlay = obs_rti if obs_overlay is None else obs_overlay
     if len(overlay["range_km"]):
+        overlay_t = np.asarray(overlay["tx_idx"], dtype=np.float64) / 1e6 - t0
+        ax.scatter(
+            overlay_t,
+            np.asarray(overlay["range_km"], dtype=np.float64),
+            s=5.0,
+            c="black",
+            marker="o",
+            linewidths=0.0,
+            alpha=0.85,
+            zorder=6,
+        )
+    if len(overlay["range_km"]):
         pad = 8.0
         ax.set_ylim(max(0.0, float(np.nanmin(overlay["range_km"]) - pad)), float(np.nanmax(overlay["range_km"]) + pad))
     ax.set_xlabel("Time since cut start (s)")
@@ -1195,12 +1207,36 @@ def coherence_map(xc, beam_id, phasecal, ch_pairs, steering, valid, shape):
     return out
 
 
-def local_coherence_peaks(coh: np.ndarray, threshold: float):
+def local_coherence_peaks(coh: np.ndarray, threshold: float, max_peaks: int | None = None):
     """Find isolated high-coherence local maxima."""
     filled = np.nan_to_num(coh, nan=-np.inf)
-    maxima = ndi.maximum_filter(filled, size=9, mode="constant", cval=-np.inf)
+    maxima = ndi.maximum_filter(filled, size=7, mode="constant", cval=-np.inf)
     mask = (filled == maxima) & (filled >= threshold)
-    return np.where(mask)
+    ii, jj = np.where(mask)
+    if max_peaks is not None and len(ii) > max_peaks:
+        order = np.argsort(filled[ii, jj])[::-1][: int(max_peaks)]
+        ii = ii[order]
+        jj = jj[order]
+    return ii, jj
+
+
+def selected_pulse_interferometer_response(candidates, obs, phasecal, ch_pairs, steering, valid, shape):
+    """Normalized summed interferometer coherence over selected candidate pulses."""
+    if obs is None or len(obs.get("xc", [])) == 0 or not candidates:
+        return None
+    pulses = sorted({int(c["pulse"]) for c in candidates if 0 <= int(c["pulse"]) < len(obs["xc"])})
+    if not pulses:
+        return None
+    summed = np.zeros(shape, dtype=np.float64)
+    for pulse in pulses:
+        coh = coherence_map(obs["xc"][pulse], int(obs["beam_id"][pulse]), phasecal, ch_pairs, steering, valid, shape)
+        summed += np.nan_to_num(coh, nan=0.0)
+    maxval = float(np.nanmax(summed)) if np.size(summed) else np.nan
+    if not np.isfinite(maxval) or maxval <= 0.0:
+        return None
+    out = np.full(shape, np.nan, dtype=np.float32)
+    out[valid] = (summed[valid] / maxval).astype(np.float32)
+    return out
 
 
 def plot_single_echo(u, v, coh, peak_ij, obs, pulse_idx, output: Path):
@@ -1264,7 +1300,7 @@ def plot_all_candidates(u, v, obs, candidates, output: Path):
 def split_observations_by_range_time(
     obs,
     range_jump_km=1.0,
-    range_rate_km_s=8.0,
+    range_rate_km_s=80.0,
     range_margin_km=0.4,
     min_points=3,
 ):
@@ -1384,7 +1420,7 @@ def fit_candidate_tracks(candidates, min_unique_pulses=None, tol=0.035, max_trac
     return tracks
 
 
-def complete_tracks_to_common_pulses(tracks, candidates):
+def complete_tracks_to_common_pulses(tracks, candidates, max_completion_distance_dc=0.04, min_completion_fraction=0.65):
     """Assign one candidate from every available pulse to every hypothesis.
 
     The RANSAC-style finder is allowed to discover a hypothesis from a subset of
@@ -1404,8 +1440,12 @@ def complete_tracks_to_common_pulses(tracks, candidates):
         return tracks
 
     for track in tracks:
+        seed_idx = np.asarray(track.get("idx", []), dtype=np.int64)
+        seed_idx = seed_idx[(seed_idx >= 0) & (seed_idx < len(candidates))]
+        seed_pulses = set(int(pulse_values[i]) for i in seed_idx)
         completed_idx = []
         completed_distance = []
+        missed_pulses = []
         for pulse in common_pulses:
             pulse_idx = np.flatnonzero(pulse_values == pulse)
             if len(pulse_idx) == 0:
@@ -1416,8 +1456,12 @@ def complete_tracks_to_common_pulses(tracks, candidates):
             pred_v = float(track["v_coeff"][0] + track["v_coeff"][1] * t_pulse)
             dist = np.hypot(u_values[pulse_idx] - pred_u, v_values[pulse_idx] - pred_v)
             best_local = int(pulse_idx[int(np.argmin(dist))])
+            best_distance = float(np.min(dist))
+            if pulse not in seed_pulses and best_distance > max_completion_distance_dc:
+                missed_pulses.append(int(pulse))
+                continue
             completed_idx.append(best_local)
-            completed_distance.append(float(np.min(dist)))
+            completed_distance.append(best_distance)
 
         if completed_idx:
             track["seed_idx"] = np.asarray(track["idx"], dtype=np.int64)
@@ -1427,10 +1471,13 @@ def complete_tracks_to_common_pulses(tracks, candidates):
             track["unique_pulses"] = int(len(np.unique(pulse_values[track["idx"]])))
             track["common_pulse_count"] = int(len(common_pulses))
             track["common_pulse_completion_distance_dc"] = np.asarray(completed_distance, dtype=np.float64)
+            track["common_pulse_completion_missed_pulses"] = np.asarray(missed_pulses, dtype=np.int64)
+            track["common_pulse_completion_fraction"] = float(track["unique_pulses"] / max(1, len(common_pulses)))
             track["common_pulse_completion_rms_dc"] = float(np.sqrt(np.mean(np.asarray(completed_distance) ** 2)))
             track["common_pulse_completion_max_dc"] = float(np.max(completed_distance))
             track["common_pulse_completion_reject"] = bool(
-                track["common_pulse_completion_rms_dc"] > 0.25
+                track["common_pulse_completion_fraction"] < float(min_completion_fraction)
+                or track["common_pulse_completion_rms_dc"] > max_completion_distance_dc
             )
     return tracks
 
@@ -3001,6 +3048,9 @@ def plot_disambiguation_summary(
     cut=None,
     obs_rti=None,
     event_epoch_unix=None,
+    response_u=None,
+    response_v=None,
+    selected_response=None,
 ):
     """Combine the main disambiguation tests into one 3x3 summary figure."""
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -3030,6 +3080,18 @@ def plot_disambiguation_summary(
             ax.legend(**kwargs)
 
     ax = axes[0, 0]
+    if response_u is not None and response_v is not None and selected_response is not None:
+        ax.pcolormesh(
+            response_u,
+            response_v,
+            selected_response,
+            shading="auto",
+            cmap="Blues",
+            vmin=0.45,
+            vmax=1.0,
+            alpha=0.34,
+            zorder=0,
+        )
     ax.add_patch(plt.Circle((0.0, 0.0), 1.0, color="black", fill=False, linewidth=1.0))
     if candidates:
         cand_u = np.asarray([c["u"] for c in candidates], dtype=np.float64)
@@ -3050,26 +3112,115 @@ def plot_disambiguation_summary(
         )
     labels_done = set()
     for track in sorted(tracks, key=lambda t: t.get("hypothesis_id", 999)):
-        rows = [candidates[j] for j in track_cluster_indices(track)]
+        actual_idx = np.asarray(track.get("idx", []), dtype=np.int64)
+        actual_idx = actual_idx[(actual_idx >= 0) & (actual_idx < len(candidates))]
+        rows = [candidates[j] for j in actual_idx]
+        if len(rows) == 0:
+            rows = [candidates[j] for j in track_cluster_indices(track)]
         uu = np.asarray([r["u"] for r in rows])
         vv = np.asarray([r["v"] for r in rows])
         color = visibility_colors.get(track["reason"], "0.4")
         label = track["reason"] if track["reason"] not in labels_done else None
         labels_done.add(track["reason"])
-        ax.plot(uu, vv, ".", ms=2.8, color=color, alpha=0.45, label=label, zorder=2)
+        ax.scatter(
+            uu,
+            vv,
+            s=1.0,
+            marker="o",
+            color=color,
+            alpha=0.72,
+            linewidths=0.0,
+            label=label,
+            zorder=5,
+        )
+        if len(uu):
+            finite_uv = np.isfinite(uu) & np.isfinite(vv)
+            if np.any(finite_uv):
+                u0 = float(np.nanmin(uu[finite_uv]))
+                u1 = float(np.nanmax(uu[finite_uv]))
+                v0 = float(np.nanmin(vv[finite_uv]))
+                v1 = float(np.nanmax(vv[finite_uv]))
+                pad = 0.018
+                width = max(u1 - u0, 0.018)
+                height = max(v1 - v0, 0.018)
+                cx = 0.5 * (u0 + u1)
+                cy = 0.5 * (v0 + v1)
+                ax.add_patch(
+                    plt.Rectangle(
+                        (cx - 0.5 * width - pad, cy - 0.5 * height - pad),
+                        width + 2.0 * pad,
+                        height + 2.0 * pad,
+                        fill=False,
+                        edgecolor=color,
+                        linewidth=0.75,
+                        alpha=0.72,
+                        zorder=4,
+                    )
+                )
         dd = track_cluster_direction(track, candidates)
         if len(dd):
-            ax.plot(dd[:, 0], dd[:, 1], "-", lw=1.25, color=color, alpha=0.95, zorder=3)
             mid = len(dd) // 2
+            label_xy = dd[mid, :2].astype(np.float64)
+            direction = dd[min(len(dd) - 1, mid + 1), :2] - dd[max(0, mid - 1), :2]
+            normal = np.asarray([-direction[1], direction[0]], dtype=np.float64)
+            norm = float(np.linalg.norm(normal))
+            if norm < 1e-9:
+                normal = label_xy.copy()
+                norm = float(np.linalg.norm(normal))
+            if norm < 1e-9:
+                normal = np.asarray([0.0, 1.0], dtype=np.float64)
+                norm = 1.0
+            normal /= norm
+            if len(uu):
+                centroid = np.asarray([float(np.nanmean(uu)), float(np.nanmean(vv))])
+                if np.dot(label_xy + 0.055 * normal - centroid, label_xy - centroid) < 0:
+                    normal *= -1.0
+            radial = label_xy.copy()
+            radial_norm = float(np.linalg.norm(radial))
+            if radial_norm < 1e-9:
+                radial = normal.copy()
+            else:
+                radial /= radial_norm
+            offset = 0.085
+            directions = [
+                normal,
+                -normal,
+                radial,
+                -radial,
+                normal + radial,
+                normal - radial,
+                -normal + radial,
+                -normal - radial,
+            ]
+            point_xy = np.column_stack([uu, vv]) if len(uu) else np.empty((0, 2), dtype=np.float64)
+            best_xy = label_xy + offset * normal
+            best_score = -np.inf
+            for direction_vec in directions:
+                direction_vec = np.asarray(direction_vec, dtype=np.float64)
+                direction_norm = float(np.linalg.norm(direction_vec))
+                if direction_norm < 1e-9:
+                    continue
+                candidate_xy = label_xy + offset * direction_vec / direction_norm
+                if float(np.linalg.norm(candidate_xy)) > 0.99:
+                    continue
+                if len(point_xy):
+                    distance = np.sqrt(np.sum((point_xy - candidate_xy[None, :]) ** 2, axis=1))
+                    score = float(np.nanmin(distance))
+                else:
+                    score = 0.0
+                if score > best_score:
+                    best_score = score
+                    best_xy = candidate_xy
+            label_xy = best_xy
             ax.text(
-                dd[mid, 0],
-                dd[mid, 1],
+                label_xy[0],
+                label_xy[1],
                 hypothesis_label(track),
                 fontsize=7,
                 ha="center",
                 va="center",
-                zorder=5,
-                bbox={"facecolor": "white", "edgecolor": color, "alpha": 0.86, "pad": 1.2},
+                zorder=4,
+                bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.30, "pad": 1.2},
             )
     if not tracks:
         n_pulses = len({c["pulse"] for c in candidates}) if candidates else 0
@@ -4307,8 +4458,8 @@ def main():
     parser.add_argument("--cut-dir", type=Path, default=Path("data/metadata/cut"))
     parser.add_argument("--output-dir", type=Path, default=Path("../pansy_paper/memos/figures"))
     parser.add_argument("--grid-n", type=int, default=501)
-    parser.add_argument("--coherence-threshold", type=float, default=0.9)
-    parser.add_argument("--snr-threshold", type=float, default=9.0)
+    parser.add_argument("--coherence-threshold", type=float, default=0.80)
+    parser.add_argument("--snr-threshold", type=float, default=7.0)
     parser.add_argument("--linearity-angular-sigma-deg", type=float, default=0.25)
     parser.add_argument("--linearity-range-sigma-km", type=float, default=0.15)
     parser.add_argument("--linearity-p-threshold", type=float, default=0.01)
@@ -4319,8 +4470,9 @@ def main():
     parser.add_argument("--run-dasst", action="store_true", help="Run DASST orbit determination after writing candidate state HDF5.")
     parser.add_argument("--orbit-samples", type=int, default=300, help="Number of covariance samples for DASST orbit uncertainty.")
     parser.add_argument("--overview-only", action="store_true", help="Only write the final disambiguation overview and orbit HDF5 products.")
-    parser.add_argument("--path-max-tracks", type=int, default=16, help="Maximum direction-cosine path hypotheses to extract.")
+    parser.add_argument("--path-max-tracks", type=int, default=24, help="Maximum direction-cosine path hypotheses to extract.")
     parser.add_argument("--path-trials", type=int, default=5000, help="Random two-point path trials per extracted hypothesis.")
+    parser.add_argument("--max-peaks-per-pulse", type=int, default=32, help="Maximum interferometer local maxima retained per pulse.")
     parser.add_argument(
         "--alias-fit-models",
         choices=("fixed_velocity", "fixed_velocity_and_drag", "drag_and_fixed_am"),
@@ -4447,13 +4599,13 @@ def main():
 
     strongest = int(np.argmax(obs["snr"]))
     single = coherence_map(obs["xc"][strongest], int(obs["beam_id"][strongest]), phasecal, ch_pairs, steering, valid, u.shape)
-    peak_ij = local_coherence_peaks(single, args.coherence_threshold)
+    peak_ij = local_coherence_peaks(single, args.coherence_threshold, max_peaks=args.max_peaks_per_pulse)
 
     candidates = []
     t_rel = obs["tx_idx"] / 1e6 - obs["tx_idx"][0] / 1e6
     for i in range(len(obs["snr"])):
         coh = coherence_map(obs["xc"][i], int(obs["beam_id"][i]), phasecal, ch_pairs, steering, valid, u.shape)
-        ii, jj = local_coherence_peaks(coh, args.coherence_threshold)
+        ii, jj = local_coherence_peaks(coh, args.coherence_threshold, max_peaks=args.max_peaks_per_pulse)
         for row, col in zip(ii, jj):
             candidates.append(
                 {
@@ -4561,6 +4713,15 @@ def main():
         fit_winning_physics_trajectory_model(tracks, args.sample_idx / 1e6, sigma_pos, sigma_dop)
         stage("winning_secondary_models")
     best = sorted([t for t in tracks if "combined_score" in t], key=lambda t: t["combined_rank"])
+    response_selected = selected_pulse_interferometer_response(
+        candidates,
+        obs,
+        phasecal,
+        ch_pairs,
+        steering,
+        valid,
+        u.shape,
+    )
     state_h5 = args.orbit_state_h5 or (args.output_dir / f"pansy_candidate_orbit_states_{args.sample_idx}.h5")
     plausible_orbit_aliases = [
         t
@@ -4627,6 +4788,9 @@ def main():
         cut=cut,
         obs_rti=obs_all,
         event_epoch_unix=args.sample_idx / 1e6,
+        response_u=u,
+        response_v=v,
+        selected_response=response_selected,
     )
     stage("summary_plot")
     write_disambiguation_diagnostics_h5(
