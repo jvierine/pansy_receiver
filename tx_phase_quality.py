@@ -86,12 +86,32 @@ def read_phase_file(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     )
 
 
-def load_phase_history(phase_dir: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _directory_day_us(path: Path) -> int | None:
+    try:
+        day = path.parent.name[:10]
+        return int(np.datetime64(day, "D").astype("datetime64[us]").astype(np.int64))
+    except Exception:
+        return None
+
+
+def load_phase_history(phase_dir: Path, min_sample_idx: int | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     samples = []
     phases = []
     amplitudes = []
+    min_day_us = None
+    if min_sample_idx is not None:
+        min_day_us = int(np.datetime64(int(min_sample_idx), "us").astype("datetime64[D]").astype("datetime64[us]").astype(np.int64))
     for path in sorted(phase_dir.glob("20*/txphase@*.h5")):
+        if min_day_us is not None:
+            day_us = _directory_day_us(path)
+            if day_us is not None and day_us < min_day_us:
+                continue
         s, p, a = read_phase_file(path)
+        if min_sample_idx is not None and s.size:
+            keep = s >= int(min_sample_idx)
+            s = s[keep]
+            p = p[keep]
+            a = a[keep]
         if s.size:
             samples.append(s)
             phases.append(p)
@@ -206,8 +226,19 @@ def write_quality_h5(
 ) -> dict[str, float | int | str]:
     if phase_cache_dir is not None:
         sample_idx, phase_rad, amplitude = load_phase_cache(phase_cache_dir)
+        cache_end = int(np.nanmax(sample_idx)) if sample_idx.size else None
+        if cache_end is not None:
+            recent_sample, recent_phase, recent_amplitude = load_phase_history(phase_dir, min_sample_idx=cache_end + 1)
+            if recent_sample.size:
+                sample_idx = np.concatenate([sample_idx, recent_sample])
+                phase_rad = np.concatenate([phase_rad, recent_phase], axis=0)
+                amplitude = np.concatenate([amplitude, recent_amplitude], axis=0)
+                order = np.argsort(sample_idx)
+                sample_idx = sample_idx[order]
+                phase_rad = phase_rad[order]
+                amplitude = amplitude[order]
         phase_source = str(phase_cache_dir)
-        phase_source_kind = "phase_history_npz_cache"
+        phase_source_kind = "phase_history_npz_cache_plus_recent_txphase_hdf5"
     else:
         sample_idx, phase_rad, amplitude = load_phase_history(phase_dir)
         phase_source = str(phase_dir)
