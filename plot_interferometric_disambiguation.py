@@ -3569,21 +3569,37 @@ def cut_tx_waveform_quality(cut: dict, min_corr: float = 0.8, max_phase_std_deg:
             "good": False,
             "reason": "too_few_valid_cut_tx_pulses",
         }
-    z_norm = z_tx[good_pulses] / pulse_power[good_pulses, None]
-    template = np.mean(z_norm, axis=0)
-    template_norm = np.sqrt(np.sum(np.abs(template) ** 2))
-    if not np.isfinite(template_norm) or template_norm <= 0:
+    beam_id = np.asarray(cut.get("beam_id", np.zeros(z_tx.shape[0], dtype=np.int64)), dtype=np.int64)
+    if beam_id.shape[0] != z_tx.shape[0]:
+        beam_id = np.zeros(z_tx.shape[0], dtype=np.int64)
+    z_norm_all = z_tx / np.where(pulse_power > 0, pulse_power, 1.0)[:, None]
+    corr_values = []
+    phase_residuals = []
+    used_beams = 0
+    for beam in np.unique(beam_id[good_pulses]):
+        beam_mask = good_pulses & (beam_id == beam)
+        if np.count_nonzero(beam_mask) < 2:
+            continue
+        z_norm = z_norm_all[beam_mask]
+        template = np.mean(z_norm, axis=0)
+        template_norm = np.sqrt(np.sum(np.abs(template) ** 2))
+        if not np.isfinite(template_norm) or template_norm <= 0:
+            continue
+        template = template / template_norm
+        corr = np.sum(np.conj(template)[None, :] * z_norm, axis=1)
+        phase = np.angle(corr)
+        mean_phase = np.angle(np.mean(np.exp(1j * phase)))
+        corr_values.append(np.abs(corr))
+        phase_residuals.append(np.angle(np.exp(1j * (phase - mean_phase))))
+        used_beams += 1
+    if not corr_values:
         return {
             "available": False,
             "good": False,
             "reason": "cut_tx_waveform_template_failed",
         }
-    template = template / template_norm
-    corr = np.sum(np.conj(template)[None, :] * z_norm, axis=1)
-    corr_abs = np.abs(corr)
-    phase = np.angle(corr)
-    mean_phase = np.angle(np.mean(np.exp(1j * phase)))
-    phase_resid = np.angle(np.exp(1j * (phase - mean_phase)))
+    corr_abs = np.concatenate(corr_values)
+    phase_resid = np.concatenate(phase_residuals)
     phase_std_deg = float(np.rad2deg(np.sqrt(np.mean(phase_resid**2))))
     median_corr = float(np.nanmedian(corr_abs))
     good = bool(median_corr >= float(min_corr) and phase_std_deg <= float(max_phase_std_deg))
@@ -3595,6 +3611,7 @@ def cut_tx_waveform_quality(cut: dict, min_corr: float = 0.8, max_phase_std_deg:
         "computed_available": True,
         "computed_from_cut_tx_waveform": True,
         "valid_channel_count": int(np.count_nonzero(good_pulses)),
+        "beam_count": int(used_beams),
         "mean_amplitude": median_corr,
         "max_abs_diff_deg": phase_std_deg,
         "rms_diff_deg": phase_std_deg,
@@ -4605,7 +4622,7 @@ def main():
                 args.tx_phase_quality_h5,
                 args.sample_idx,
                 max_age_s=args.tx_phase_max_age_s,
-                compute_if_missing=args.compute_missing_tx_phase,
+                compute_if_missing=False,
                 raw_voltage_dir=args.tx_phase_raw_voltage_dir,
                 tx_metadata_dir=args.tx_phase_tx_metadata_dir,
                 fallback_search_radius_s=args.tx_phase_fallback_search_radius_s,
