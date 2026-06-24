@@ -43,6 +43,7 @@ ORBIT_METADATA_WRITER_ARGS = {
     "file_name": "orbit",
 }
 ORBIT_RESULT_SCHEMA_VERSION = "pansy_orbit_plausible_aliases_v3"
+MAX_DASST_STATE_SAMPLES = 10
 
 
 def optional_dataset(group: h5py.Group, name: str, default=None):
@@ -229,47 +230,73 @@ def main() -> None:
     ceplecha_rows = {}
     with h5py.File(args.state_h5, "r") as h:
         labels = sorted(h.keys(), key=lambda k: int(h[k].attrs["combined_rank"]))
+        records = []
         for label in labels:
             grp = h[label]
             epoch = float(grp.attrs["epoch_unix"])
-            nominal_state = grp["state_gcrs_m_mps"][()][None, :]
-            nominal_od = dasst_orbit_from_gcrs(nominal_state, epoch, args.kernel)
-            nominal_kep = np.asarray(nominal_od["kepler_HeliocentricMeanEcliptic"][:, -1, :], dtype=np.float64)[:, 0]
-            elems = reordered_elements(nominal_kep)
-            radiant_rows[label] = radiant_payload_from_dasst(nominal_od)
-            sample_states = grp["state_gcrs_samples_m_mps"][()]
+            records.append(
+                {
+                    "label": label,
+                    "epoch": epoch,
+                    "attrs": {key: grp.attrs[key] for key in grp.attrs.keys()},
+                    "nominal_state": np.asarray(grp["state_gcrs_m_mps"][()], dtype=np.float64),
+                    "sample_states": np.asarray(grp["state_gcrs_samples_m_mps"][()], dtype=np.float64),
+                    "ceplecha": {
+                        key: grp[key][()]
+                        for key in (
+                            "ceplecha_param_names",
+                            "ceplecha_params",
+                            "ceplecha_parameter_std",
+                            "ceplecha_parameter_covariance",
+                            "ceplecha_radius_m",
+                            "ceplecha_mass_kg",
+                            "ceplecha_model_enu_km",
+                            "ceplecha_velocity_km_s",
+                            "ceplecha_keep",
+                        )
+                        if key in grp
+                    },
+                    "state_derived_kepler": grp["state_derived_kepler"][()] if "state_derived_kepler" in grp else np.full(7, np.nan),
+                    "state_derived_kepler_std": grp["state_derived_kepler_std"][()] if "state_derived_kepler_std" in grp else np.full(7, np.nan),
+                }
+            )
+        labels = [record["label"] for record in records]
+        for record in records:
+            label = record["label"]
+            epoch = float(record["epoch"])
+            attrs = record["attrs"]
+            is_best = int(attrs.get("combined_rank", 999999)) == 0
+            sample_states = record["sample_states"] if is_best else np.empty((0, 6), dtype=np.float64)
             if sample_states.ndim != 2 or sample_states.shape[1] != 6:
                 sample_states = np.empty((0, 6), dtype=np.float64)
             sample_states = sample_states[np.all(np.isfinite(sample_states), axis=1)]
-            if len(sample_states) > 0:
-                sample_kep = dasst_kepler_from_gcrs(sample_states, epoch, args.kernel)
+            if is_best:
+                nominal_state = np.asarray(record["nominal_state"], dtype=np.float64)
+                if nominal_state.shape == (6,) and np.all(np.isfinite(nominal_state)):
+                    if len(sample_states) == 0 or not np.allclose(sample_states[0], nominal_state, rtol=0.0, atol=1e-6):
+                        sample_states = np.vstack([nominal_state[None, :], sample_states])
+                sample_states = sample_states[:MAX_DASST_STATE_SAMPLES]
+            if is_best and len(sample_states) > 0:
+                sample_od = dasst_orbit_from_gcrs(sample_states, epoch, args.kernel)
+                sample_kep = np.asarray(sample_od["kepler_HeliocentricMeanEcliptic"][:, -1, :], dtype=np.float64)
+                elems = reordered_elements(sample_kep[:, 0])
+                radiant_rows[label] = radiant_payload_from_dasst(sample_od)
+                attrs["orbit_solution_type"] = "dasst_winning_alias"
                 std, frac_e_gt_1 = summarize_samples(sample_kep)
                 sample_elems = np.asarray([reordered_elements(sample_kep[:, i]) for i in range(sample_kep.shape[1])])
                 elem_cov = orbital_element_covariance(sample_elems, elems)
             else:
-                std = np.full(7, np.nan)
+                elems = np.asarray(record["state_derived_kepler"], dtype=np.float64)
+                radiant_rows[label] = {}
+                attrs["orbit_solution_type"] = "gcrs_state_derived_alias"
+                std = np.asarray(record["state_derived_kepler_std"], dtype=np.float64) if not is_best else np.full(7, np.nan)
                 frac_e_gt_1 = np.nan
                 sample_elems = np.empty((0, 7), dtype=np.float64)
                 elem_cov = np.full((7, 7), np.nan)
-            attrs = {key: grp.attrs[key] for key in grp.attrs.keys()}
             rows.append((label, attrs, elems))
             unc_rows.append((label, len(sample_states), float(attrs["sigma_log10_beta"]), std, frac_e_gt_1, elem_cov))
             sample_rows[label] = sample_elems
-            ceplecha_rows[label] = {
-                key: grp[key][()]
-                for key in (
-                    "ceplecha_param_names",
-                    "ceplecha_params",
-                    "ceplecha_parameter_std",
-                    "ceplecha_parameter_covariance",
-                    "ceplecha_radius_m",
-                    "ceplecha_mass_kg",
-                    "ceplecha_model_enu_km",
-                    "ceplecha_velocity_km_s",
-                    "ceplecha_keep",
-                )
-                if key in grp
-            }
+            ceplecha_rows[label] = record["ceplecha"]
 
     print(
         "dasst_candidate_orbit_columns "
@@ -351,6 +378,10 @@ def main() -> None:
             [str(attrs_i.get("selection_model_type", "")).encode("utf-8") for _label, attrs_i, _elems in rows],
             dtype="S32",
         )
+        alias_orbit_solution_types = np.asarray(
+            [str(attrs_i.get("orbit_solution_type", "")).encode("utf-8") for _label, attrs_i, _elems in rows],
+            dtype="S32",
+        )
         alias_plausibility_models = np.asarray(
             [str(attrs_i.get("interstellar_alias_plausibility_model", "")).encode("utf-8") for _label, attrs_i, _elems in rows],
             dtype="S32",
@@ -416,6 +447,7 @@ def main() -> None:
                 "combined_rank": int(attrs["combined_rank"]),
                 "combined_score": float(attrs["combined_score"]),
                 "selection_model_type": np.asarray(str(attrs.get("selection_model_type", "")), dtype="S32"),
+                "orbit_solution_type": np.asarray(str(attrs.get("orbit_solution_type", "")), dtype="S32"),
                 "state_epoch": np.asarray("first_detection", dtype="S32"),
                 "reference_frame": np.asarray("GCRS", dtype="S8"),
                 "initial_state_gcrs_m_mps": state_grp["state_gcrs_m_mps"][()],
@@ -460,6 +492,7 @@ def main() -> None:
                 "alias_combined_ranks": alias_combined_ranks,
                 "alias_combined_scores": alias_combined_scores,
                 "alias_selection_model_types": alias_selection_model_types,
+                "alias_orbit_solution_types": alias_orbit_solution_types,
                 "alias_plausibility_models": alias_plausibility_models,
                 "alias_plausibility_redchi": alias_plausibility_redchi,
                 "alias_tx_beam_snr_weighted_mean_dc": alias_tx_beam_mean_dc,

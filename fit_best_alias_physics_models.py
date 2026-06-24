@@ -215,7 +215,7 @@ def predicted_doppler(model_km: np.ndarray, velocity_km_s: np.ndarray) -> np.nda
     return np.sum(model_km * velocity_km_s, axis=1) / np.maximum(rng, 1e-9)
 
 
-def fit_model(name, t_s, points_km, doppler_km_s, rho_of_alt_m, sigma_pos_km, sigma_dop_km_s, p0_list):
+def fit_model(name, t_s, points_km, doppler_km_s, rho_of_alt_m, sigma_pos_km, sigma_dop_km_s, p0_list, max_nfev=300):
     t_s = np.asarray(t_s, dtype=np.float64)
     points_km = np.asarray(points_km, dtype=np.float64)
     doppler_km_s = np.asarray(doppler_km_s, dtype=np.float64)
@@ -283,7 +283,7 @@ def fit_model(name, t_s, points_km, doppler_km_s, rho_of_alt_m, sigma_pos_km, si
                 x_scale=x_scale,
                 loss="soft_l1",
                 f_scale=1.0,
-                max_nfev=300,
+                max_nfev=int(max_nfev),
             )
         except Exception:
             failures += 1
@@ -309,7 +309,7 @@ def fit_model(name, t_s, points_km, doppler_km_s, rho_of_alt_m, sigma_pos_km, si
         bounds=bounds,
         x_scale=x_scale,
         loss="linear",
-        max_nfev=300,
+        max_nfev=int(max_nfev),
     )
     pos, vel, extra = model(result.x)
     pred_dop = predicted_doppler(pos, vel)
@@ -443,7 +443,7 @@ def plot_event_fit(output: Path, obs: dict, fits: dict[str, dict], payload: dict
         "fixed_am": "tab:green",
         "shrinking_radius": "tab:orange",
     }
-    names = ["fixed_velocity", "fixed_am", "shrinking_radius"]
+    names = [name for name in ("fixed_velocity", "shrinking_radius") if name in fits]
     pts = np.asarray(obs["points_km"], dtype=np.float64)
     t = np.asarray(obs["t_s"], dtype=np.float64)
     order = np.argsort(t)
@@ -489,7 +489,7 @@ def plot_event_fit(output: Path, obs: dict, fits: dict[str, dict], payload: dict
     ax.axhline(0.0, color="black", lw=1.0, alpha=0.8)
     ax.set_xlabel("Time since first echo (s)")
     ax.set_ylabel("Doppler residual (m/s)")
-    ax.set_title(f"1c. Best-model residuals; RMS={best_fit['doppler_rms_km_s'] * 1e3:.1f} m/s")
+    ax.set_title(f"1c. Best-model residuals; RMS={best_fit['dop_rms_km_s'] * 1e3:.1f} m/s")
     ax.grid(True, alpha=0.25)
 
     ax = axes[1, 0]
@@ -499,7 +499,7 @@ def plot_event_fit(output: Path, obs: dict, fits: dict[str, dict], payload: dict
     ax.axhline(0.0, color="black", lw=1.0, alpha=0.65)
     ax.set_xlabel("Time since first echo (s)")
     ax.set_ylabel("Position residual (km)")
-    ax.set_title(f"2a. Position residuals; RMS={best_fit['position_rms_km']:.2f} km")
+    ax.set_title(f"2a. Position residuals; RMS={best_fit['pos_rms_km']:.2f} km")
     ax.grid(True, alpha=0.25)
     ax.legend(fontsize=8, ncols=3, loc="best")
 
@@ -507,7 +507,6 @@ def plot_event_fit(output: Path, obs: dict, fits: dict[str, dict], payload: dict
     ax.axis("off")
     p = np.asarray(best_fit["params"], dtype=np.float64)
     ps = np.asarray(best_fit["parameter_std"], dtype=np.float64)
-    fixed_am = fits["fixed_am"]
     shrink = fits["shrinking_radius"]
     lines = [
         f"Sample                 {obs['sample_idx']}",
@@ -520,8 +519,6 @@ def plot_event_fit(output: Path, obs: dict, fits: dict[str, dict], payload: dict
         f"  vE,vN,vU             {p[3]/1e3:8.2f} {p[4]/1e3:8.2f} {p[5]/1e3:8.2f} km/s",
         "",
         "Secondary physical parameters",
-        f"  fixed CdA/m          {fixed_am['cd_a_over_m_m2_kg']:8.3g} m2/kg",
-        f"  sigma log10(CdA/m)   {fixed_am['parameter_std'][6]:8.3g}",
         f"  shrink r0            {shrink['radius_m'][0] * 1e6:8.2f} um",
         f"  shrink m0            {shrink['mass_kg'][0]:8.3g} kg",
         f"  sigma log10(r0)      {shrink['parameter_std'][6]:8.3g}",
@@ -573,8 +570,8 @@ def plot_event_fit(output: Path, obs: dict, fits: dict[str, dict], payload: dict
                 model_label(name),
                 f"{fit['chi2']:.1f}",
                 f"{fit['reduced_chi2']:.2f}",
-                f"{fit['position_rms_km']:.2f}",
-                f"{fit['doppler_rms_km_s'] * 1e3:.1f}",
+                f"{fit['pos_rms_km']:.2f}",
+                f"{fit['dop_rms_km_s'] * 1e3:.1f}",
                 f"{fit['bic']:.1f}",
             ]
         )
@@ -644,20 +641,8 @@ def fit_event(
         sigma_dop_km_s,
         [p0_linear],
     )
-    fixed_am_starts = [np.concatenate([fixed_velocity["params"][:6], [log_b]]) for log_b in (-4.0, -2.0, 0.0, 1.0, 2.0)]
-    fixed_am = fit_model(
-        "fixed_am",
-        obs["t_s"],
-        obs["points_km"],
-        obs["doppler_km_s"],
-        rho_of_alt_m,
-        sigma_pos_km,
-        sigma_dop_km_s,
-        fixed_am_starts,
-    )
-    fixed_am_radius_guess = 3.0 / (4.0 * SHRINKING_METEOROID_DENSITY_KG_M3 * max(float(fixed_am["cd_a_over_m_m2_kg"]), 1e-30))
-    radius_starts = sorted(set(float(np.clip(r, SHRINKING_RADIUS_MIN_M, SHRINKING_RADIUS_MAX_M)) for r in [fixed_am_radius_guess, *SHRINKING_RADIUS_START_GRID_M]))
-    shrinking_starts = [np.concatenate([fixed_am["params"][:6], [np.log10(radius)]]) for radius in radius_starts]
+    radius_starts = sorted(set(float(np.clip(r, SHRINKING_RADIUS_MIN_M, SHRINKING_RADIUS_MAX_M)) for r in SHRINKING_RADIUS_START_GRID_M))
+    shrinking_starts = [np.concatenate([fixed_velocity["params"][:6], [np.log10(radius)]]) for radius in radius_starts]
     shrinking_radius = fit_model(
         "shrinking_radius",
         obs["t_s"],
@@ -667,13 +652,13 @@ def fit_event(
         sigma_pos_km,
         sigma_dop_km_s,
         shrinking_starts,
+        max_nfev=80,
     )
     fits = {
         "fixed_velocity": fixed_velocity,
-        "fixed_am": fixed_am,
         "shrinking_radius": shrinking_radius,
     }
-    best_name = best_model_name(fits)
+    best_name = "shrinking_radius"
 
     payload = {
         "schema_version": "pansy_best_alias_meteor_physics_v1",
@@ -691,7 +676,7 @@ def fit_event(
         "observed_doppler_km_s": obs["doppler_km_s"],
         "observed_snr": obs["snr"],
         "best_physics_model": best_name,
-        "best_physics_model_criterion": "minimum_bic",
+        "best_physics_model_criterion": "secondary_ceplecha_shrinking_radius",
         "sigma_pos_km": float(sigma_pos_km),
         "sigma_dop_km_s": float(sigma_dop_km_s),
         "meteoroid_density_kg_m3": float(SHRINKING_METEOROID_DENSITY_KG_M3),
@@ -700,8 +685,11 @@ def fit_event(
         "msis_density_kg_m3": msis_meta["msis_density_kg_m3"],
     }
     add_fit_payload(payload, "fixed_velocity", fixed_velocity)
-    add_fit_payload(payload, "fixed_am", fixed_am)
     add_fit_payload(payload, "shrinking_radius", shrinking_radius)
+    payload["fixed_am_bic"] = np.nan
+    payload["fixed_am_reduced_chi2"] = np.nan
+    payload["fixed_am_cd_a_over_m_m2_kg"] = np.nan
+    payload["fixed_am_log10_cd_a_over_m_std"] = np.nan
     dasst = load_dasst_best(dasst_h5, obs["label"])
     payload.update(dasst)
     payload["dasst_kepler_names"] = np.asarray(["a_au", "e", "i_deg", "raan_deg", "argp_deg", "nu_deg", "q_au"], dtype="S16")
@@ -713,7 +701,7 @@ def fit_event(
         "sample_idx": int(obs["sample_idx"]),
         "best_model": best_name,
         "fixed_velocity_bic": float(fixed_velocity["bic"]),
-        "fixed_am_bic": float(fixed_am["bic"]),
+        "fixed_am_bic": np.nan,
         "shrinking_radius_bic": float(shrinking_radius["bic"]),
         "metadata_dir": str(metadata_dir),
     }

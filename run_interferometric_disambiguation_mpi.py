@@ -115,7 +115,7 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--sample-idx", type=int, nargs="*", help="Explicit sample indices to process instead of discovering all cuts.")
     parser.add_argument("--sample-index-h5", type=Path, default=None, help="HDF5 event index with sample_idx dataset.")
-    parser.add_argument("--orbit-samples", type=int, default=20)
+    parser.add_argument("--orbit-samples", type=int, default=10)
     parser.add_argument("--orbit-metadata-dir", type=Path, default=Path("data/metadata/orbit"))
     parser.add_argument("--run-dasst", action="store_true", help="Run DASST for the winning hypothesis when the local DASST module is available.")
     parser.add_argument("--recompute-cut-observables", action="store_true", help="Recompute full per-pulse range-Doppler observables instead of using cached cut detections.")

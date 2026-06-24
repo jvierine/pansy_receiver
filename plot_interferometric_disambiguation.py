@@ -2519,7 +2519,7 @@ def score_combined_hypotheses(tracks):
 
 
 def fit_winning_physics_trajectory_model(tracks, event_epoch_unix, sigma_pos_km, sigma_dop_km_s):
-    """Run the three physics trajectory models only for the final winning alias."""
+    """Run fixed velocity and Ceplecha shrinking-radius only for the final winning alias."""
     ranked = sorted(
         [t for t in tracks if "combined_rank" in t and "ballistic_t" in t],
         key=lambda t: t["combined_rank"],
@@ -2547,29 +2547,13 @@ def fit_winning_physics_trajectory_model(tracks, event_epoch_unix, sigma_pos_km,
             sigma_dop,
             [p0_linear],
         )
-        fixed_am_starts = [np.concatenate([fixed_velocity["params"][:6], [log_b]]) for log_b in (-4.0, -2.0, 0.0, 1.0, 2.0)]
-        fixed_am = physics.fit_model(
-            "fixed_am",
-            t_s,
-            points_km,
-            doppler_km_s,
-            rho_of_alt_m,
-            sigma_pos,
-            sigma_dop,
-            fixed_am_starts,
-        )
-        radius_guess = 3.0 / (
-            4.0
-            * physics.SHRINKING_METEOROID_DENSITY_KG_M3
-            * max(float(fixed_am["cd_a_over_m_m2_kg"]), 1e-30)
-        )
         radius_starts = sorted(
             set(
                 float(np.clip(r, physics.SHRINKING_RADIUS_MIN_M, physics.SHRINKING_RADIUS_MAX_M))
-                for r in [radius_guess, *physics.SHRINKING_RADIUS_START_GRID_M]
+                for r in physics.SHRINKING_RADIUS_START_GRID_M
             )
         )
-        shrinking_starts = [np.concatenate([fixed_am["params"][:6], [np.log10(radius)]]) for radius in radius_starts]
+        shrinking_starts = [np.concatenate([fixed_velocity["params"][:6], [np.log10(radius)]]) for radius in radius_starts]
         shrinking_radius = physics.fit_model(
             "shrinking_radius",
             t_s,
@@ -2579,13 +2563,8 @@ def fit_winning_physics_trajectory_model(tracks, event_epoch_unix, sigma_pos_km,
             sigma_pos,
             sigma_dop,
             shrinking_starts,
+            max_nfev=80,
         )
-        fits = {
-            "fixed_velocity": fixed_velocity,
-            "fixed_am": fixed_am,
-            "shrinking_radius": shrinking_radius,
-        }
-        best_name = physics.best_model_name(fits)
         ceplecha_params = np.asarray(shrinking_radius["params"], dtype=np.float64)
         ceplecha_std = np.asarray(shrinking_radius["parameter_std"], dtype=np.float64)
         ceplecha_cov = np.asarray(shrinking_radius["parameter_covariance"], dtype=np.float64)
@@ -2600,15 +2579,15 @@ def fit_winning_physics_trajectory_model(tracks, event_epoch_unix, sigma_pos_km,
         )
         winner.update(
             {
-                "physics_best_model": best_name,
-                "physics_best_model_label": physics.model_label(best_name),
+                "physics_best_model": "shrinking_radius",
+                "physics_best_model_label": physics.model_label("shrinking_radius"),
                 "physics_bic_fixed_velocity": float(fixed_velocity["bic"]),
-                "physics_bic_fixed_am": float(fixed_am["bic"]),
+                "physics_bic_fixed_am": np.nan,
                 "physics_bic_shrinking_radius": float(shrinking_radius["bic"]),
                 "physics_reduced_chi2_fixed_velocity": float(fixed_velocity["reduced_chi2"]),
-                "physics_reduced_chi2_fixed_am": float(fixed_am["reduced_chi2"]),
+                "physics_reduced_chi2_fixed_am": np.nan,
                 "physics_reduced_chi2_shrinking_radius": float(shrinking_radius["reduced_chi2"]),
-                "physics_fixed_am_cd_a_over_m_m2_kg": float(fixed_am["cd_a_over_m_m2_kg"]),
+                "physics_fixed_am_cd_a_over_m_m2_kg": np.nan,
                 "physics_ceplecha_param_names": np.asarray(
                     ["east_m", "north_m", "up_m", "ve_mps", "vn_mps", "vu_mps", "log10_radius_m"],
                     dtype="S32",
@@ -4437,20 +4416,36 @@ def orbit_for_candidate_track(track, sample_epoch_unix):
     }
 
 
-def first_detection_gcrs_state_samples(track, sample_epoch_unix, n_samples=300, seed=20260615):
+MAX_ORBIT_STATE_SAMPLES = 10
+
+
+def first_detection_gcrs_state_samples(track, sample_epoch_unix, n_samples=10, seed=20260615):
     cov = np.asarray(track.get("selection_parameter_covariance", track.get("ballistic_parameter_covariance", np.nan)), dtype=np.float64)
     params = np.asarray(track.get("selection_params", track.get("ballistic_params", np.nan)), dtype=np.float64)
-    if params.shape not in ((6,), (7,)) or cov.shape != (len(params), len(params)) or not np.all(np.isfinite(cov)) or not np.all(np.isfinite(params)):
+    n_samples = max(0, min(int(n_samples), MAX_ORBIT_STATE_SAMPLES))
+    if n_samples <= 0:
         return np.empty((0, 6), dtype=np.float64)
-    cov = 0.5 * (cov + cov.T)
-    rng = np.random.default_rng(seed + int(track.get("hypothesis_id", 0)))
-    try:
-        draws = rng.multivariate_normal(params, cov, size=n_samples, check_valid="ignore")
-    except np.linalg.LinAlgError:
+    if params.shape not in ((6,), (7,)) or not np.all(np.isfinite(params)):
         return np.empty((0, 6), dtype=np.float64)
     t_ref = float(track.get("selection_t_ref_s", track.get("ballistic_t_ref_s", 0.0)))
     epoch_unix = float(sample_epoch_unix) + t_ref
     states = []
+    try:
+        nominal_state = pbal.enu_state_to_gcrs(params[:6], epoch_unix)
+    except Exception:
+        nominal_state = np.full(6, np.nan, dtype=np.float64)
+    if np.all(np.isfinite(nominal_state)):
+        states.append(nominal_state)
+    if len(states) >= n_samples:
+        return np.asarray(states[:n_samples], dtype=np.float64)
+    if cov.shape != (len(params), len(params)) or not np.all(np.isfinite(cov)):
+        return np.asarray(states, dtype=np.float64)
+    cov = 0.5 * (cov + cov.T)
+    rng = np.random.default_rng(seed + int(track.get("hypothesis_id", 0)))
+    try:
+        draws = rng.multivariate_normal(params, cov, size=n_samples - len(states), check_valid="ignore")
+    except np.linalg.LinAlgError:
+        return np.asarray(states, dtype=np.float64)
     for sample_params in draws:
         if not np.all(np.isfinite(sample_params)):
             continue
@@ -4463,6 +4458,8 @@ def first_detection_gcrs_state_samples(track, sample_epoch_unix, n_samples=300, 
             continue
         if np.all(np.isfinite(state_gcrs)):
             states.append(state_gcrs)
+        if len(states) >= n_samples:
+            break
     return np.asarray(states, dtype=np.float64)
 
 
@@ -4541,6 +4538,8 @@ def write_candidate_orbit_state_h5(orbits, output_path, sample_epoch_unix, n_sam
             grp.attrs["ceplecha_dof"] = int(track.get("physics_ceplecha_dof", 0))
             grp.create_dataset("state_gcrs_m_mps", data=np.asarray(orbit["state_gcrs_m_mps"], dtype=np.float64))
             grp.create_dataset("state_gcrs_samples_m_mps", data=state_samples)
+            grp.create_dataset("state_derived_kepler", data=np.asarray(orbit.get("kepler", np.full(7, np.nan)), dtype=np.float64))
+            grp.create_dataset("state_derived_kepler_std", data=np.asarray(orbit.get("kepler_std", np.full(7, np.nan)), dtype=np.float64))
             grp.create_dataset("selection_params", data=params)
             grp.create_dataset("selection_parameter_covariance", data=np.asarray(track.get("selection_parameter_covariance", np.full((len(params), len(params)), np.nan)), dtype=np.float64))
             for name, value in [
@@ -4669,7 +4668,7 @@ def main():
     parser.add_argument("--dasst-orbit-h5", type=Path, default=None)
     parser.add_argument("--orbit-metadata-dir", type=Path, default=Path("data/metadata/orbit"))
     parser.add_argument("--run-dasst", action="store_true", help="Run DASST orbit determination after writing candidate state HDF5.")
-    parser.add_argument("--orbit-samples", type=int, default=300, help="Number of covariance samples for DASST orbit uncertainty.")
+    parser.add_argument("--orbit-samples", type=int, default=10, help="Number of covariance samples for the winning-alias DASST orbit uncertainty, capped at 10.")
     parser.add_argument("--overview-only", action="store_true", help="Only write the final disambiguation overview and orbit HDF5 products.")
     parser.add_argument("--path-max-tracks", type=int, default=24, help="Maximum direction-cosine path hypotheses to extract.")
     parser.add_argument("--path-trials", type=int, default=5000, help="Random two-point path trials per extracted hypothesis.")
@@ -4678,9 +4677,9 @@ def main():
         "--alias-fit-models",
         choices=("fixed_velocity", "fixed_velocity_and_drag", "drag_and_fixed_am"),
         default="fixed_velocity",
-        help="Models fit to every interferometric alias for ranking.",
+        help="Models fit to every interferometric alias for ranking. The legacy drag_and_fixed_am spelling no longer runs fixed A/m.",
     )
-    parser.add_argument("--skip-secondary-models", action="store_true", help="Skip final winning-alias fixed-A/m and shrinking-radius refits.")
+    parser.add_argument("--skip-secondary-models", action="store_true", help="Skip final winning-alias Ceplecha shrinking-radius refit.")
     parser.add_argument("--skip-orbit-products", action="store_true", help="Skip candidate orbit computation and orbit-state HDF5 output.")
     parser.add_argument("--recompute-cut-observables", action="store_true", help="Recompute full per-pulse range-Doppler observables instead of using cached cut detections.")
     parser.add_argument("--tx-phase-quality-h5", type=Path, default=None, help="HDF5 TX cross-phase quality table produced by tx_phase_quality.py.")
@@ -5014,7 +5013,7 @@ def main():
             rho_of_alt_m,
             sigma_pos,
             sigma_dop,
-            fit_fixed_am=args.alias_fit_models == "drag_and_fixed_am",
+            fit_fixed_am=False,
         )
         stage("fixed_velocity_alias_fits")
     else:
