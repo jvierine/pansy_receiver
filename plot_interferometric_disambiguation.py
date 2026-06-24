@@ -3748,6 +3748,8 @@ def write_disambiguation_diagnostics_h5(
                     "selected_candidate_number": int(candidate_number(selected)),
                     "selected_combined_rank": int(selected.get("combined_rank", -1)),
                     "selected_combined_score": float(selected.get("combined_score", np.nan)),
+                    "selected_model": str(selected.get("selection_model_type", "")),
+                    "selected_model_label": str(selected.get("selection_model_label", "")),
                 },
             )
         else:
@@ -3759,6 +3761,8 @@ def write_disambiguation_diagnostics_h5(
                     "selected_candidate_number": -1,
                     "selected_combined_rank": -1,
                     "selected_combined_score": np.nan,
+                    "selected_model": "",
+                    "selected_model_label": "",
                 },
             )
 
