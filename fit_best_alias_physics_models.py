@@ -23,7 +23,10 @@ except Exception:
     _models_src = Path(__file__).resolve().parent.parent / "meteor_trajectory_models" / "src"
     if _models_src.exists():
         sys.path.insert(0, str(_models_src))
-    from meteor_trajectory_models import integrate_ceplecha
+    try:
+        from meteor_trajectory_models import integrate_ceplecha
+    except Exception:
+        integrate_ceplecha = None
 
 
 WRITER_ARGS = {
@@ -171,6 +174,8 @@ def fixed_am_model(params: np.ndarray, t_s: np.ndarray, rho_of_alt_m, dt_max_s: 
 
 
 def propagate_shrinking_radius_model(params: np.ndarray, t_s: np.ndarray, rho_of_alt_m):
+    if integrate_ceplecha is None:
+        raise RuntimeError("meteor_trajectory_models.integrate_ceplecha is unavailable")
     tau = np.asarray(t_s, dtype=np.float64) - float(np.min(t_s))
     order = np.argsort(tau)
     tau_sorted = tau[order]
