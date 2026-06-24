@@ -3553,6 +3553,55 @@ def tx_phase_quality_attrs(quality: dict | None) -> dict:
     return out
 
 
+def cut_tx_waveform_quality(cut: dict, min_corr: float = 0.8, max_phase_std_deg: float = 20.0) -> dict:
+    z_tx = np.asarray(cut["ztx_pulses_re"], dtype=np.float32) + 1j * np.asarray(cut["ztx_pulses_im"], dtype=np.float32)
+    if z_tx.ndim != 2 or z_tx.shape[0] < 2 or z_tx.shape[1] < 4:
+        return {
+            "available": False,
+            "good": False,
+            "reason": "cut_tx_waveform_unavailable",
+        }
+    pulse_power = np.sqrt(np.sum(np.abs(z_tx) ** 2, axis=1))
+    good_pulses = np.isfinite(pulse_power) & (pulse_power > 0)
+    if np.count_nonzero(good_pulses) < 2:
+        return {
+            "available": False,
+            "good": False,
+            "reason": "too_few_valid_cut_tx_pulses",
+        }
+    z_norm = z_tx[good_pulses] / pulse_power[good_pulses, None]
+    template = np.mean(z_norm, axis=0)
+    template_norm = np.sqrt(np.sum(np.abs(template) ** 2))
+    if not np.isfinite(template_norm) or template_norm <= 0:
+        return {
+            "available": False,
+            "good": False,
+            "reason": "cut_tx_waveform_template_failed",
+        }
+    template = template / template_norm
+    corr = np.sum(np.conj(template)[None, :] * z_norm, axis=1)
+    corr_abs = np.abs(corr)
+    phase = np.angle(corr)
+    mean_phase = np.angle(np.mean(np.exp(1j * phase)))
+    phase_resid = np.angle(np.exp(1j * (phase - mean_phase)))
+    phase_std_deg = float(np.rad2deg(np.sqrt(np.mean(phase_resid**2))))
+    median_corr = float(np.nanmedian(corr_abs))
+    good = bool(median_corr >= float(min_corr) and phase_std_deg <= float(max_phase_std_deg))
+    return {
+        "available": True,
+        "good": good,
+        "raw_good": good,
+        "reason": "ok_cut_tx_waveform" if good else "cut_tx_waveform_unstable",
+        "computed_available": True,
+        "computed_from_cut_tx_waveform": True,
+        "valid_channel_count": int(np.count_nonzero(good_pulses)),
+        "mean_amplitude": median_corr,
+        "max_abs_diff_deg": phase_std_deg,
+        "rms_diff_deg": phase_std_deg,
+        "threshold_deg": float(max_phase_std_deg),
+    }
+
+
 def write_rejected_disambiguation_diagnostics_h5(
     output: Path,
     sample_idx: int,
@@ -4549,6 +4598,7 @@ def main():
     disambiguation_summary_out = args.output_dir / f"pansy_interferometer_disambiguation_summary_{args.sample_idx}.png"
     diagnostics_h5 = args.output_dir / f"pansy_disambiguation_diagnostics_{args.sample_idx}.h5"
     tx_quality = None
+    cut = None
     if args.tx_phase_quality_h5 is not None:
         try:
             tx_quality = txpq.quality_for_sample(
@@ -4573,6 +4623,38 @@ def main():
             "good": False,
             "reason": "tx_phase_quality_h5_not_provided",
         }
+    if (
+        args.require_good_tx_phase
+        and args.compute_missing_tx_phase
+        and tx_quality
+        and not tx_quality.get("good", False)
+        and tx_quality.get("reason") != "tx_phase_mismatch"
+    ):
+        try:
+            cut = load_cut(args.cut_dir, args.sample_idx)
+            cut_quality = cut_tx_waveform_quality(cut)
+            if cut_quality.get("good", False):
+                inherited = {
+                    key: value
+                    for key, value in tx_quality.items()
+                    if key.startswith("reference_") or key in {"max_age_s"}
+                }
+                tx_quality = {**inherited, **cut_quality}
+            else:
+                tx_quality = {
+                    **tx_quality,
+                    "computed_available": bool(cut_quality.get("available", False)),
+                    "computed_reason": str(cut_quality.get("reason", "cut_tx_waveform_failed")),
+                    "cut_tx_waveform_good": bool(cut_quality.get("good", False)),
+                    "cut_tx_waveform_phase_std_deg": float(cut_quality.get("rms_diff_deg", np.nan)),
+                    "cut_tx_waveform_median_corr": float(cut_quality.get("mean_amplitude", np.nan)),
+                }
+        except Exception as exc:
+            tx_quality = {
+                **(tx_quality or {}),
+                "computed_available": False,
+                "computed_reason": f"cut_tx_waveform_read_failed:{type(exc).__name__}",
+            }
     if args.require_good_tx_phase and not bool(tx_quality and tx_quality.get("good", False)):
         reason = str((tx_quality or {}).get("reason", "bad_tx_phase_alignment"))
         details = (
@@ -4619,7 +4701,8 @@ def main():
         print("event_rejected_reason bad_tx_phase_alignment")
         return
     try:
-        cut = load_cut(args.cut_dir, args.sample_idx)
+        if cut is None:
+            cut = load_cut(args.cut_dir, args.sample_idx)
         if args.recompute_cut_observables:
             obs_all = recompute_cut_observables(cut)
         else:
