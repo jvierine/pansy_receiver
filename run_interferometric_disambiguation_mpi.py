@@ -65,6 +65,12 @@ def run_one(sample_idx: int, args, rank: int) -> tuple[bool, float, Path]:
         "--orbit-metadata-dir",
         str(args.orbit_metadata_dir),
     ]
+    if args.tx_phase_quality_h5 is not None:
+        cmd.extend(["--tx-phase-quality-h5", str(args.tx_phase_quality_h5)])
+    if args.require_good_tx_phase:
+        cmd.append("--require-good-tx-phase")
+    if args.tx_phase_max_age_s is not None:
+        cmd.extend(["--tx-phase-max-age-s", str(args.tx_phase_max_age_s)])
     if args.run_dasst:
         cmd.append("--run-dasst")
     if args.recompute_cut_observables:
@@ -96,6 +102,9 @@ def main() -> None:
     parser.add_argument("--orbit-metadata-dir", type=Path, default=Path("data/metadata/orbit"))
     parser.add_argument("--run-dasst", action="store_true", help="Run DASST for the winning hypothesis when the local DASST module is available.")
     parser.add_argument("--recompute-cut-observables", action="store_true", help="Recompute full per-pulse range-Doppler observables instead of using cached cut detections.")
+    parser.add_argument("--tx-phase-quality-h5", type=Path, default=None, help="HDF5 TX cross-phase quality table produced by tx_phase_quality.py.")
+    parser.add_argument("--require-good-tx-phase", action="store_true", help="Reject events whose nearest TX cross-phase sample is missing or misaligned.")
+    parser.add_argument("--tx-phase-max-age-s", type=float, default=None, help="Override maximum nearest TX phase sample age in seconds.")
     parser.add_argument("--skip-existing", action="store_true")
     args = parser.parse_args()
 

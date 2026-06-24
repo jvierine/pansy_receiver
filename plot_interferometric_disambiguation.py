@@ -24,6 +24,7 @@ import pansy_config as pc
 import pansy_modes as pmm
 import pansy_ballistic as pbal
 import pansy_orbit as porb
+import tx_phase_quality as txpq
 from interferometer_alias_diagnostics import RangeDopplerSearch, amp_scale, load_cut, recompute_cut_observables
 
 
@@ -3542,7 +3543,23 @@ def _h5_create_array(group, name, value, dtype=np.float64):
     group.create_dataset(name, data=arr)
 
 
-def write_rejected_disambiguation_diagnostics_h5(output: Path, sample_idx: int, reason: str, details: str):
+def tx_phase_quality_attrs(quality: dict | None) -> dict:
+    if not quality:
+        return {}
+    out = {}
+    for key, value in quality.items():
+        if isinstance(value, (str, bytes, bool, int, float, np.integer, np.floating, np.bool_)):
+            out[f"tx_phase_quality_{key}"] = value
+    return out
+
+
+def write_rejected_disambiguation_diagnostics_h5(
+    output: Path,
+    sample_idx: int,
+    reason: str,
+    details: str,
+    extra_attrs: dict | None = None,
+):
     """Write a minimal per-event diagnostic file for events rejected before path fitting."""
     output.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(output, "w") as h:
@@ -3556,6 +3573,7 @@ def write_rejected_disambiguation_diagnostics_h5(output: Path, sample_idx: int, 
         h.attrs["position_frame"] = "PANSY local ENU"
         h.attrs["position_units"] = "km"
         h.attrs["direction_cosine_units"] = "dimensionless"
+        _h5_set_scalar_attrs(h, extra_attrs or {})
         h.create_group("candidates")
         h.create_group("hypotheses")
 
@@ -3571,6 +3589,7 @@ def write_disambiguation_diagnostics_h5(
     sigma_dop_km_s=np.nan,
     range_time_component_lengths=None,
     selected_range_time_component=-1,
+    tx_phase_quality=None,
 ):
     """Persist compact per-event products needed for later statistical summaries.
 
@@ -3601,6 +3620,7 @@ def write_disambiguation_diagnostics_h5(
                 "selection_metric": "combined_score",
                 "range_time_component_count": int(len(range_time_component_lengths or [])),
                 "selected_range_time_component": int(selected_range_time_component),
+                **tx_phase_quality_attrs(tx_phase_quality),
             },
         )
         if range_time_component_lengths is not None:
@@ -4504,6 +4524,9 @@ def main():
     parser.add_argument("--skip-secondary-models", action="store_true", help="Skip final winning-alias fixed-A/m and shrinking-radius refits.")
     parser.add_argument("--skip-orbit-products", action="store_true", help="Skip candidate orbit computation and orbit-state HDF5 output.")
     parser.add_argument("--recompute-cut-observables", action="store_true", help="Recompute full per-pulse range-Doppler observables instead of using cached cut detections.")
+    parser.add_argument("--tx-phase-quality-h5", type=Path, default=None, help="HDF5 TX cross-phase quality table produced by tx_phase_quality.py.")
+    parser.add_argument("--require-good-tx-phase", action="store_true", help="Reject events whose nearest TX cross-phase sample is missing or misaligned.")
+    parser.add_argument("--tx-phase-max-age-s", type=float, default=None, help="Override maximum nearest TX phase sample age in seconds.")
     parser.add_argument("--stage-timing", action="store_true", help="Print wall-clock timing for major processing stages.")
     args = parser.parse_args()
 
@@ -4520,6 +4543,71 @@ def main():
 
     disambiguation_summary_out = args.output_dir / f"pansy_interferometer_disambiguation_summary_{args.sample_idx}.png"
     diagnostics_h5 = args.output_dir / f"pansy_disambiguation_diagnostics_{args.sample_idx}.h5"
+    tx_quality = None
+    if args.tx_phase_quality_h5 is not None:
+        try:
+            tx_quality = txpq.quality_for_sample(
+                args.tx_phase_quality_h5,
+                args.sample_idx,
+                max_age_s=args.tx_phase_max_age_s,
+            )
+        except Exception as exc:
+            tx_quality = {
+                "available": False,
+                "good": False,
+                "reason": f"tx_phase_quality_read_failed:{type(exc).__name__}",
+            }
+    elif args.require_good_tx_phase:
+        tx_quality = {
+            "available": False,
+            "good": False,
+            "reason": "tx_phase_quality_h5_not_provided",
+        }
+    if args.require_good_tx_phase and not bool(tx_quality and tx_quality.get("good", False)):
+        reason = str((tx_quality or {}).get("reason", "bad_tx_phase_alignment"))
+        details = (
+            f"TX cross-phase quality gate failed: {reason}; "
+            f"nearest_sample_idx={(tx_quality or {}).get('nearest_sample_idx', 'n/a')}; "
+            f"age_s={(tx_quality or {}).get('age_s', 'n/a')}; "
+            f"max_abs_diff_deg={(tx_quality or {}).get('max_abs_diff_deg', 'n/a')}; "
+            f"rms_diff_deg={(tx_quality or {}).get('rms_diff_deg', 'n/a')}"
+        )
+        plot_rejected_event_summary(
+            disambiguation_summary_out,
+            args.sample_idx,
+            "bad or missing TX cross-phase alignment",
+            details,
+        )
+        write_rejected_disambiguation_diagnostics_h5(
+            diagnostics_h5,
+            args.sample_idx,
+            "bad_tx_phase_alignment",
+            details,
+            extra_attrs=tx_phase_quality_attrs(tx_quality),
+        )
+        print(disambiguation_summary_out)
+        print(diagnostics_h5)
+        print("single_echo_high_coherence_peaks 0")
+        print("all_high_coherence_candidates 0")
+        print("tx_lobe_centroid_counts 0 0 0 0 0")
+        print("path_hypotheses 0")
+        print("path_hypotheses_kept 0")
+        print("path_hypotheses_below_horizon 0")
+        print("path_hypotheses_wrapping 0")
+        print("path_hypotheses_linearity_rejected 0")
+        print("path_hypotheses_after_linearity 0")
+        print("path_hypotheses_low_detection_altitude_rejected 0")
+        print("path_hypotheses_after_detection_altitude 0")
+        print("path_hypotheses_descent_rejected 0")
+        print("path_hypotheses_after_descent 0")
+        print("path_hypotheses_low_start_altitude_rejected 0")
+        print("ballistic_sigma_pos_km nan")
+        print("ballistic_sigma_dop_km_s nan")
+        print("tx_pointing_score_used False")
+        print("combined_hypotheses_rejected 0")
+        print("combined_hypotheses_after 0")
+        print("event_rejected_reason bad_tx_phase_alignment")
+        return
     try:
         cut = load_cut(args.cut_dir, args.sample_idx)
         if args.recompute_cut_observables:
@@ -4826,6 +4914,7 @@ def main():
         sigma_dop_km_s=sigma_dop,
         range_time_component_lengths=range_time_component_lengths,
         selected_range_time_component=selected_range_time_component,
+        tx_phase_quality=tx_quality,
     )
     stage("diagnostics_h5")
 
