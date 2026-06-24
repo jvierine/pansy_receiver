@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 import h5py
+import numpy as np
 from mpi4py import MPI
 
 
@@ -28,6 +29,13 @@ def discover_cut_sample_indices(cut_dir: Path) -> list[int]:
         except OSError:
             continue
     return sorted(set(sample_indices))
+
+
+def load_sample_index_h5(path: Path) -> list[int]:
+    with h5py.File(path, "r") as handle:
+        if "sample_idx" not in handle:
+            raise KeyError(f"{path} does not contain sample_idx")
+        return [int(value) for value in np.asarray(handle["sample_idx"], dtype=np.int64)]
 
 
 def run_one(sample_idx: int, args, rank: int) -> tuple[bool, float, Path]:
@@ -106,6 +114,7 @@ def main() -> None:
     parser.add_argument("--snr-threshold", type=float, default=7.0)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--sample-idx", type=int, nargs="*", help="Explicit sample indices to process instead of discovering all cuts.")
+    parser.add_argument("--sample-index-h5", type=Path, default=None, help="HDF5 event index with sample_idx dataset.")
     parser.add_argument("--orbit-samples", type=int, default=20)
     parser.add_argument("--orbit-metadata-dir", type=Path, default=Path("data/metadata/orbit"))
     parser.add_argument("--run-dasst", action="store_true", help="Run DASST for the winning hypothesis when the local DASST module is available.")
@@ -130,6 +139,8 @@ def main() -> None:
         args.orbit_metadata_dir.mkdir(parents=True, exist_ok=True)
         if args.sample_idx:
             sample_indices = sorted(set(int(x) for x in args.sample_idx))
+        elif args.sample_index_h5 is not None:
+            sample_indices = load_sample_index_h5(args.sample_index_h5)
         else:
             sample_indices = discover_cut_sample_indices(args.cut_dir)
         if args.limit is not None and not args.sample_idx:
