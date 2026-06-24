@@ -109,6 +109,41 @@ def load_phase_history(phase_dir: Path) -> tuple[np.ndarray, np.ndarray, np.ndar
     return sample[order], phase[order], amplitude[order]
 
 
+def load_phase_cache(cache_dir: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    samples = []
+    phases = []
+    for path in sorted(cache_dir.glob("*.npz")):
+        try:
+            data = np.load(path)
+            t = np.asarray(data["time"], dtype=np.int64)
+            p = np.asarray(data["phase"], dtype=np.float32)
+        except Exception:
+            continue
+        if t.size == 0:
+            continue
+        if p.ndim != 2:
+            continue
+        if p.shape[1] < 8:
+            padded = np.full((p.shape[0], 8), np.nan, dtype=np.float32)
+            padded[:, : p.shape[1]] = p
+            p = padded
+        elif p.shape[1] > 8:
+            p = p[:, :8]
+        samples.append(t)
+        phases.append(p.astype(np.float32))
+    if not samples:
+        return (
+            np.empty(0, dtype=np.int64),
+            np.empty((0, 8), dtype=np.float32),
+            np.empty((0, 8), dtype=np.float32),
+        )
+    sample = np.concatenate(samples)
+    phase = np.concatenate(phases, axis=0)
+    amplitude = np.where(np.isfinite(phase), 1.0, np.nan).astype(np.float32)
+    order = np.argsort(sample)
+    return sample[order], phase[order], amplitude[order]
+
+
 def reference_phase(
     sample_idx: np.ndarray,
     phase_rad: np.ndarray,
@@ -167,8 +202,16 @@ def write_quality_h5(
     reference_start_us: int | None = None,
     reference_end_us: int | None = None,
     reference_latest_days: float = 30.0,
+    phase_cache_dir: Path | None = None,
 ) -> dict[str, float | int | str]:
-    sample_idx, phase_rad, amplitude = load_phase_history(phase_dir)
+    if phase_cache_dir is not None:
+        sample_idx, phase_rad, amplitude = load_phase_cache(phase_cache_dir)
+        phase_source = str(phase_cache_dir)
+        phase_source_kind = "phase_history_npz_cache"
+    else:
+        sample_idx, phase_rad, amplitude = load_phase_history(phase_dir)
+        phase_source = str(phase_dir)
+        phase_source_kind = "txphase_hdf5_metadata"
     reference_rad, reference_mask = reference_phase(
         sample_idx,
         phase_rad,
@@ -192,6 +235,8 @@ def write_quality_h5(
         h5.attrs["schema_version"] = "pansy_tx_phase_quality_v1"
         h5.attrs["source_program"] = "tx_phase_quality.py"
         h5.attrs["phase_dir"] = str(phase_dir)
+        h5.attrs["phase_source"] = phase_source
+        h5.attrs["phase_source_kind"] = phase_source_kind
         h5.attrs["threshold_deg"] = float(threshold_deg)
         h5.attrs["max_nearest_age_s"] = float(max_nearest_age_s)
         h5.attrs["min_valid_channels"] = int(min_valid_channels)
@@ -254,6 +299,7 @@ def quality_for_sample(quality_h5: Path, sample_idx: int, max_age_s: float | Non
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--phase-dir", type=Path, required=True)
+    parser.add_argument("--phase-cache-dir", type=Path, help="Daily NPZ cache directory from backup/scripts/pansy_phase_history.py.")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--threshold-deg", type=float, default=DEFAULT_THRESHOLD_DEG)
     parser.add_argument("--max-nearest-age-s", type=float, default=DEFAULT_MAX_NEAREST_AGE_S)
@@ -271,6 +317,7 @@ def main() -> int:
         reference_start_us=_parse_time_us(args.reference_start),
         reference_end_us=_parse_time_us(args.reference_end),
         reference_latest_days=args.reference_latest_days,
+        phase_cache_dir=args.phase_cache_dir,
     )
     print(f"wrote {args.output}")
     for key, value in summary.items():
