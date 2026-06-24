@@ -504,14 +504,14 @@ def plot_best_fit_summary_panel(ax, winner, orbit_h5_path, annotate_panel):
     if "physics_ceplecha_initial_radius_m" in winner:
         r0_um = float(winner.get("physics_ceplecha_initial_radius_m", np.nan)) * 1e6
         r0_std_um = float(winner.get("physics_ceplecha_initial_radius_std_m", np.nan)) * 1e6
-        m0_mg = float(winner.get("physics_ceplecha_initial_mass_kg", np.nan)) * 1e6
-        m0_std_mg = float(winner.get("physics_ceplecha_initial_mass_std_kg", np.nan)) * 1e6
+        m0_kg = float(winner.get("physics_ceplecha_initial_mass_kg", np.nan))
+        m0_std_kg = float(winner.get("physics_ceplecha_initial_mass_std_kg", np.nan))
         lines.extend(
             [
                 "",
                 "Ceplecha secondary fit",
                 f"r0                    {r0_um:.3g} +/- {r0_std_um:.2g} um",
-                f"m0                    {m0_mg:.3g} +/- {m0_std_mg:.2g} mg",
+                f"m0                    {m0_kg:.3g} +/- {m0_std_kg:.2g} kg",
             ]
         )
     elif "physics_model_error" in winner:
