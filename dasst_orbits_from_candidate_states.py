@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import os
 import sys
 from pathlib import Path
 
@@ -33,7 +34,7 @@ except Exception:
 
 
 AU_M = 149_597_870_700.0
-DEFAULT_KERNEL = Path("/Users/jvi019/src/rebound_examples/data/de430.bsp")
+DEFAULT_KERNEL = Path(os.environ.get("DASST_KERNEL", "/Users/jvi019/src/rebound_examples/data/de430.bsp"))
 ORBIT_METADATA_WRITER_ARGS = {
     "subdirectory_cadence_seconds": 3600,
     "file_cadence_seconds": 60,
