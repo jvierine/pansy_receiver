@@ -16,9 +16,10 @@ import numpy as np
 from mpi4py import MPI
 
 
-def discover_cut_sample_indices(cut_dir: Path) -> list[int]:
+def discover_cut_sample_indices(cut_dir: Path, day: str | None = None) -> list[int]:
     sample_indices: list[int] = []
-    for path in sorted(cut_dir.glob("*/*.h5")):
+    pattern = f"{day}T*/*.h5" if day else "*/*.h5"
+    for path in sorted(cut_dir.glob(pattern)):
         try:
             with h5py.File(path, "r") as handle:
                 for key in handle.keys():
@@ -29,6 +30,17 @@ def discover_cut_sample_indices(cut_dir: Path) -> list[int]:
         except OSError:
             continue
     return sorted(set(sample_indices))
+
+
+def discover_cut_days(cut_dir: Path) -> list[str]:
+    days = set()
+    for path in cut_dir.iterdir():
+        if not path.is_dir():
+            continue
+        name = path.name
+        if len(name) >= 10 and name[4] == "-" and name[7] == "-" and "T" in name:
+            days.add(name[:10])
+    return sorted(days)
 
 
 def load_sample_index_h5(path: Path) -> list[int]:
@@ -115,6 +127,10 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--sample-idx", type=int, nargs="*", help="Explicit sample indices to process instead of discovering all cuts.")
     parser.add_argument("--sample-index-h5", type=Path, default=None, help="HDF5 event index with sample_idx dataset.")
+    parser.add_argument("--daily-input-batches", action="store_true", help="Discover and process cut events one UTC day at a time.")
+    parser.add_argument("--day", type=str, nargs="*", help="Restrict daily input batches to these YYYY-MM-DD UTC days.")
+    parser.add_argument("--start-day", type=str, default=None, help="First YYYY-MM-DD UTC day for daily input batches.")
+    parser.add_argument("--end-day", type=str, default=None, help="Last YYYY-MM-DD UTC day for daily input batches.")
     parser.add_argument("--orbit-samples", type=int, default=10)
     parser.add_argument("--orbit-metadata-dir", type=Path, default=Path("data/metadata/orbit"))
     parser.add_argument("--run-dasst", action="store_true", help="Run DASST for the winning hypothesis when the local DASST module is available.")
@@ -134,45 +150,86 @@ def main() -> None:
     rank = comm.Get_rank()
     size = comm.Get_size()
 
+    def run_sample_indices(sample_indices: list[int], label: str) -> tuple[int, int]:
+        sample_indices = comm.bcast(sample_indices if rank == 0 else None, root=0)
+        my_indices = sample_indices[rank::size]
+        ok_count = 0
+        fail_count = 0
+        for n_done, sample_idx in enumerate(my_indices, start=1):
+            ok, elapsed, log_path = run_one(sample_idx, args, rank)
+            if ok:
+                ok_count += 1
+                status = "ok"
+            else:
+                fail_count += 1
+                status = "failed"
+            print(
+                f"rank {rank:03d} {status} batch {label} sample_idx {sample_idx} "
+                f"elapsed_s {elapsed:.1f} progress {n_done}/{len(my_indices)} log {log_path}",
+                flush=True,
+            )
+        totals = comm.gather((ok_count, fail_count), root=0)
+        if rank == 0:
+            total_ok = sum(x[0] for x in totals)
+            total_fail = sum(x[1] for x in totals)
+            print(f"batch_complete {label} ok {total_ok} failed {total_fail}", flush=True)
+            return total_ok, total_fail
+        return 0, 0
+
     if rank == 0:
         args.output_dir.mkdir(parents=True, exist_ok=True)
         args.orbit_metadata_dir.mkdir(parents=True, exist_ok=True)
-        if args.sample_idx:
-            sample_indices = sorted(set(int(x) for x in args.sample_idx))
-        elif args.sample_index_h5 is not None:
-            sample_indices = load_sample_index_h5(args.sample_index_h5)
+        print(f"mpi_ranks {size}", flush=True)
+
+    total_ok = 0
+    total_fail = 0
+    if args.daily_input_batches and not args.sample_idx and args.sample_index_h5 is None:
+        if rank == 0:
+            days = discover_cut_days(args.cut_dir)
+            if args.day:
+                wanted = set(args.day)
+                days = [day for day in days if day in wanted]
+            if args.start_day is not None:
+                days = [day for day in days if day >= args.start_day]
+            if args.end_day is not None:
+                days = [day for day in days if day <= args.end_day]
+            print(f"discovered_days {len(days)}", flush=True)
         else:
-            sample_indices = discover_cut_sample_indices(args.cut_dir)
-        if args.limit is not None and not args.sample_idx:
-            sample_indices = sample_indices[: args.limit]
-        print(f"discovered_events {len(sample_indices)}")
-        print(f"mpi_ranks {size}")
+            days = None
+        days = comm.bcast(days, root=0)
+        remaining_limit = args.limit
+        for day in days:
+            if rank == 0:
+                if remaining_limit is not None and remaining_limit <= 0:
+                    sample_indices = []
+                else:
+                    sample_indices = discover_cut_sample_indices(args.cut_dir, day=day)
+                if remaining_limit is not None and sample_indices:
+                    sample_indices = sample_indices[:remaining_limit]
+                    remaining_limit -= len(sample_indices)
+                print(f"day_discovered {day} events {len(sample_indices)}", flush=True)
+            else:
+                sample_indices = None
+            day_ok, day_fail = run_sample_indices(sample_indices, day)
+            total_ok += day_ok
+            total_fail += day_fail
     else:
-        sample_indices = None
-
-    sample_indices = comm.bcast(sample_indices, root=0)
-    my_indices = sample_indices[rank::size]
-    ok_count = 0
-    fail_count = 0
-    for n_done, sample_idx in enumerate(my_indices, start=1):
-        ok, elapsed, log_path = run_one(sample_idx, args, rank)
-        if ok:
-            ok_count += 1
-            status = "ok"
+        if rank == 0:
+            if args.sample_idx:
+                sample_indices = sorted(set(int(x) for x in args.sample_idx))
+            elif args.sample_index_h5 is not None:
+                sample_indices = load_sample_index_h5(args.sample_index_h5)
+            else:
+                sample_indices = discover_cut_sample_indices(args.cut_dir)
+            if args.limit is not None and not args.sample_idx:
+                sample_indices = sample_indices[: args.limit]
+            print(f"discovered_events {len(sample_indices)}", flush=True)
         else:
-            fail_count += 1
-            status = "failed"
-        print(
-            f"rank {rank:03d} {status} sample_idx {sample_idx} "
-            f"elapsed_s {elapsed:.1f} progress {n_done}/{len(my_indices)} log {log_path}",
-            flush=True,
-        )
+            sample_indices = None
+        total_ok, total_fail = run_sample_indices(sample_indices, "all")
 
-    totals = comm.gather((ok_count, fail_count), root=0)
     if rank == 0:
-        total_ok = sum(x[0] for x in totals)
-        total_fail = sum(x[1] for x in totals)
-        print(f"batch_complete ok {total_ok} failed {total_fail}")
+        print(f"all_batches_complete ok {total_ok} failed {total_fail}", flush=True)
         if total_fail:
             sys.exit(1)
 
