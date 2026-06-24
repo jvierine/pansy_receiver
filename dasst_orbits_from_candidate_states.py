@@ -226,6 +226,7 @@ def main() -> None:
     unc_rows = []
     sample_rows = {}
     radiant_rows = {}
+    ceplecha_rows = {}
     with h5py.File(args.state_h5, "r") as h:
         labels = sorted(h.keys(), key=lambda k: int(h[k].attrs["combined_rank"]))
         for label in labels:
@@ -254,6 +255,21 @@ def main() -> None:
             rows.append((label, attrs, elems))
             unc_rows.append((label, len(sample_states), float(attrs["sigma_log10_beta"]), std, frac_e_gt_1, elem_cov))
             sample_rows[label] = sample_elems
+            ceplecha_rows[label] = {
+                key: grp[key][()]
+                for key in (
+                    "ceplecha_param_names",
+                    "ceplecha_params",
+                    "ceplecha_parameter_std",
+                    "ceplecha_parameter_covariance",
+                    "ceplecha_radius_m",
+                    "ceplecha_mass_kg",
+                    "ceplecha_model_enu_km",
+                    "ceplecha_velocity_km_s",
+                    "ceplecha_keep",
+                )
+                if key in grp
+            }
 
     print(
         "dasst_candidate_orbit_columns "
@@ -318,6 +334,8 @@ def main() -> None:
                 grp.create_dataset("kepler_covariance", data=elem_cov)
                 grp.create_dataset("kepler_samples", data=sample_rows[label])
                 for key, val in radiant_rows.get(label, {}).items():
+                    grp.create_dataset(key, data=val)
+                for key, val in ceplecha_rows.get(label, {}).items():
                     grp.create_dataset(key, data=val)
         print(f"dasst_orbit_h5 {args.output_h5}")
 
@@ -386,6 +404,7 @@ def main() -> None:
             source_cut_sample_idx = int(round(float(h.attrs["sample_epoch_unix"]) * 1_000_000.0))
             sample_key = source_cut_sample_idx
             fit_params, fit_cov = state_fit_payload_from_group(state_grp)
+            ceplecha_payload = ceplecha_rows.get(label, {})
             payload = {
                 "schema_version": np.asarray(ORBIT_RESULT_SCHEMA_VERSION, dtype="S64"),
                 "result_version": np.asarray(ORBIT_RESULT_SCHEMA_VERSION, dtype="S64"),
@@ -404,6 +423,26 @@ def main() -> None:
                 "fit_parameter_names": fit_parameter_names_for_params(fit_params),
                 "fit_parameters": fit_params,
                 "fit_parameter_covariance": fit_cov,
+                "ceplecha_initial_radius_m": float(attrs.get("ceplecha_initial_radius_m", np.nan)),
+                "ceplecha_initial_radius_std_m": float(attrs.get("ceplecha_initial_radius_std_m", np.nan)),
+                "ceplecha_initial_mass_kg": float(attrs.get("ceplecha_initial_mass_kg", np.nan)),
+                "ceplecha_initial_mass_std_kg": float(attrs.get("ceplecha_initial_mass_std_kg", np.nan)),
+                "ceplecha_log10_radius_std": float(attrs.get("ceplecha_log10_radius_std", np.nan)),
+                "ceplecha_covariance_available": bool(attrs.get("ceplecha_covariance_available", False)),
+                "ceplecha_reduced_chi2": float(attrs.get("ceplecha_reduced_chi2", np.nan)),
+                "ceplecha_bic": float(attrs.get("ceplecha_bic", np.nan)),
+                "ceplecha_n": int(attrs.get("ceplecha_n", 0)),
+                "ceplecha_dof": int(attrs.get("ceplecha_dof", 0)),
+                "ceplecha_parameter_names": np.asarray(
+                    ceplecha_payload.get("ceplecha_param_names", np.asarray([], dtype="S32"))
+                ),
+                "ceplecha_parameters": np.asarray(ceplecha_payload.get("ceplecha_params", np.asarray([], dtype=np.float64))),
+                "ceplecha_parameter_std": np.asarray(
+                    ceplecha_payload.get("ceplecha_parameter_std", np.asarray([], dtype=np.float64))
+                ),
+                "ceplecha_parameter_covariance": np.asarray(
+                    ceplecha_payload.get("ceplecha_parameter_covariance", np.asarray([[]], dtype=np.float64))
+                ),
                 "log10_beta_kg_m2": float(attrs["log10_beta_kg_m2"]),
                 "sigma_log10_beta": float(sigma_beta),
                 "initial_detection_height_km": float(attrs.get("first_alt_km", np.nan)),

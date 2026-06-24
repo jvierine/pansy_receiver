@@ -481,11 +481,11 @@ def plot_best_fit_summary_panel(ax, winner, orbit_h5_path, annotate_panel):
     beta = float(winner.get("ballistic_coefficient_kg_m2", np.nan)) if winner.get("selection_model_type") != "fixed_velocity" else np.nan
     beta_sigma = np.log(10.0) * beta * std[6] if std.shape == (7,) and np.isfinite(beta) else np.nan
     speed_km_s = np.linalg.norm(params[3:6]) / 1e3
-    speed_sigma_km_s = np.linalg.norm(std[3:6]) / 1e3 if std.shape == (7,) else np.nan
+    speed_sigma_km_s = np.linalg.norm(std[3:6]) / 1e3 if std.size >= 6 else np.nan
     lines = [
         f"Alias                 {hypothesis_label(winner)}  candidate {candidate_number(winner)}",
         f"Alias ranking fit     {winner.get('selection_model_label', winner.get('ballistic_model_type', 'MSIS drag'))}",
-        f"Trajectory model      {winner.get('physics_best_model_label', winner.get('physics_best_model', 'not fit'))}",
+        f"Secondary fit         Ceplecha shrinking radius",
         f"Selection rule        TX center if chi2nu <= {winner.get('combined_good_fit_redchi_threshold', np.nan):.3g}",
         f"Combined rank/score   {winner.get('combined_rank', -1)} / {winner.get('combined_score', np.nan):.3g}",
         f"N kept / clipped      {winner.get('selection_n', winner.get('ballistic_n', 0))} / {winner.get('selection_n_outliers', winner.get('ballistic_n_outliers', 0))}",
@@ -501,14 +501,17 @@ def plot_best_fit_summary_panel(ax, winner, orbit_h5_path, annotate_panel):
         f"vE,vN,vU              {params[3]/1e3:.2f} {params[4]/1e3:.2f} {params[5]/1e3:.2f} km/s",
         f"beta                  {beta:.3g} +/- {beta_sigma:.2g} kg/m2",
     ]
-    if "physics_bic_fixed_velocity" in winner:
+    if "physics_ceplecha_initial_radius_m" in winner:
+        r0_um = float(winner.get("physics_ceplecha_initial_radius_m", np.nan)) * 1e6
+        r0_std_um = float(winner.get("physics_ceplecha_initial_radius_std_m", np.nan)) * 1e6
+        m0_mg = float(winner.get("physics_ceplecha_initial_mass_kg", np.nan)) * 1e6
+        m0_std_mg = float(winner.get("physics_ceplecha_initial_mass_std_kg", np.nan)) * 1e6
         lines.extend(
             [
                 "",
-                "Trajectory model BIC",
-                f"  fixed velocity       {winner.get('physics_bic_fixed_velocity', np.nan):.3g}",
-                f"  fixed CdA/m          {winner.get('physics_bic_fixed_am', np.nan):.3g}",
-                f"  shrinking radius     {winner.get('physics_bic_shrinking_radius', np.nan):.3g}",
+                "Ceplecha secondary fit",
+                f"r0                    {r0_um:.3g} +/- {r0_std_um:.2g} um",
+                f"m0                    {m0_mg:.3g} +/- {m0_std_mg:.2g} mg",
             ]
         )
     elif "physics_model_error" in winner:
@@ -2583,6 +2586,18 @@ def fit_winning_physics_trajectory_model(tracks, event_epoch_unix, sigma_pos_km,
             "shrinking_radius": shrinking_radius,
         }
         best_name = physics.best_model_name(fits)
+        ceplecha_params = np.asarray(shrinking_radius["params"], dtype=np.float64)
+        ceplecha_std = np.asarray(shrinking_radius["parameter_std"], dtype=np.float64)
+        ceplecha_cov = np.asarray(shrinking_radius["parameter_covariance"], dtype=np.float64)
+        radius0_m = float(shrinking_radius["radius_m"][0])
+        mass0_kg = float(shrinking_radius["mass_kg"][0])
+        log10_radius_std = float(ceplecha_std[6]) if ceplecha_std.shape == (7,) else np.nan
+        radius0_std_m = float(np.log(10.0) * radius0_m * log10_radius_std) if np.isfinite(log10_radius_std) else np.nan
+        mass0_std_kg = (
+            float(3.0 * mass0_kg * radius0_std_m / max(radius0_m, np.finfo(float).tiny))
+            if np.isfinite(radius0_std_m)
+            else np.nan
+        )
         winner.update(
             {
                 "physics_best_model": best_name,
@@ -2594,8 +2609,30 @@ def fit_winning_physics_trajectory_model(tracks, event_epoch_unix, sigma_pos_km,
                 "physics_reduced_chi2_fixed_am": float(fixed_am["reduced_chi2"]),
                 "physics_reduced_chi2_shrinking_radius": float(shrinking_radius["reduced_chi2"]),
                 "physics_fixed_am_cd_a_over_m_m2_kg": float(fixed_am["cd_a_over_m_m2_kg"]),
-                "physics_shrinking_radius0_m": float(shrinking_radius["radius_m"][0]),
-                "physics_shrinking_mass0_kg": float(shrinking_radius["mass_kg"][0]),
+                "physics_ceplecha_param_names": np.asarray(
+                    ["east_m", "north_m", "up_m", "ve_mps", "vn_mps", "vu_mps", "log10_radius_m"],
+                    dtype="S32",
+                ),
+                "physics_ceplecha_params": ceplecha_params,
+                "physics_ceplecha_parameter_std": ceplecha_std,
+                "physics_ceplecha_parameter_covariance": ceplecha_cov,
+                "physics_ceplecha_covariance_available": bool(shrinking_radius["covariance_available"]),
+                "physics_ceplecha_initial_radius_m": radius0_m,
+                "physics_ceplecha_initial_radius_std_m": radius0_std_m,
+                "physics_ceplecha_initial_mass_kg": mass0_kg,
+                "physics_ceplecha_initial_mass_std_kg": mass0_std_kg,
+                "physics_ceplecha_log10_radius_std": log10_radius_std,
+                "physics_ceplecha_reduced_chi2": float(shrinking_radius["reduced_chi2"]),
+                "physics_ceplecha_bic": float(shrinking_radius["bic"]),
+                "physics_ceplecha_n": int(shrinking_radius["n_points"]),
+                "physics_ceplecha_dof": int(shrinking_radius["dof"]),
+                "physics_ceplecha_radius_m": np.asarray(shrinking_radius["radius_m"], dtype=np.float64),
+                "physics_ceplecha_mass_kg": np.asarray(shrinking_radius["mass_kg"], dtype=np.float64),
+                "physics_ceplecha_model": np.asarray(shrinking_radius["model_enu_km"], dtype=np.float64),
+                "physics_ceplecha_velocity_km_s": np.asarray(shrinking_radius["velocity_km_s"], dtype=np.float64),
+                "physics_ceplecha_keep": np.asarray(shrinking_radius["keep_mask"], dtype=bool),
+                "physics_shrinking_radius0_m": radius0_m,
+                "physics_shrinking_mass0_kg": mass0_kg,
             }
         )
     except Exception as exc:
@@ -3830,6 +3867,16 @@ def write_disambiguation_diagnostics_h5(
                     "selection_pos_rms_km": float(track.get("selection_pos_rms_km", np.nan)),
                     "selection_dop_rms_km_s": float(track.get("selection_dop_rms_km_s", np.nan)),
                     "selection_speed_km_s": float(track.get("selection_speed_km_s", np.nan)),
+                    "physics_ceplecha_initial_radius_m": float(track.get("physics_ceplecha_initial_radius_m", np.nan)),
+                    "physics_ceplecha_initial_radius_std_m": float(track.get("physics_ceplecha_initial_radius_std_m", np.nan)),
+                    "physics_ceplecha_initial_mass_kg": float(track.get("physics_ceplecha_initial_mass_kg", np.nan)),
+                    "physics_ceplecha_initial_mass_std_kg": float(track.get("physics_ceplecha_initial_mass_std_kg", np.nan)),
+                    "physics_ceplecha_log10_radius_std": float(track.get("physics_ceplecha_log10_radius_std", np.nan)),
+                    "physics_ceplecha_covariance_available": bool(track.get("physics_ceplecha_covariance_available", False)),
+                    "physics_ceplecha_reduced_chi2": float(track.get("physics_ceplecha_reduced_chi2", np.nan)),
+                    "physics_ceplecha_bic": float(track.get("physics_ceplecha_bic", np.nan)),
+                    "physics_ceplecha_n": int(track.get("physics_ceplecha_n", 0)),
+                    "physics_ceplecha_dof": int(track.get("physics_ceplecha_dof", 0)),
                     "head_echo_min_speed_km_s": float(track.get("head_echo_min_speed_km_s", np.nan)),
                     "head_echo_speed_reject": bool(track.get("head_echo_speed_reject", False)),
                     "measurement_range_span_km": float(track.get("measurement_range_span_km", np.nan)),
@@ -3948,6 +3995,15 @@ def write_disambiguation_diagnostics_h5(
                 ("selection_pred_doppler_km_s", track.get("selection_pred_doppler_km_s")),
                 ("selection_pos_res_km", track.get("selection_pos_res_km")),
                 ("selection_dop_res_km_s", track.get("selection_dop_res_km_s")),
+                ("physics_ceplecha_param_names", track.get("physics_ceplecha_param_names")),
+                ("physics_ceplecha_params", track.get("physics_ceplecha_params")),
+                ("physics_ceplecha_parameter_std", track.get("physics_ceplecha_parameter_std")),
+                ("physics_ceplecha_parameter_covariance", track.get("physics_ceplecha_parameter_covariance")),
+                ("physics_ceplecha_radius_m", track.get("physics_ceplecha_radius_m")),
+                ("physics_ceplecha_mass_kg", track.get("physics_ceplecha_mass_kg")),
+                ("physics_ceplecha_model", track.get("physics_ceplecha_model")),
+                ("physics_ceplecha_velocity_km_s", track.get("physics_ceplecha_velocity_km_s")),
+                ("physics_ceplecha_keep", track.get("physics_ceplecha_keep")),
                 ("tx_beam_center_distance_dc", track.get("tx_beam_center_distance_dc")),
                 ("tx_lobe_distance_dc", track.get("tx_lobe_distance_dc")),
             ]:
@@ -4473,10 +4529,33 @@ def write_candidate_orbit_state_h5(orbits, output_path, sample_epoch_unix, n_sam
             grp.attrs["epoch_unix"] = float(orbit["epoch_unix"])
             grp.attrs["log10_beta_kg_m2"] = float(params[6]) if params.shape == (7,) else np.nan
             grp.attrs["sigma_log10_beta"] = float(param_std[6]) if param_std.shape == (7,) else np.nan
+            grp.attrs["ceplecha_initial_radius_m"] = float(track.get("physics_ceplecha_initial_radius_m", np.nan))
+            grp.attrs["ceplecha_initial_radius_std_m"] = float(track.get("physics_ceplecha_initial_radius_std_m", np.nan))
+            grp.attrs["ceplecha_initial_mass_kg"] = float(track.get("physics_ceplecha_initial_mass_kg", np.nan))
+            grp.attrs["ceplecha_initial_mass_std_kg"] = float(track.get("physics_ceplecha_initial_mass_std_kg", np.nan))
+            grp.attrs["ceplecha_log10_radius_std"] = float(track.get("physics_ceplecha_log10_radius_std", np.nan))
+            grp.attrs["ceplecha_covariance_available"] = bool(track.get("physics_ceplecha_covariance_available", False))
+            grp.attrs["ceplecha_reduced_chi2"] = float(track.get("physics_ceplecha_reduced_chi2", np.nan))
+            grp.attrs["ceplecha_bic"] = float(track.get("physics_ceplecha_bic", np.nan))
+            grp.attrs["ceplecha_n"] = int(track.get("physics_ceplecha_n", 0))
+            grp.attrs["ceplecha_dof"] = int(track.get("physics_ceplecha_dof", 0))
             grp.create_dataset("state_gcrs_m_mps", data=np.asarray(orbit["state_gcrs_m_mps"], dtype=np.float64))
             grp.create_dataset("state_gcrs_samples_m_mps", data=state_samples)
             grp.create_dataset("selection_params", data=params)
             grp.create_dataset("selection_parameter_covariance", data=np.asarray(track.get("selection_parameter_covariance", np.full((len(params), len(params)), np.nan)), dtype=np.float64))
+            for name, value in [
+                ("ceplecha_param_names", track.get("physics_ceplecha_param_names")),
+                ("ceplecha_params", track.get("physics_ceplecha_params")),
+                ("ceplecha_parameter_std", track.get("physics_ceplecha_parameter_std")),
+                ("ceplecha_parameter_covariance", track.get("physics_ceplecha_parameter_covariance")),
+                ("ceplecha_radius_m", track.get("physics_ceplecha_radius_m")),
+                ("ceplecha_mass_kg", track.get("physics_ceplecha_mass_kg")),
+                ("ceplecha_model_enu_km", track.get("physics_ceplecha_model")),
+                ("ceplecha_velocity_km_s", track.get("physics_ceplecha_velocity_km_s")),
+                ("ceplecha_keep", track.get("physics_ceplecha_keep")),
+            ]:
+                if value is not None:
+                    grp.create_dataset(name, data=np.asarray(value))
             fit_points = np.asarray(track.get("fit_points", []), dtype=np.float64)
             if fit_points.ndim == 2 and fit_points.shape[1] == 3 and len(fit_points):
                 path_range_km = np.linalg.norm(fit_points, axis=1)
