@@ -91,6 +91,7 @@ def main() -> None:
     parser.add_argument("--max-peaks-per-pulse", type=int, default=32)
     parser.add_argument("--snr-threshold", type=float, default=7.0)
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--sample-idx", type=int, nargs="*", help="Explicit sample indices to process instead of discovering all cuts.")
     parser.add_argument("--orbit-samples", type=int, default=20)
     parser.add_argument("--orbit-metadata-dir", type=Path, default=Path("data/metadata/orbit"))
     parser.add_argument("--run-dasst", action="store_true", help="Run DASST for the winning hypothesis when the local DASST module is available.")
@@ -105,8 +106,11 @@ def main() -> None:
     if rank == 0:
         args.output_dir.mkdir(parents=True, exist_ok=True)
         args.orbit_metadata_dir.mkdir(parents=True, exist_ok=True)
-        sample_indices = discover_cut_sample_indices(args.cut_dir)
-        if args.limit is not None:
+        if args.sample_idx:
+            sample_indices = sorted(set(int(x) for x in args.sample_idx))
+        else:
+            sample_indices = discover_cut_sample_indices(args.cut_dir)
+        if args.limit is not None and not args.sample_idx:
             sample_indices = sample_indices[: args.limit]
         print(f"discovered_events {len(sample_indices)}")
         print(f"mpi_ranks {size}")
