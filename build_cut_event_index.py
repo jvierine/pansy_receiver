@@ -12,26 +12,41 @@ import h5py
 import numpy as np
 
 
-def _read_keys(path: str) -> np.ndarray:
+def _read_keys(path: str) -> list[int]:
     try:
         with h5py.File(path, "r") as handle:
             keys = [int(key) for key in handle.keys() if key.isdigit()]
     except OSError:
         keys = []
+    return keys
+
+
+def _read_key_chunk(paths: list[str]) -> np.ndarray:
+    keys: list[int] = []
+    for path in paths:
+        keys.extend(_read_keys(path))
     return np.asarray(keys, dtype=np.int64)
 
 
 def build_index(cut_dir: Path, output_h5: Path, workers: int = 16) -> int:
     files = sorted(str(path) for path in cut_dir.glob("20*/*.h5"))
+    workers = max(1, int(workers))
+    chunk_size = max(64, int(np.ceil(len(files) / (workers * 16)))) if files else 64
+    file_chunks = [files[i : i + chunk_size] for i in range(0, len(files), chunk_size)]
     chunks: list[np.ndarray] = []
-    with ProcessPoolExecutor(max_workers=max(1, int(workers))) as executor:
-        futures = [executor.submit(_read_keys, path) for path in files]
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(_read_key_chunk, chunk) for chunk in file_chunks]
         for n_done, future in enumerate(as_completed(futures), start=1):
             keys = future.result()
             if keys.size:
                 chunks.append(keys)
-            if n_done % 10000 == 0:
-                print(f"indexed_files {n_done}/{len(files)} events_so_far {sum(len(c) for c in chunks)}", flush=True)
+            if n_done % 25 == 0 or n_done == len(file_chunks):
+                indexed_files = min(n_done * chunk_size, len(files))
+                print(
+                    f"indexed_files {indexed_files}/{len(files)} "
+                    f"chunks {n_done}/{len(file_chunks)} events_so_far {sum(len(c) for c in chunks)}",
+                    flush=True,
+                )
     if chunks:
         sample_idx = np.unique(np.concatenate(chunks).astype(np.int64))
     else:
@@ -45,6 +60,8 @@ def build_index(cut_dir: Path, output_h5: Path, workers: int = 16) -> int:
         h5.attrs["source_program"] = "build_cut_event_index.py"
         h5.attrs["cut_dir"] = str(cut_dir)
         h5.attrs["source_file_count"] = int(len(files))
+        h5.attrs["source_chunk_count"] = int(len(file_chunks))
+        h5.attrs["source_chunk_size"] = int(chunk_size)
         h5.attrs["event_count"] = int(sample_idx.size)
         h5.attrs["created_utc"] = dt.datetime.now(dt.timezone.utc).isoformat()
         h5.create_dataset("sample_idx", data=sample_idx, compression="gzip", shuffle=True)
