@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import warnings
 from pathlib import Path
 
 import h5py
@@ -14,6 +15,8 @@ import numpy as np
 DEFAULT_THRESHOLD_DEG = 30.0
 DEFAULT_MAX_NEAREST_AGE_S = 7200.0
 DEFAULT_MIN_VALID_CHANNELS = 6
+DEFAULT_FALLBACK_SEARCH_RADIUS_S = 2.0
+DEFAULT_FALLBACK_TX_SAMPLES = 120
 
 
 def _sample_to_datetime64(sample: int) -> np.datetime64:
@@ -213,6 +216,96 @@ def build_quality_table(
     }
 
 
+def classify_phase_vector(
+    phase_rad: np.ndarray,
+    amplitude: np.ndarray,
+    reference_rad: np.ndarray,
+    threshold_deg: float = DEFAULT_THRESHOLD_DEG,
+    min_valid_channels: int = DEFAULT_MIN_VALID_CHANNELS,
+) -> dict[str, float | int | bool | str]:
+    phase_rad = np.asarray(phase_rad, dtype=np.float32)
+    amplitude = np.asarray(amplitude, dtype=np.float32)
+    reference_rad = np.asarray(reference_rad, dtype=np.float32)
+    valid = np.isfinite(phase_rad) & np.isfinite(reference_rad) & np.isfinite(amplitude)
+    diff_rad = angular_delta_rad(phase_rad, reference_rad).astype(np.float32)
+    abs_diff_deg = np.abs(np.rad2deg(diff_rad))
+    valid_count = int(np.count_nonzero(valid))
+    if valid_count:
+        max_abs_diff_deg = float(np.nanmax(np.where(valid, abs_diff_deg, np.nan)))
+        rms_diff_deg = float(np.sqrt(np.nanmean(np.where(valid, abs_diff_deg, np.nan) ** 2)))
+    else:
+        max_abs_diff_deg = np.nan
+        rms_diff_deg = np.nan
+    good = bool(valid_count >= int(min_valid_channels) and max_abs_diff_deg <= float(threshold_deg))
+    return {
+        "available": True,
+        "good": good,
+        "raw_good": good,
+        "reason": "ok" if good else "computed_tx_phase_mismatch",
+        "max_abs_diff_deg": max_abs_diff_deg,
+        "rms_diff_deg": rms_diff_deg,
+        "valid_channel_count": valid_count,
+        "threshold_deg": float(threshold_deg),
+    }
+
+
+def compute_event_xphase(
+    sample_idx: int,
+    raw_voltage_dir: Path | str,
+    tx_metadata_dir: Path | str,
+    search_radius_s: float = DEFAULT_FALLBACK_SEARCH_RADIUS_S,
+    tx_samples: int = DEFAULT_FALLBACK_TX_SAMPLES,
+) -> dict[str, object]:
+    import digital_rf as drf
+
+    raw_voltage_dir = str(raw_voltage_dir)
+    tx_metadata_dir = str(tx_metadata_dir)
+    reader = drf.DigitalRFReader(raw_voltage_dir)
+    tx_reader = drf.DigitalMetadataReader(tx_metadata_dir)
+    radius = int(round(float(search_radius_s) * 1e6))
+    records = tx_reader.read(int(sample_idx) - radius, int(sample_idx) + radius, "id")
+    pulse_keys = []
+    for key, value in records.items():
+        try:
+            is_tx = int(np.asarray(value).ravel()[0]) == 1
+        except Exception:
+            is_tx = False
+        if is_tx:
+            pulse_keys.append(int(key))
+    if not pulse_keys:
+        return {
+            "available": False,
+            "reason": "no_tx_pulse_metadata_near_event",
+        }
+    tx_key = min(pulse_keys, key=lambda key: abs(key - int(sample_idx)))
+    channels = [f"ch{j:03d}" for j in range(8)]
+    xphase = np.full(8, np.nan + 1j * np.nan, dtype=np.complex64)
+    try:
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="The read_vector_c81d method is deprecated.*")
+            z0 = reader.read_vector_c81d(tx_key, int(tx_samples), "ch000")
+            for j, channel in enumerate(channels):
+                z1 = reader.read_vector_c81d(tx_key, int(tx_samples), channel)
+                xphase[j] = np.mean(z0 * np.conj(z1))
+    except Exception as exc:
+        return {
+            "available": False,
+            "reason": f"tx_phase_raw_read_failed:{type(exc).__name__}",
+            "nearest_sample_idx": int(tx_key),
+            "age_s": float(abs(int(sample_idx) - tx_key) / 1e6),
+        }
+    return {
+        "available": True,
+        "reason": "computed_from_raw_voltage",
+        "nearest_sample_idx": int(tx_key),
+        "age_s": float(abs(int(sample_idx) - tx_key) / 1e6),
+        "xphase": xphase,
+        "phase_rad": np.angle(xphase).astype(np.float32),
+        "amplitude": np.abs(xphase).astype(np.float32),
+        "mean_amplitude": float(np.nanmean(np.abs(xphase))),
+    }
+
+
 def write_quality_h5(
     phase_dir: Path,
     output_h5: Path,
@@ -291,40 +384,96 @@ def write_quality_h5(
     }
 
 
-def quality_for_sample(quality_h5: Path, sample_idx: int, max_age_s: float | None = None) -> dict[str, float | int | bool | str]:
+def quality_for_sample(
+    quality_h5: Path,
+    sample_idx: int,
+    max_age_s: float | None = None,
+    compute_if_missing: bool = False,
+    raw_voltage_dir: Path | str | None = None,
+    tx_metadata_dir: Path | str | None = None,
+    fallback_search_radius_s: float = DEFAULT_FALLBACK_SEARCH_RADIUS_S,
+    fallback_tx_samples: int = DEFAULT_FALLBACK_TX_SAMPLES,
+) -> dict[str, float | int | bool | str]:
     with h5py.File(quality_h5, "r") as h5:
         samples = np.asarray(h5["sample_idx"], dtype=np.int64)
+        reference = np.asarray(h5["reference_phase_rad"], dtype=np.float32)
+        threshold_deg = float(h5.attrs.get("threshold_deg", DEFAULT_THRESHOLD_DEG))
+        min_valid_channels = int(h5.attrs.get("min_valid_channels", DEFAULT_MIN_VALID_CHANNELS))
         if samples.size == 0:
-            return {"available": False, "good": False, "reason": "no_tx_phase_quality_samples"}
-        i = int(np.searchsorted(samples, int(sample_idx)))
-        if i >= samples.size:
-            nearest_i = samples.size - 1
-        elif i == 0:
-            nearest_i = 0
+            result = {"available": False, "good": False, "reason": "no_tx_phase_quality_samples"}
+            nearest_i = None
+            within_age = False
+            raw_good = False
         else:
-            left = i - 1
-            right = i
-            nearest_i = left if abs(int(sample_idx) - int(samples[left])) <= abs(int(samples[right]) - int(sample_idx)) else right
-        age_s = abs(int(sample_idx) - int(samples[nearest_i])) / 1e6
-        limit_s = float(max_age_s if max_age_s is not None else h5.attrs.get("max_nearest_age_s", DEFAULT_MAX_NEAREST_AGE_S))
-        within_age = age_s <= limit_s
-        raw_good = bool(np.asarray(h5["good"])[nearest_i])
-        return {
-            "available": True,
-            "good": bool(within_age and raw_good),
-            "raw_good": raw_good,
-            "reason": "ok" if within_age and raw_good else ("nearest_tx_phase_sample_too_far" if not within_age else "tx_phase_mismatch"),
-            "nearest_sample_idx": int(samples[nearest_i]),
-            "age_s": float(age_s),
-            "max_age_s": float(limit_s),
-            "max_abs_diff_deg": float(np.asarray(h5["max_abs_diff_deg"])[nearest_i]),
-            "rms_diff_deg": float(np.asarray(h5["rms_diff_deg"])[nearest_i]),
-            "valid_channel_count": int(np.asarray(h5["valid_channel_count"])[nearest_i]),
-            "threshold_deg": float(h5.attrs.get("threshold_deg", DEFAULT_THRESHOLD_DEG)),
-            "reference_start_sample_idx": int(h5.attrs.get("reference_start_sample_idx", -1)),
-            "reference_end_sample_idx": int(h5.attrs.get("reference_end_sample_idx", -1)),
-            "reference_sample_count": int(h5.attrs.get("reference_sample_count", 0)),
-        }
+            i = int(np.searchsorted(samples, int(sample_idx)))
+            if i >= samples.size:
+                nearest_i = samples.size - 1
+            elif i == 0:
+                nearest_i = 0
+            else:
+                left = i - 1
+                right = i
+                nearest_i = left if abs(int(sample_idx) - int(samples[left])) <= abs(int(samples[right]) - int(sample_idx)) else right
+            age_s = abs(int(sample_idx) - int(samples[nearest_i])) / 1e6
+            limit_s = float(max_age_s if max_age_s is not None else h5.attrs.get("max_nearest_age_s", DEFAULT_MAX_NEAREST_AGE_S))
+            within_age = age_s <= limit_s
+            raw_good = bool(np.asarray(h5["good"])[nearest_i])
+            result = {
+                "available": True,
+                "good": bool(within_age and raw_good),
+                "raw_good": raw_good,
+                "reason": "ok" if within_age and raw_good else ("nearest_tx_phase_sample_too_far" if not within_age else "tx_phase_mismatch"),
+                "nearest_sample_idx": int(samples[nearest_i]),
+                "age_s": float(age_s),
+                "max_age_s": float(limit_s),
+                "max_abs_diff_deg": float(np.asarray(h5["max_abs_diff_deg"])[nearest_i]),
+                "rms_diff_deg": float(np.asarray(h5["rms_diff_deg"])[nearest_i]),
+                "valid_channel_count": int(np.asarray(h5["valid_channel_count"])[nearest_i]),
+                "threshold_deg": threshold_deg,
+                "reference_start_sample_idx": int(h5.attrs.get("reference_start_sample_idx", -1)),
+                "reference_end_sample_idx": int(h5.attrs.get("reference_end_sample_idx", -1)),
+                "reference_sample_count": int(h5.attrs.get("reference_sample_count", 0)),
+            }
+        if result.get("good", False) or not compute_if_missing:
+            return result
+        if result.get("reason") == "tx_phase_mismatch":
+            return result
+        if raw_voltage_dir is None or tx_metadata_dir is None:
+            return result
+        computed = compute_event_xphase(
+            sample_idx,
+            raw_voltage_dir=raw_voltage_dir,
+            tx_metadata_dir=tx_metadata_dir,
+            search_radius_s=fallback_search_radius_s,
+            tx_samples=fallback_tx_samples,
+        )
+        if not computed.get("available", False):
+            fallback = dict(result)
+            fallback["computed_available"] = False
+            fallback["computed_reason"] = str(computed.get("reason", "computed_tx_phase_unavailable"))
+            return fallback
+        classified = classify_phase_vector(
+            computed["phase_rad"],
+            computed["amplitude"],
+            reference,
+            threshold_deg=threshold_deg,
+            min_valid_channels=min_valid_channels,
+        )
+        classified.update(
+            {
+                "reason": "ok" if classified["good"] else "computed_tx_phase_mismatch",
+                "computed_available": True,
+                "computed_from_raw_voltage": True,
+                "nearest_sample_idx": int(computed["nearest_sample_idx"]),
+                "age_s": float(computed["age_s"]),
+                "mean_amplitude": float(computed["mean_amplitude"]),
+                "max_age_s": float(fallback_search_radius_s),
+                "reference_start_sample_idx": int(h5.attrs.get("reference_start_sample_idx", -1)),
+                "reference_end_sample_idx": int(h5.attrs.get("reference_end_sample_idx", -1)),
+                "reference_sample_count": int(h5.attrs.get("reference_sample_count", 0)),
+            }
+        )
+        return classified
 
 
 def main() -> int:

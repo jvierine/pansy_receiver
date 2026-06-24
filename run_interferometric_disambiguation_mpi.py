@@ -71,6 +71,14 @@ def run_one(sample_idx: int, args, rank: int) -> tuple[bool, float, Path]:
         cmd.append("--require-good-tx-phase")
     if args.tx_phase_max_age_s is not None:
         cmd.extend(["--tx-phase-max-age-s", str(args.tx_phase_max_age_s)])
+    if args.compute_missing_tx_phase:
+        cmd.append("--compute-missing-tx-phase")
+    if args.tx_phase_raw_voltage_dir is not None:
+        cmd.extend(["--tx-phase-raw-voltage-dir", str(args.tx_phase_raw_voltage_dir)])
+    if args.tx_phase_tx_metadata_dir is not None:
+        cmd.extend(["--tx-phase-tx-metadata-dir", str(args.tx_phase_tx_metadata_dir)])
+    cmd.extend(["--tx-phase-fallback-search-radius-s", str(args.tx_phase_fallback_search_radius_s)])
+    cmd.extend(["--tx-phase-fallback-samples", str(args.tx_phase_fallback_samples)])
     if args.run_dasst:
         cmd.append("--run-dasst")
     if args.recompute_cut_observables:
@@ -105,6 +113,11 @@ def main() -> None:
     parser.add_argument("--tx-phase-quality-h5", type=Path, default=None, help="HDF5 TX cross-phase quality table produced by tx_phase_quality.py.")
     parser.add_argument("--require-good-tx-phase", action="store_true", help="Reject events whose nearest TX cross-phase sample is missing or misaligned.")
     parser.add_argument("--tx-phase-max-age-s", type=float, default=None, help="Override maximum nearest TX phase sample age in seconds.")
+    parser.add_argument("--compute-missing-tx-phase", action="store_true", help="Compute TX cross-phase from raw voltage when no nearby txphase metadata exists.")
+    parser.add_argument("--tx-phase-raw-voltage-dir", type=Path, default=None, help="Digital RF raw voltage directory for missing TX phase fallback.")
+    parser.add_argument("--tx-phase-tx-metadata-dir", type=Path, default=None, help="TX metadata directory for missing TX phase fallback.")
+    parser.add_argument("--tx-phase-fallback-search-radius-s", type=float, default=2.0)
+    parser.add_argument("--tx-phase-fallback-samples", type=int, default=120)
     parser.add_argument("--skip-existing", action="store_true")
     args = parser.parse_args()
 

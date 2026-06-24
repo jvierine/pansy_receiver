@@ -4527,6 +4527,11 @@ def main():
     parser.add_argument("--tx-phase-quality-h5", type=Path, default=None, help="HDF5 TX cross-phase quality table produced by tx_phase_quality.py.")
     parser.add_argument("--require-good-tx-phase", action="store_true", help="Reject events whose nearest TX cross-phase sample is missing or misaligned.")
     parser.add_argument("--tx-phase-max-age-s", type=float, default=None, help="Override maximum nearest TX phase sample age in seconds.")
+    parser.add_argument("--compute-missing-tx-phase", action="store_true", help="Compute TX cross-phase from raw voltage when no nearby txphase metadata exists.")
+    parser.add_argument("--tx-phase-raw-voltage-dir", type=Path, default=Path(pc.raw_voltage_dir), help="Digital RF raw voltage directory for missing TX phase fallback.")
+    parser.add_argument("--tx-phase-tx-metadata-dir", type=Path, default=Path(pc.tx_metadata_dir), help="TX metadata directory for missing TX phase fallback.")
+    parser.add_argument("--tx-phase-fallback-search-radius-s", type=float, default=txpq.DEFAULT_FALLBACK_SEARCH_RADIUS_S, help="Search radius for TX pulse metadata when computing missing TX phase.")
+    parser.add_argument("--tx-phase-fallback-samples", type=int, default=txpq.DEFAULT_FALLBACK_TX_SAMPLES, help="Raw TX samples used for missing TX phase cross-correlation.")
     parser.add_argument("--stage-timing", action="store_true", help="Print wall-clock timing for major processing stages.")
     args = parser.parse_args()
 
@@ -4550,6 +4555,11 @@ def main():
                 args.tx_phase_quality_h5,
                 args.sample_idx,
                 max_age_s=args.tx_phase_max_age_s,
+                compute_if_missing=args.compute_missing_tx_phase,
+                raw_voltage_dir=args.tx_phase_raw_voltage_dir,
+                tx_metadata_dir=args.tx_phase_tx_metadata_dir,
+                fallback_search_radius_s=args.tx_phase_fallback_search_radius_s,
+                fallback_tx_samples=args.tx_phase_fallback_samples,
             )
         except Exception as exc:
             tx_quality = {
