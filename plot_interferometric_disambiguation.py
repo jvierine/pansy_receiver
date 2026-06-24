@@ -3575,22 +3575,31 @@ def cut_tx_waveform_quality(cut: dict, min_corr: float = 0.8, max_phase_std_deg:
     z_norm_all = z_tx / np.where(pulse_power > 0, pulse_power, 1.0)[:, None]
     corr_values = []
     phase_residuals = []
+    slope_values_deg = []
     used_beams = 0
     for beam in np.unique(beam_id[good_pulses]):
         beam_mask = good_pulses & (beam_id == beam)
         if np.count_nonzero(beam_mask) < 2:
             continue
         z_norm = z_norm_all[beam_mask]
-        template = np.mean(z_norm, axis=0)
+        template = z_norm[0]
         template_norm = np.sqrt(np.sum(np.abs(template) ** 2))
         if not np.isfinite(template_norm) or template_norm <= 0:
             continue
         template = template / template_norm
         corr = np.sum(np.conj(template)[None, :] * z_norm, axis=1)
         phase = np.angle(corr)
-        mean_phase = np.angle(np.mean(np.exp(1j * phase)))
+        unit = np.exp(1j * phase)
+        if unit.size >= 2:
+            slope = np.angle(np.mean(unit[1:] * np.conj(unit[:-1])))
+        else:
+            slope = 0.0
+        pulse_number = np.arange(unit.size, dtype=np.float64)
+        deramped = unit * np.exp(-1j * slope * pulse_number)
+        mean_phase = np.angle(np.mean(deramped))
         corr_values.append(np.abs(corr))
-        phase_residuals.append(np.angle(np.exp(1j * (phase - mean_phase))))
+        phase_residuals.append(np.angle(deramped * np.exp(-1j * mean_phase)))
+        slope_values_deg.append(float(np.rad2deg(slope)))
         used_beams += 1
     if not corr_values:
         return {
@@ -3615,6 +3624,7 @@ def cut_tx_waveform_quality(cut: dict, min_corr: float = 0.8, max_phase_std_deg:
         "mean_amplitude": median_corr,
         "max_abs_diff_deg": phase_std_deg,
         "rms_diff_deg": phase_std_deg,
+        "phase_slope_deg_per_pulse": float(np.nanmedian(slope_values_deg)) if slope_values_deg else np.nan,
         "threshold_deg": float(max_phase_std_deg),
     }
 
