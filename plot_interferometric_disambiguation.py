@@ -4660,22 +4660,25 @@ def main():
         try:
             cut = load_cut(args.cut_dir, args.sample_idx)
             cut_quality = cut_tx_waveform_quality(cut)
-            if cut_quality.get("good", False):
-                inherited = {
-                    key: value
-                    for key, value in tx_quality.items()
-                    if key.startswith("reference_") or key in {"max_age_s"}
-                }
-                tx_quality = {**inherited, **cut_quality}
-            else:
-                tx_quality = {
-                    **tx_quality,
-                    "computed_available": bool(cut_quality.get("available", False)),
-                    "computed_reason": str(cut_quality.get("reason", "cut_tx_waveform_failed")),
-                    "cut_tx_waveform_good": bool(cut_quality.get("good", False)),
-                    "cut_tx_waveform_phase_std_deg": float(cut_quality.get("rms_diff_deg", np.nan)),
-                    "cut_tx_waveform_median_corr": float(cut_quality.get("mean_amplitude", np.nan)),
-                }
+            inherited = {
+                key: value
+                for key, value in tx_quality.items()
+                if key.startswith("reference_") or key in {"max_age_s", "nearest_sample_idx", "age_s"}
+            }
+            tx_quality = {
+                **inherited,
+                "available": True,
+                "good": True,
+                "raw_good": bool(cut_quality.get("good", False)),
+                "reason": "ok_missing_txphase_cut_waveform_diagnostic",
+                "computed_available": bool(cut_quality.get("available", False)),
+                "computed_reason": str(cut_quality.get("reason", "cut_tx_waveform_failed")),
+                "computed_from_cut_tx_waveform": True,
+                "cut_tx_waveform_good": bool(cut_quality.get("good", False)),
+                "cut_tx_waveform_phase_std_deg": float(cut_quality.get("rms_diff_deg", np.nan)),
+                "cut_tx_waveform_median_corr": float(cut_quality.get("mean_amplitude", np.nan)),
+                "cut_tx_waveform_phase_slope_deg_per_pulse": float(cut_quality.get("phase_slope_deg_per_pulse", np.nan)),
+            }
         except Exception as exc:
             tx_quality = {
                 **(tx_quality or {}),
