@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import os
 import subprocess
 import sys
@@ -31,6 +32,9 @@ def discover_cut_sample_indices(cut_dir: Path) -> list[int]:
 
 def run_one(sample_idx: int, args, rank: int) -> tuple[bool, float, Path]:
     output_dir = Path(args.output_dir)
+    if args.daily_output_dirs:
+        day = dt.datetime.fromtimestamp(sample_idx / 1e6, tz=dt.timezone.utc).strftime("%Y-%m-%d")
+        output_dir = output_dir / day
     summary = output_dir / f"pansy_interferometer_disambiguation_summary_{sample_idx}.png"
     diagnostics_h5 = output_dir / f"pansy_disambiguation_diagnostics_{sample_idx}.h5"
     log_path = output_dir / "logs" / f"{sample_idx}.rank{rank:03d}.log"
@@ -81,6 +85,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Batch PANSY disambiguation overview plots with MPI.")
     parser.add_argument("--cut-dir", type=Path, default=Path("data/metadata/cut"))
     parser.add_argument("--output-dir", type=Path, default=Path("test_plots"))
+    parser.add_argument("--daily-output-dirs", action="store_true", help="Write event products under output-dir/YYYY-MM-DD based on sample time.")
     parser.add_argument("--grid-n", type=int, default=501)
     parser.add_argument("--coherence-threshold", type=float, default=0.80)
     parser.add_argument("--max-peaks-per-pulse", type=int, default=32)
@@ -99,6 +104,7 @@ def main() -> None:
 
     if rank == 0:
         args.output_dir.mkdir(parents=True, exist_ok=True)
+        args.orbit_metadata_dir.mkdir(parents=True, exist_ok=True)
         sample_indices = discover_cut_sample_indices(args.cut_dir)
         if args.limit is not None:
             sample_indices = sample_indices[: args.limit]

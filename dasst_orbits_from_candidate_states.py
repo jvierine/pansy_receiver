@@ -41,7 +41,15 @@ ORBIT_METADATA_WRITER_ARGS = {
     "samples_per_second_denominator": 1,
     "file_name": "orbit",
 }
-ORBIT_RESULT_SCHEMA_VERSION = "pansy_orbit_plausible_aliases_v2"
+ORBIT_RESULT_SCHEMA_VERSION = "pansy_orbit_plausible_aliases_v3"
+
+
+def optional_dataset(group: h5py.Group, name: str, default=None):
+    if name in group:
+        return group[name][()]
+    if default is not None:
+        return default
+    return np.asarray([], dtype=np.float64)
 
 
 def gcrs_to_itrs_state(state_gcrs_m_mps: np.ndarray, epoch: Time) -> np.ndarray:
@@ -397,6 +405,7 @@ def main() -> None:
                 "fit_parameter_covariance": fit_cov,
                 "log10_beta_kg_m2": float(attrs["log10_beta_kg_m2"]),
                 "sigma_log10_beta": float(sigma_beta),
+                "initial_detection_height_km": float(attrs.get("first_alt_km", np.nan)),
                 "orbit_frame": np.asarray("HeliocentricMeanEcliptic", dtype="S32"),
                 "orbit_propagator": np.asarray("dasst.orbit_determination.rebound_od", dtype="S64"),
                 "kepler_names": np.asarray(["a_au", "e", "i_deg", "raan_deg", "argp_deg", "nu_deg", "q_au"], dtype="S16"),
@@ -430,6 +439,7 @@ def main() -> None:
                 "radiant_ra_deg": float(radiant_gcrs[0]),
                 "radiant_dec_deg": float(radiant_gcrs[1]),
                 "radiant_speed_km_s": radiant_speed_km_s,
+                "v_g_km_s": radiant_speed_km_s,
                 "radiant_ecliptic_frame": np.asarray("GeocentricMeanEcliptic", dtype="S32"),
                 "radiant_ecliptic_lon_deg": float(radiant_gme[0]),
                 "radiant_ecliptic_lat_deg": float(radiant_gme[1]),
@@ -438,6 +448,13 @@ def main() -> None:
                 "mass_density_assumption_g_cm3": float(3.0),
                 "mass_estimate_kg": float(np.nan),
                 "mass_estimate_note": np.asarray("placeholder; requires calibrated RCS/ablation model", dtype="S64"),
+                "path_t_rel_s": optional_dataset(state_grp, "path_t_rel_s"),
+                "path_position_enu_km": optional_dataset(state_grp, "path_position_enu_km"),
+                "path_direction_cosines_uvw": optional_dataset(state_grp, "path_direction_cosines_uvw"),
+                "path_range_km": optional_dataset(state_grp, "path_range_km"),
+                "path_snr": optional_dataset(state_grp, "path_snr"),
+                "path_beam_id": optional_dataset(state_grp, "path_beam_id", default=np.asarray([], dtype=np.int64)),
+                "path_selection_keep": optional_dataset(state_grp, "path_selection_keep", default=np.asarray([], dtype=np.int8)),
             }
         write_orbit_metadata(args.metadata_dir, sample_key, payload)
         print(f"orbit_metadata_write {args.metadata_dir} {sample_key}")

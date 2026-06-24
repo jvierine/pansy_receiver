@@ -4377,6 +4377,28 @@ def write_candidate_orbit_state_h5(orbits, output_path, sample_epoch_unix, n_sam
             grp.create_dataset("state_gcrs_samples_m_mps", data=state_samples)
             grp.create_dataset("selection_params", data=params)
             grp.create_dataset("selection_parameter_covariance", data=np.asarray(track.get("selection_parameter_covariance", np.full((len(params), len(params)), np.nan)), dtype=np.float64))
+            fit_points = np.asarray(track.get("fit_points", []), dtype=np.float64)
+            if fit_points.ndim == 2 and fit_points.shape[1] == 3 and len(fit_points):
+                path_range_km = np.linalg.norm(fit_points, axis=1)
+                direction = np.full_like(fit_points, np.nan, dtype=np.float64)
+                good_range = path_range_km > 0.0
+                direction[good_range, 0] = fit_points[good_range, 0] / path_range_km[good_range]
+                direction[good_range, 1] = fit_points[good_range, 1] / path_range_km[good_range]
+                direction[good_range, 2] = -fit_points[good_range, 2] / path_range_km[good_range]
+                path_payload = [
+                    ("path_t_rel_s", track.get("fit_t")),
+                    ("path_position_enu_km", fit_points),
+                    ("path_direction_cosines_uvw", direction),
+                    ("path_range_km", path_range_km),
+                    ("path_snr", track.get("tx_beam_snr")),
+                    ("path_beam_id", track.get("tx_beam_id")),
+                    ("path_selection_keep", track.get("selection_keep")),
+                ]
+            else:
+                path_payload = []
+            for name, value in path_payload:
+                if value is not None:
+                    grp.create_dataset(name, data=np.asarray(value))
             if "ballistic_params" in track:
                 grp.create_dataset("ballistic_params", data=np.asarray(track["ballistic_params"], dtype=np.float64))
                 grp.create_dataset("ballistic_parameter_covariance", data=np.asarray(track.get("ballistic_parameter_covariance", np.full((7, 7), np.nan)), dtype=np.float64))
