@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import signal
 import os
 import subprocess
 import sys
@@ -50,7 +51,19 @@ def load_sample_index_h5(path: Path) -> list[int]:
         return [int(value) for value in np.asarray(handle["sample_idx"], dtype=np.int64)]
 
 
+def last_stage_timing(log_path: Path) -> str:
+    try:
+        lines = log_path.read_text(errors="replace").splitlines()
+    except OSError:
+        return "unavailable"
+    for line in reversed(lines):
+        if line.startswith("stage_timing "):
+            return line
+    return "none"
+
+
 def run_one(sample_idx: int, args, rank: int) -> tuple[bool, float, Path]:
+    repo_dir = Path(__file__).resolve().parent
     output_dir = Path(args.output_dir)
     if args.daily_output_dirs:
         day = dt.datetime.fromtimestamp(sample_idx / 1e6, tz=dt.timezone.utc).strftime("%Y-%m-%d")
@@ -59,12 +72,13 @@ def run_one(sample_idx: int, args, rank: int) -> tuple[bool, float, Path]:
     diagnostics_h5 = output_dir / f"pansy_disambiguation_diagnostics_{sample_idx}.h5"
     log_path = output_dir / "logs" / f"{sample_idx}.rank{rank:03d}.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    if args.skip_existing and summary.exists() and diagnostics_h5.exists():
+    force_reprocess = int(sample_idx) in args.force_reprocess_samples
+    if args.skip_existing and not force_reprocess and summary.exists() and diagnostics_h5.exists():
         return True, 0.0, log_path
 
     cmd = [
         sys.executable,
-        str(Path(__file__).with_name("plot_interferometric_disambiguation.py")),
+        str(repo_dir / "plot_interferometric_disambiguation.py"),
         "--sample-idx",
         str(sample_idx),
         "--cut-dir",
@@ -103,6 +117,8 @@ def run_one(sample_idx: int, args, rank: int) -> tuple[bool, float, Path]:
         cmd.append("--run-dasst")
     if args.recompute_cut_observables:
         cmd.append("--recompute-cut-observables")
+    if args.stage_timing:
+        cmd.append("--stage-timing")
     env = os.environ.copy()
     env.setdefault("OMP_NUM_THREADS", "1")
     env.setdefault("OPENBLAS_NUM_THREADS", "1")
@@ -111,17 +127,29 @@ def run_one(sample_idx: int, args, rank: int) -> tuple[bool, float, Path]:
     with log_path.open("w") as log:
         log.write(" ".join(cmd) + "\n\n")
         log.flush()
+        timeout_s = args.event_timeout_s if args.event_timeout_s and args.event_timeout_s > 0 else None
+        proc = subprocess.Popen(
+            cmd,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            env=env,
+            cwd=repo_dir,
+            start_new_session=True,
+        )
         try:
-            proc = subprocess.run(
-                cmd,
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                env=env,
-                timeout=args.event_timeout_s if args.event_timeout_s and args.event_timeout_s > 0 else None,
-            )
+            proc.wait(timeout=timeout_s)
             ok = proc.returncode == 0
         except subprocess.TimeoutExpired:
-            log.write(f"\nevent_timeout sample_idx {sample_idx} timeout_s {args.event_timeout_s}\n")
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+                proc.wait(timeout=10.0)
+            except subprocess.TimeoutExpired:
+                os.killpg(proc.pid, signal.SIGKILL)
+                proc.wait()
+            log.write(
+                f"\nevent_timeout sample_idx {sample_idx} timeout_s {args.event_timeout_s} "
+                f"last_stage=\"{last_stage_timing(log_path)}\"\n"
+            )
             ok = False
     return ok, time.time() - t0, log_path
 
@@ -138,6 +166,19 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--sample-idx", type=int, nargs="*", help="Explicit sample indices to process instead of discovering all cuts.")
     parser.add_argument("--sample-index-h5", type=Path, default=None, help="HDF5 event index with sample_idx dataset.")
+    parser.add_argument(
+        "--force-reprocess-sample-idx",
+        type=int,
+        nargs="*",
+        default=[],
+        help="Sample indices that should be reprocessed even when --skip-existing is set.",
+    )
+    parser.add_argument(
+        "--force-reprocess-sample-index-h5",
+        type=Path,
+        default=None,
+        help="HDF5 event index whose sample_idx values should be reprocessed even when --skip-existing is set.",
+    )
     parser.add_argument("--daily-input-batches", action="store_true", help="Discover and process cut events one UTC day at a time.")
     parser.add_argument("--day", type=str, nargs="*", help="Restrict daily input batches to these YYYY-MM-DD UTC days.")
     parser.add_argument("--start-day", type=str, default=None, help="First YYYY-MM-DD UTC day for daily input batches.")
@@ -156,7 +197,12 @@ def main() -> None:
     parser.add_argument("--tx-phase-fallback-samples", type=int, default=120)
     parser.add_argument("--skip-existing", action="store_true")
     parser.add_argument("--event-timeout-s", type=float, default=600.0, help="Wall-clock timeout per event subprocess; <=0 disables.")
+    parser.add_argument("--no-stage-timing", dest="stage_timing", action="store_false", help="Do not pass --stage-timing to per-event subprocesses.")
+    parser.set_defaults(stage_timing=True)
     args = parser.parse_args()
+    args.force_reprocess_samples = set(int(x) for x in args.force_reprocess_sample_idx)
+    if args.force_reprocess_sample_index_h5 is not None:
+        args.force_reprocess_samples.update(load_sample_index_h5(args.force_reprocess_sample_index_h5))
 
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
