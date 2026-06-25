@@ -111,8 +111,19 @@ def run_one(sample_idx: int, args, rank: int) -> tuple[bool, float, Path]:
     with log_path.open("w") as log:
         log.write(" ".join(cmd) + "\n\n")
         log.flush()
-        proc = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT, env=env)
-    return proc.returncode == 0, time.time() - t0, log_path
+        try:
+            proc = subprocess.run(
+                cmd,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                env=env,
+                timeout=args.event_timeout_s if args.event_timeout_s and args.event_timeout_s > 0 else None,
+            )
+            ok = proc.returncode == 0
+        except subprocess.TimeoutExpired:
+            log.write(f"\nevent_timeout sample_idx {sample_idx} timeout_s {args.event_timeout_s}\n")
+            ok = False
+    return ok, time.time() - t0, log_path
 
 
 def main() -> None:
@@ -144,6 +155,7 @@ def main() -> None:
     parser.add_argument("--tx-phase-fallback-search-radius-s", type=float, default=2.0)
     parser.add_argument("--tx-phase-fallback-samples", type=int, default=120)
     parser.add_argument("--skip-existing", action="store_true")
+    parser.add_argument("--event-timeout-s", type=float, default=600.0, help="Wall-clock timeout per event subprocess; <=0 disables.")
     args = parser.parse_args()
 
     comm = MPI.COMM_WORLD
