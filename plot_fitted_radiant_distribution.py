@@ -265,7 +265,7 @@ def add_source_markers(ax):
             color=color,
             edgecolor="black" if marker == "o" else None,
             linewidth=0.35 if marker == "o" else 0.0,
-            zorder=2,
+            zorder=10,
         )
 
 
@@ -280,7 +280,6 @@ def plot_radiants(rows, output_png: Path):
     arr = arr[good]
     fig = plt.figure(figsize=(9.4, 6.2), constrained_layout=True)
     ax = fig.add_subplot(111, projection="hammer")
-    add_source_markers(ax)
     sc = ax.scatter(
         np.deg2rad(arr["plot_longitude_deg"]),
         np.deg2rad(arr["radiant_beta_ecliptic_deg"]),
@@ -294,6 +293,7 @@ def plot_radiants(rows, output_png: Path):
         edgecolors="white",
         zorder=3,
     )
+    add_source_markers(ax)
     tick_pos, tick_labels = centered_tick_labels()
     ax.set_xticks(np.deg2rad(tick_pos))
     ax.set_xticklabels(tick_labels)
