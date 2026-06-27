@@ -307,6 +307,66 @@ def plot_radiants(rows, output_png: Path):
     plt.close(fig)
 
 
+def plot_radiants_with_options(
+    rows,
+    output_png: Path,
+    show_shower_overlays: bool = False,
+    shower_catalog: Path | None = None,
+    shower_solar_longitude: float | None = None,
+    shower_date: str | None = None,
+    shower_peak_tolerance_deg: float = 5.0,
+):
+    if not show_shower_overlays:
+        plot_radiants(rows, output_png)
+        return
+    output_png.parent.mkdir(parents=True, exist_ok=True)
+    arr = rows_to_arrays(rows)
+    good = (
+        np.isfinite(arr["plot_longitude_deg"])
+        & np.isfinite(arr["radiant_beta_ecliptic_deg"])
+        & np.isfinite(arr["speed_km_s"])
+    )
+    arr = arr[good]
+    fig = plt.figure(figsize=(9.4, 6.2), constrained_layout=True)
+    ax = fig.add_subplot(111, projection="hammer")
+    sc = ax.scatter(
+        np.deg2rad(arr["plot_longitude_deg"]),
+        np.deg2rad(arr["radiant_beta_ecliptic_deg"]),
+        c=arr["speed_km_s"],
+        s=scaled_scatter_area(len(arr)),
+        cmap="turbo",
+        vmin=10.0,
+        vmax=80.0,
+        alpha=0.72,
+        linewidths=0.15,
+        edgecolors="white",
+        zorder=3,
+    )
+    add_source_markers(ax)
+    from shower_radiant_overlay import active_showers, add_shower_overlay_hammer
+
+    showers, query = active_showers(
+        arr,
+        shower_catalog=shower_catalog,
+        shower_solar_longitude=shower_solar_longitude,
+        shower_date=shower_date,
+        peak_tolerance_deg=shower_peak_tolerance_deg,
+    )
+    add_shower_overlay_hammer(ax, showers)
+    tick_pos, tick_labels = centered_tick_labels()
+    ax.set_xticks(np.deg2rad(tick_pos))
+    ax.set_xticklabels(tick_labels)
+    ax.grid(True, alpha=0.42)
+    ax.set_xlabel(r"Sun-centered ecliptic longitude, $\lambda-\lambda_\odot$ (apex centered at $-90^\circ$)", labelpad=18)
+    ax.set_ylabel(r"Ecliptic latitude, $\beta$")
+    cb = fig.colorbar(sc, ax=ax, orientation="horizontal", pad=0.14, fraction=0.046)
+    cb.set_label("DASST geocentric radiant speed (km/s)")
+    ax.legend(loc="lower left", fontsize=8, frameon=True)
+    ax.set_title(f"IAU established showers at solar longitude {float(query):.1f} deg", fontsize=10)
+    fig.savefig(output_png, dpi=220)
+    plt.close(fig)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Plot PANSY radiant distribution from DASST orbit-determination products.")
     parser.add_argument("--input-dir", type=Path, default=Path("test_plots"))
@@ -317,6 +377,11 @@ def main():
     parser.add_argument("--include-rejected-best", action="store_true", help="Include rank-0 best states even when the event was rejected.")
     parser.add_argument("--no-recompute-missing", action="store_true", help="Use only radiant datasets already present in DASST HDF5 files.")
     parser.add_argument("--reuse-h5", action="store_true", help="Only redraw the PNG from an existing output HDF5.")
+    parser.add_argument("--show-shower-overlays", action="store_true", help="Overlay active IAU established meteor showers.")
+    parser.add_argument("--shower-catalog", type=Path, default=None, help="IAU established shower catalogue path.")
+    parser.add_argument("--shower-solar-longitude", type=float, default=None, help="Solar longitude for shower overlay selection.")
+    parser.add_argument("--shower-date", default=None, help="UTC date/datetime for shower overlay selection.")
+    parser.add_argument("--shower-peak-tolerance-deg", type=float, default=5.0)
     args = parser.parse_args()
 
     if args.reuse_h5:
@@ -333,7 +398,15 @@ def main():
             kernel=args.kernel,
         )
         write_h5(args.output_h5, rows, errors, task_count)
-    plot_radiants(rows, args.output_png)
+    plot_radiants_with_options(
+        rows,
+        args.output_png,
+        show_shower_overlays=args.show_shower_overlays,
+        shower_catalog=args.shower_catalog,
+        shower_solar_longitude=args.shower_solar_longitude,
+        shower_date=args.shower_date,
+        shower_peak_tolerance_deg=args.shower_peak_tolerance_deg,
+    )
     print(f"dasst_radiants {len(rows)} tasks {task_count} errors {len(errors)}")
     print(args.output_png)
     print(args.output_h5)

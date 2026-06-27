@@ -118,6 +118,57 @@ def plot_healpix(count, output_png: Path, n_radiants: int):
     plt.close(fig)
 
 
+def plot_healpix_with_showers(
+    count,
+    output_png: Path,
+    n_radiants: int,
+    showers,
+):
+    plot_count = np.asarray(count, dtype=np.float64).copy()
+    plot_count[~np.isfinite(plot_count) | (plot_count <= 0.0)] = 1.0
+    cmap = plt.get_cmap("plasma").copy()
+    cmap.set_bad(cmap(0.0))
+    cmap.set_under(cmap(0.0))
+    hp.mollview(
+        plot_count,
+        fig=1,
+        rot=(PLOT_CENTER_LONGITUDE_DEG, 0.0, 0.0),
+        flip="astro",
+        cmap=cmap,
+        badcolor=cmap(0.0),
+        bgcolor="white",
+        min=1.0,
+        norm="log",
+        title="",
+        unit="Count / pixel",
+        cbar=True,
+    )
+    hp.graticule(dpar=15, dmer=30, color="0.55", alpha=0.35)
+    if showers:
+        lon = np.asarray([s.radiant_solar_ecliptic_lon_deg for s in showers], dtype=np.float64)
+        lon = (lon + 180.0) % 360.0 - 180.0
+        lat = np.asarray([s.radiant_ecliptic_lat_deg for s in showers], dtype=np.float64)
+        hp.projscatter(lon, lat, lonlat=True, marker="D", s=34, facecolor="#fff2a8", edgecolor="black", linewidth=0.55)
+        for shower, lo, la in zip(showers[:18], lon[:18], lat[:18], strict=False):
+            hp.projtext(lo, la, shower.code or shower.name[:5], lonlat=True, fontsize=7.5)
+    fig = plt.gcf()
+    fig.set_size_inches(9.4, 5.6)
+    fig.patch.set_facecolor("white")
+    fig.text(
+        0.5,
+        0.035,
+        r"Sun-centered ecliptic longitude, $\lambda-\lambda_\odot$ (apex centered at $-90^\circ$)",
+        ha="center",
+        va="center",
+        fontsize=12,
+    )
+    fig.text(0.035, 0.52, r"Ecliptic latitude, $\beta$", ha="center", va="center", rotation="vertical", fontsize=12)
+    fig.text(0.86, 0.92, f"N={n_radiants}", ha="right", va="center", fontsize=10, color="0.2")
+    output_png.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_png, dpi=220, bbox_inches="tight")
+    plt.close(fig)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Make a HEALPix histogram of DASST-corrected PANSY radiants.")
     parser.add_argument("--input-h5", type=Path, default=Path("test_plots/fitted_radiant_distribution.h5"))
@@ -125,12 +176,32 @@ def main():
     parser.add_argument("--output-h5", type=Path, default=Path("test_plots/fitted_radiant_distribution_healpix.h5"))
     parser.add_argument("--nside", type=int, default=32)
     parser.add_argument("--min-count-for-mean-speed", type=int, default=3)
+    parser.add_argument("--show-shower-overlays", action="store_true")
+    parser.add_argument("--shower-catalog", type=Path, default=None)
+    parser.add_argument("--shower-solar-longitude", type=float, default=None)
+    parser.add_argument("--shower-date", default=None)
+    parser.add_argument("--shower-peak-tolerance-deg", type=float, default=5.0)
     args = parser.parse_args()
 
     lon, lat, speed = read_radiants(args.input_h5)
     count, mean_speed = healpix_histogram(lon, lat, speed, args.nside, args.min_count_for_mean_speed)
     write_h5(args.output_h5, args.input_h5, args.nside, count, mean_speed, len(lon))
-    plot_healpix(count, args.output_png, len(lon))
+    if args.show_shower_overlays:
+        from shower_radiant_overlay import active_showers
+        import h5py
+
+        with h5py.File(args.input_h5, "r") as h:
+            rows = h["radiants"][()]
+        showers, _query = active_showers(
+            rows,
+            shower_catalog=args.shower_catalog,
+            shower_solar_longitude=args.shower_solar_longitude,
+            shower_date=args.shower_date,
+            peak_tolerance_deg=args.shower_peak_tolerance_deg,
+        )
+        plot_healpix_with_showers(count, args.output_png, len(lon), showers)
+    else:
+        plot_healpix(count, args.output_png, len(lon))
     print(f"healpix_radiants {len(lon)} nside {args.nside} occupied_pixels {int(np.sum(count > 0.0))}")
     print(args.output_png)
     print(args.output_h5)
