@@ -41,10 +41,31 @@ def day_labels(arr):
     return np.unique(days), days
 
 
-def frame_subset(arr, days, day, cumulative: bool):
+def parse_day(day: str) -> dt.date:
+    return dt.datetime.strptime(day, "%Y-%m-%d").date()
+
+
+def window_label(day: str, window_days: int) -> str:
+    if window_days <= 1:
+        return day
+    half_before = (window_days - 1) // 2
+    half_after = window_days - 1 - half_before
+    center = parse_day(day)
+    start = center - dt.timedelta(days=half_before)
+    end = center + dt.timedelta(days=half_after)
+    return f"{day}  window {start.isoformat()}..{end.isoformat()}"
+
+
+def frame_subset(arr, days, day, cumulative: bool, window_days: int):
     if cumulative:
         return arr[days <= day]
-    return arr[days == day]
+    window_days = max(1, int(window_days))
+    half_before = (window_days - 1) // 2
+    half_after = window_days - 1 - half_before
+    center = parse_day(day)
+    start = (center - dt.timedelta(days=half_before)).isoformat()
+    end = (center + dt.timedelta(days=half_after)).isoformat()
+    return arr[(days >= start) & (days <= end)]
 
 
 def frame_showers(arr, day_rows, shower_catalog: Path | None, peak_tolerance_deg: float):
@@ -69,7 +90,7 @@ def setup_hammer():
     return fig, ax
 
 
-def plot_scatter_frame(rows, day_rows, day: str, out: Path, shower_catalog: Path | None, peak_tolerance_deg: float):
+def plot_scatter_frame(rows, day_rows, day_label: str, out: Path, shower_catalog: Path | None, peak_tolerance_deg: float):
     fig, ax = setup_hammer()
     sc = ax.scatter(
         np.deg2rad(rows["plot_longitude_deg"]),
@@ -89,13 +110,13 @@ def plot_scatter_frame(rows, day_rows, day: str, out: Path, shower_catalog: Path
     add_shower_overlay_hammer(ax, showers)
     cb = fig.colorbar(sc, ax=ax, orientation="horizontal", pad=0.14, fraction=0.046)
     cb.set_label("DASST geocentric radiant speed (km/s)")
-    ax.set_title(f"{day}  N={len(rows)}  shower solar longitude={query:.1f} deg", fontsize=10)
+    ax.set_title(f"{day_label}  N={len(rows)}  shower solar longitude={query:.1f} deg", fontsize=10)
     ax.legend(loc="lower left", fontsize=8, frameon=True)
     fig.savefig(out, dpi=150)
     plt.close(fig)
 
 
-def plot_histogram_frame(rows, day_rows, day: str, out: Path, shower_catalog: Path | None, peak_tolerance_deg: float, bins: int):
+def plot_histogram_frame(rows, day_rows, day_label: str, out: Path, shower_catalog: Path | None, peak_tolerance_deg: float, bins: int):
     fig, ax = setup_hammer()
     lon = np.asarray(rows["plot_longitude_deg"], dtype=np.float64)
     lat = np.asarray(rows["radiant_beta_ecliptic_deg"], dtype=np.float64)
@@ -111,26 +132,27 @@ def plot_histogram_frame(rows, day_rows, day: str, out: Path, shower_catalog: Pa
     mappable = plt.cm.ScalarMappable(norm=LogNorm(vmin=1, vmax=max(1, float(np.nanmax(plot_hist)))), cmap="plasma")
     cb = fig.colorbar(mappable, ax=ax, orientation="horizontal", pad=0.14, fraction=0.046)
     cb.set_label("Radiants per bin")
-    ax.set_title(f"{day}  N={len(rows)}  shower solar longitude={query:.1f} deg", fontsize=10)
+    ax.set_title(f"{day_label}  N={len(rows)}  shower solar longitude={query:.1f} deg", fontsize=10)
     ax.legend(loc="lower left", fontsize=8, frameon=True)
     fig.savefig(out, dpi=150)
     plt.close(fig)
 
 
-def make_animation(arr, output_gif: Path, frame_dir: Path, kind: str, shower_catalog: Path | None, peak_tolerance_deg: float, cumulative: bool, bins: int):
+def make_animation(arr, output_gif: Path, frame_dir: Path, kind: str, shower_catalog: Path | None, peak_tolerance_deg: float, cumulative: bool, window_days: int, bins: int):
     unique_days, days = day_labels(arr)
     frame_dir.mkdir(parents=True, exist_ok=True)
     frames = []
     for day in unique_days:
-        rows = frame_subset(arr, days, day, cumulative=cumulative)
+        rows = frame_subset(arr, days, day, cumulative=cumulative, window_days=window_days)
         day_rows = arr[days == day]
         if len(rows) == 0:
             continue
         out = frame_dir / f"{kind}_{day}.png"
+        label = day if cumulative else window_label(day, window_days)
         if kind == "scatter":
-            plot_scatter_frame(rows, day_rows, day, out, shower_catalog, peak_tolerance_deg)
+            plot_scatter_frame(rows, day_rows, label, out, shower_catalog, peak_tolerance_deg)
         else:
-            plot_histogram_frame(rows, day_rows, day, out, shower_catalog, peak_tolerance_deg, bins)
+            plot_histogram_frame(rows, day_rows, label, out, shower_catalog, peak_tolerance_deg, bins)
         frames.append(imageio.imread(out))
     output_gif.parent.mkdir(parents=True, exist_ok=True)
     imageio.mimsave(output_gif, frames, duration=0.55)
@@ -146,6 +168,7 @@ def main():
     parser.add_argument("--shower-catalog", type=Path, default=None)
     parser.add_argument("--shower-peak-tolerance-deg", type=float, default=5.0)
     parser.add_argument("--bins", type=int, default=72)
+    parser.add_argument("--window-days", type=int, default=3, help="Centered day averaging window for non-cumulative frames.")
     parser.add_argument("--cumulative", action="store_true", help="Accumulate all previous days in each frame.")
     args = parser.parse_args()
 
@@ -161,6 +184,7 @@ def main():
         args.shower_catalog,
         args.shower_peak_tolerance_deg,
         cumulative,
+        args.window_days,
         args.bins,
     )
     n_hist = make_animation(
@@ -171,6 +195,7 @@ def main():
         args.shower_catalog,
         args.shower_peak_tolerance_deg,
         cumulative,
+        args.window_days,
         args.bins,
     )
     print(f"scatter_frames {n_scatter} {args.scatter_gif}")
