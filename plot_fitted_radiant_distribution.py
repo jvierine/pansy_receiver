@@ -17,6 +17,7 @@ from dasst_orbits_from_candidate_states import (
     first_radiant_column,
     radiant_payload_from_dasst,
 )
+from radiant_visibility import add_visibility_boundary_hammer
 
 
 PLOT_CENTER_LONGITUDE_DEG = -90.0
@@ -52,6 +53,15 @@ def scaled_scatter_area(n_points: int) -> float:
     diameter_pt = np.sqrt(SCATTER_DIAMETER_CONSTANT / n)
     diameter_pt = float(np.clip(diameter_pt, SCATTER_DIAMETER_MIN_PT, SCATTER_DIAMETER_MAX_PT))
     return diameter_pt**2
+
+
+def circular_mean_deg(values_deg):
+    values = np.asarray(values_deg, dtype=np.float64)
+    values = values[np.isfinite(values)]
+    if len(values) == 0:
+        return np.nan
+    rad = np.deg2rad(values)
+    return float(np.rad2deg(np.arctan2(np.mean(np.sin(rad)), np.mean(np.cos(rad)))) % 360.0)
 
 
 def accepted_hypothesis_from_diagnostics(input_dir: Path, sample_idx: int):
@@ -294,6 +304,9 @@ def plot_radiants(rows, output_png: Path):
         zorder=3,
     )
     add_source_markers(ax)
+    query = circular_mean_deg(arr["sun_lambda_ecliptic_deg"])
+    if np.isfinite(query):
+        add_visibility_boundary_hammer(ax, query, color="black")
     tick_pos, tick_labels = centered_tick_labels()
     ax.set_xticks(np.deg2rad(tick_pos))
     ax.set_xticklabels(tick_labels)
@@ -352,6 +365,7 @@ def plot_radiants_with_options(
         shower_date=shower_date,
         peak_tolerance_deg=shower_peak_tolerance_deg,
     )
+    add_visibility_boundary_hammer(ax, query, color="black")
     add_shower_overlay_hammer(ax, showers)
     tick_pos, tick_labels = centered_tick_labels()
     ax.set_xticks(np.deg2rad(tick_pos))

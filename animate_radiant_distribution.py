@@ -18,6 +18,7 @@ from plot_fitted_radiant_distribution import (
     centered_tick_labels,
     scaled_scatter_area,
 )
+from radiant_visibility import add_visibility_boundary_hammer
 from shower_radiant_overlay import active_showers, add_shower_overlay_hammer, circular_mean_deg
 
 
@@ -107,6 +108,7 @@ def plot_scatter_frame(rows, day_rows, day_label: str, out: Path, shower_catalog
     )
     add_source_markers(ax)
     showers, query = frame_showers(rows, day_rows, shower_catalog, peak_tolerance_deg)
+    add_visibility_boundary_hammer(ax, query, color="black")
     add_shower_overlay_hammer(ax, showers)
     cb = fig.colorbar(sc, ax=ax, orientation="horizontal", pad=0.14, fraction=0.046)
     cb.set_label("DASST geocentric radiant speed (km/s)")
@@ -130,6 +132,7 @@ def plot_histogram_frame(rows, day_rows, day_label: str, out: Path, shower_catal
     ax.pcolormesh(xx, yy, plot_count, cmap="plasma", norm=norm, shading="auto")
     add_source_markers(ax)
     showers, query = frame_showers(rows, day_rows, shower_catalog, peak_tolerance_deg)
+    add_visibility_boundary_hammer(ax, query, color="white")
     add_shower_overlay_hammer(ax, showers, label_color="white")
     mappable = plt.cm.ScalarMappable(norm=norm, cmap="plasma")
     cb = fig.colorbar(mappable, ax=ax, orientation="horizontal", pad=0.14, fraction=0.046)

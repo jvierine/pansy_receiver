@@ -14,6 +14,8 @@ from matplotlib.path import Path as MplPath
 from matplotlib.transforms import Affine2D
 import numpy as np
 
+from radiant_visibility import radiant_visibility_boundary
+
 
 PLOT_CENTER_LONGITUDE_DEG = -90.0
 
@@ -62,7 +64,40 @@ def write_h5(path: Path, input_h5: Path, nside: int, count, mean_speed, n_radian
         h.create_dataset("mean_speed_km_s", data=mean_speed)
 
 
-def plot_healpix(count, output_png: Path, n_radiants: int):
+def circular_mean_deg(values_deg):
+    values = np.asarray(values_deg, dtype=np.float64)
+    values = values[np.isfinite(values)]
+    if len(values) == 0:
+        return np.nan
+    rad = np.deg2rad(values)
+    return float(np.rad2deg(np.arctan2(np.mean(np.sin(rad)), np.mean(np.cos(rad)))) % 360.0)
+
+
+def mean_solar_longitude(path: Path):
+    with h5py.File(path, "r") as h:
+        arr = h["radiants"][()]
+    if "sun_lambda_ecliptic_deg" not in arr.dtype.names:
+        return np.nan
+    return circular_mean_deg(arr["sun_lambda_ecliptic_deg"])
+
+
+def add_visibility_boundary_healpix(solar_longitude_deg: float, color: str = "white"):
+    if not np.isfinite(float(solar_longitude_deg)):
+        return
+    plot_lon_deg, beta_deg = radiant_visibility_boundary(solar_longitude_deg)
+    lambda_minus_sun = wrap180(PLOT_CENTER_LONGITUDE_DEG - plot_lon_deg)
+    hp.projplot(
+        lambda_minus_sun,
+        beta_deg,
+        lonlat=True,
+        color=color,
+        linewidth=1.35,
+        linestyle="--",
+        alpha=0.92,
+    )
+
+
+def plot_healpix(count, output_png: Path, n_radiants: int, solar_longitude_deg: float = np.nan):
     output_png.parent.mkdir(parents=True, exist_ok=True)
     plot_count = np.asarray(count, dtype=np.float64).copy()
     plot_count[~np.isfinite(plot_count) | (plot_count <= 0.0)] = 1.0
@@ -84,6 +119,7 @@ def plot_healpix(count, output_png: Path, n_radiants: int):
         cbar=True,
     )
     hp.graticule(dpar=15, dmer=30, color="0.55", alpha=0.35)
+    add_visibility_boundary_healpix(solar_longitude_deg, color="white")
     fig = plt.gcf()
     fig.set_size_inches(9.4, 5.6)
     fig.patch.set_facecolor("white")
@@ -123,6 +159,7 @@ def plot_healpix_with_showers(
     output_png: Path,
     n_radiants: int,
     showers,
+    solar_longitude_deg: float = np.nan,
 ):
     plot_count = np.asarray(count, dtype=np.float64).copy()
     plot_count[~np.isfinite(plot_count) | (plot_count <= 0.0)] = 1.0
@@ -144,6 +181,7 @@ def plot_healpix_with_showers(
         cbar=True,
     )
     hp.graticule(dpar=15, dmer=30, color="0.55", alpha=0.35)
+    add_visibility_boundary_healpix(solar_longitude_deg, color="white")
     if showers:
         lon = np.asarray([s.radiant_solar_ecliptic_lon_deg for s in showers], dtype=np.float64)
         lon = (lon + 180.0) % 360.0 - 180.0
@@ -199,9 +237,9 @@ def main():
             shower_date=args.shower_date,
             peak_tolerance_deg=args.shower_peak_tolerance_deg,
         )
-        plot_healpix_with_showers(count, args.output_png, len(lon), showers)
+        plot_healpix_with_showers(count, args.output_png, len(lon), showers, _query)
     else:
-        plot_healpix(count, args.output_png, len(lon))
+        plot_healpix(count, args.output_png, len(lon), mean_solar_longitude(args.input_h5))
     print(f"healpix_radiants {len(lon)} nside {args.nside} occupied_pixels {int(np.sum(count > 0.0))}")
     print(args.output_png)
     print(args.output_h5)
