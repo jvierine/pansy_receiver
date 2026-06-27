@@ -130,7 +130,7 @@ def plot_histogram_frame(rows, day_rows, day_label: str, out: Path, shower_catal
     ax.pcolormesh(xx, yy, plot_count, cmap="plasma", norm=norm, shading="auto")
     add_source_markers(ax)
     showers, query = frame_showers(rows, day_rows, shower_catalog, peak_tolerance_deg)
-    add_shower_overlay_hammer(ax, showers)
+    add_shower_overlay_hammer(ax, showers, label_color="white")
     mappable = plt.cm.ScalarMappable(norm=norm, cmap="plasma")
     cb = fig.colorbar(mappable, ax=ax, orientation="horizontal", pad=0.14, fraction=0.046)
     cb.set_label("Radiants per bin")

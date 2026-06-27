@@ -62,7 +62,7 @@ def shower_plot_points(showers):
     return x, lat, labels
 
 
-def add_shower_overlay_hammer(ax, showers, max_labels=18):
+def add_shower_overlay_hammer(ax, showers, max_labels=18, label_color="black"):
     x_deg, lat_deg, labels = shower_plot_points(showers)
     if len(x_deg) == 0:
         return
@@ -84,6 +84,6 @@ def add_shower_overlay_hammer(ax, showers, max_labels=18):
             xytext=(3, 3),
             textcoords="offset points",
             fontsize=7.5,
-            color="black",
+            color=label_color,
             zorder=13,
         )
