@@ -456,7 +456,13 @@ def process_cut(data,
 def process_latest():
     mddir=pc.cut_metadata_dir
   #  mddir="../pansy_test_data/metadata/cut"
-    dm, b = metadata_bounds(mddir, "cut")
+    # Rank 0 owns the bounds snapshot so all MPI ranks take the same branch.
+    # Otherwise one rank can idle at Barrier while another waits in allreduce.
+    if rank == 0:
+        dm, b = metadata_bounds(mddir, "cut")
+    else:
+        dm, b = None, [-1, -1]
+    b = comm.bcast(b, root=0)
     if b[1] == -1:
         if should_log_idle():
             print("cut metadata is not readable yet; waiting")
@@ -466,7 +472,11 @@ def process_latest():
 
     start_idx=b[0]
 
-    dmf, fitb = metadata_bounds(pc.simple_fit_metadata_dir, "simple_fit")
+    if rank == 0:
+        dmf, fitb = metadata_bounds(pc.simple_fit_metadata_dir, "simple_fit")
+    else:
+        dmf, fitb = None, [-1, -1]
+    fitb = comm.bcast(fitb, root=0)
     if fitb[1] != -1:
         start_idx=fitb[1]+1000000
     else:
@@ -491,6 +501,8 @@ def process_latest():
 
     os.system("mkdir -p %s"%(omddir))#pc.simple_fit_metadata_dir))
 
+    if dm is None:
+        dm = drf.DigitalMetadataReader(mddir)
     dmw = simple_fit_writer(omddir)
 
     n_processed = 0
