@@ -174,7 +174,7 @@ def main():
     parser.add_argument("--input-h5", type=Path, default=Path("test_plots/fitted_radiant_distribution.h5"))
     parser.add_argument("--output-png", type=Path, default=Path("test_plots/fitted_radiant_distribution_healpix.png"))
     parser.add_argument("--output-h5", type=Path, default=Path("test_plots/fitted_radiant_distribution_healpix.h5"))
-    parser.add_argument("--nside", type=int, default=32)
+    parser.add_argument("--nside", type=int, default=64)
     parser.add_argument("--min-count-for-mean-speed", type=int, default=3)
     parser.add_argument("--show-shower-overlays", action="store_true")
     parser.add_argument("--shower-catalog", type=Path, default=None)

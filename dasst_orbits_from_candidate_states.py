@@ -23,6 +23,7 @@ from astropy.coordinates import CartesianDifferential, CartesianRepresentation, 
 from astropy.time import Time
 
 import pansy_ballistic as pbal
+import orbit_metadata_table
 
 try:
     import dasst
@@ -180,22 +181,7 @@ def metadata_writer(path: Path) -> drf.DigitalMetadataWriter:
 
 
 def write_orbit_metadata(output_dir: Path, sample_key: int, payload: dict) -> None:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    lock_path = output_dir / ".orbit_metadata.lock"
-    with lock_path.open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        try:
-            pbal.delete_metadata_key(output_dir, sample_key, ORBIT_METADATA_WRITER_ARGS["file_name"])
-            writer = metadata_writer(output_dir)
-            writer.write(int(sample_key), payload)
-        except Exception as exc:
-            if "name already exists" not in str(exc) and "already in data" not in str(exc):
-                raise
-            pbal.delete_metadata_key(output_dir, sample_key, ORBIT_METADATA_WRITER_ARGS["file_name"])
-            writer = metadata_writer(output_dir)
-            writer.write(int(sample_key), payload)
-        finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
+    orbit_metadata_table.write_payload(output_dir, int(sample_key), payload)
 
 
 def state_fit_payload_from_group(state_grp) -> tuple[np.ndarray, np.ndarray]:
@@ -437,22 +423,14 @@ def main() -> None:
             fit_params, fit_cov = state_fit_payload_from_group(state_grp)
             ceplecha_payload = ceplecha_rows.get(label, {})
             payload = {
-                "schema_version": np.asarray(ORBIT_RESULT_SCHEMA_VERSION, dtype="S64"),
-                "result_version": np.asarray(ORBIT_RESULT_SCHEMA_VERSION, dtype="S64"),
-                "result_producer": np.asarray("dasst_orbits_from_candidate_states.py", dtype="S64"),
                 "sample_idx": int(sample_key),
-                "source_cut_sample_idx": int(source_cut_sample_idx),
                 "selected_hypothesis": np.asarray(label, dtype="S8"),
                 "candidate_number": int(attrs["candidate_number"]),
                 "combined_rank": int(attrs["combined_rank"]),
                 "combined_score": float(attrs["combined_score"]),
                 "selection_model_type": np.asarray(str(attrs.get("selection_model_type", "")), dtype="S32"),
                 "orbit_solution_type": np.asarray(str(attrs.get("orbit_solution_type", "")), dtype="S32"),
-                "state_epoch": np.asarray("first_detection", dtype="S32"),
-                "reference_frame": np.asarray("GCRS", dtype="S8"),
                 "initial_state_gcrs_m_mps": state_grp["state_gcrs_m_mps"][()],
-                "initial_state_samples_gcrs_m_mps": state_grp["state_gcrs_samples_m_mps"][()],
-                "fit_parameter_names": fit_parameter_names_for_params(fit_params),
                 "fit_parameters": fit_params,
                 "fit_parameter_covariance": fit_cov,
                 "ceplecha_initial_radius_m": float(attrs.get("ceplecha_initial_radius_m", np.nan)),
@@ -465,9 +443,6 @@ def main() -> None:
                 "ceplecha_bic": float(attrs.get("ceplecha_bic", np.nan)),
                 "ceplecha_n": int(attrs.get("ceplecha_n", 0)),
                 "ceplecha_dof": int(attrs.get("ceplecha_dof", 0)),
-                "ceplecha_parameter_names": np.asarray(
-                    ceplecha_payload.get("ceplecha_param_names", np.asarray([], dtype="S32"))
-                ),
                 "ceplecha_parameters": np.asarray(ceplecha_payload.get("ceplecha_params", np.asarray([], dtype=np.float64))),
                 "ceplecha_parameter_std": np.asarray(
                     ceplecha_payload.get("ceplecha_parameter_std", np.asarray([], dtype=np.float64))
@@ -478,13 +453,9 @@ def main() -> None:
                 "log10_beta_kg_m2": float(attrs["log10_beta_kg_m2"]),
                 "sigma_log10_beta": float(sigma_beta),
                 "initial_detection_height_km": float(attrs.get("first_alt_km", np.nan)),
-                "orbit_frame": np.asarray("HeliocentricMeanEcliptic", dtype="S32"),
-                "orbit_propagator": np.asarray("dasst.orbit_determination.rebound_od", dtype="S64"),
-                "kepler_names": np.asarray(["a_au", "e", "i_deg", "raan_deg", "argp_deg", "nu_deg", "q_au"], dtype="S16"),
                 "kepler": elems,
                 "kepler_std": std,
                 "kepler_covariance": elem_cov,
-                "kepler_samples": sample_rows[label],
                 "n_uncertainty_samples": int(n_samples),
                 "frac_e_gt_1": float(frac_e_gt_1),
                 "alias_hypothesis_labels": alias_labels,
@@ -492,7 +463,6 @@ def main() -> None:
                 "alias_combined_ranks": alias_combined_ranks,
                 "alias_combined_scores": alias_combined_scores,
                 "alias_selection_model_types": alias_selection_model_types,
-                "alias_orbit_solution_types": alias_orbit_solution_types,
                 "alias_plausibility_models": alias_plausibility_models,
                 "alias_plausibility_redchi": alias_plausibility_redchi,
                 "alias_tx_beam_snr_weighted_mean_dc": alias_tx_beam_mean_dc,
@@ -508,26 +478,18 @@ def main() -> None:
                 "alias_interstellar_nominal": alias_interstellar_nominal.astype(np.int8),
                 "all_aliases_interstellar_nominal": bool(np.all(alias_interstellar_nominal)) if len(alias_interstellar_nominal) else False,
                 "n_aliases_orbit_tested": int(len(alias_interstellar_nominal)),
-                "radiant_frame": np.asarray("GCRS", dtype="S8"),
                 "radiant_ra_deg": float(radiant_gcrs[0]),
                 "radiant_dec_deg": float(radiant_gcrs[1]),
                 "radiant_speed_km_s": radiant_speed_km_s,
                 "v_g_km_s": radiant_speed_km_s,
-                "radiant_ecliptic_frame": np.asarray("GeocentricMeanEcliptic", dtype="S32"),
                 "radiant_ecliptic_lon_deg": float(radiant_gme[0]),
                 "radiant_ecliptic_lat_deg": float(radiant_gme[1]),
                 "radiant_sun_ecliptic_lon_deg": float(radiant_sun_gme[0]),
                 "radiant_sun_ecliptic_lat_deg": float(radiant_sun_gme[1]),
-                "mass_density_assumption_g_cm3": float(3.0),
-                "mass_estimate_kg": float(np.nan),
-                "mass_estimate_note": np.asarray("placeholder; requires calibrated RCS/ablation model", dtype="S64"),
                 "path_t_rel_s": optional_dataset(state_grp, "path_t_rel_s"),
                 "path_position_enu_km": optional_dataset(state_grp, "path_position_enu_km"),
-                "path_direction_cosines_uvw": optional_dataset(state_grp, "path_direction_cosines_uvw"),
-                "path_range_km": optional_dataset(state_grp, "path_range_km"),
                 "path_snr": optional_dataset(state_grp, "path_snr"),
                 "path_beam_id": optional_dataset(state_grp, "path_beam_id", default=np.asarray([], dtype=np.int64)),
-                "path_selection_keep": optional_dataset(state_grp, "path_selection_keep", default=np.asarray([], dtype=np.int8)),
             }
         write_orbit_metadata(args.metadata_dir, sample_key, payload)
         print(f"orbit_metadata_write {args.metadata_dir} {sample_key}")
