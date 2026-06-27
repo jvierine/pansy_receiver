@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import itertools
+import os
 import subprocess
 import sys
 import time
@@ -26,6 +27,9 @@ import pansy_ballistic as pbal
 import pansy_orbit as porb
 import tx_phase_quality as txpq
 from interferometer_alias_diagnostics import RangeDopplerSearch, amp_scale, load_cut, recompute_cut_observables
+
+
+HEAD_ECHO_MIN_SPEED_KM_S = float(os.environ.get("PANSY_HEAD_ECHO_MIN_SPEED_KM_S", "6.0"))
 
 
 def plot_antenna_positions(output: Path):
@@ -2391,7 +2395,7 @@ def score_combined_hypotheses(tracks):
     tx_beam_weight = 1.0
     line_weight = 0.10
     good_fit_redchi_threshold = 1.5
-    head_echo_min_speed_km_s = 5.0
+    head_echo_min_speed_km_s = HEAD_ECHO_MIN_SPEED_KM_S
     if not scored:
         fallback = [t for t in tracks if t["reason"] == "kept" and "line_reduced_chi2" in t]
         if not fallback:
@@ -2405,6 +2409,7 @@ def score_combined_hypotheses(tracks):
             key=lambda t: (
                 bool(t.get("low_detection_altitude_reject", False)),
                 bool(t.get("linearity_reject", False)),
+                bool(t.get("descent_reject", False)),
                 float(t.get("line_reduced_chi2", np.inf)),
             )
         )
@@ -2444,10 +2449,16 @@ def score_combined_hypotheses(tracks):
             and np.isfinite(range_span_km)
             and range_span_km < 0.2
         )
+        trajectory_quality_reject = bool(
+            track.get("linearity_reject", False)
+            or track.get("descent_reject", False)
+            or track.get("low_detection_altitude_reject", False)
+        )
         good_fit = bool(
             full_coverage
             and not bool(track.get("common_pulse_completion_reject", False))
             and not low_start_reject
+            and not trajectory_quality_reject
             and not head_echo_speed_reject
             and not short_static_measurement_reject
             and np.isfinite(redchi)
@@ -2463,6 +2474,7 @@ def score_combined_hypotheses(tracks):
         track["selection_speed_km_s"] = float(selection_speed_km_s)
         track["head_echo_speed_reject"] = head_echo_speed_reject
         track["short_static_measurement_reject"] = short_static_measurement_reject
+        track["trajectory_quality_reject"] = trajectory_quality_reject
         track["combined_good_fit"] = good_fit
         track["combined_tx_distance_dc"] = tx_beam
         if good_fit:
@@ -2480,6 +2492,9 @@ def score_combined_hypotheses(tracks):
         key=lambda t: (
             bool(t.get("ballistic_pulse_coverage_reject", False)),
             bool(t.get("common_pulse_completion_reject", False)),
+            bool(t.get("linearity_reject", False)),
+            bool(t.get("descent_reject", False)),
+            bool(t.get("low_detection_altitude_reject", False)),
             bool(t.get("ballistic_low_start_altitude_reject", False)) and t.get("selection_model_type") != "fixed_velocity",
             bool(t.get("head_echo_speed_reject", False)),
             not bool(t.get("combined_good_fit", False)),
@@ -2502,6 +2517,9 @@ def score_combined_hypotheses(tracks):
             or bool(track.get("common_pulse_completion_reject", False))
             or bool(track.get("ballistic_pulse_coverage_reject", False))
             or ballistic_reject_blocks
+            or bool(track.get("linearity_reject", False))
+            or bool(track.get("descent_reject", False))
+            or bool(track.get("low_detection_altitude_reject", False))
             or (bool(track.get("ballistic_low_start_altitude_reject", False)) and track.get("selection_model_type") != "fixed_velocity")
             or bool(track.get("head_echo_speed_reject", False))
             or bool(track.get("short_static_measurement_reject", False))
@@ -3645,6 +3663,51 @@ def cut_tx_waveform_quality(cut: dict, min_corr: float = 0.8, max_phase_std_deg:
     }
 
 
+def cut_tx_reference_phase_quality(
+    cut: dict,
+    reference_phase_rad: np.ndarray,
+    threshold_deg: float = txpq.DEFAULT_THRESHOLD_DEG,
+    min_valid_channels: int = txpq.DEFAULT_MIN_VALID_CHANNELS,
+) -> dict:
+    z_tx = np.asarray(cut["ztx_pulses_re"], dtype=np.float32) + 1j * np.asarray(cut["ztx_pulses_im"], dtype=np.float32)
+    if z_tx.ndim != 2 or z_tx.shape[0] < 1 or z_tx.shape[1] < 4:
+        return {
+            "available": False,
+            "good": False,
+            "reason": "cut_tx_waveform_unavailable",
+        }
+    n_chan = min(z_tx.shape[1], len(reference_phase_rad))
+    z_tx = z_tx[:, :n_chan]
+    valid_pulse = np.all(np.isfinite(z_tx), axis=1) & (np.sum(np.abs(z_tx) ** 2, axis=1) > 0)
+    if np.count_nonzero(valid_pulse) < 1:
+        return {
+            "available": False,
+            "good": False,
+            "reason": "too_few_valid_cut_tx_pulses",
+        }
+    z_use = z_tx[valid_pulse]
+    xphase = np.nanmean(z_use[:, [0]] * np.conj(z_use), axis=0)
+    amplitude = np.abs(xphase).astype(np.float32)
+    phase_rad = np.angle(xphase).astype(np.float32)
+    classified = txpq.classify_phase_vector(
+        phase_rad,
+        amplitude,
+        np.asarray(reference_phase_rad[:n_chan], dtype=np.float32),
+        threshold_deg=threshold_deg,
+        min_valid_channels=min(min_valid_channels, n_chan),
+    )
+    classified.update(
+        {
+            "reason": "ok_cut_tx_reference_phase" if classified.get("good", False) else "cut_tx_reference_phase_mismatch",
+            "computed_available": True,
+            "computed_from_cut_tx_waveform": True,
+            "cut_tx_pulse_count": int(np.count_nonzero(valid_pulse)),
+            "mean_amplitude": float(np.nanmean(amplitude)),
+        }
+    )
+    return classified
+
+
 def write_rejected_disambiguation_diagnostics_h5(
     output: Path,
     sample_idx: int,
@@ -3858,6 +3921,7 @@ def write_disambiguation_diagnostics_h5(
                     "physics_ceplecha_dof": int(track.get("physics_ceplecha_dof", 0)),
                     "head_echo_min_speed_km_s": float(track.get("head_echo_min_speed_km_s", np.nan)),
                     "head_echo_speed_reject": bool(track.get("head_echo_speed_reject", False)),
+                    "trajectory_quality_reject": bool(track.get("trajectory_quality_reject", False)),
                     "measurement_range_span_km": float(track.get("measurement_range_span_km", np.nan)),
                     "measurement_doppler_span_km_s": float(track.get("measurement_doppler_span_km_s", np.nan)),
                     "short_static_measurement_reject": bool(track.get("short_static_measurement_reject", False)),
@@ -4714,7 +4778,7 @@ def main():
                 args.tx_phase_quality_h5,
                 args.sample_idx,
                 max_age_s=args.tx_phase_max_age_s,
-                compute_if_missing=False,
+                compute_if_missing=args.require_good_tx_phase and args.compute_missing_tx_phase,
                 raw_voltage_dir=args.tx_phase_raw_voltage_dir,
                 tx_metadata_dir=args.tx_phase_tx_metadata_dir,
                 fallback_search_radius_s=args.tx_phase_fallback_search_radius_s,
@@ -4741,7 +4805,16 @@ def main():
     ):
         try:
             cut = load_cut(args.cut_dir, args.sample_idx)
-            cut_quality = cut_tx_waveform_quality(cut)
+            with h5py.File(args.tx_phase_quality_h5, "r") as h5:
+                reference_phase_rad = np.asarray(h5["reference_phase_rad"], dtype=np.float32)
+                threshold_deg = float(h5.attrs.get("threshold_deg", txpq.DEFAULT_THRESHOLD_DEG))
+                min_valid_channels = int(h5.attrs.get("min_valid_channels", txpq.DEFAULT_MIN_VALID_CHANNELS))
+            cut_quality = cut_tx_reference_phase_quality(
+                cut,
+                reference_phase_rad,
+                threshold_deg=threshold_deg,
+                min_valid_channels=min_valid_channels,
+            )
             inherited = {
                 key: value
                 for key, value in tx_quality.items()
@@ -4750,9 +4823,9 @@ def main():
             tx_quality = {
                 **inherited,
                 "available": True,
-                "good": True,
+                "good": bool(cut_quality.get("good", False)),
                 "raw_good": bool(cut_quality.get("good", False)),
-                "reason": "ok_missing_txphase_cut_waveform_diagnostic",
+                "reason": str(cut_quality.get("reason", "cut_tx_waveform_failed")),
                 "computed_available": bool(cut_quality.get("available", False)),
                 "computed_reason": str(cut_quality.get("reason", "cut_tx_waveform_failed")),
                 "computed_from_cut_tx_waveform": True,
@@ -4760,6 +4833,10 @@ def main():
                 "cut_tx_waveform_phase_std_deg": float(cut_quality.get("rms_diff_deg", np.nan)),
                 "cut_tx_waveform_median_corr": float(cut_quality.get("mean_amplitude", np.nan)),
                 "cut_tx_waveform_phase_slope_deg_per_pulse": float(cut_quality.get("phase_slope_deg_per_pulse", np.nan)),
+                "max_abs_diff_deg": float(cut_quality.get("max_abs_diff_deg", np.nan)),
+                "rms_diff_deg": float(cut_quality.get("rms_diff_deg", np.nan)),
+                "valid_channel_count": int(cut_quality.get("valid_channel_count", 0)),
+                "threshold_deg": float(cut_quality.get("threshold_deg", txpq.DEFAULT_THRESHOLD_DEG)),
             }
         except Exception as exc:
             tx_quality = {
@@ -5038,13 +5115,19 @@ def main():
         u.shape,
     )
     state_h5 = args.orbit_state_h5 or (args.output_dir / f"pansy_candidate_orbit_states_{args.sample_idx}.h5")
-    plausible_orbit_aliases = [
+    accepted_orbit_tracks = [
         t
         for t in best
         if ("selection_params" in t or "ballistic_params" in t)
+        and not bool(t.get("combined_reject", True))
+    ]
+    plausible_orbit_aliases = [
+        t
+        for t in accepted_orbit_tracks
+        if ("selection_params" in t or "ballistic_params" in t)
         and bool(t.get("interstellar_alias_plausible", False))
     ]
-    selected_orbit_aliases = [t for t in best if "selection_params" in t or "ballistic_params" in t][:1]
+    selected_orbit_aliases = accepted_orbit_tracks[:1]
     orbit_aliases = []
     seen_hypothesis_ids = set()
     for track in selected_orbit_aliases + plausible_orbit_aliases:
