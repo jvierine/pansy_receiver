@@ -146,13 +146,13 @@ def main():
     parser.add_argument("--shower-catalog", type=Path, default=None)
     parser.add_argument("--shower-peak-tolerance-deg", type=float, default=5.0)
     parser.add_argument("--bins", type=int, default=72)
-    parser.add_argument("--daily", action="store_true", help="Use non-cumulative daily frames.")
+    parser.add_argument("--cumulative", action="store_true", help="Accumulate all previous days in each frame.")
     args = parser.parse_args()
 
     arr = read_radiants(args.input_h5)
     order = np.argsort(arr["epoch_unix"])
     arr = arr[order]
-    cumulative = not args.daily
+    cumulative = args.cumulative
     n_scatter = make_animation(
         arr,
         args.scatter_gif,
