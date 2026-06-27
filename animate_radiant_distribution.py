@@ -155,7 +155,7 @@ def make_animation(arr, output_gif: Path, frame_dir: Path, kind: str, shower_cat
             plot_histogram_frame(rows, day_rows, label, out, shower_catalog, peak_tolerance_deg, bins)
         frames.append(imageio.imread(out))
     output_gif.parent.mkdir(parents=True, exist_ok=True)
-    imageio.mimsave(output_gif, frames, duration=0.55)
+    imageio.mimsave(output_gif, frames, duration=0.55, loop=0)
     return len(frames)
 
 
