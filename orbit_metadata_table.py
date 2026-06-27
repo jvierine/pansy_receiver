@@ -240,3 +240,30 @@ def write_payload(root: Path, sample_idx: int, payload: dict) -> Path:
         os.replace(tmp, out)
         fcntl.flock(lock, fcntl.LOCK_UN)
     return out
+
+
+def delete_sample(root: Path, sample_idx: int) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    lock_path = root / ".orbit_metadata.lock"
+    out = table_path(root, sample_idx)
+    if not out.exists():
+        return out
+    with lock_path.open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        old_events, old_aliases, old_paths = _read_table(out)
+        keep_events = old_events["sample_idx"] != sample_idx if len(old_events) else np.asarray([], dtype=bool)
+        keep_aliases = old_aliases["sample_idx"] != sample_idx if len(old_aliases) else np.asarray([], dtype=bool)
+        keep_paths = old_paths["sample_idx"] != sample_idx if len(old_paths) else np.asarray([], dtype=bool)
+        tmp = out.with_suffix(out.suffix + ".tmp")
+        if tmp.exists():
+            tmp.unlink()
+        with h5py.File(tmp, "w") as h:
+            h.attrs["schema"] = "pansy_orbit_table_v1"
+            h.create_dataset("events", data=old_events[keep_events])
+            h.create_dataset("aliases", data=old_aliases[keep_aliases])
+            h.create_dataset("paths", data=old_paths[keep_paths])
+        with h5py.File(tmp, "r"):
+            pass
+        os.replace(tmp, out)
+        fcntl.flock(lock, fcntl.LOCK_UN)
+    return out

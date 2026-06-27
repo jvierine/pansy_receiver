@@ -26,6 +26,7 @@ import pansy_modes as pmm
 import pansy_ballistic as pbal
 import pansy_orbit as porb
 import tx_phase_quality as txpq
+import orbit_metadata_table
 from interferometer_alias_diagnostics import RangeDopplerSearch, amp_scale, load_cut, recompute_cut_observables
 
 
@@ -5158,6 +5159,17 @@ def main():
                 subprocess.run(cmd, check=True)
             except subprocess.CalledProcessError as exc:
                 print(f"dasst_failed sample_idx={args.sample_idx} returncode={exc.returncode}")
+        stage("orbit_products")
+    elif not args.skip_orbit_products:
+        for stale_path in (state_h5, dasst_orbit_h5):
+            try:
+                stale_path.unlink()
+                print(f"stale_orbit_product_removed {stale_path}")
+            except FileNotFoundError:
+                pass
+        if args.orbit_metadata_dir is not None:
+            orbit_metadata_table.delete_sample(args.orbit_metadata_dir, args.sample_idx)
+            print(f"orbit_metadata_delete {args.orbit_metadata_dir} {args.sample_idx}")
         stage("orbit_products")
     if not args.overview_only:
         plot_visibility_rejections(candidates, tracks, visibility_out)
