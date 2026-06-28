@@ -17,7 +17,6 @@ DEFAULT_ORBIT_METADATA_DIR = Path("/mnt/data/juha/pansy/metadata/orbit")
 DEFAULT_OUTPUT_DIR = Path("test_plots/radiant_uncertainty")
 PERCENTILES = np.asarray([1, 5, 10, 25, 50, 75, 90, 95, 99], dtype=np.float64)
 ANGLE_THRESHOLDS_DEG = np.asarray([0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 7.5, 10.0], dtype=np.float64)
-VELOCITY_THRESHOLDS_MPS = np.asarray([500, 1000, 1500, 2000, 3000, 5000, 10000], dtype=np.float64)
 
 
 def finite_quality_rows(rows: np.ndarray, max_combined_score: float, min_uncertainty_samples: int) -> np.ndarray:
@@ -54,16 +53,12 @@ def write_summary_h5(path: Path, rows: np.ndarray, files_read: int, files_skippe
         h.create_dataset("geocentric_speed_km_s_percentiles", data=np.nanpercentile(speed, PERCENTILES))
         h.create_dataset("angle_thresholds_deg", data=ANGLE_THRESHOLDS_DEG)
         h.create_dataset("angle_threshold_counts", data=threshold_counts(angle, ANGLE_THRESHOLDS_DEG))
-        h.create_dataset("velocity_thresholds_mps", data=VELOCITY_THRESHOLDS_MPS)
-        h.create_dataset("velocity_threshold_counts", data=threshold_counts(vel, VELOCITY_THRESHOLDS_MPS))
 
 
 def plot_distribution(rows: np.ndarray, output_png: Path, output_pdf: Path | None, chosen_angle_deg: float) -> None:
     angle = rows["initial_state_radiant_angle_sigma_deg"]
-    vel = rows["initial_state_velocity_sigma_mps"] / 1e3
     total = max(1, len(rows))
     angle_counts = threshold_counts(angle, ANGLE_THRESHOLDS_DEG)
-    vel_counts = threshold_counts(rows["initial_state_velocity_sigma_mps"], VELOCITY_THRESHOLDS_MPS)
 
     fig, axes = plt.subplots(1, 2, figsize=(9.2, 3.6), constrained_layout=True)
 
@@ -85,19 +80,11 @@ def plot_distribution(rows: np.ndarray, output_png: Path, output_pdf: Path | Non
     )
 
     axes[1].plot(ANGLE_THRESHOLDS_DEG, 100.0 * angle_counts / total, "o-", color="#3b6fb6", label="angular")
-    axes[1].plot(
-        np.rad2deg(np.arctan2(VELOCITY_THRESHOLDS_MPS, np.nanmedian(rows["speed_km_s"]) * 1e3)),
-        100.0 * vel_counts / total,
-        "s--",
-        color="#a13b3b",
-        label="fixed velocity sigma",
-    )
     axes[1].axvline(chosen_angle_deg, color="black", lw=1.4, ls="--")
-    axes[1].set_xlabel("Threshold expressed as angular uncertainty (deg)")
+    axes[1].set_xlabel("Radiant angular uncertainty threshold (deg)")
     axes[1].set_ylabel("Cumulative retained fraction (%)")
     axes[1].set_ylim(0, 100)
     axes[1].grid(True, alpha=0.25)
-    axes[1].legend(frameon=False, fontsize=8)
 
     output_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_png, dpi=220)
