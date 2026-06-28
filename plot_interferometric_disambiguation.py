@@ -25,6 +25,7 @@ import pansy_config as pc
 import pansy_modes as pmm
 import pansy_ballistic as pbal
 import pansy_orbit as porb
+import pansy_gain as pgain
 import tx_phase_quality as txpq
 import orbit_metadata_table
 from interferometer_alias_diagnostics import RangeDopplerSearch, amp_scale, load_cut, recompute_cut_observables
@@ -92,8 +93,8 @@ def plot_antenna_positions(output: Path):
     plt.close(fig)
 
 
-def plot_tx_array_beam_patterns(output: Path, grid_n=501, model="module_incoherent"):
-    """Plot the five transmit array-factor beam patterns over the visible sky."""
+def plot_tx_array_beam_patterns(output: Path, grid_n=501, model="tx_gain"):
+    """Plot the five transmit gain patterns over the visible sky."""
     output.parent.mkdir(parents=True, exist_ok=True)
     u, v, w, valid = horizon_grid(grid_n)
     beam_vecs = tx_beam_unit_vectors()
@@ -115,7 +116,7 @@ def plot_tx_array_beam_patterns(output: Path, grid_n=501, model="module_incohere
         ax.set_xlim(-1.02, 1.02)
         ax.set_ylim(-1.02, 1.02)
         ax.grid(True, alpha=0.18)
-    fig.colorbar(im, ax=axes, label="Relative TX array-factor gain (dB)")
+    fig.colorbar(im, ax=axes, label="Relative TX gain (dB)")
     fig.suptitle(f"PANSY transmit beam patterns ({model.replace('_', ' ')})")
     fig.savefig(output, dpi=220)
     plt.close(fig)
@@ -134,16 +135,7 @@ def horizon_grid(n: int):
 
 def tx_beam_unit_vectors():
     """Transmit beam pointing directions in the same u/v/w convention."""
-    mode = pmm.get_m_mode()
-    vecs = []
-    for az_deg, za_deg in mode["beam_pos_az_za"]:
-        el_deg = 90.0 - za_deg
-        p_h = np.cos(np.deg2rad(el_deg))
-        w = -np.sin(np.deg2rad(el_deg))
-        v = p_h * np.cos(-np.deg2rad(az_deg))
-        u = -p_h * np.sin(-np.deg2rad(az_deg))
-        vecs.append([u, v, w])
-    return np.asarray(vecs, dtype=np.float64)
+    return pgain.tx_beam_unit_vectors()
 
 
 TX_BEAM_SHORT_NAMES = np.asarray(["Z", "N", "E", "S", "W"])
@@ -987,49 +979,27 @@ def tx_array_positions():
 
 def tx_array_module_positions():
     """Ready transmit antenna positions grouped by physical module."""
-    groups = []
-    for name in sorted(pc.modules):
-        pos = []
-        for ant in pc.antenna.values():
-            if ant["name"] != name or ant["serial"] == "RFTX":
-                continue
-            try:
-                ready = int(ant["ready"]) == 1
-            except ValueError:
-                ready = str(ant["ready"]).strip().lower() in {"true", "yes", "ready"}
-            if ready:
-                pos.append([ant["x"], ant["y"], ant["z"]])
-        if pos:
-            groups.append(np.asarray(pos, dtype=np.float64))
-    if not groups:
-        raise RuntimeError("no ready transmit antenna modules found")
-    return groups
+    return pgain.tx_module_positions()
 
 
 def tx_module_center_positions():
     """One coherent array element at each PANSY antenna module center."""
-    pos = []
-    for name, center in sorted(pc.module_center.items()):
-        if name == "RFTX":
-            continue
-        pos.append(np.asarray(center, dtype=np.float64))
-    if not pos:
-        raise RuntimeError("no transmit module centers found")
-    pos = np.asarray(pos, dtype=np.float64)
-    return pos - np.mean(pos, axis=0, keepdims=True)
+    return pgain.tx_module_center_positions()
 
 
-def tx_array_gain_db(uvw, beam_id, tx_pos=None, beam_vecs=None, model="module_center_coherent"):
+def tx_array_gain_db(uvw, beam_id, tx_pos=None, beam_vecs=None, model="tx_gain"):
     """Relative transmit array-factor power gain in dB for each trial direction.
 
-    ``model='module_center_coherent'`` uses one coherent array element at each
-    PANSY module center.  This is the beam pattern used for the transmit-lobe
-    consistency diagnostic.
+    The default and the plotting model are now the full physical TX gain:
+    single-module subarray power gain times sparse module-center array-factor
+    power gain.  Legacy model names are retained for old diagnostics.
     """
     uvw = np.asarray(uvw, dtype=np.float64)
     beam_id = np.asarray(beam_id, dtype=np.int64)
     if beam_vecs is None:
         beam_vecs = tx_beam_unit_vectors()
+    if model in {"tx_gain", "module_pattern_coherent"}:
+        return pgain.tx_gain_db(uvw, beam_id, beam_vecs=beam_vecs)
     k0 = 2.0 * np.pi / pc.wavelength
     gain = np.full(len(uvw), np.nan, dtype=np.float64)
     if model == "module_center_coherent":
@@ -1056,24 +1026,6 @@ def tx_array_gain_db(uvw, beam_id, tx_pos=None, beam_vecs=None, model="module_ce
             gain[i] = 10.0 * np.log10(max(float(np.mean(powers)), 1e-16))
         return gain
 
-    if model == "module_pattern_coherent":
-        modules = tx_array_module_positions() if tx_pos is None else tx_pos
-        centers = np.asarray([np.mean(pos, axis=0) for pos in modules], dtype=np.float64)
-        centers -= np.mean(centers, axis=0, keepdims=True)
-        rel_modules = [pos - np.mean(pos, axis=0, keepdims=True) for pos in modules]
-        for i, direction in enumerate(uvw):
-            if not np.all(np.isfinite(direction)):
-                continue
-            steer = beam_vecs[beam_id[i]]
-            delta = direction - steer
-            module_fields = []
-            for center, rel_pos in zip(centers, rel_modules, strict=False):
-                subarray_field = np.mean(np.exp(1j * k0 * (rel_pos @ delta)))
-                module_fields.append(np.exp(1j * k0 * (center @ delta)) * subarray_field)
-            af = np.abs(np.mean(module_fields))
-            gain[i] = 20.0 * np.log10(max(af, 1e-8))
-        return gain
-
     if tx_pos is None:
         tx_pos = tx_array_positions()
     for i, direction in enumerate(uvw):
@@ -1086,8 +1038,10 @@ def tx_array_gain_db(uvw, beam_id, tx_pos=None, beam_vecs=None, model="module_ce
     return gain
 
 
-def precompute_tx_array_gain_maps(u, v, w, valid, tx_pos=None, beam_vecs=None, model="module_center_coherent"):
+def precompute_tx_array_gain_maps(u, v, w, valid, tx_pos=None, beam_vecs=None, model="tx_gain"):
     """Precompute TX array-factor gain maps for all transmit beams on a sky grid."""
+    if model in {"tx_gain", "module_pattern_coherent"}:
+        return pgain.precompute_tx_gain_maps(u, v, w, valid, beam_vecs=beam_vecs)
     if tx_pos is None and model == "module_center_coherent":
         tx_pos = tx_module_center_positions()
     if tx_pos is None and model == "element_coherent":
@@ -1116,24 +1070,6 @@ def precompute_tx_array_gain_maps(u, v, w, valid, tx_pos=None, beam_vecs=None, m
             power /= len(modules)
             flat = np.full(u.shape, np.nan, dtype=np.float32)
             flat[valid] = (10.0 * np.log10(np.maximum(power, 1e-16))).astype(np.float32)
-            gain_maps[beam_i] = flat
-        return gain_maps
-
-    if model == "module_pattern_coherent":
-        modules = tx_array_module_positions() if tx_pos is None else tx_pos
-        centers = np.asarray([np.mean(pos, axis=0) for pos in modules], dtype=np.float64)
-        centers -= np.mean(centers, axis=0, keepdims=True)
-        rel_modules = [pos - np.mean(pos, axis=0, keepdims=True) for pos in modules]
-        for beam_i, steer in enumerate(beam_vecs):
-            delta = uvw - steer
-            field = np.zeros(len(uvw), dtype=np.complex128)
-            for center, rel_pos in zip(centers, rel_modules, strict=False):
-                subarray_field = np.mean(np.exp(1j * k0 * (rel_pos @ delta.T)), axis=0)
-                center_phase = np.exp(1j * k0 * (center @ delta.T))
-                field += center_phase * subarray_field
-            field /= len(modules)
-            flat = np.full(u.shape, np.nan, dtype=np.float32)
-            flat[valid] = (20.0 * np.log10(np.maximum(np.abs(field), 1e-8))).astype(np.float32)
             gain_maps[beam_i] = flat
         return gain_maps
 

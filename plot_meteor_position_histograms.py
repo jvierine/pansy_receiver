@@ -14,7 +14,8 @@ from matplotlib.colors import LogNorm
 import plot_interferometric_disambiguation as disamb
 
 TX_BEAM_COUNT = len(disamb.tx_beam_unit_vectors())
-TX_GAIN_MODEL = "module_pattern_coherent"
+TX_GAIN_MODEL = "tx_gain"
+TX_GAIN_LABEL = "module gain x sparse array gain"
 
 
 def direction_cosines_to_offsets_deg(uvw: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -344,7 +345,7 @@ def plot_stacked_position_histogram(
         in_view,
         zenith_output,
         extent_deg,
-        f"Analytical zenith TX beam gain\n{TX_GAIN_MODEL.replace('_', ' ')} (dB)",
+        f"Analytical zenith TX beam gain\n{TX_GAIN_LABEL} (dB)",
         f"Zenith TX beam trajectory positions\n{day_label}, N={n_beam0} points",
     )
     plot_gain_histogram_pair(
@@ -355,7 +356,7 @@ def plot_stacked_position_histogram(
         in_view,
         all_output,
         extent_deg,
-        f"All TX beams analytical composite gain\n{TX_GAIN_MODEL.replace('_', ' ')} (dB)",
+        f"All TX beams analytical composite gain\n{TX_GAIN_LABEL} (dB)",
         f"All TX beams meteor positions\n{day_label}, N={n_points} points",
     )
     return {

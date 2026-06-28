@@ -18,6 +18,7 @@ import h5py
 import pansy_interferometry as pint
 import pansy_config as pc
 import pansy_modes as pmm
+import pansy_gain as pgain
 
 
 def amp_scale():
@@ -190,37 +191,17 @@ def tx_array_positions() -> np.ndarray:
 
 def beam_unit_vectors() -> np.ndarray:
     """Beam pointing vectors in the same u/v/w convention used by imaging."""
-    mode = pmm.get_m_mode()
-    out = []
-    for az_deg, za_deg in mode["beam_pos_az_za"]:
-        el_deg = 90.0 - za_deg
-        p_h = np.cos(np.deg2rad(el_deg))
-        w = -np.sin(np.deg2rad(el_deg))
-        v = p_h * np.cos(-np.deg2rad(az_deg))
-        u = -p_h * np.sin(-np.deg2rad(az_deg))
-        out.append([u, v, w])
-    return np.asarray(out, dtype=np.float64)
+    return pgain.tx_beam_unit_vectors()
 
 
 def tx_array_gain_db(uvw: np.ndarray, beam_id: np.ndarray, tx_pos: np.ndarray, beam_vecs: np.ndarray) -> np.ndarray:
-    """Relative steered transmit array-factor power gain in dB.
+    """Full steered transmit power gain in dB.
 
-    The gain is normalized so that a target exactly at the commanded beam
-    pointing direction has 0 dB gain. Sidelobes and grating lobes are retained
-    because the full ready-antenna geometry is used.
+    ``tx_pos`` is accepted for compatibility with older callers, but the gain
+    model is now the reusable product of single-module gain and sparse
+    transmitter array gain.
     """
-    uvw = np.asarray(uvw, dtype=np.float64)
-    beam_id = np.asarray(beam_id, dtype=np.int64)
-    k0 = 2.0 * np.pi / pc.wavelength
-    gain = np.full(len(uvw), np.nan, dtype=np.float64)
-    for i, direction in enumerate(uvw):
-        if not np.all(np.isfinite(direction)):
-            continue
-        steer = beam_vecs[beam_id[i]]
-        phase = k0 * (tx_pos @ (direction - steer))
-        af = np.abs(np.mean(np.exp(1j * phase)))
-        gain[i] = 20.0 * np.log10(max(af, 1e-8))
-    return gain
+    return pgain.tx_gain_db(uvw, beam_id, beam_vecs=beam_vecs)
 
 
 def beam_snr_consistency(obs: dict, branch: dict, tx_pos: np.ndarray, beam_vecs: np.ndarray) -> dict:
