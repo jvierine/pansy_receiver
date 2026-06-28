@@ -357,7 +357,7 @@ def plot_stacked_position_histogram(
         zenith_output,
         extent_deg,
         "Two-way antenna gain",
-        f"Meteor positions\n{day_label}, N={n_beam0} points",
+        "Meteor positions",
     )
     plot_gain_histogram_pair(
         all_gain,
@@ -368,7 +368,7 @@ def plot_stacked_position_histogram(
         all_output,
         extent_deg,
         "Two-way antenna gain",
-        f"Meteor positions\n{day_label}, N={n_points} points",
+        "Meteor positions",
     )
     return {
         "days": n_days,
