@@ -1056,6 +1056,24 @@ def tx_array_gain_db(uvw, beam_id, tx_pos=None, beam_vecs=None, model="module_ce
             gain[i] = 10.0 * np.log10(max(float(np.mean(powers)), 1e-16))
         return gain
 
+    if model == "module_pattern_coherent":
+        modules = tx_array_module_positions() if tx_pos is None else tx_pos
+        centers = np.asarray([np.mean(pos, axis=0) for pos in modules], dtype=np.float64)
+        centers -= np.mean(centers, axis=0, keepdims=True)
+        rel_modules = [pos - np.mean(pos, axis=0, keepdims=True) for pos in modules]
+        for i, direction in enumerate(uvw):
+            if not np.all(np.isfinite(direction)):
+                continue
+            steer = beam_vecs[beam_id[i]]
+            delta = direction - steer
+            module_fields = []
+            for center, rel_pos in zip(centers, rel_modules, strict=False):
+                subarray_field = np.mean(np.exp(1j * k0 * (rel_pos @ delta)))
+                module_fields.append(np.exp(1j * k0 * (center @ delta)) * subarray_field)
+            af = np.abs(np.mean(module_fields))
+            gain[i] = 20.0 * np.log10(max(af, 1e-8))
+        return gain
+
     if tx_pos is None:
         tx_pos = tx_array_positions()
     for i, direction in enumerate(uvw):
@@ -1098,6 +1116,24 @@ def precompute_tx_array_gain_maps(u, v, w, valid, tx_pos=None, beam_vecs=None, m
             power /= len(modules)
             flat = np.full(u.shape, np.nan, dtype=np.float32)
             flat[valid] = (10.0 * np.log10(np.maximum(power, 1e-16))).astype(np.float32)
+            gain_maps[beam_i] = flat
+        return gain_maps
+
+    if model == "module_pattern_coherent":
+        modules = tx_array_module_positions() if tx_pos is None else tx_pos
+        centers = np.asarray([np.mean(pos, axis=0) for pos in modules], dtype=np.float64)
+        centers -= np.mean(centers, axis=0, keepdims=True)
+        rel_modules = [pos - np.mean(pos, axis=0, keepdims=True) for pos in modules]
+        for beam_i, steer in enumerate(beam_vecs):
+            delta = uvw - steer
+            field = np.zeros(len(uvw), dtype=np.complex128)
+            for center, rel_pos in zip(centers, rel_modules, strict=False):
+                subarray_field = np.mean(np.exp(1j * k0 * (rel_pos @ delta.T)), axis=0)
+                center_phase = np.exp(1j * k0 * (center @ delta.T))
+                field += center_phase * subarray_field
+            field /= len(modules)
+            flat = np.full(u.shape, np.nan, dtype=np.float32)
+            flat[valid] = (20.0 * np.log10(np.maximum(np.abs(field), 1e-8))).astype(np.float32)
             gain_maps[beam_i] = flat
         return gain_maps
 

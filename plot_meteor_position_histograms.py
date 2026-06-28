@@ -14,7 +14,7 @@ from matplotlib.colors import LogNorm
 import plot_interferometric_disambiguation as disamb
 
 TX_BEAM_COUNT = len(disamb.tx_beam_unit_vectors())
-TX_GAIN_MODEL = "module_incoherent"
+TX_GAIN_MODEL = "module_pattern_coherent"
 
 
 def direction_cosines_to_offsets_deg(uvw: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
