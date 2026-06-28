@@ -212,9 +212,58 @@ def plot_position_histograms(
     }
 
 
+def plot_stacked_position_histogram(input_h5: Path, output: Path, extent_deg: float):
+    """Plot a current all-days position histogram from a daily histogram stack."""
+    with h5py.File(input_h5, "r") as h:
+        counts = np.asarray(h["all_counts"], dtype=np.int64)
+        east_grid = np.asarray(h["east_grid_deg"], dtype=np.float64)
+        north_grid = np.asarray(h["north_grid_deg"], dtype=np.float64)
+        metrics = h["metrics"][()] if "metrics" in h else np.zeros(0, dtype=[])
+    if counts.ndim != 3:
+        raise ValueError(f"{input_h5} all_counts must have shape (day, row, col)")
+    total_counts = np.sum(counts, axis=0)
+    in_view = (
+        np.isfinite(east_grid)
+        & np.isfinite(north_grid)
+        & (east_grid >= -extent_deg)
+        & (east_grid <= extent_deg)
+        & (north_grid >= -extent_deg)
+        & (north_grid <= extent_deg)
+    )
+    total_counts = np.where(in_view, total_counts, 0)
+    row_use = np.flatnonzero(np.any(in_view, axis=1))
+    col_use = np.flatnonzero(np.any(in_view, axis=0))
+    if len(row_use) == 0 or len(col_use) == 0:
+        raise RuntimeError("no interferometry grid cells inside requested angular extent")
+    rs = slice(int(row_use[0]), int(row_use[-1]) + 1)
+    cs = slice(int(col_use[0]), int(col_use[-1]) + 1)
+    n_points = int(np.sum(total_counts))
+    n_days = int(len(metrics)) if len(metrics) else int(counts.shape[0])
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(7.2, 6.2), constrained_layout=True)
+    image = np.where(np.isfinite(total_counts[rs, cs]), np.maximum(total_counts[rs, cs], 1), np.nan)
+    mesh = ax.pcolormesh(
+        east_grid[rs, cs],
+        north_grid[rs, cs],
+        image,
+        shading="auto",
+        cmap="magma",
+        norm=LogNorm(vmin=1, vmax=max(1, float(np.nanmax(image)))),
+    )
+    ax.set_title(f"All TX beams meteor positions\n{n_days} days, N={n_points} points")
+    format_direction_axis(ax, extent_deg)
+    cb = fig.colorbar(mesh, ax=ax, shrink=0.86)
+    cb.set_label("Meteor detections per bin")
+    fig.savefig(output, dpi=220)
+    plt.close(fig)
+    return {"days": n_days, "points_in_view": n_points}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--diagnostics-dir", type=Path, default=Path("test_plots"))
+    parser.add_argument("--input-h5", type=Path, default=None, help="Daily histogram stack HDF5 to plot instead of scanning diagnostics.")
     parser.add_argument("--output", type=Path, default=Path("test_plots/pansy_meteor_position_histograms.png"))
     parser.add_argument("--extent-deg", type=float, default=15.0)
     parser.add_argument("--grid-n", type=int, default=501, help="Interferometry search grid size used to form grid_row/grid_col.")
@@ -224,6 +273,13 @@ def main() -> None:
         help="Use all selected-hypothesis points instead of only trajectory-fit kept points.",
     )
     args = parser.parse_args()
+
+    if args.input_h5 is not None:
+        stats = plot_stacked_position_histogram(args.input_h5, args.output, args.extent_deg)
+        print(args.output)
+        print(f"daily_histogram_days {stats['days']}")
+        print(f"points_in_view {stats['points_in_view']}")
+        return
 
     grid_counts = collect_grid_counts(args.diagnostics_dir, args.grid_n, use_selection_keep=not args.include_clipped)
     stats = plot_position_histograms(grid_counts, args.output, args.extent_deg, args.grid_n)
