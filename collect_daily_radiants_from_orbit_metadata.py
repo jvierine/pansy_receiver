@@ -39,6 +39,16 @@ RADIANT_DTYPE = np.dtype(
         ("lambda_minus_sun_signed_deg", "f8"),
         ("plot_longitude_deg", "f8"),
         ("speed_km_s", "f8"),
+        ("n_uncertainty_samples", "i8"),
+        ("frac_e_gt_1", "f8"),
+        ("kepler_std", "f8", (7,)),
+        ("kepler_sigma_a_au", "f8"),
+        ("kepler_sigma_e", "f8"),
+        ("kepler_sigma_i_deg", "f8"),
+        ("kepler_sigma_raan_deg", "f8"),
+        ("kepler_sigma_argp_deg", "f8"),
+        ("kepler_sigma_nu_deg", "f8"),
+        ("kepler_sigma_q_au", "f8"),
     ]
 )
 
@@ -75,6 +85,16 @@ def rows_from_events(events: np.ndarray) -> np.ndarray:
     rows["lambda_minus_sun_signed_deg"] = lambda_minus_sun_signed
     rows["plot_longitude_deg"] = centered_plot_longitude_deg(lambda_minus_sun_signed)
     rows["speed_km_s"] = events["v_g_km_s"]
+    rows["n_uncertainty_samples"] = events["n_uncertainty_samples"]
+    rows["frac_e_gt_1"] = events["frac_e_gt_1"]
+    rows["kepler_std"] = events["kepler_std"]
+    rows["kepler_sigma_a_au"] = events["kepler_std"][:, 0]
+    rows["kepler_sigma_e"] = events["kepler_std"][:, 1]
+    rows["kepler_sigma_i_deg"] = events["kepler_std"][:, 2]
+    rows["kepler_sigma_raan_deg"] = events["kepler_std"][:, 3]
+    rows["kepler_sigma_argp_deg"] = events["kepler_std"][:, 4]
+    rows["kepler_sigma_nu_deg"] = events["kepler_std"][:, 5]
+    rows["kepler_sigma_q_au"] = events["kepler_std"][:, 6]
     return rows
 
 

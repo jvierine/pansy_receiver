@@ -257,6 +257,8 @@ def arrays_to_rows(arr):
             val = rec[name]
             if name in ("hypothesis", "source"):
                 val = val.decode("ascii", "ignore") if isinstance(val, bytes) else str(val)
+            elif arr.dtype[name].shape:
+                val = np.asarray(val)
             elif np.issubdtype(arr.dtype[name], np.integer):
                 val = int(val)
             else:

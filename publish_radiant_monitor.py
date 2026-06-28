@@ -15,8 +15,7 @@ import numpy as np
 
 from collect_daily_radiants_from_orbit_metadata import collect, daily_counts
 from plot_fitted_radiant_distribution import arrays_to_rows, plot_radiants_with_options
-from plot_fitted_radiant_healpix import healpix_histogram, plot_healpix_with_showers, read_radiants, write_h5
-from shower_radiant_overlay import active_showers
+from plot_fitted_radiant_healpix import healpix_histogram, plot_healpix, read_radiants, write_h5
 
 
 DEFAULT_ORBIT_METADATA_DIR = Path("/mnt/data/juha/pansy/metadata/orbit")
@@ -105,41 +104,79 @@ def run_animation(input_h5: Path, output_dir: Path, bins: int, window_days: int)
     return scatter_frames, histogram_frames
 
 
+def high_quality_radiant_mask(
+    rows: np.ndarray,
+    min_uncertainty_samples: int,
+    max_kepler_sigma_a_au: float,
+    max_kepler_sigma_e: float,
+    max_kepler_angular_sigma_deg: float,
+    max_combined_score: float,
+) -> np.ndarray:
+    if len(rows) == 0:
+        return np.zeros(0, dtype=bool)
+    good = np.isfinite(rows["plot_longitude_deg"])
+    good &= np.isfinite(rows["radiant_beta_ecliptic_deg"])
+    good &= np.isfinite(rows["speed_km_s"])
+    good &= rows["n_uncertainty_samples"] >= int(min_uncertainty_samples)
+    good &= np.isfinite(rows["combined_score"]) & (rows["combined_score"] <= float(max_combined_score))
+    good &= np.isfinite(rows["kepler_sigma_a_au"]) & (rows["kepler_sigma_a_au"] <= float(max_kepler_sigma_a_au))
+    good &= np.isfinite(rows["kepler_sigma_e"]) & (rows["kepler_sigma_e"] <= float(max_kepler_sigma_e))
+    angular = np.vstack(
+        [
+            rows["kepler_sigma_i_deg"],
+            rows["kepler_sigma_raan_deg"],
+            rows["kepler_sigma_argp_deg"],
+            rows["kepler_sigma_nu_deg"],
+        ]
+    )
+    good &= np.all(np.isfinite(angular), axis=0)
+    good &= np.nanmax(angular, axis=0) <= float(max_kepler_angular_sigma_deg)
+    return good
+
+
 def build_products(args) -> dict:
     output_dir = args.output_dir
     rows, files_read, files_skipped = collect(args.orbit_metadata_dir)
     radiant_h5 = output_dir / "current_fitted_radiant_distribution.h5"
     counts = write_radiant_h5(radiant_h5, rows, files_read, files_skipped)
     write_radiant_h5(output_dir / "current_daily_fitted_radiants.h5", rows, files_read, files_skipped)
+    high_quality_mask = high_quality_radiant_mask(
+        rows,
+        args.static_min_uncertainty_samples,
+        args.static_max_kepler_sigma_a_au,
+        args.static_max_kepler_sigma_e,
+        args.static_max_kepler_angular_sigma_deg,
+        args.static_max_combined_score,
+    )
+    high_quality_rows = rows[high_quality_mask]
+    high_quality_h5 = output_dir / "current_fitted_radiant_distribution_high_quality.h5"
+    write_radiant_h5(high_quality_h5, high_quality_rows, files_read, files_skipped)
 
     plot_radiants_with_options(
-        arrays_to_rows(rows),
+        arrays_to_rows(high_quality_rows),
         output_dir / "current_fitted_radiant_distribution.png",
-        show_shower_overlays=True,
+        show_shower_overlays=False,
         shower_catalog=None,
         shower_solar_longitude=None,
         shower_date=None,
         shower_peak_tolerance_deg=5.0,
     )
 
-    lon, lat, speed = read_radiants(radiant_h5)
+    lon, lat, speed = read_radiants(high_quality_h5)
     healpix_count, mean_speed = healpix_histogram(lon, lat, speed, args.nside, args.min_count_for_mean_speed)
     write_h5(
         output_dir / "current_fitted_radiant_distribution_healpix.h5",
-        radiant_h5,
+        high_quality_h5,
         args.nside,
         healpix_count,
         mean_speed,
         len(lon),
     )
-    showers, query = active_showers(rows, peak_tolerance_deg=5.0)
-    plot_healpix_with_showers(
+    plot_healpix(
         healpix_count,
         output_dir / "current_fitted_radiant_distribution_healpix.png",
         len(lon),
-        showers,
-        query,
-        rows=rows,
+        rows=high_quality_rows,
     )
 
     scatter_frames, histogram_frames = run_animation(radiant_h5, output_dir, args.bins, args.window_days)
@@ -152,6 +189,9 @@ def build_products(args) -> dict:
         scatter_frames,
         histogram_frames,
     )
+    status["static_high_quality_radiants"] = int(len(high_quality_rows))
+    status["static_high_quality_fraction"] = float(len(high_quality_rows) / len(rows)) if len(rows) else 0.0
+    (output_dir / "radiant_monitor.json").write_text(json.dumps(status, indent=2, sort_keys=True) + "\n")
     return status
 
 
@@ -177,6 +217,11 @@ def main() -> None:
     parser.add_argument("--bins", type=int, default=144)
     parser.add_argument("--window-days", type=int, default=3)
     parser.add_argument("--min-count-for-mean-speed", type=int, default=3)
+    parser.add_argument("--static-min-uncertainty-samples", type=int, default=3)
+    parser.add_argument("--static-max-kepler-sigma-a-au", type=float, default=5.0)
+    parser.add_argument("--static-max-kepler-sigma-e", type=float, default=0.15)
+    parser.add_argument("--static-max-kepler-angular-sigma-deg", type=float, default=10.0)
+    parser.add_argument("--static-max-combined-score", type=float, default=1.5)
     parser.add_argument("--loop", action="store_true")
     parser.add_argument("--interval-s", type=float, default=1800.0)
     parser.add_argument("--no-rsync", action="store_true")
