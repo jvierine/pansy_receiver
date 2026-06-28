@@ -73,9 +73,16 @@ tail -f /mnt/data/juha/pansy/backup_state/rsync.log
 tail -f /mnt/data/juha/pansy/backup_state/local_mirror.log
 ```
 
-Deploy the web page once:
+Deploy dynamic web status JSON and plot images once:
 
 ```bash
 PANSY_RECEIVER_REPO=~/src/pansy_receiver \
   ~/src/pansy_receiver/backup/scripts/pansy_deploy_web.sh
+```
+
+Deploy the static web page and logo/favicon assets only after editing them:
+
+```bash
+PANSY_RECEIVER_REPO=~/src/pansy_receiver \
+  ~/src/pansy_receiver/backup/scripts/pansy_deploy_web.sh --include-static
 ```
