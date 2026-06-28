@@ -1,0 +1,163 @@
+#!/usr/bin/env python3
+"""Plot radiant uncertainty distributions from compact PANSY orbit metadata."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+import h5py
+import matplotlib.pyplot as plt
+import numpy as np
+
+from collect_daily_radiants_from_orbit_metadata import collect
+
+
+DEFAULT_ORBIT_METADATA_DIR = Path("/mnt/data/juha/pansy/metadata/orbit")
+DEFAULT_OUTPUT_DIR = Path("test_plots/radiant_uncertainty")
+PERCENTILES = np.asarray([1, 5, 10, 25, 50, 75, 90, 95, 99], dtype=np.float64)
+ANGLE_THRESHOLDS_DEG = np.asarray([0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 7.5, 10.0], dtype=np.float64)
+VELOCITY_THRESHOLDS_MPS = np.asarray([500, 1000, 1500, 2000, 3000, 5000, 10000], dtype=np.float64)
+
+
+def finite_quality_rows(rows: np.ndarray, max_combined_score: float, min_uncertainty_samples: int) -> np.ndarray:
+    good = np.isfinite(rows["initial_state_radiant_angle_sigma_deg"])
+    good &= np.isfinite(rows["initial_state_velocity_sigma_mps"])
+    good &= np.isfinite(rows["initial_state_position_sigma_m"])
+    good &= np.isfinite(rows["speed_km_s"]) & (rows["speed_km_s"] > 0.0)
+    good &= np.isfinite(rows["combined_score"]) & (rows["combined_score"] <= max_combined_score)
+    good &= rows["n_uncertainty_samples"] >= int(min_uncertainty_samples)
+    return rows[good]
+
+
+def threshold_counts(values: np.ndarray, thresholds: np.ndarray) -> np.ndarray:
+    return np.asarray([np.sum(values <= threshold) for threshold in thresholds], dtype=np.int64)
+
+
+def write_summary_h5(path: Path, rows: np.ndarray, files_read: int, files_skipped: int) -> None:
+    angle = rows["initial_state_radiant_angle_sigma_deg"]
+    vel = rows["initial_state_velocity_sigma_mps"]
+    pos = rows["initial_state_position_sigma_m"]
+    speed = rows["speed_km_s"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with h5py.File(path, "w") as h:
+        h.attrs["script"] = Path(__file__).name
+        h.attrs["source"] = "compact hourly orbit metadata events tables"
+        h.attrs["files_read"] = int(files_read)
+        h.attrs["files_skipped"] = int(files_skipped)
+        h.attrs["n_radiants"] = int(len(rows))
+        h.attrs["radiant_angle_sigma_definition"] = "atan(initial_state_velocity_sigma_mps / geocentric_speed_mps), degrees"
+        h.create_dataset("percentiles", data=PERCENTILES)
+        h.create_dataset("radiant_angle_sigma_deg_percentiles", data=np.nanpercentile(angle, PERCENTILES))
+        h.create_dataset("initial_state_velocity_sigma_mps_percentiles", data=np.nanpercentile(vel, PERCENTILES))
+        h.create_dataset("initial_state_position_sigma_m_percentiles", data=np.nanpercentile(pos, PERCENTILES))
+        h.create_dataset("geocentric_speed_km_s_percentiles", data=np.nanpercentile(speed, PERCENTILES))
+        h.create_dataset("angle_thresholds_deg", data=ANGLE_THRESHOLDS_DEG)
+        h.create_dataset("angle_threshold_counts", data=threshold_counts(angle, ANGLE_THRESHOLDS_DEG))
+        h.create_dataset("velocity_thresholds_mps", data=VELOCITY_THRESHOLDS_MPS)
+        h.create_dataset("velocity_threshold_counts", data=threshold_counts(vel, VELOCITY_THRESHOLDS_MPS))
+
+
+def plot_distribution(rows: np.ndarray, output_png: Path, output_pdf: Path | None, chosen_angle_deg: float) -> None:
+    angle = rows["initial_state_radiant_angle_sigma_deg"]
+    vel = rows["initial_state_velocity_sigma_mps"] / 1e3
+    total = max(1, len(rows))
+    angle_counts = threshold_counts(angle, ANGLE_THRESHOLDS_DEG)
+    vel_counts = threshold_counts(rows["initial_state_velocity_sigma_mps"], VELOCITY_THRESHOLDS_MPS)
+
+    fig, axes = plt.subplots(1, 2, figsize=(9.2, 3.6), constrained_layout=True)
+
+    bins = np.geomspace(0.15, 60.0, 70)
+    axes[0].hist(angle, bins=bins, color="#3b6fb6", alpha=0.82)
+    axes[0].axvline(chosen_angle_deg, color="black", lw=1.4, ls="--")
+    axes[0].set_xscale("log")
+    axes[0].set_xlabel("Radiant angular uncertainty upper bound (deg)")
+    axes[0].set_ylabel("Meteor count")
+    axes[0].grid(True, which="both", alpha=0.25)
+    axes[0].text(
+        0.97,
+        0.95,
+        f"N = {len(rows):,}\nmedian = {np.nanmedian(angle):.2f} deg\n{chosen_angle_deg:.1f} deg keeps {100.0*np.sum(angle <= chosen_angle_deg)/total:.1f}%",
+        transform=axes[0].transAxes,
+        ha="right",
+        va="top",
+        fontsize=8.5,
+    )
+
+    axes[1].plot(ANGLE_THRESHOLDS_DEG, 100.0 * angle_counts / total, "o-", color="#3b6fb6", label="angular")
+    axes[1].plot(
+        np.rad2deg(np.arctan2(VELOCITY_THRESHOLDS_MPS, np.nanmedian(rows["speed_km_s"]) * 1e3)),
+        100.0 * vel_counts / total,
+        "s--",
+        color="#a13b3b",
+        label="fixed velocity sigma",
+    )
+    axes[1].axvline(chosen_angle_deg, color="black", lw=1.4, ls="--")
+    axes[1].set_xlabel("Threshold expressed as angular uncertainty (deg)")
+    axes[1].set_ylabel("Cumulative retained fraction (%)")
+    axes[1].set_ylim(0, 100)
+    axes[1].grid(True, alpha=0.25)
+    axes[1].legend(frameon=False, fontsize=8)
+
+    output_png.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_png, dpi=220)
+    if output_pdf is not None:
+        fig.savefig(output_pdf)
+    plt.close(fig)
+
+
+def write_tex_snippet(path: Path, figure_name: str, data_name: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        r"""\newif\ifshowscriptprovenance
+\showscriptprovenancetrue
+
+\begin{figure}
+  \centering
+  \includegraphics[width=\linewidth]{"""
+        + figure_name
+        + r"""}
+  \caption{Distribution of the initial-state velocity uncertainty expressed as an upper bound
+  on the radiant angular uncertainty, $\sigma_\theta \simeq \tan^{-1}(\sigma_v/v_g)$.
+  The vertical dashed line marks the default high-quality threshold used for the aggregate
+  radiant histogram.
+  \ifshowscriptprovenance\emph{Script: \texttt{plot_radiant_uncertainty_distribution.py};
+  data product: \texttt{"""
+        + data_name
+        + r"""}.}\fi}
+  \label{fig:pansy-radiant-uncertainty}
+\end{figure}
+"""
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--orbit-metadata-dir", type=Path, default=DEFAULT_ORBIT_METADATA_DIR)
+    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--max-combined-score", type=float, default=1.5)
+    parser.add_argument("--min-uncertainty-samples", type=int, default=3)
+    parser.add_argument("--chosen-angle-deg", type=float, default=3.0)
+    args = parser.parse_args()
+
+    rows, files_read, files_skipped = collect(args.orbit_metadata_dir)
+    rows = finite_quality_rows(rows, args.max_combined_score, args.min_uncertainty_samples)
+    out_h5 = args.output_dir / "radiant_uncertainty_distribution.h5"
+    out_png = args.output_dir / "radiant_uncertainty_distribution.png"
+    out_pdf = args.output_dir / "radiant_uncertainty_distribution.pdf"
+    out_tex = args.output_dir / "radiant_uncertainty_distribution_snippet.tex"
+    write_summary_h5(out_h5, rows, files_read, files_skipped)
+    plot_distribution(rows, out_png, out_pdf, args.chosen_angle_deg)
+    write_tex_snippet(out_tex, out_png.name, out_h5.name)
+
+    angle = rows["initial_state_radiant_angle_sigma_deg"]
+    print(f"radiant_uncertainty_rows {len(rows)} files_read {files_read} files_skipped {files_skipped}")
+    print(f"median_angle_deg {np.nanmedian(angle):.4f}")
+    for threshold in ANGLE_THRESHOLDS_DEG:
+        print(f"angle_threshold_deg {threshold:.2f} retained {int(np.sum(angle <= threshold))} fraction {np.sum(angle <= threshold) / max(1, len(angle)):.4f}")
+    print(out_png)
+    print(out_h5)
+
+
+if __name__ == "__main__":
+    main()
