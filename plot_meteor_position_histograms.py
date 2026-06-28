@@ -270,15 +270,6 @@ def plot_gain_histogram_pair(
         vmin=-30.0,
         vmax=0.0,
     )
-    axes[0].contour(
-        east_grid[rs, cs],
-        north_grid[rs, cs],
-        gain_db[rs, cs],
-        levels=[-12, -6, -3],
-        colors="white",
-        linewidths=0.65,
-        alpha=0.75,
-    )
     axes[0].set_title(gain_title)
     cb0 = fig.colorbar(im0, ax=axes[0], shrink=0.86)
     cb0.set_label("Relative gain (dB)")
