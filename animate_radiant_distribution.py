@@ -8,7 +8,10 @@ import datetime as dt
 from pathlib import Path
 
 import h5py
-import imageio.v2 as imageio
+try:
+    import imageio.v2 as imageio
+except ImportError:
+    import imageio
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 import numpy as np
@@ -80,8 +83,8 @@ def frame_showers(arr, day_rows, shower_catalog: Path | None, peak_tolerance_deg
 
 
 def setup_hammer():
-    fig = plt.figure(figsize=(9.4, 6.2), constrained_layout=True)
-    ax = fig.add_subplot(111, projection="hammer")
+    fig = plt.figure(figsize=(9.4, 6.2))
+    ax = fig.add_axes([0.08, 0.19, 0.86, 0.68], projection="hammer")
     tick_pos, tick_labels = centered_tick_labels()
     ax.set_xticks(np.deg2rad(tick_pos))
     ax.set_xticklabels(tick_labels)
@@ -89,6 +92,35 @@ def setup_hammer():
     ax.set_xlabel(r"Sun-centered ecliptic longitude, $\lambda-\lambda_\odot$ (apex centered at $-90^\circ$)", labelpad=18)
     ax.set_ylabel(r"Ecliptic latitude, $\beta$")
     return fig, ax
+
+
+def add_frame_annotations(fig, day_label: str, n_radiants: int, solar_longitude_deg: float):
+    if np.isfinite(solar_longitude_deg):
+        solar_text = rf"$\lambda_\odot$ = {solar_longitude_deg:.1f}$^\circ$"
+    else:
+        solar_text = r"$\lambda_\odot$ = n/a"
+    fig.text(
+        0.08,
+        0.955,
+        f"Date/window: {day_label}",
+        ha="left",
+        va="top",
+        fontsize=10,
+    )
+    fig.text(
+        0.92,
+        0.955,
+        f"{solar_text}    N={n_radiants}",
+        ha="right",
+        va="top",
+        fontsize=10,
+    )
+
+
+def add_legend_if_needed(ax):
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        ax.legend(handles, labels, loc="lower left", fontsize=8, frameon=True)
 
 
 def plot_scatter_frame(rows, day_rows, day_label: str, out: Path, shower_catalog: Path | None, peak_tolerance_deg: float):
@@ -108,12 +140,12 @@ def plot_scatter_frame(rows, day_rows, day_label: str, out: Path, shower_catalog
     )
     add_source_markers(ax)
     showers, query = frame_showers(rows, day_rows, shower_catalog, peak_tolerance_deg)
-    add_visibility_boundary_hammer(ax, query, color="black")
+    add_visibility_boundary_hammer(ax, query, color="black", label=None)
     add_shower_overlay_hammer(ax, showers)
     cb = fig.colorbar(sc, ax=ax, orientation="horizontal", pad=0.14, fraction=0.046)
-    cb.set_label("DASST geocentric radiant speed (km/s)")
-    ax.set_title(f"{day_label}  N={len(rows)}  shower solar longitude={query:.1f} deg", fontsize=10)
-    ax.legend(loc="lower left", fontsize=8, frameon=True)
+    cb.set_label("Geocentric velocity (km/s)")
+    add_frame_annotations(fig, day_label, len(rows), query)
+    add_legend_if_needed(ax)
     fig.savefig(out, dpi=150)
     plt.close(fig)
 
@@ -132,13 +164,13 @@ def plot_histogram_frame(rows, day_rows, day_label: str, out: Path, shower_catal
     ax.pcolormesh(xx, yy, plot_count, cmap="plasma", norm=norm, shading="auto")
     add_source_markers(ax)
     showers, query = frame_showers(rows, day_rows, shower_catalog, peak_tolerance_deg)
-    add_visibility_boundary_hammer(ax, query, color="white")
+    add_visibility_boundary_hammer(ax, query, color="white", label=None)
     add_shower_overlay_hammer(ax, showers, label_color="white")
     mappable = plt.cm.ScalarMappable(norm=norm, cmap="plasma")
     cb = fig.colorbar(mappable, ax=ax, orientation="horizontal", pad=0.14, fraction=0.046)
     cb.set_label("Radiants per bin")
-    ax.set_title(f"{day_label}  N={len(rows)}  shower solar longitude={query:.1f} deg", fontsize=10)
-    ax.legend(loc="lower left", fontsize=8, frameon=True)
+    add_frame_annotations(fig, day_label, len(rows), query)
+    add_legend_if_needed(ax)
     fig.savefig(out, dpi=150)
     plt.close(fig)
 

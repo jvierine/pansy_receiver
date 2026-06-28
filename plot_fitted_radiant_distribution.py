@@ -338,7 +338,7 @@ def plot_radiants(rows, output_png: Path):
     ax.set_xlabel(r"Sun-centered ecliptic longitude, $\lambda-\lambda_\odot$ (apex centered at $-90^\circ$)", labelpad=18)
     ax.set_ylabel(r"Ecliptic latitude, $\beta$")
     cb = fig.colorbar(sc, ax=ax, orientation="horizontal", pad=0.14, fraction=0.046)
-    cb.set_label("DASST geocentric radiant speed (km/s)")
+    cb.set_label("Geocentric velocity (km/s)")
 
     fig.savefig(output_png, dpi=220)
     plt.close(fig)
@@ -398,7 +398,7 @@ def plot_radiants_with_options(
     ax.set_xlabel(r"Sun-centered ecliptic longitude, $\lambda-\lambda_\odot$ (apex centered at $-90^\circ$)", labelpad=18)
     ax.set_ylabel(r"Ecliptic latitude, $\beta$")
     cb = fig.colorbar(sc, ax=ax, orientation="horizontal", pad=0.14, fraction=0.046)
-    cb.set_label("DASST geocentric radiant speed (km/s)")
+    cb.set_label("Geocentric velocity (km/s)")
     ax.legend(loc="lower left", fontsize=8, frameon=True)
     ax.set_title(f"IAU established showers at solar longitude {float(query):.1f} deg", fontsize=10)
     fig.savefig(output_png, dpi=220)
