@@ -69,7 +69,12 @@ def run_one(state_path: Path, args, rank: int) -> tuple[str, float, int, str]:
         log.write(" ".join(cmd) + "\n\n")
         log.flush()
         proc = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT, cwd=Path(__file__).resolve().parent)
-    status = "ok" if proc.returncode == 0 and orbit_metadata_table.has_sample(args.orbit_metadata_dir, sample_idx) else "failed"
+    if proc.returncode == 0 and orbit_metadata_table.has_sample(args.orbit_metadata_dir, sample_idx):
+        status = "ok"
+    elif proc.returncode == 0 and log_path.read_text(errors="replace").count("orbit_metadata_delete_impossible_radiant"):
+        status = "reject"
+    else:
+        status = "failed"
     return status, time.time() - t0, sample_idx, str(log_path)
 
 
@@ -96,7 +101,7 @@ def main() -> None:
         state_paths = None
     state_paths = comm.bcast(state_paths, root=0)
 
-    counts = {"ok": 0, "skip": 0, "failed": 0}
+    counts = {"ok": 0, "skip": 0, "reject": 0, "failed": 0}
     my_paths = state_paths[rank::size]
     for n_done, state_path in enumerate(my_paths, start=1):
         status, elapsed, sample_idx, log_path = run_one(state_path, args, rank)
@@ -109,11 +114,15 @@ def main() -> None:
 
     gathered = comm.gather(counts, root=0)
     if rank == 0:
-        total = {"ok": 0, "skip": 0, "failed": 0}
+        total = {"ok": 0, "skip": 0, "reject": 0, "failed": 0}
         for item in gathered:
             for key in total:
                 total[key] += item[key]
-        print(f"orbit_backfill_complete ok {total['ok']} skip {total['skip']} failed {total['failed']}", flush=True)
+        print(
+            f"orbit_backfill_complete ok {total['ok']} skip {total['skip']} "
+            f"reject {total['reject']} failed {total['failed']}",
+            flush=True,
+        )
         if total["failed"]:
             sys.exit(1)
 
