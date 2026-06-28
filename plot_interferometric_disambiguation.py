@@ -4618,6 +4618,7 @@ def write_candidate_orbit_state_h5(orbits, output_path, sample_epoch_unix, n_sam
                     ("path_position_enu_km", fit_points),
                     ("path_direction_cosines_uvw", direction),
                     ("path_range_km", path_range_km),
+                    ("path_doppler_mps", np.asarray(track.get("ballistic_doppler_km_s", np.asarray([])), dtype=np.float64) * 1e3),
                     ("path_snr", track.get("tx_beam_snr")),
                     ("path_beam_id", track.get("tx_beam_id")),
                     ("path_selection_keep", track.get("selection_keep")),

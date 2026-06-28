@@ -588,6 +588,11 @@ def main() -> None:
                 "radiant_sun_ecliptic_lat_deg": float(radiant_sun_gme[1]),
                 "path_t_rel_s": optional_dataset(state_grp, "path_t_rel_s"),
                 "path_position_enu_km": optional_dataset(state_grp, "path_position_enu_km"),
+                "path_doppler_mps": optional_dataset(
+                    state_grp,
+                    "path_doppler_mps",
+                    default=optional_dataset(state_grp, "doppler_mps"),
+                ),
                 "path_snr": optional_dataset(state_grp, "path_snr"),
                 "path_beam_id": optional_dataset(state_grp, "path_beam_id", default=np.asarray([], dtype=np.int64)),
             }

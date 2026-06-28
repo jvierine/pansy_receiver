@@ -15,43 +15,43 @@ import numpy as np
 EVENT_DTYPE = np.dtype(
     [
         ("sample_idx", "<i8"),
-        ("candidate_number", "<i8"),
-        ("combined_rank", "<i8"),
-        ("combined_score", "<f8"),
-        ("log10_beta_kg_m2", "<f8"),
-        ("sigma_log10_beta", "<f8"),
-        ("initial_detection_height_km", "<f8"),
-        ("ceplecha_initial_radius_m", "<f8"),
-        ("ceplecha_initial_radius_std_m", "<f8"),
-        ("ceplecha_initial_mass_kg", "<f8"),
-        ("ceplecha_initial_mass_std_kg", "<f8"),
-        ("ceplecha_log10_radius_std", "<f8"),
+        ("candidate_number", "<i4"),
+        ("combined_rank", "<i4"),
+        ("combined_score", "<f4"),
+        ("log10_beta_kg_m2", "<f4"),
+        ("sigma_log10_beta", "<f4"),
+        ("initial_detection_height_km", "<f4"),
+        ("ceplecha_initial_radius_m", "<f4"),
+        ("ceplecha_initial_radius_std_m", "<f4"),
+        ("ceplecha_initial_mass_kg", "<f4"),
+        ("ceplecha_initial_mass_std_kg", "<f4"),
+        ("ceplecha_log10_radius_std", "<f4"),
         ("ceplecha_covariance_available", "?"),
-        ("ceplecha_reduced_chi2", "<f8"),
-        ("ceplecha_bic", "<f8"),
-        ("ceplecha_n", "<i8"),
-        ("ceplecha_dof", "<i8"),
-        ("n_uncertainty_samples", "<i8"),
-        ("frac_e_gt_1", "<f8"),
-        ("radiant_ra_deg", "<f8"),
-        ("radiant_dec_deg", "<f8"),
-        ("radiant_speed_km_s", "<f8"),
-        ("v_g_km_s", "<f8"),
-        ("radiant_ecliptic_lon_deg", "<f8"),
-        ("radiant_ecliptic_lat_deg", "<f8"),
-        ("radiant_sun_ecliptic_lon_deg", "<f8"),
-        ("radiant_sun_ecliptic_lat_deg", "<f8"),
+        ("ceplecha_reduced_chi2", "<f4"),
+        ("ceplecha_bic", "<f4"),
+        ("ceplecha_n", "<i4"),
+        ("ceplecha_dof", "<i4"),
+        ("n_uncertainty_samples", "<i4"),
+        ("frac_e_gt_1", "<f4"),
+        ("radiant_ra_deg", "<f4"),
+        ("radiant_dec_deg", "<f4"),
+        ("radiant_speed_km_s", "<f4"),
+        ("v_g_km_s", "<f4"),
+        ("radiant_ecliptic_lon_deg", "<f4"),
+        ("radiant_ecliptic_lat_deg", "<f4"),
+        ("radiant_sun_ecliptic_lon_deg", "<f4"),
+        ("radiant_sun_ecliptic_lat_deg", "<f4"),
         ("all_aliases_interstellar_nominal", "?"),
-        ("n_aliases_orbit_tested", "<i8"),
-        ("initial_state_gcrs_m_mps", "<f8", (6,)),
-        ("fit_parameters", "<f8", (7,)),
-        ("fit_parameter_covariance", "<f8", (7, 7)),
-        ("ceplecha_parameters", "<f8", (7,)),
-        ("ceplecha_parameter_std", "<f8", (7,)),
-        ("ceplecha_parameter_covariance", "<f8", (7, 7)),
-        ("kepler", "<f8", (7,)),
-        ("kepler_std", "<f8", (7,)),
-        ("kepler_covariance", "<f8", (7, 7)),
+        ("n_aliases_orbit_tested", "<i4"),
+        ("initial_state_gcrs_m_mps", "<f4", (6,)),
+        ("fit_parameters", "<f4", (7,)),
+        ("fit_parameter_covariance", "<f4", (7, 7)),
+        ("ceplecha_parameters", "<f4", (7,)),
+        ("ceplecha_parameter_std", "<f4", (7,)),
+        ("ceplecha_parameter_covariance", "<f4", (7, 7)),
+        ("kepler", "<f4", (7,)),
+        ("kepler_std", "<f4", (7,)),
+        ("kepler_covariance", "<f4", (7, 7)),
         ("selected_hypothesis", "S8"),
         ("selection_model_type", "S32"),
         ("orbit_solution_type", "S32"),
@@ -62,22 +62,22 @@ ALIAS_DTYPE = np.dtype(
     [
         ("sample_idx", "<i8"),
         ("hypothesis_label", "S8"),
-        ("candidate_number", "<i8"),
-        ("combined_rank", "<i8"),
-        ("combined_score", "<f8"),
+        ("candidate_number", "<i4"),
+        ("combined_rank", "<i4"),
+        ("combined_score", "<f4"),
         ("selection_model_type", "S32"),
         ("plausibility_model", "S32"),
-        ("plausibility_redchi", "<f8"),
-        ("tx_beam_snr_weighted_mean_dc", "<f8"),
-        ("tx_beam_snr_weighted_rms_dc", "<f8"),
-        ("tx_beam_weighted_mean_deg", "<f8"),
-        ("tx_beam_weighted_rms_deg", "<f8"),
-        ("tx_lobe_snr_weighted_mean_dc", "<f8"),
-        ("tx_lobe_snr_weighted_rms_dc", "<f8"),
-        ("tx_lobe_p90_dc", "<f8"),
-        ("kepler", "<f8", (7,)),
-        ("kepler_std", "<f8", (7,)),
-        ("frac_e_gt_1", "<f8"),
+        ("plausibility_redchi", "<f4"),
+        ("tx_beam_snr_weighted_mean_dc", "<f4"),
+        ("tx_beam_snr_weighted_rms_dc", "<f4"),
+        ("tx_beam_weighted_mean_deg", "<f4"),
+        ("tx_beam_weighted_rms_deg", "<f4"),
+        ("tx_lobe_snr_weighted_mean_dc", "<f4"),
+        ("tx_lobe_snr_weighted_rms_dc", "<f4"),
+        ("tx_lobe_p90_dc", "<f4"),
+        ("kepler", "<f4", (7,)),
+        ("kepler_std", "<f4", (7,)),
+        ("frac_e_gt_1", "<f4"),
         ("interstellar_nominal", "?"),
     ]
 )
@@ -85,10 +85,11 @@ ALIAS_DTYPE = np.dtype(
 PATH_DTYPE = np.dtype(
     [
         ("sample_idx", "<i8"),
-        ("t_rel_s", "<f8"),
-        ("position_enu_km", "<f8", (3,)),
-        ("snr", "<f8"),
-        ("beam_id", "<i8"),
+        ("t_rel_s", "<f4"),
+        ("position_enu_km", "<f4", (3,)),
+        ("doppler_mps", "<f4"),
+        ("snr", "<f4"),
+        ("beam_id", "<i1"),
     ]
 )
 
@@ -100,15 +101,15 @@ def _bytes(value, dtype: str):
     return arr.item() if arr.shape == () else arr
 
 
-def _fixed(values, n: int, fill=np.nan) -> np.ndarray:
-    out = np.full(n, fill, dtype=np.float64)
+def _fixed(values, n: int, fill=np.nan, dtype=np.float32) -> np.ndarray:
+    out = np.full(n, fill, dtype=dtype)
     arr = np.asarray(values, dtype=np.float64).ravel()
     out[: min(n, len(arr))] = arr[:n]
     return out
 
 
-def _fixed_matrix(values, n: int, fill=np.nan) -> np.ndarray:
-    out = np.full((n, n), fill, dtype=np.float64)
+def _fixed_matrix(values, n: int, fill=np.nan, dtype=np.float32) -> np.ndarray:
+    out = np.full((n, n), fill, dtype=dtype)
     arr = np.asarray(values, dtype=np.float64)
     if arr.ndim == 2:
         nr = min(n, arr.shape[0])
@@ -125,6 +126,19 @@ def table_path(root: Path, sample_idx: int) -> Path:
     return subdir / f"orbit@{hour_s}.h5"
 
 
+def _coerce_structured(arr: np.ndarray, dtype: np.dtype) -> np.ndarray:
+    arr = np.asarray(arr)
+    out = np.zeros(arr.shape, dtype=dtype)
+    if arr.dtype.names is None:
+        return out
+    for name in dtype.names:
+        if name in arr.dtype.names:
+            out[name] = arr[name]
+        elif dtype[name].kind == "f":
+            out[name] = np.nan
+    return out
+
+
 def payload_to_rows(sample_idx: int, payload: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     event = np.zeros(1, dtype=EVENT_DTYPE)
     row = event[0]
@@ -137,9 +151,13 @@ def payload_to_rows(sample_idx: int, payload: dict) -> tuple[np.ndarray, np.ndar
             "kepler",
             "kepler_std",
         }:
-            row[name] = _fixed(payload.get(name, []), EVENT_DTYPE[name].shape[0])
+            row[name] = _fixed(payload.get(name, []), EVENT_DTYPE[name].shape[0], dtype=EVENT_DTYPE[name].base)
         elif name in {"fit_parameter_covariance", "ceplecha_parameter_covariance", "kepler_covariance"}:
-            row[name] = _fixed_matrix(payload.get(name, np.empty((0, 0))), EVENT_DTYPE[name].shape[0])
+            row[name] = _fixed_matrix(
+                payload.get(name, np.empty((0, 0))),
+                EVENT_DTYPE[name].shape[0],
+                dtype=EVENT_DTYPE[name].base,
+            )
         elif EVENT_DTYPE[name].kind == "S":
             row[name] = _bytes(payload.get(name, b""), EVENT_DTYPE[name].str)
         elif EVENT_DTYPE[name].kind == "b":
@@ -185,14 +203,18 @@ def payload_to_rows(sample_idx: int, payload: dict) -> tuple[np.ndarray, np.ndar
 
     t = np.asarray(payload.get("path_t_rel_s", np.asarray([], dtype=np.float64)), dtype=np.float64)
     pos = np.asarray(payload.get("path_position_enu_km", np.empty((0, 3))), dtype=np.float64)
+    dop = np.asarray(payload.get("path_doppler_mps", np.asarray([], dtype=np.float64)), dtype=np.float64)
     snr = np.asarray(payload.get("path_snr", np.asarray([], dtype=np.float64)), dtype=np.float64)
     beam = np.asarray(payload.get("path_beam_id", np.asarray([], dtype=np.int64)), dtype=np.int64)
-    n_path = min(len(t), len(pos), len(snr), len(beam))
+    if len(dop) == 0 and len(t):
+        dop = np.full(len(t), np.nan, dtype=np.float64)
+    n_path = min(len(t), len(pos), len(dop), len(snr), len(beam))
     paths = np.zeros(n_path, dtype=PATH_DTYPE)
     if n_path:
         paths["sample_idx"] = int(sample_idx)
         paths["t_rel_s"] = t[:n_path]
         paths["position_enu_km"] = pos[:n_path]
+        paths["doppler_mps"] = dop[:n_path]
         paths["snr"] = snr[:n_path]
         paths["beam_id"] = beam[:n_path]
     return event, aliases, paths
@@ -207,7 +229,11 @@ def _read_table(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         events = h["events"][()]
         aliases = h["aliases"][()] if "aliases" in h else np.zeros(0, ALIAS_DTYPE)
         paths = h["paths"][()] if "paths" in h else np.zeros(0, PATH_DTYPE)
-    return events.astype(EVENT_DTYPE, copy=False), aliases.astype(ALIAS_DTYPE, copy=False), paths.astype(PATH_DTYPE, copy=False)
+    return (
+        _coerce_structured(events, EVENT_DTYPE),
+        _coerce_structured(aliases, ALIAS_DTYPE),
+        _coerce_structured(paths, PATH_DTYPE),
+    )
 
 
 def write_payload(root: Path, sample_idx: int, payload: dict) -> Path:
@@ -231,7 +257,7 @@ def write_payload(root: Path, sample_idx: int, payload: dict) -> Path:
         if tmp.exists():
             tmp.unlink()
         with h5py.File(tmp, "w") as h:
-            h.attrs["schema"] = "pansy_orbit_table_v1"
+            h.attrs["schema"] = "pansy_orbit_table_v2"
             h.create_dataset("events", data=new_events)
             h.create_dataset("aliases", data=new_aliases)
             h.create_dataset("paths", data=new_paths)
@@ -269,7 +295,7 @@ def delete_sample(root: Path, sample_idx: int) -> Path:
         if tmp.exists():
             tmp.unlink()
         with h5py.File(tmp, "w") as h:
-            h.attrs["schema"] = "pansy_orbit_table_v1"
+            h.attrs["schema"] = "pansy_orbit_table_v2"
             h.create_dataset("events", data=old_events[keep_events])
             h.create_dataset("aliases", data=old_aliases[keep_aliases])
             h.create_dataset("paths", data=old_paths[keep_paths])

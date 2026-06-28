@@ -77,7 +77,7 @@ def merge_hour(task):
     if tmp.exists():
         tmp.unlink()
     with h5py.File(tmp, "w") as h:
-        h.attrs["schema"] = "pansy_orbit_table_v1"
+        h.attrs["schema"] = "pansy_orbit_table_v2"
         h.attrs["file_cadence_seconds"] = 3600
         h.create_dataset("events", data=event_table)
         h.create_dataset("aliases", data=alias_table)

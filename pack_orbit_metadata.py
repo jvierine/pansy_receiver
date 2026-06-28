@@ -17,34 +17,34 @@ import numpy as np
 EVENT_DTYPE = np.dtype(
     [
         ("sample_idx", "<i8"),
-        ("candidate_number", "<i8"),
-        ("combined_rank", "<i8"),
-        ("combined_score", "<f8"),
-        ("log10_beta_kg_m2", "<f8"),
-        ("sigma_log10_beta", "<f8"),
-        ("initial_detection_height_km", "<f8"),
-        ("ceplecha_initial_radius_m", "<f8"),
-        ("ceplecha_initial_radius_std_m", "<f8"),
-        ("ceplecha_initial_mass_kg", "<f8"),
-        ("ceplecha_initial_mass_std_kg", "<f8"),
-        ("ceplecha_log10_radius_std", "<f8"),
+        ("candidate_number", "<i4"),
+        ("combined_rank", "<i4"),
+        ("combined_score", "<f4"),
+        ("log10_beta_kg_m2", "<f4"),
+        ("sigma_log10_beta", "<f4"),
+        ("initial_detection_height_km", "<f4"),
+        ("ceplecha_initial_radius_m", "<f4"),
+        ("ceplecha_initial_radius_std_m", "<f4"),
+        ("ceplecha_initial_mass_kg", "<f4"),
+        ("ceplecha_initial_mass_std_kg", "<f4"),
+        ("ceplecha_log10_radius_std", "<f4"),
         ("ceplecha_covariance_available", "?"),
-        ("ceplecha_reduced_chi2", "<f8"),
-        ("ceplecha_bic", "<f8"),
-        ("ceplecha_n", "<i8"),
-        ("ceplecha_dof", "<i8"),
-        ("n_uncertainty_samples", "<i8"),
-        ("frac_e_gt_1", "<f8"),
-        ("radiant_ra_deg", "<f8"),
-        ("radiant_dec_deg", "<f8"),
-        ("radiant_speed_km_s", "<f8"),
-        ("v_g_km_s", "<f8"),
-        ("radiant_ecliptic_lon_deg", "<f8"),
-        ("radiant_ecliptic_lat_deg", "<f8"),
-        ("radiant_sun_ecliptic_lon_deg", "<f8"),
-        ("radiant_sun_ecliptic_lat_deg", "<f8"),
+        ("ceplecha_reduced_chi2", "<f4"),
+        ("ceplecha_bic", "<f4"),
+        ("ceplecha_n", "<i4"),
+        ("ceplecha_dof", "<i4"),
+        ("n_uncertainty_samples", "<i4"),
+        ("frac_e_gt_1", "<f4"),
+        ("radiant_ra_deg", "<f4"),
+        ("radiant_dec_deg", "<f4"),
+        ("radiant_speed_km_s", "<f4"),
+        ("v_g_km_s", "<f4"),
+        ("radiant_ecliptic_lon_deg", "<f4"),
+        ("radiant_ecliptic_lat_deg", "<f4"),
+        ("radiant_sun_ecliptic_lon_deg", "<f4"),
+        ("radiant_sun_ecliptic_lat_deg", "<f4"),
         ("all_aliases_interstellar_nominal", "?"),
-        ("n_aliases_orbit_tested", "<i8"),
+        ("n_aliases_orbit_tested", "<i4"),
         ("selected_hypothesis", "S8"),
         ("selection_model_type", "S32"),
         ("orbit_solution_type", "S32"),
@@ -54,32 +54,33 @@ EVENT_DTYPE = np.dtype(
 ALIAS_DTYPE = np.dtype(
     [
         ("hypothesis_label", "S8"),
-        ("candidate_number", "<i8"),
-        ("combined_rank", "<i8"),
-        ("combined_score", "<f8"),
+        ("candidate_number", "<i4"),
+        ("combined_rank", "<i4"),
+        ("combined_score", "<f4"),
         ("selection_model_type", "S32"),
         ("plausibility_model", "S32"),
-        ("plausibility_redchi", "<f8"),
-        ("tx_beam_snr_weighted_mean_dc", "<f8"),
-        ("tx_beam_snr_weighted_rms_dc", "<f8"),
-        ("tx_beam_weighted_mean_deg", "<f8"),
-        ("tx_beam_weighted_rms_deg", "<f8"),
-        ("tx_lobe_snr_weighted_mean_dc", "<f8"),
-        ("tx_lobe_snr_weighted_rms_dc", "<f8"),
-        ("tx_lobe_p90_dc", "<f8"),
-        ("kepler", "<f8", (7,)),
-        ("kepler_std", "<f8", (7,)),
-        ("frac_e_gt_1", "<f8"),
+        ("plausibility_redchi", "<f4"),
+        ("tx_beam_snr_weighted_mean_dc", "<f4"),
+        ("tx_beam_snr_weighted_rms_dc", "<f4"),
+        ("tx_beam_weighted_mean_deg", "<f4"),
+        ("tx_beam_weighted_rms_deg", "<f4"),
+        ("tx_lobe_snr_weighted_mean_dc", "<f4"),
+        ("tx_lobe_snr_weighted_rms_dc", "<f4"),
+        ("tx_lobe_p90_dc", "<f4"),
+        ("kepler", "<f4", (7,)),
+        ("kepler_std", "<f4", (7,)),
+        ("frac_e_gt_1", "<f4"),
         ("interstellar_nominal", "?"),
     ]
 )
 
 PATH_DTYPE = np.dtype(
     [
-        ("t_rel_s", "<f8"),
-        ("position_enu_km", "<f8", (3,)),
-        ("snr", "<f8"),
-        ("beam_id", "<i8"),
+        ("t_rel_s", "<f4"),
+        ("position_enu_km", "<f4", (3,)),
+        ("doppler_mps", "<f4"),
+        ("snr", "<f4"),
+        ("beam_id", "<i1"),
     ]
 )
 
@@ -101,6 +102,19 @@ def fixed_string(group: h5py.Group, name: str, length: int):
     if isinstance(value, str):
         value = value.encode("utf-8", "ignore")
     return np.asarray(value, dtype=f"S{length}").item()
+
+
+def coerce_structured(arr: np.ndarray, dtype: np.dtype) -> np.ndarray:
+    arr = np.asarray(arr)
+    out = np.zeros(arr.shape, dtype=dtype)
+    if arr.dtype.names is None:
+        return out
+    for name in dtype.names:
+        if name in arr.dtype.names:
+            out[name] = arr[name]
+        elif dtype[name].kind == "f":
+            out[name] = np.nan
+    return out
 
 
 def make_event(group: h5py.Group) -> np.ndarray:
@@ -157,12 +171,16 @@ def make_path(group: h5py.Group) -> np.ndarray:
     t = np.asarray(dataset(group, "path_t_rel_s", np.asarray([], dtype=np.float64)), dtype=np.float64)
     pos = np.asarray(dataset(group, "path_position_enu_km", np.empty((0, 3))), dtype=np.float64)
     snr = np.asarray(dataset(group, "path_snr", np.asarray([], dtype=np.float64)), dtype=np.float64)
+    dop = np.asarray(dataset(group, "path_doppler_mps", np.asarray([], dtype=np.float64)), dtype=np.float64)
     beam = np.asarray(dataset(group, "path_beam_id", np.asarray([], dtype=np.int64)), dtype=np.int64)
-    n = min(len(t), len(pos), len(snr), len(beam))
+    if len(dop) == 0 and len(t):
+        dop = np.full(len(t), np.nan, dtype=np.float64)
+    n = min(len(t), len(pos), len(dop), len(snr), len(beam))
     arr = np.zeros(n, dtype=PATH_DTYPE)
     if n:
         arr["t_rel_s"] = t[:n]
         arr["position_enu_km"] = pos[:n]
+        arr["doppler_mps"] = dop[:n]
         arr["snr"] = snr[:n]
         arr["beam_id"] = beam[:n]
     return arr
@@ -172,9 +190,22 @@ def copy_packed_group(src: h5py.Group, dst: h5py.Group) -> None:
     for key, value in src.attrs.items():
         dst.attrs[key] = value
     if "event" in src and "aliases" in src and "path" in src:
-        for name in src:
-            if isinstance(src[name], h5py.Dataset):
-                src.copy(name, dst)
+        dst.create_dataset("event", data=coerce_structured(src["event"][()], EVENT_DTYPE))
+        dst.create_dataset("aliases", data=coerce_structured(src["aliases"][()], ALIAS_DTYPE))
+        dst.create_dataset("path", data=coerce_structured(src["path"][()], PATH_DTYPE))
+        for name in [
+            "initial_state_gcrs_m_mps",
+            "fit_parameters",
+            "fit_parameter_covariance",
+            "ceplecha_parameters",
+            "ceplecha_parameter_std",
+            "ceplecha_parameter_covariance",
+            "kepler",
+            "kepler_std",
+            "kepler_covariance",
+        ]:
+            if name in src:
+                dst.create_dataset(name, data=np.asarray(src[name][()], dtype=np.float32))
         return
     dst.create_dataset("event", data=make_event(src))
     for name, default in [
@@ -188,7 +219,7 @@ def copy_packed_group(src: h5py.Group, dst: h5py.Group) -> None:
         ("kepler_std", np.full(7, np.nan)),
         ("kepler_covariance", np.full((7, 7), np.nan)),
     ]:
-        dst.create_dataset(name, data=np.asarray(dataset(src, name, default)))
+        dst.create_dataset(name, data=np.asarray(dataset(src, name, default), dtype=np.float32))
     dst.create_dataset("aliases", data=make_aliases(src))
     dst.create_dataset("path", data=make_path(src))
 

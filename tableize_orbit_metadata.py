@@ -65,6 +65,7 @@ def payload_from_packed_group(group: h5py.Group) -> dict:
             {
                 "path_t_rel_s": path["t_rel_s"],
                 "path_position_enu_km": path["position_enu_km"],
+                "path_doppler_mps": path["doppler_mps"] if "doppler_mps" in path.dtype.names else np.full(len(path), np.nan),
                 "path_snr": path["snr"],
                 "path_beam_id": path["beam_id"],
             }
