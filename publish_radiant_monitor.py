@@ -108,7 +108,7 @@ def high_quality_radiant_mask(
     rows: np.ndarray,
     min_uncertainty_samples: int,
     max_initial_state_position_sigma_m: float,
-    max_initial_state_velocity_sigma_mps: float,
+    max_initial_state_radiant_angle_sigma_deg: float,
     max_combined_score: float,
 ) -> np.ndarray:
     if len(rows) == 0:
@@ -120,8 +120,8 @@ def high_quality_radiant_mask(
     good &= np.isfinite(rows["combined_score"]) & (rows["combined_score"] <= float(max_combined_score))
     good &= np.isfinite(rows["initial_state_position_sigma_m"])
     good &= rows["initial_state_position_sigma_m"] <= float(max_initial_state_position_sigma_m)
-    good &= np.isfinite(rows["initial_state_velocity_sigma_mps"])
-    good &= rows["initial_state_velocity_sigma_mps"] <= float(max_initial_state_velocity_sigma_mps)
+    good &= np.isfinite(rows["initial_state_radiant_angle_sigma_deg"])
+    good &= rows["initial_state_radiant_angle_sigma_deg"] <= float(max_initial_state_radiant_angle_sigma_deg)
     return good
 
 
@@ -135,7 +135,7 @@ def build_products(args) -> dict:
         rows,
         args.static_min_uncertainty_samples,
         args.static_max_initial_state_position_sigma_m,
-        args.static_max_initial_state_velocity_sigma_mps,
+        args.static_max_initial_state_radiant_angle_sigma_deg,
         args.static_max_combined_score,
     )
     high_quality_rows = rows[high_quality_mask]
@@ -188,7 +188,7 @@ def build_products(args) -> dict:
     status["static_quality_filter"] = {
         "min_uncertainty_samples": int(args.static_min_uncertainty_samples),
         "max_initial_state_position_sigma_m": float(args.static_max_initial_state_position_sigma_m),
-        "max_initial_state_velocity_sigma_mps": float(args.static_max_initial_state_velocity_sigma_mps),
+        "max_initial_state_radiant_angle_sigma_deg": float(args.static_max_initial_state_radiant_angle_sigma_deg),
         "max_combined_score": float(args.static_max_combined_score),
     }
     (output_dir / "radiant_monitor.json").write_text(json.dumps(status, indent=2, sort_keys=True) + "\n")
@@ -219,7 +219,7 @@ def main() -> None:
     parser.add_argument("--min-count-for-mean-speed", type=int, default=3)
     parser.add_argument("--static-min-uncertainty-samples", type=int, default=3)
     parser.add_argument("--static-max-initial-state-position-sigma-m", type=float, default=1000.0)
-    parser.add_argument("--static-max-initial-state-velocity-sigma-mps", type=float, default=3000.0)
+    parser.add_argument("--static-max-initial-state-radiant-angle-sigma-deg", type=float, default=3.0)
     parser.add_argument("--static-max-combined-score", type=float, default=1.5)
     parser.add_argument("--loop", action="store_true")
     parser.add_argument("--interval-s", type=float, default=1800.0)

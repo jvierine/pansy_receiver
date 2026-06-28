@@ -51,6 +51,7 @@ RADIANT_DTYPE = np.dtype(
         ("kepler_sigma_q_au", "f8"),
         ("initial_state_position_sigma_m", "f8"),
         ("initial_state_velocity_sigma_mps", "f8"),
+        ("initial_state_radiant_angle_sigma_deg", "f8"),
     ]
 )
 
@@ -102,6 +103,9 @@ def rows_from_events(events: np.ndarray) -> np.ndarray:
     vel_var = np.trace(cov[:, 3:6, 3:6], axis1=1, axis2=2)
     rows["initial_state_position_sigma_m"] = np.sqrt(np.where(pos_var >= 0.0, pos_var, np.nan))
     rows["initial_state_velocity_sigma_mps"] = np.sqrt(np.where(vel_var >= 0.0, vel_var, np.nan))
+    rows["initial_state_radiant_angle_sigma_deg"] = np.rad2deg(
+        np.arctan2(rows["initial_state_velocity_sigma_mps"], np.maximum(events["v_g_km_s"] * 1e3, 1.0))
+    )
     return rows
 
 
