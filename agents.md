@@ -6,6 +6,12 @@ Local repo: `/Users/jvi019/src/pansy_receiver`
 Remote repo: `/home/radar/src/git/pansy_receiver` on `syowa-meteor`
 Remote SSH: `ssh -J j@4.235.86.214 -p 3131 radar@localhost`
 
+Analysis local configuration:
+- Use `/Users/jvi019/src/pansy_receiver` with `conda run -n base python ...` locally.
+- Runtime analysis overrides can be placed in `~/.config/pansy-receiver/pansy-analysis.env`, or another file pointed to by `PANSY_ANALYSIS_CONFIG`.
+- `DASST_KERNEL` or `DASST_KERNEL_PATH` in that config controls the local `de430.bsp` path. The process environment variable `DASST_KERNEL` takes precedence.
+- If the configured DASST kernel file is missing, the orbit code downloads `de430.bsp` from the NASA NAIF generic kernels site into the configured path. Do not manually copy this file between machines.
+
 Latest deployed commit: `1a4d0be Publish process and disk status`
 
 What changed:

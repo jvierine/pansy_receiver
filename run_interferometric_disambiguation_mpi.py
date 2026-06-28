@@ -16,6 +16,8 @@ import h5py
 import numpy as np
 from mpi4py import MPI
 
+import orbit_metadata_table
+
 
 def discover_cut_sample_indices(cut_dir: Path, day: str | None = None) -> list[int]:
     sample_indices: list[int] = []
@@ -74,7 +76,8 @@ def run_one(sample_idx: int, args, rank: int) -> tuple[bool, float, Path]:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     force_reprocess = int(sample_idx) in args.force_reprocess_samples
     if args.skip_existing and not force_reprocess and summary.exists() and diagnostics_h5.exists():
-        return True, 0.0, log_path
+        if not args.run_dasst or orbit_metadata_table.has_sample(args.orbit_metadata_dir, sample_idx):
+            return True, 0.0, log_path
 
     cmd = [
         sys.executable,

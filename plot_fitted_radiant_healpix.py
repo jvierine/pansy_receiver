@@ -143,6 +143,34 @@ def mask_healpix_outside_oval(fig):
         ax.add_patch(PathPatch(outside, transform=ax.transAxes, facecolor="white", edgecolor="none", zorder=20))
 
 
+def add_healpix_coordinate_labels():
+    longitude_labels = [(-90.0, 0.0, "0°"), (0.0, 0.0, "270°"), (90.0, 0.0, "180°")]
+    for lon, lat, label in longitude_labels:
+        hp.projtext(
+            lon,
+            lat,
+            label,
+            lonlat=True,
+            color="white",
+            fontsize=9,
+            ha="center",
+            va="center",
+            zorder=30,
+        )
+    for lat in (-30.0, 30.0):
+        hp.projtext(
+            -170.0,
+            lat,
+            f"{int(lat)}°",
+            lonlat=True,
+            color="white",
+            fontsize=9,
+            ha="left",
+            va="center",
+            zorder=30,
+        )
+
+
 def plot_healpix(count, output_png: Path, n_radiants: int, solar_longitude_deg: float = np.nan, rows=None):
     output_png.parent.mkdir(parents=True, exist_ok=True)
     plot_count = np.asarray(count, dtype=np.float64).copy()
@@ -163,10 +191,12 @@ def plot_healpix(count, output_png: Path, n_radiants: int, solar_longitude_deg: 
         title="",
         unit="Count / pixel",
         cbar=True,
+        notext=True,
     )
     hp.graticule(dpar=15, dmer=30, color="0.55", alpha=0.35)
     if rows is None or not add_composite_visibility_boundary_healpix(rows, color="white"):
         add_visibility_boundary_healpix(solar_longitude_deg, color="white")
+    add_healpix_coordinate_labels()
     fig = plt.gcf()
     fig.set_size_inches(9.4, 5.6)
     fig.patch.set_facecolor("white")
@@ -211,10 +241,12 @@ def plot_healpix_with_showers(
         title="",
         unit="Count / pixel",
         cbar=True,
+        notext=True,
     )
     hp.graticule(dpar=15, dmer=30, color="0.55", alpha=0.35)
     if rows is None or not add_composite_visibility_boundary_healpix(rows, color="white"):
         add_visibility_boundary_healpix(solar_longitude_deg, color="white")
+    add_healpix_coordinate_labels()
     if showers:
         lon = np.asarray([s.radiant_solar_ecliptic_lon_deg for s in showers], dtype=np.float64)
         lon = (lon + 180.0) % 360.0 - 180.0

@@ -242,6 +242,17 @@ def write_payload(root: Path, sample_idx: int, payload: dict) -> Path:
     return out
 
 
+def has_sample(root: Path, sample_idx: int) -> bool:
+    out = table_path(root, sample_idx)
+    if not out.exists():
+        return False
+    try:
+        events, _aliases, _paths = _read_table(out)
+    except OSError:
+        return False
+    return bool(len(events) and np.any(events["sample_idx"] == int(sample_idx)))
+
+
 def delete_sample(root: Path, sample_idx: int) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     lock_path = root / ".orbit_metadata.lock"

@@ -42,12 +42,21 @@ def centered_plot_longitude_deg(lambda_minus_sun_signed_deg):
 
 
 def centered_tick_labels():
-    tick_positions_deg = np.arange(-150.0, 180.0, 30.0)
-    labels = []
-    for tick in tick_positions_deg:
-        label_value = int(wrap180(PLOT_CENTER_LONGITUDE_DEG - tick))
-        labels.append("" if label_value == -75 else f"{label_value}°")
+    tick_positions_deg = np.asarray([-90.0, 0.0, 90.0])
+    labels = [f"{int(wrap360(PLOT_CENTER_LONGITUDE_DEG - tick))}°" for tick in tick_positions_deg]
     return tick_positions_deg, labels
+
+
+def style_radiant_hammer_axes(ax):
+    tick_pos, tick_labels = centered_tick_labels()
+    ax.set_xticks(np.deg2rad(tick_pos))
+    ax.set_xticklabels(tick_labels)
+    ax.set_yticks(np.deg2rad([-30.0, 30.0]))
+    ax.set_yticklabels(["-30°", "30°"])
+    ax.tick_params(axis="both", colors="white")
+    for label in ax.get_xticklabels() + ax.get_yticklabels():
+        label.set_color("white")
+    ax.grid(True, alpha=0.42)
 
 
 def scaled_scatter_area(n_points: int) -> float:
@@ -332,10 +341,7 @@ def plot_radiants(rows, output_png: Path):
     if len(sample_epoch):
         add_composite_visibility_boundary_hammer(ax, sample_epoch, sample_sun, color="black")
     query = circular_mean_deg(arr["sun_lambda_ecliptic_deg"])
-    tick_pos, tick_labels = centered_tick_labels()
-    ax.set_xticks(np.deg2rad(tick_pos))
-    ax.set_xticklabels(tick_labels)
-    ax.grid(True, alpha=0.42)
+    style_radiant_hammer_axes(ax)
     ax.set_xlabel(r"Sun-centered ecliptic longitude, $\lambda-\lambda_\odot$ (apex centered at $-90^\circ$)", labelpad=18)
     ax.set_ylabel(r"Ecliptic latitude, $\beta$")
     cb = fig.colorbar(sc, ax=ax, orientation="horizontal", pad=0.14, fraction=0.046)
@@ -396,10 +402,7 @@ def plot_radiants_with_options(
     elif np.isfinite(query):
         add_visibility_boundary_hammer(ax, query, color="black")
     add_shower_overlay_hammer(ax, showers)
-    tick_pos, tick_labels = centered_tick_labels()
-    ax.set_xticks(np.deg2rad(tick_pos))
-    ax.set_xticklabels(tick_labels)
-    ax.grid(True, alpha=0.42)
+    style_radiant_hammer_axes(ax)
     ax.set_xlabel(r"Sun-centered ecliptic longitude, $\lambda-\lambda_\odot$ (apex centered at $-90^\circ$)", labelpad=18)
     ax.set_ylabel(r"Ecliptic latitude, $\beta$")
     cb = fig.colorbar(sc, ax=ax, orientation="horizontal", pad=0.14, fraction=0.046)

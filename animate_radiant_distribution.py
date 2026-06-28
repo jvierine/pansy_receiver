@@ -18,8 +18,8 @@ import numpy as np
 
 from plot_fitted_radiant_distribution import (
     add_source_markers,
-    centered_tick_labels,
     scaled_scatter_area,
+    style_radiant_hammer_axes,
 )
 from radiant_visibility import add_composite_visibility_boundary_hammer, add_visibility_boundary_hammer, visibility_samples_from_radiants
 from shower_radiant_overlay import active_showers, add_shower_overlay_hammer, circular_mean_deg
@@ -85,10 +85,7 @@ def frame_showers(arr, day_rows, shower_catalog: Path | None, peak_tolerance_deg
 def setup_hammer():
     fig = plt.figure(figsize=(9.4, 6.2))
     ax = fig.add_axes([0.08, 0.19, 0.86, 0.68], projection="hammer")
-    tick_pos, tick_labels = centered_tick_labels()
-    ax.set_xticks(np.deg2rad(tick_pos))
-    ax.set_xticklabels(tick_labels)
-    ax.grid(True, alpha=0.42)
+    style_radiant_hammer_axes(ax)
     ax.set_xlabel(r"Sun-centered ecliptic longitude, $\lambda-\lambda_\odot$ (apex centered at $-90^\circ$)", labelpad=18)
     ax.set_ylabel(r"Ecliptic latitude, $\beta$")
     return fig, ax

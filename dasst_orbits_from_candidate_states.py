@@ -13,6 +13,7 @@ import argparse
 import fcntl
 import os
 import sys
+import urllib.request
 from pathlib import Path
 
 import digital_rf as drf
@@ -24,6 +25,7 @@ from astropy.time import Time
 
 import pansy_ballistic as pbal
 import orbit_metadata_table
+from pansy_local_config import config_path
 from radiant_visibility import radiant_above_local_horizon
 
 try:
@@ -36,7 +38,27 @@ except Exception:
 
 
 AU_M = 149_597_870_700.0
-DEFAULT_KERNEL = Path(os.environ.get("DASST_KERNEL", "/Users/jvi019/src/rebound_examples/data/de430.bsp"))
+NAIF_DE430_URL = "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/spk/planets/de430.bsp"
+
+
+def default_kernel_path() -> Path:
+    configured = config_path("DASST_KERNEL") or config_path("DASST_KERNEL_PATH")
+    if configured is not None:
+        return configured
+    candidates = [
+        Path("~/src/meteor/daniel/de430.bsp").expanduser(),
+        Path("~/.cache/pansy-receiver/de430.bsp").expanduser(),
+        Path("/home/j/src/meteor/daniel/de430.bsp"),
+        Path("/Users/jvi019/src/meteor/daniel/de430.bsp"),
+        Path("/Users/jvi019/src/rebound_examples/data/de430.bsp"),
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return candidates[0]
+
+
+DEFAULT_KERNEL = default_kernel_path()
 ORBIT_METADATA_WRITER_ARGS = {
     "subdirectory_cadence_seconds": 3600,
     "file_cadence_seconds": 60,
@@ -47,6 +69,49 @@ ORBIT_METADATA_WRITER_ARGS = {
 ORBIT_RESULT_SCHEMA_VERSION = "pansy_orbit_plausible_aliases_v3"
 MAX_DASST_STATE_SAMPLES = 10
 HEAD_ECHO_MIN_SPEED_KM_S = float(os.environ.get("PANSY_HEAD_ECHO_MIN_SPEED_KM_S", "6.0"))
+
+
+def download_file(url: str, path: Path) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    try:
+        tmp.unlink()
+    except FileNotFoundError:
+        pass
+    with urllib.request.urlopen(url, timeout=60) as response, tmp.open("wb") as out:
+        total = int(response.headers.get("Content-Length", "0") or "0")
+        received = 0
+        last_report = 0
+        while True:
+            chunk = response.read(1024 * 1024)
+            if not chunk:
+                break
+            out.write(chunk)
+            received += len(chunk)
+            if received - last_report >= 25 * 1024 * 1024:
+                if total:
+                    print(f"dasst_kernel_download {received / 1e6:.0f}/{total / 1e6:.0f} MB {url}", flush=True)
+                else:
+                    print(f"dasst_kernel_download {received / 1e6:.0f} MB {url}", flush=True)
+                last_report = received
+    os.replace(tmp, path)
+
+
+def ensure_kernel(path: Path, download_url: str = NAIF_DE430_URL) -> Path:
+    path = Path(path).expanduser()
+    if path.is_file():
+        return path
+    if os.environ.get("PANSY_DASST_DOWNLOAD_KERNEL", "1").lower() in {"0", "false", "no"}:
+        raise FileNotFoundError(f'DASST kernel "{path}" does not exist and PANSY_DASST_DOWNLOAD_KERNEL=0')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_suffix(path.suffix + ".download.lock")
+    with lock_path.open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if path.is_file():
+            return path
+        print(f"dasst_kernel_missing path={path} download_url={download_url}", flush=True)
+        download_file(download_url, path)
+        fcntl.flock(lock, fcntl.LOCK_UN)
+    return path
 
 
 def optional_dataset(group: h5py.Group, name: str, default=None):
@@ -223,9 +288,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run DASST orbits for PANSY candidate GCRS state samples.")
     parser.add_argument("state_h5", type=Path)
     parser.add_argument("--kernel", type=Path, default=DEFAULT_KERNEL)
+    parser.add_argument("--kernel-download-url", default=NAIF_DE430_URL)
     parser.add_argument("--output-h5", type=Path, default=None)
     parser.add_argument("--metadata-dir", type=Path, default=None)
     args = parser.parse_args()
+    args.kernel = ensure_kernel(args.kernel, args.kernel_download_url)
 
     rows = []
     unc_rows = []
