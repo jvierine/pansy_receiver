@@ -19,7 +19,7 @@ from dasst_orbits_from_candidate_states import (
     first_radiant_column,
     radiant_payload_from_dasst,
 )
-from radiant_visibility import add_visibility_boundary_hammer
+from radiant_visibility import add_composite_visibility_boundary_hammer, add_visibility_boundary_hammer, visibility_samples_from_radiants
 
 
 PLOT_CENTER_LONGITUDE_DEG = -90.0
@@ -328,9 +328,10 @@ def plot_radiants(rows, output_png: Path):
         zorder=3,
     )
     add_source_markers(ax)
+    sample_epoch, sample_sun = visibility_samples_from_radiants(arr)
+    if len(sample_epoch):
+        add_composite_visibility_boundary_hammer(ax, sample_epoch, sample_sun, color="black")
     query = circular_mean_deg(arr["sun_lambda_ecliptic_deg"])
-    if np.isfinite(query):
-        add_visibility_boundary_hammer(ax, query, color="black")
     tick_pos, tick_labels = centered_tick_labels()
     ax.set_xticks(np.deg2rad(tick_pos))
     ax.set_xticklabels(tick_labels)
@@ -389,7 +390,11 @@ def plot_radiants_with_options(
         shower_date=shower_date,
         peak_tolerance_deg=shower_peak_tolerance_deg,
     )
-    add_visibility_boundary_hammer(ax, query, color="black")
+    sample_epoch, sample_sun = visibility_samples_from_radiants(arr)
+    if len(sample_epoch):
+        add_composite_visibility_boundary_hammer(ax, sample_epoch, sample_sun, color="black")
+    elif np.isfinite(query):
+        add_visibility_boundary_hammer(ax, query, color="black")
     add_shower_overlay_hammer(ax, showers)
     tick_pos, tick_labels = centered_tick_labels()
     ax.set_xticks(np.deg2rad(tick_pos))

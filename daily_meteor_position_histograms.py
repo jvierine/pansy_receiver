@@ -14,6 +14,7 @@ from matplotlib.colors import LogNorm
 import numpy as np
 
 from plot_meteor_position_histograms import (
+    TX_BEAM_COUNT,
     add_histogram_panel,
     format_direction_axis,
     interferometry_grid_offsets_deg,
@@ -147,6 +148,7 @@ def classify_file_calibration(path: Path, calibration_context: dict | None) -> n
 def add_files_to_histogram(
     files: list[Path],
     all_counts: np.ndarray,
+    beam_counts: np.ndarray,
     grid_n: int,
     use_selection_keep: bool,
     calibration_context: dict | None = None,
@@ -181,7 +183,11 @@ def add_files_to_histogram(
         event_count += 1
         grid_row = grid_row[valid]
         grid_col = grid_col[valid]
+        beam_id = np.asarray(row["beam_id"], dtype=np.int64)[valid]
         np.add.at(all_counts, (grid_row, grid_col), 1)
+        valid_beam = (beam_id >= 0) & (beam_id < beam_counts.shape[0])
+        if np.any(valid_beam):
+            np.add.at(beam_counts, (beam_id[valid_beam], grid_row[valid_beam], grid_col[valid_beam]), 1)
         snr = np.asarray(row["snr"], dtype=np.float64)[valid]
         coh = np.asarray(row["coherence"], dtype=np.float64)[valid]
         snr_chunks.append(snr[np.isfinite(snr)])
@@ -193,15 +199,18 @@ def add_files_to_histogram(
 def collect_day(day_dir: Path, grid_n: int, use_selection_keep: bool) -> tuple[dict, tuple[float, float, float, float]]:
     files = sorted(day_dir.glob("pansy_disambiguation_diagnostics_*.h5"))
     all_counts = np.zeros((grid_n, grid_n), dtype=np.int32)
+    beam_counts = np.zeros((TX_BEAM_COUNT, grid_n, grid_n), dtype=np.int32)
     event_count, skipped, calibration_rejected, total_points, snr_chunks, coh_chunks = add_files_to_histogram(
         files,
         all_counts,
+        beam_counts,
         grid_n,
         use_selection_keep,
         calibration_context=None,
     )
     counts = {
         "all_counts": all_counts,
+        "beam_counts": beam_counts,
         "event_count": event_count,
         "skipped_count": skipped,
         "calibration_rejected_count": calibration_rejected,
@@ -278,6 +287,7 @@ def collect_day_hourly(
     calibration_context: dict | None = None,
 ) -> tuple[dict, tuple[float, float, float, float]]:
     all_counts = np.zeros((grid_n, grid_n), dtype=np.int32)
+    beam_counts = np.zeros((TX_BEAM_COUNT, grid_n, grid_n), dtype=np.int32)
     snr_chunks: list[np.ndarray] = []
     coh_chunks: list[np.ndarray] = []
     event_count = 0
@@ -297,6 +307,7 @@ def collect_day_hourly(
         h_events, h_skipped, h_calibration_rejected, h_points, h_snr, h_coh = add_files_to_histogram(
             hour_files,
             all_counts,
+            beam_counts,
             grid_n,
             use_selection_keep,
             calibration_context=calibration_context,
@@ -309,6 +320,7 @@ def collect_day_hourly(
         coh_chunks.extend(h_coh)
     counts = {
         "all_counts": all_counts,
+        "beam_counts": beam_counts,
         "event_count": event_count,
         "skipped_count": skipped,
         "calibration_rejected_count": calibration_rejected,
@@ -355,6 +367,7 @@ def write_daily_channel(day: str, counts: dict, metrics, metadata_dir: Path, gri
         h.attrs["histogram_source"] = "diagnostics selected-hypothesis candidate grid_row/grid_col"
         h.attrs["calibration_rejection"] = "skip diagnostics with bad tx_phase_quality_good or bad cut_tx_waveform_good"
         h.create_dataset("all_counts", data=np.asarray(counts["all_counts"], dtype=np.int32), compression="gzip", shuffle=True)
+        h.create_dataset("beam_counts", data=np.asarray(counts["beam_counts"], dtype=np.int32), compression="gzip", shuffle=True)
         h.create_dataset("metrics", data=np.asarray(metrics, dtype=METRIC_DTYPE))
         if "hour_quality" in counts:
             h.create_dataset("hour_quality", data=np.asarray(counts["hour_quality"], dtype=HOUR_QUALITY_DTYPE))
@@ -389,6 +402,7 @@ def build(
     days = collect_days(events_dir)
     east_grid, north_grid, view = in_view_mask(grid_n, extent_deg)
     counts_stack = np.zeros((len(days), grid_n, grid_n), dtype=np.int32)
+    beam_counts_stack = np.zeros((len(days), TX_BEAM_COUNT, grid_n, grid_n), dtype=np.int32)
     metrics = np.zeros(len(days), dtype=METRIC_DTYPE)
     tasks = [(i, day, str(events_dir), grid_n, not include_clipped, calibration_context) for i, day in enumerate(days)]
     if workers <= 1:
@@ -400,7 +414,9 @@ def build(
         for i, day, counts, quality in iterator:
             median_snr, p90_snr, median_coh, p10_coh = quality
             all_counts = np.asarray(counts["all_counts"], dtype=np.int32)
+            beam_counts = np.asarray(counts["beam_counts"], dtype=np.int32)
             counts_stack[i] = all_counts
+            beam_counts_stack[i] = beam_counts
             metrics[i] = (
                 day.encode(),
                 counts["file_count"],
@@ -429,6 +445,7 @@ def build(
     order = np.argsort(metrics["utc_day"])
     days = [days[i] for i in order]
     counts_stack = counts_stack[order]
+    beam_counts_stack = beam_counts_stack[order]
     metrics = metrics[order]
     output_h5.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(output_h5, "w") as h:
@@ -441,6 +458,7 @@ def build(
         h.create_dataset("north_grid_deg", data=north_grid.astype(np.float32), compression="gzip", shuffle=True)
         h.create_dataset("in_view", data=view.astype(np.uint8), compression="gzip", shuffle=True)
         h.create_dataset("all_counts", data=counts_stack, compression="gzip", shuffle=True)
+        h.create_dataset("beam_counts", data=beam_counts_stack, compression="gzip", shuffle=True)
         h.create_dataset("metrics", data=metrics)
     return days, counts_stack, metrics
 
@@ -483,15 +501,20 @@ def stack_from_daily_metadata(metadata_dir: Path, output_h5: Path, grid_n: int, 
     east_grid, north_grid, view = in_view_mask(grid_n, extent_deg)
     days = []
     counts = []
+    beam_counts = []
     metrics = []
     for path in files:
         with h5py.File(path, "r") as h:
             days.append(str(h.attrs["utc_day"]))
             counts.append(np.asarray(h["all_counts"], dtype=np.int32))
+            if "beam_counts" not in h:
+                raise ValueError(f"{path} is missing beam_counts; rebuild that daily metadata file")
+            beam_counts.append(np.asarray(h["beam_counts"], dtype=np.int32))
             metrics.append(np.asarray(h["metrics"][()], dtype=METRIC_DTYPE))
     order = np.argsort(np.asarray(days, dtype="S10"))
     days = [days[i] for i in order]
     counts_stack = np.asarray([counts[i] for i in order], dtype=np.int32)
+    beam_counts_stack = np.asarray([beam_counts[i] for i in order], dtype=np.int32)
     metrics_arr = np.asarray([metrics[i] for i in order], dtype=METRIC_DTYPE)
     output_h5.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(output_h5, "w") as h:
@@ -504,6 +527,7 @@ def stack_from_daily_metadata(metadata_dir: Path, output_h5: Path, grid_n: int, 
         h.create_dataset("north_grid_deg", data=north_grid.astype(np.float32), compression="gzip", shuffle=True)
         h.create_dataset("in_view", data=view.astype(np.uint8), compression="gzip", shuffle=True)
         h.create_dataset("all_counts", data=counts_stack, compression="gzip", shuffle=True)
+        h.create_dataset("beam_counts", data=beam_counts_stack, compression="gzip", shuffle=True)
         h.create_dataset("metrics", data=metrics_arr)
     return days, counts_stack, metrics_arr
 

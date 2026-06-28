@@ -96,6 +96,155 @@ def radiant_visibility_boundary(
     return plot_longitude, beta
 
 
+def gmst_deg_from_unix(epoch_unix):
+    epoch = np.asarray(epoch_unix, dtype=np.float64)
+    jd = epoch / 86400.0 + 2440587.5
+    d = jd - 2451545.0
+    gmst = 280.46061837 + 360.98564736629 * d
+    return wrap360(gmst)
+
+
+def ecliptic_lonlat_to_radec_deg(lon_deg, lat_deg):
+    lon = np.deg2rad(np.asarray(lon_deg, dtype=np.float64))
+    lat = np.deg2rad(np.asarray(lat_deg, dtype=np.float64))
+    eps = np.deg2rad(MEAN_OBLIQUITY_DEG)
+    sin_dec = np.sin(lat) * np.cos(eps) + np.cos(lat) * np.sin(eps) * np.sin(lon)
+    dec = np.arcsin(np.clip(sin_dec, -1.0, 1.0))
+    ra = np.arctan2(np.sin(lon) * np.cos(eps) - np.tan(lat) * np.sin(eps), np.cos(lon))
+    return wrap360(np.rad2deg(ra)), np.rad2deg(dec)
+
+
+def altitude_from_radec_deg(
+    ra_deg,
+    dec_deg,
+    epoch_unix,
+    site_latitude_deg: float = PANSY_SITE_LATITUDE_DEG,
+    site_longitude_deg: float = PANSY_SITE_LONGITUDE_DEG,
+):
+    lat = np.deg2rad(float(site_latitude_deg))
+    lst = np.deg2rad(wrap360(gmst_deg_from_unix(epoch_unix) + float(site_longitude_deg)))
+    ra = np.deg2rad(np.asarray(ra_deg, dtype=np.float64))
+    dec = np.deg2rad(np.asarray(dec_deg, dtype=np.float64))
+    hour_angle = lst - ra
+    sin_alt = np.sin(lat) * np.sin(dec) + np.cos(lat) * np.cos(dec) * np.cos(hour_angle)
+    return np.rad2deg(np.arcsin(np.clip(sin_alt, -1.0, 1.0)))
+
+
+def visibility_samples_from_radiants(rows, step_seconds: float = 3600.0, max_samples: int = 1500):
+    """Return epoch and solar-longitude samples spanning the plotted radiants."""
+    if rows is None or len(rows) == 0:
+        return np.asarray([], dtype=np.float64), np.asarray([], dtype=np.float64)
+    epoch = np.asarray(rows["epoch_unix"], dtype=np.float64) if "epoch_unix" in rows.dtype.names else np.asarray([], dtype=np.float64)
+    sun = (
+        np.asarray(rows["sun_lambda_ecliptic_deg"], dtype=np.float64)
+        if "sun_lambda_ecliptic_deg" in rows.dtype.names
+        else np.asarray([], dtype=np.float64)
+    )
+    good = np.isfinite(epoch) & np.isfinite(sun)
+    epoch = epoch[good]
+    sun = sun[good]
+    if len(epoch) == 0:
+        return np.asarray([], dtype=np.float64), np.asarray([], dtype=np.float64)
+    order = np.argsort(epoch)
+    epoch = epoch[order]
+    sun = sun[order]
+    start = float(epoch[0])
+    stop = float(epoch[-1])
+    if stop <= start:
+        return epoch[:1], sun[:1]
+    sample_count = int(np.floor((stop - start) / float(step_seconds))) + 1
+    sample_count = max(2, min(int(max_samples), sample_count))
+    sample_epoch = np.linspace(start, stop, sample_count)
+    unwrapped_sun = np.rad2deg(np.unwrap(np.deg2rad(sun)))
+    sample_sun = wrap360(np.interp(sample_epoch, epoch, unwrapped_sun))
+    return sample_epoch, sample_sun
+
+
+def composite_radiant_visibility_grid(
+    epoch_unix,
+    solar_longitude_deg,
+    plot_longitude_deg=None,
+    beta_deg=None,
+    min_altitude_deg: float = 0.0,
+):
+    """Return a mask of sun-centered radiant positions visible at least once."""
+    epoch = np.asarray(epoch_unix, dtype=np.float64)
+    sun = np.asarray(solar_longitude_deg, dtype=np.float64)
+    good = np.isfinite(epoch) & np.isfinite(sun)
+    epoch = epoch[good]
+    sun = sun[good]
+    if plot_longitude_deg is None:
+        plot_longitude_deg = np.linspace(-180.0, 180.0, 361)
+    if beta_deg is None:
+        beta_deg = np.linspace(-90.0, 90.0, 181)
+    plot_longitude_deg = np.asarray(plot_longitude_deg, dtype=np.float64)
+    beta_deg = np.asarray(beta_deg, dtype=np.float64)
+    if len(epoch) == 0:
+        return plot_longitude_deg, beta_deg, np.zeros((len(beta_deg), len(plot_longitude_deg)), dtype=bool)
+    lon_grid, beta_grid = np.meshgrid(plot_longitude_deg, beta_deg)
+    lambda_minus_sun = wrap180(PLOT_CENTER_LONGITUDE_DEG - lon_grid)
+    possible = composite_radiant_visibility_points(
+        lambda_minus_sun,
+        beta_grid,
+        epoch,
+        sun,
+        min_altitude_deg=min_altitude_deg,
+    )
+    return plot_longitude_deg, beta_deg, possible
+
+
+def composite_radiant_visibility_points(
+    lambda_minus_sun_deg,
+    beta_deg,
+    epoch_unix,
+    solar_longitude_deg,
+    min_altitude_deg: float = 0.0,
+):
+    """Return whether each sun-centered ecliptic radiant was visible at least once."""
+    epoch = np.asarray(epoch_unix, dtype=np.float64)
+    sun = np.asarray(solar_longitude_deg, dtype=np.float64)
+    good = np.isfinite(epoch) & np.isfinite(sun)
+    epoch = epoch[good]
+    sun = sun[good]
+    lambda_minus_sun = np.asarray(lambda_minus_sun_deg, dtype=np.float64)
+    beta = np.asarray(beta_deg, dtype=np.float64)
+    lambda_minus_sun, beta = np.broadcast_arrays(lambda_minus_sun, beta)
+    possible = np.zeros(lambda_minus_sun.shape, dtype=bool)
+    for ep, sun_lon in zip(epoch, sun, strict=False):
+        absolute_lambda = wrap360(float(sun_lon) + lambda_minus_sun)
+        ra, dec = ecliptic_lonlat_to_radec_deg(absolute_lambda, beta)
+        possible |= altitude_from_radec_deg(ra, dec, float(ep)) > float(min_altitude_deg)
+    return possible
+
+
+def add_composite_visibility_boundary_hammer(
+    ax,
+    epoch_unix,
+    solar_longitude_deg,
+    color: str = "white",
+    label: str | None = "Composite visibility > 0 h",
+    min_altitude_deg: float = 0.0,
+):
+    x_deg, beta_deg, possible = composite_radiant_visibility_grid(
+        epoch_unix,
+        solar_longitude_deg,
+        min_altitude_deg=min_altitude_deg,
+    )
+    if not np.any(possible) or np.all(possible):
+        return
+    ax.contour(
+        np.deg2rad(x_deg),
+        np.deg2rad(beta_deg),
+        possible.astype(float),
+        levels=[0.5],
+        colors=color,
+        linewidths=1.35,
+        linestyles="--",
+        alpha=0.92,
+        zorder=11,
+    )
+
+
 def add_visibility_boundary_hammer(
     ax,
     solar_longitude_deg: float,

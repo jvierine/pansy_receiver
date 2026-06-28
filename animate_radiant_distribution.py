@@ -21,7 +21,7 @@ from plot_fitted_radiant_distribution import (
     centered_tick_labels,
     scaled_scatter_area,
 )
-from radiant_visibility import add_visibility_boundary_hammer
+from radiant_visibility import add_composite_visibility_boundary_hammer, add_visibility_boundary_hammer, visibility_samples_from_radiants
 from shower_radiant_overlay import active_showers, add_shower_overlay_hammer, circular_mean_deg
 
 
@@ -140,7 +140,11 @@ def plot_scatter_frame(rows, day_rows, day_label: str, out: Path, shower_catalog
     )
     add_source_markers(ax)
     showers, query = frame_showers(rows, day_rows, shower_catalog, peak_tolerance_deg)
-    add_visibility_boundary_hammer(ax, query, color="black", label=None)
+    sample_epoch, sample_sun = visibility_samples_from_radiants(rows)
+    if len(sample_epoch):
+        add_composite_visibility_boundary_hammer(ax, sample_epoch, sample_sun, color="black", label=None)
+    else:
+        add_visibility_boundary_hammer(ax, query, color="black", label=None)
     add_shower_overlay_hammer(ax, showers)
     cb = fig.colorbar(sc, ax=ax, orientation="horizontal", pad=0.14, fraction=0.046)
     cb.set_label("Geocentric velocity (km/s)")
@@ -164,7 +168,11 @@ def plot_histogram_frame(rows, day_rows, day_label: str, out: Path, shower_catal
     ax.pcolormesh(xx, yy, plot_count, cmap="plasma", norm=norm, shading="auto")
     add_source_markers(ax)
     showers, query = frame_showers(rows, day_rows, shower_catalog, peak_tolerance_deg)
-    add_visibility_boundary_hammer(ax, query, color="white", label=None)
+    sample_epoch, sample_sun = visibility_samples_from_radiants(rows)
+    if len(sample_epoch):
+        add_composite_visibility_boundary_hammer(ax, sample_epoch, sample_sun, color="white", label=None)
+    else:
+        add_visibility_boundary_hammer(ax, query, color="white", label=None)
     add_shower_overlay_hammer(ax, showers, label_color="white")
     mappable = plt.cm.ScalarMappable(norm=norm, cmap="plasma")
     cb = fig.colorbar(mappable, ax=ax, orientation="horizontal", pad=0.14, fraction=0.046)

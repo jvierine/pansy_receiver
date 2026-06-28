@@ -14,7 +14,7 @@ from matplotlib.path import Path as MplPath
 from matplotlib.transforms import Affine2D
 import numpy as np
 
-from radiant_visibility import radiant_visibility_boundary
+from radiant_visibility import composite_radiant_visibility_points, radiant_visibility_boundary, visibility_samples_from_radiants
 
 
 PLOT_CENTER_LONGITUDE_DEG = -90.0
@@ -33,6 +33,11 @@ def read_radiants(path: Path):
     good = np.isfinite(lon) & np.isfinite(lat) & np.isfinite(speed)
     good &= (lat >= -90.0) & (lat <= 90.0)
     return lon[good], lat[good], speed[good]
+
+
+def read_radiant_rows(path: Path):
+    with h5py.File(path, "r") as h:
+        return h["radiants"][()]
 
 
 def healpix_histogram(lon_deg, lat_deg, speed_km_s, nside: int, min_count_for_mean_speed: int):
@@ -97,7 +102,28 @@ def add_visibility_boundary_healpix(solar_longitude_deg: float, color: str = "wh
     )
 
 
-def plot_healpix(count, output_png: Path, n_radiants: int, solar_longitude_deg: float = np.nan):
+def add_composite_visibility_boundary_healpix(rows, color: str = "white", nside: int = 128):
+    sample_epoch, sample_sun = visibility_samples_from_radiants(rows)
+    if len(sample_epoch) == 0:
+        return False
+    lon = np.linspace(-180.0, 180.0, 361)
+    lat = np.linspace(-90.0, 90.0, 181)
+    lon_grid, lat_grid = np.meshgrid(lon, lat)
+    possible = composite_radiant_visibility_points(lon_grid, lat_grid, sample_epoch, sample_sun)
+    if not np.any(possible) or np.all(possible):
+        return False
+    fig_tmp, ax_tmp = plt.subplots()
+    contour = ax_tmp.contour(lon, lat, possible.astype(float), levels=[0.5])
+    segments = contour.allsegs[0] if contour.allsegs else []
+    plt.close(fig_tmp)
+    for seg in segments:
+        if len(seg) < 2:
+            continue
+        hp.projplot(seg[:, 0], seg[:, 1], lonlat=True, color=color, linewidth=1.35, linestyle="--", alpha=0.92)
+    return True
+
+
+def plot_healpix(count, output_png: Path, n_radiants: int, solar_longitude_deg: float = np.nan, rows=None):
     output_png.parent.mkdir(parents=True, exist_ok=True)
     plot_count = np.asarray(count, dtype=np.float64).copy()
     plot_count[~np.isfinite(plot_count) | (plot_count <= 0.0)] = 1.0
@@ -119,7 +145,8 @@ def plot_healpix(count, output_png: Path, n_radiants: int, solar_longitude_deg: 
         cbar=True,
     )
     hp.graticule(dpar=15, dmer=30, color="0.55", alpha=0.35)
-    add_visibility_boundary_healpix(solar_longitude_deg, color="white")
+    if rows is None or not add_composite_visibility_boundary_healpix(rows, color="white"):
+        add_visibility_boundary_healpix(solar_longitude_deg, color="white")
     fig = plt.gcf()
     fig.set_size_inches(9.4, 5.6)
     fig.patch.set_facecolor("white")
@@ -160,6 +187,7 @@ def plot_healpix_with_showers(
     n_radiants: int,
     showers,
     solar_longitude_deg: float = np.nan,
+    rows=None,
 ):
     plot_count = np.asarray(count, dtype=np.float64).copy()
     plot_count[~np.isfinite(plot_count) | (plot_count <= 0.0)] = 1.0
@@ -181,7 +209,8 @@ def plot_healpix_with_showers(
         cbar=True,
     )
     hp.graticule(dpar=15, dmer=30, color="0.55", alpha=0.35)
-    add_visibility_boundary_healpix(solar_longitude_deg, color="white")
+    if rows is None or not add_composite_visibility_boundary_healpix(rows, color="white"):
+        add_visibility_boundary_healpix(solar_longitude_deg, color="white")
     if showers:
         lon = np.asarray([s.radiant_solar_ecliptic_lon_deg for s in showers], dtype=np.float64)
         lon = (lon + 180.0) % 360.0 - 180.0
@@ -231,6 +260,7 @@ def main():
     parser.add_argument("--shower-peak-tolerance-deg", type=float, default=5.0)
     args = parser.parse_args()
 
+    rows = read_radiant_rows(args.input_h5)
     lon, lat, speed = read_radiants(args.input_h5)
     count, mean_speed = healpix_histogram(lon, lat, speed, args.nside, args.min_count_for_mean_speed)
     write_h5(args.output_h5, args.input_h5, args.nside, count, mean_speed, len(lon))
@@ -238,8 +268,6 @@ def main():
         from shower_radiant_overlay import active_showers
         import h5py
 
-        with h5py.File(args.input_h5, "r") as h:
-            rows = h["radiants"][()]
         showers, _query = active_showers(
             rows,
             shower_catalog=args.shower_catalog,
@@ -247,9 +275,9 @@ def main():
             shower_date=args.shower_date,
             peak_tolerance_deg=args.shower_peak_tolerance_deg,
         )
-        plot_healpix_with_showers(count, args.output_png, len(lon), showers, _query)
+        plot_healpix_with_showers(count, args.output_png, len(lon), showers, _query, rows=rows)
     else:
-        plot_healpix(count, args.output_png, len(lon), mean_solar_longitude(args.input_h5))
+        plot_healpix(count, args.output_png, len(lon), mean_solar_longitude(args.input_h5), rows=rows)
     print(f"healpix_radiants {len(lon)} nside {args.nside} occupied_pixels {int(np.sum(count > 0.0))}")
     print(args.output_png)
     print(args.output_h5)
