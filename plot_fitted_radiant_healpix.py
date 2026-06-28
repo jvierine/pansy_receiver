@@ -123,6 +123,26 @@ def add_composite_visibility_boundary_healpix(rows, color: str = "white", nside:
     return True
 
 
+def mask_healpix_outside_oval(fig):
+    """Keep HEALPix image pixels out of the rectangular area around the Mollweide oval."""
+    for ax in fig.axes:
+        ax.set_facecolor("white")
+        if not ax.images:
+            continue
+        rect = MplPath(
+            [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.0, 0.0)],
+            [MplPath.MOVETO, MplPath.LINETO, MplPath.LINETO, MplPath.LINETO, MplPath.CLOSEPOLY],
+        )
+        theta = np.linspace(2.0 * np.pi, 0.0, 241)
+        ellipse_vertices = np.column_stack((0.5 + 0.5 * np.cos(theta), 0.5 + 0.5 * np.sin(theta)))
+        ellipse_codes = np.full(len(ellipse_vertices), MplPath.LINETO, dtype=np.uint8)
+        ellipse_codes[0] = MplPath.MOVETO
+        ellipse_codes[-1] = MplPath.CLOSEPOLY
+        ellipse = MplPath(ellipse_vertices, ellipse_codes)
+        outside = MplPath.make_compound_path(rect, ellipse)
+        ax.add_patch(PathPatch(outside, transform=ax.transAxes, facecolor="white", edgecolor="none", zorder=20))
+
+
 def plot_healpix(count, output_png: Path, n_radiants: int, solar_longitude_deg: float = np.nan, rows=None):
     output_png.parent.mkdir(parents=True, exist_ok=True)
     plot_count = np.asarray(count, dtype=np.float64).copy()
@@ -150,23 +170,7 @@ def plot_healpix(count, output_png: Path, n_radiants: int, solar_longitude_deg: 
     fig = plt.gcf()
     fig.set_size_inches(9.4, 5.6)
     fig.patch.set_facecolor("white")
-    for ax in fig.axes:
-        ax.set_facecolor("white")
-        for image in ax.images:
-            image.set_clip_path(ax.patch)
-        if ax.images:
-            rect = MplPath(
-                [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.0, 0.0)],
-                [MplPath.MOVETO, MplPath.LINETO, MplPath.LINETO, MplPath.LINETO, MplPath.CLOSEPOLY],
-            )
-            theta = np.linspace(2.0 * np.pi, 0.0, 241)
-            ellipse_vertices = np.column_stack((0.5 + 0.5 * np.cos(theta), 0.5 + 0.5 * np.sin(theta)))
-            ellipse_codes = np.full(len(ellipse_vertices), MplPath.LINETO, dtype=np.uint8)
-            ellipse_codes[0] = MplPath.MOVETO
-            ellipse_codes[-1] = MplPath.CLOSEPOLY
-            ellipse = MplPath(ellipse_vertices, ellipse_codes)
-            outside = MplPath.make_compound_path(rect, ellipse)
-            ax.add_patch(PathPatch(outside, transform=ax.transAxes, facecolor="white", edgecolor="none", zorder=4))
+    mask_healpix_outside_oval(fig)
     fig.text(
         0.5,
         0.035,
@@ -227,10 +231,11 @@ def plot_healpix_with_showers(
             alpha=0.3,
         )
         for shower, lo, la in zip(showers[:18], lon[:18], lat[:18], strict=False):
-            hp.projtext(lo, la, shower.code or shower.name[:5], lonlat=True, fontsize=7.5)
+            hp.projtext(lo, la, shower.code or shower.name[:5], lonlat=True, fontsize=7.5, color="white")
     fig = plt.gcf()
     fig.set_size_inches(9.4, 5.6)
     fig.patch.set_facecolor("white")
+    mask_healpix_outside_oval(fig)
     fig.text(
         0.5,
         0.035,
