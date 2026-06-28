@@ -52,3 +52,24 @@ def test_rx_gain_uses_single_module_pattern():
     off_gain = pgain.rx_power_gain(off_zenith, channel=0)
     assert np.isfinite(off_gain[0])
     assert 0.0 < off_gain[0] <= 1.0
+
+
+def test_two_way_gain_is_tx_gain_times_rx_module_gain():
+    import pansy_gain as pgain
+
+    uvw = np.asarray(
+        [
+            [0.0, 0.0, -1.0],
+            [0.04, -0.02, -np.sqrt(1.0 - 0.04**2 - 0.02**2)],
+        ],
+        dtype=np.float64,
+    )
+    beam_id = np.asarray([0, 1], dtype=np.int64)
+    beam_vecs = pgain.tx_beam_unit_vectors()
+    expected = np.empty(len(uvw), dtype=np.float64)
+    tx_gain = pgain.tx_power_gain(uvw, beam_id, beam_vecs=beam_vecs)
+    for beam in np.unique(beam_id):
+        idx = beam_id == beam
+        expected[idx] = tx_gain[idx] * pgain.rx_power_gain(uvw[idx], steer=beam_vecs[beam])
+    np.testing.assert_allclose(pgain.two_way_power_gain(uvw, beam_id), expected)
+    np.testing.assert_allclose(pgain.two_way_gain_db(uvw, beam_id), pgain.power_to_db(expected))

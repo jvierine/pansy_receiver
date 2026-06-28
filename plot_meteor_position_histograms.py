@@ -11,11 +11,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import LogNorm
 
+import pansy_gain as pgain
 import plot_interferometric_disambiguation as disamb
 
 TX_BEAM_COUNT = len(disamb.tx_beam_unit_vectors())
-TX_GAIN_MODEL = "tx_gain"
-TX_GAIN_LABEL = "module gain x sparse array gain"
+TWO_WAY_GAIN_LABEL = "two-way antenna gain"
 
 
 def direction_cosines_to_offsets_deg(uvw: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -110,10 +110,10 @@ def collect_grid_counts(diagnostics_dir: Path, grid_n: int, use_selection_keep: 
     }
 
 
-def tx_gain_maps_grid(u: np.ndarray, v: np.ndarray, valid: np.ndarray, model: str = TX_GAIN_MODEL) -> np.ndarray:
+def two_way_gain_maps_grid(u: np.ndarray, v: np.ndarray, valid: np.ndarray) -> np.ndarray:
     w = np.full_like(u, np.nan, dtype=np.float64)
     w[valid] = -np.sqrt(np.maximum(0.0, 1.0 - u[valid] ** 2 - v[valid] ** 2))
-    gain = disamb.precompute_tx_array_gain_maps(u, v, w, valid, model=model)
+    gain = pgain.precompute_two_way_gain_maps(u, v, w, valid)
     for beam_id in range(gain.shape[0]):
         finite = np.isfinite(gain[beam_id])
         if np.any(finite):
@@ -121,7 +121,7 @@ def tx_gain_maps_grid(u: np.ndarray, v: np.ndarray, valid: np.ndarray, model: st
     return gain
 
 
-def combined_tx_gain_grid(gain_maps_db: np.ndarray) -> np.ndarray:
+def combined_gain_grid(gain_maps_db: np.ndarray) -> np.ndarray:
     linear = np.nansum(np.power(10.0, gain_maps_db / 10.0), axis=0)
     combined = np.full(linear.shape, np.nan, dtype=np.float64)
     good = np.isfinite(linear) & (linear > 0.0)
@@ -202,9 +202,9 @@ def plot_position_histograms(
     cb0.set_label("Meteor detections per bin")
     format_direction_axis(axes[0], extent_deg)
 
-    gain = tx_gain_maps_grid(u, v, valid_grid)[0]
+    gain = two_way_gain_maps_grid(u, v, valid_grid)[0]
     im1 = axes[1].pcolormesh(east_plot, north_plot, gain[rs, cs], shading="auto", cmap="viridis", vmin=-30.0, vmax=0.0)
-    axes[1].set_title("Zenith TX gain pattern\nsubarray-weighted relative gain (dB)")
+    axes[1].set_title("Two-way antenna gain")
     cb1 = fig.colorbar(im1, ax=axes[1], shrink=0.82)
     cb1.set_label("Relative gain (dB)")
     format_direction_axis(axes[1], extent_deg)
@@ -260,36 +260,47 @@ def plot_gain_histogram_pair(
     cs = slice(int(col_use[0]), int(col_use[-1]) + 1)
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    fig, axes = plt.subplots(1, 2, figsize=(13.8, 6.2), constrained_layout=True)
+    with plt.rc_context(
+        {
+            "font.size": 15,
+            "axes.titlesize": 18,
+            "axes.labelsize": 16,
+            "xtick.labelsize": 14,
+            "ytick.labelsize": 14,
+            "legend.fontsize": 14,
+            "figure.titlesize": 18,
+        }
+    ):
+        fig, axes = plt.subplots(1, 2, figsize=(13.8, 6.2), constrained_layout=True)
 
-    im0 = axes[0].pcolormesh(
-        east_grid[rs, cs],
-        north_grid[rs, cs],
-        gain_db[rs, cs],
-        shading="auto",
-        cmap="viridis",
-        vmin=-30.0,
-        vmax=0.0,
-    )
-    axes[0].set_title(gain_title)
-    cb0 = fig.colorbar(im0, ax=axes[0], shrink=0.86)
-    cb0.set_label("Relative gain (dB)")
-    format_direction_axis(axes[0], extent_deg)
+        im0 = axes[0].pcolormesh(
+            east_grid[rs, cs],
+            north_grid[rs, cs],
+            gain_db[rs, cs],
+            shading="auto",
+            cmap="viridis",
+            vmin=-30.0,
+            vmax=0.0,
+        )
+        axes[0].set_title(gain_title)
+        cb0 = fig.colorbar(im0, ax=axes[0], shrink=0.86)
+        cb0.set_label("Relative gain (dB)")
+        format_direction_axis(axes[0], extent_deg)
 
-    im1, _ = add_histogram_panel(
-        axes[1],
-        east_grid[rs, cs],
-        north_grid[rs, cs],
-        np.where(in_view, counts, 0)[rs, cs],
-        histogram_title,
-        cmap="magma",
-    )
-    cb1 = fig.colorbar(im1, ax=axes[1], shrink=0.86)
-    cb1.set_label("Meteor detections per bin")
-    format_direction_axis(axes[1], extent_deg)
+        im1, _ = add_histogram_panel(
+            axes[1],
+            east_grid[rs, cs],
+            north_grid[rs, cs],
+            np.where(in_view, counts, 0)[rs, cs],
+            histogram_title,
+            cmap="magma",
+        )
+        cb1 = fig.colorbar(im1, ax=axes[1], shrink=0.86)
+        cb1.set_label("Meteor detections per bin")
+        format_direction_axis(axes[1], extent_deg)
 
-    fig.savefig(output, dpi=220)
-    plt.close(fig)
+        fig.savefig(output, dpi=220)
+        plt.close(fig)
 
 
 def plot_stacked_position_histogram(
@@ -331,9 +342,9 @@ def plot_stacked_position_histogram(
 
     grid_n = int(total_counts.shape[0])
     u, v, _east_check, _north_check, valid_grid = interferometry_grid_offsets_deg(grid_n)
-    gain_maps = tx_gain_maps_grid(u, v, valid_grid)
+    gain_maps = two_way_gain_maps_grid(u, v, valid_grid)
     beam0_gain = gain_maps[0]
-    all_gain = combined_tx_gain_grid(gain_maps)
+    all_gain = combined_gain_grid(gain_maps)
 
     zenith_output = zenith_output or _derived_output(output, "zenith_tx_beam")
     all_output = all_output or output
@@ -345,8 +356,8 @@ def plot_stacked_position_histogram(
         in_view,
         zenith_output,
         extent_deg,
-        f"Analytical zenith TX beam gain\n{TX_GAIN_LABEL} (dB)",
-        f"Zenith TX beam trajectory positions\n{day_label}, N={n_beam0} points",
+        "Two-way antenna gain",
+        f"Meteor positions\n{day_label}, N={n_beam0} points",
     )
     plot_gain_histogram_pair(
         all_gain,
@@ -356,8 +367,8 @@ def plot_stacked_position_histogram(
         in_view,
         all_output,
         extent_deg,
-        f"All TX beams analytical composite gain\n{TX_GAIN_LABEL} (dB)",
-        f"All TX beams meteor positions\n{day_label}, N={n_points} points",
+        "Two-way antenna gain",
+        f"Meteor positions\n{day_label}, N={n_points} points",
     )
     return {
         "days": n_days,

@@ -231,6 +231,46 @@ def rx_gain_db(uvw: np.ndarray, channel: int | str | None = None, steer: np.ndar
     return power_to_db(rx_power_gain(uvw, channel=channel, steer=steer))
 
 
+def two_way_power_gain(
+    uvw: np.ndarray,
+    beam_id: int | np.ndarray,
+    beam_vecs: np.ndarray | None = None,
+    rx_channel: int | str | None = None,
+) -> np.ndarray:
+    """Two-way meteor radar antenna gain in linear units.
+
+    The two-way gain is the steered transmit power gain multiplied by the
+    single-module receive power gain for the interferometric receiver.  Both
+    transmit and receive module patterns are steered to the active beam.
+    """
+    dirs, original_shape = _as_direction_array(uvw)
+    beam_vecs = tx_beam_unit_vectors() if beam_vecs is None else np.asarray(beam_vecs, dtype=np.float64)
+    beam_arr = np.asarray(beam_id, dtype=np.int64)
+    if beam_arr.ndim == 0:
+        beam_arr = np.full(len(dirs), int(beam_arr), dtype=np.int64)
+    else:
+        beam_arr = np.broadcast_to(beam_arr, original_shape).reshape(-1)
+    tx_gain = tx_power_gain(dirs, beam_arr, beam_vecs=beam_vecs).reshape(-1)
+    rx_gain = np.full(len(dirs), np.nan, dtype=np.float64)
+    module_positions = None if rx_channel is None else rx_module_positions(rx_channel)
+    good = np.all(np.isfinite(dirs), axis=1) & (beam_arr >= 0) & (beam_arr < len(beam_vecs))
+    if np.any(good):
+        for beam in np.unique(beam_arr[good]):
+            idx = good & (beam_arr == beam)
+            rx_gain[idx] = module_power_gain(dirs[idx], steer=beam_vecs[beam], module_positions=module_positions)
+    return (tx_gain * rx_gain).reshape(original_shape)
+
+
+def two_way_gain_db(
+    uvw: np.ndarray,
+    beam_id: int | np.ndarray,
+    beam_vecs: np.ndarray | None = None,
+    rx_channel: int | str | None = None,
+) -> np.ndarray:
+    """Two-way meteor radar antenna gain in dB."""
+    return power_to_db(two_way_power_gain(uvw, beam_id, beam_vecs=beam_vecs, rx_channel=rx_channel))
+
+
 def precompute_tx_gain_maps(
     u: np.ndarray,
     v: np.ndarray,
@@ -245,5 +285,24 @@ def precompute_tx_gain_maps(
     for beam_i in range(len(beam_vecs)):
         flat = np.full(u.shape, np.nan, dtype=np.float32)
         flat[valid] = tx_gain_db(uvw, beam_i, beam_vecs=beam_vecs).astype(np.float32)
+        gain_maps[beam_i] = flat
+    return gain_maps
+
+
+def precompute_two_way_gain_maps(
+    u: np.ndarray,
+    v: np.ndarray,
+    w: np.ndarray,
+    valid: np.ndarray,
+    beam_vecs: np.ndarray | None = None,
+    rx_channel: int | str | None = None,
+) -> np.ndarray:
+    """Precompute two-way TX-RX gain maps for all beams on a u/v/w sky grid."""
+    beam_vecs = tx_beam_unit_vectors() if beam_vecs is None else np.asarray(beam_vecs, dtype=np.float64)
+    uvw = np.column_stack([u[valid], v[valid], w[valid]])
+    gain_maps = np.full((len(beam_vecs),) + u.shape, np.nan, dtype=np.float32)
+    for beam_i in range(len(beam_vecs)):
+        flat = np.full(u.shape, np.nan, dtype=np.float32)
+        flat[valid] = two_way_gain_db(uvw, beam_i, beam_vecs=beam_vecs, rx_channel=rx_channel).astype(np.float32)
         gain_maps[beam_i] = flat
     return gain_maps
