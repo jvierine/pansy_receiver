@@ -179,7 +179,11 @@ def build_products(args) -> dict:
         rows=high_quality_rows,
     )
 
-    scatter_frames, histogram_frames = run_animation(radiant_h5, output_dir, args.bins, args.window_days)
+    if args.skip_animations:
+        scatter_frames = 0
+        histogram_frames = 0
+    else:
+        scatter_frames, histogram_frames = run_animation(radiant_h5, output_dir, args.bins, args.window_days)
     status = write_status_json(
         output_dir / "radiant_monitor.json",
         rows,
@@ -224,6 +228,7 @@ def main() -> None:
     parser.add_argument("--static-max-combined-score", type=float, default=1.5)
     parser.add_argument("--loop", action="store_true")
     parser.add_argument("--interval-s", type=float, default=1800.0)
+    parser.add_argument("--skip-animations", action="store_true", help="Refresh static PNG/HDF5/JSON products without rebuilding GIFs.")
     parser.add_argument("--no-rsync", action="store_true")
     args = parser.parse_args()
 
