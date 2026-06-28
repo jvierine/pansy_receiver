@@ -15,7 +15,8 @@ for unit in \
   pansy-local-metadata-mirror.service \
   pansy-backup-web.service \
   pansy-detection-history.service \
-  pansy-phase-history.service; do
+  pansy-phase-history.service \
+  pansy-radiant-monitor.service; do
   sed "s#__PANSY_RECEIVER_REPO__#$REPO_DIR#g" \
     "$REPO_DIR/backup/systemd/$unit" > "$HOME/.config/systemd/user/$unit"
 done
@@ -28,6 +29,7 @@ systemctl --user enable --now pansy-backup-rsync.service
 systemctl --user enable --now pansy-local-metadata-mirror.service
 systemctl --user enable --now pansy-detection-history.service
 systemctl --user enable --now pansy-phase-history.service
+systemctl --user enable --now pansy-radiant-monitor.service
 systemctl --user enable --now pansy-backup-web.service
 
 cat <<EOF
@@ -39,6 +41,7 @@ Check status with:
   systemctl --user status pansy-local-metadata-mirror.service
   systemctl --user status pansy-detection-history.service
   systemctl --user status pansy-phase-history.service
+  systemctl --user status pansy-radiant-monitor.service
   systemctl --user status pansy-backup-web.service
 
 For boot-time user services on revontuli, enable lingering once:
