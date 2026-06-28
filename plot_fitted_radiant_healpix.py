@@ -186,7 +186,17 @@ def plot_healpix_with_showers(
         lon = np.asarray([s.radiant_solar_ecliptic_lon_deg for s in showers], dtype=np.float64)
         lon = (lon + 180.0) % 360.0 - 180.0
         lat = np.asarray([s.radiant_ecliptic_lat_deg for s in showers], dtype=np.float64)
-        hp.projscatter(lon, lat, lonlat=True, marker="D", s=34, facecolor="#fff2a8", edgecolor="black", linewidth=0.55)
+        hp.projscatter(
+            lon,
+            lat,
+            lonlat=True,
+            marker="o",
+            s=150,
+            facecolors="none",
+            edgecolors="white",
+            linewidth=1.5,
+            alpha=0.3,
+        )
         for shower, lo, la in zip(showers[:18], lon[:18], lat[:18], strict=False):
             hp.projtext(lo, la, shower.code or shower.name[:5], lonlat=True, fontsize=7.5)
     fig = plt.gcf()

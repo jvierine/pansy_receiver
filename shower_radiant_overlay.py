@@ -69,11 +69,12 @@ def add_shower_overlay_hammer(ax, showers, max_labels=18, label_color="black"):
     ax.scatter(
         np.deg2rad(x_deg),
         np.deg2rad(lat_deg),
-        marker="D",
-        s=34,
-        facecolor="#fff2a8",
-        edgecolor="black",
-        linewidth=0.55,
+        marker="o",
+        s=150,
+        facecolors="none",
+        edgecolors="white",
+        linewidth=1.5,
+        alpha=0.3,
         zorder=12,
         label="IAU showers",
     )
