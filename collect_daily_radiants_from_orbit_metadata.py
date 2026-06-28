@@ -49,6 +49,8 @@ RADIANT_DTYPE = np.dtype(
         ("kepler_sigma_argp_deg", "f8"),
         ("kepler_sigma_nu_deg", "f8"),
         ("kepler_sigma_q_au", "f8"),
+        ("initial_state_position_sigma_m", "f8"),
+        ("initial_state_velocity_sigma_mps", "f8"),
     ]
 )
 
@@ -95,6 +97,11 @@ def rows_from_events(events: np.ndarray) -> np.ndarray:
     rows["kepler_sigma_argp_deg"] = events["kepler_std"][:, 4]
     rows["kepler_sigma_nu_deg"] = events["kepler_std"][:, 5]
     rows["kepler_sigma_q_au"] = events["kepler_std"][:, 6]
+    cov = events["fit_parameter_covariance"][:, :6, :6]
+    pos_var = np.trace(cov[:, :3, :3], axis1=1, axis2=2)
+    vel_var = np.trace(cov[:, 3:6, 3:6], axis1=1, axis2=2)
+    rows["initial_state_position_sigma_m"] = np.sqrt(np.where(pos_var >= 0.0, pos_var, np.nan))
+    rows["initial_state_velocity_sigma_mps"] = np.sqrt(np.where(vel_var >= 0.0, vel_var, np.nan))
     return rows
 
 

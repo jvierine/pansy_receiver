@@ -107,9 +107,8 @@ def run_animation(input_h5: Path, output_dir: Path, bins: int, window_days: int)
 def high_quality_radiant_mask(
     rows: np.ndarray,
     min_uncertainty_samples: int,
-    max_kepler_sigma_a_au: float,
-    max_kepler_sigma_e: float,
-    max_kepler_angular_sigma_deg: float,
+    max_initial_state_position_sigma_m: float,
+    max_initial_state_velocity_sigma_mps: float,
     max_combined_score: float,
 ) -> np.ndarray:
     if len(rows) == 0:
@@ -119,18 +118,10 @@ def high_quality_radiant_mask(
     good &= np.isfinite(rows["speed_km_s"])
     good &= rows["n_uncertainty_samples"] >= int(min_uncertainty_samples)
     good &= np.isfinite(rows["combined_score"]) & (rows["combined_score"] <= float(max_combined_score))
-    good &= np.isfinite(rows["kepler_sigma_a_au"]) & (rows["kepler_sigma_a_au"] <= float(max_kepler_sigma_a_au))
-    good &= np.isfinite(rows["kepler_sigma_e"]) & (rows["kepler_sigma_e"] <= float(max_kepler_sigma_e))
-    angular = np.vstack(
-        [
-            rows["kepler_sigma_i_deg"],
-            rows["kepler_sigma_raan_deg"],
-            rows["kepler_sigma_argp_deg"],
-            rows["kepler_sigma_nu_deg"],
-        ]
-    )
-    good &= np.all(np.isfinite(angular), axis=0)
-    good &= np.nanmax(angular, axis=0) <= float(max_kepler_angular_sigma_deg)
+    good &= np.isfinite(rows["initial_state_position_sigma_m"])
+    good &= rows["initial_state_position_sigma_m"] <= float(max_initial_state_position_sigma_m)
+    good &= np.isfinite(rows["initial_state_velocity_sigma_mps"])
+    good &= rows["initial_state_velocity_sigma_mps"] <= float(max_initial_state_velocity_sigma_mps)
     return good
 
 
@@ -143,9 +134,8 @@ def build_products(args) -> dict:
     high_quality_mask = high_quality_radiant_mask(
         rows,
         args.static_min_uncertainty_samples,
-        args.static_max_kepler_sigma_a_au,
-        args.static_max_kepler_sigma_e,
-        args.static_max_kepler_angular_sigma_deg,
+        args.static_max_initial_state_position_sigma_m,
+        args.static_max_initial_state_velocity_sigma_mps,
         args.static_max_combined_score,
     )
     high_quality_rows = rows[high_quality_mask]
@@ -195,6 +185,12 @@ def build_products(args) -> dict:
     )
     status["static_high_quality_radiants"] = int(len(high_quality_rows))
     status["static_high_quality_fraction"] = float(len(high_quality_rows) / len(rows)) if len(rows) else 0.0
+    status["static_quality_filter"] = {
+        "min_uncertainty_samples": int(args.static_min_uncertainty_samples),
+        "max_initial_state_position_sigma_m": float(args.static_max_initial_state_position_sigma_m),
+        "max_initial_state_velocity_sigma_mps": float(args.static_max_initial_state_velocity_sigma_mps),
+        "max_combined_score": float(args.static_max_combined_score),
+    }
     (output_dir / "radiant_monitor.json").write_text(json.dumps(status, indent=2, sort_keys=True) + "\n")
     return status
 
@@ -222,9 +218,8 @@ def main() -> None:
     parser.add_argument("--window-days", type=int, default=3)
     parser.add_argument("--min-count-for-mean-speed", type=int, default=3)
     parser.add_argument("--static-min-uncertainty-samples", type=int, default=3)
-    parser.add_argument("--static-max-kepler-sigma-a-au", type=float, default=5.0)
-    parser.add_argument("--static-max-kepler-sigma-e", type=float, default=0.15)
-    parser.add_argument("--static-max-kepler-angular-sigma-deg", type=float, default=10.0)
+    parser.add_argument("--static-max-initial-state-position-sigma-m", type=float, default=1000.0)
+    parser.add_argument("--static-max-initial-state-velocity-sigma-mps", type=float, default=3000.0)
     parser.add_argument("--static-max-combined-score", type=float, default=1.5)
     parser.add_argument("--loop", action="store_true")
     parser.add_argument("--interval-s", type=float, default=1800.0)
