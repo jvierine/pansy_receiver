@@ -24,6 +24,7 @@ from astropy.time import Time
 
 import pansy_ballistic as pbal
 import orbit_metadata_table
+from radiant_visibility import radiant_above_local_horizon
 
 try:
     import dasst
@@ -45,6 +46,7 @@ ORBIT_METADATA_WRITER_ARGS = {
 }
 ORBIT_RESULT_SCHEMA_VERSION = "pansy_orbit_plausible_aliases_v3"
 MAX_DASST_STATE_SAMPLES = 10
+HEAD_ECHO_MIN_SPEED_KM_S = float(os.environ.get("PANSY_HEAD_ECHO_MIN_SPEED_KM_S", "6.0"))
 
 
 def optional_dataset(group: h5py.Group, name: str, default=None):
@@ -182,6 +184,22 @@ def metadata_writer(path: Path) -> drf.DigitalMetadataWriter:
 
 def write_orbit_metadata(output_dir: Path, sample_key: int, payload: dict) -> None:
     orbit_metadata_table.write_payload(output_dir, int(sample_key), payload)
+
+
+def radiant_is_physically_possible(
+    radiant_ra_deg: float,
+    radiant_dec_deg: float,
+    epoch_unix: float,
+    radiant_speed_km_s: float,
+) -> bool:
+    return bool(
+        np.isfinite(radiant_ra_deg)
+        and np.isfinite(radiant_dec_deg)
+        and np.isfinite(epoch_unix)
+        and np.isfinite(radiant_speed_km_s)
+        and radiant_above_local_horizon(radiant_ra_deg, radiant_dec_deg, epoch_unix)
+        and radiant_speed_km_s >= HEAD_ECHO_MIN_SPEED_KM_S
+    )
 
 
 def state_fit_payload_from_group(state_grp) -> tuple[np.ndarray, np.ndarray]:
@@ -420,6 +438,21 @@ def main() -> None:
                 radiant_speed_km_s = float(np.linalg.norm(state_grp["state_gcrs_m_mps"][()][3:]) / 1e3)
             source_cut_sample_idx = int(round(float(h.attrs["sample_epoch_unix"]) * 1_000_000.0))
             sample_key = source_cut_sample_idx
+            radiant_ra_deg = float(radiant_gcrs[0])
+            radiant_dec_deg = float(radiant_gcrs[1])
+            radiant_epoch_unix = float(attrs["epoch_unix"])
+            if not radiant_is_physically_possible(radiant_ra_deg, radiant_dec_deg, radiant_epoch_unix, radiant_speed_km_s):
+                orbit_metadata_table.delete_sample(args.metadata_dir, sample_key)
+                print(
+                    "orbit_metadata_delete_impossible_radiant",
+                    args.metadata_dir,
+                    sample_key,
+                    f"ra_deg={radiant_ra_deg:.6g}",
+                    f"dec_deg={radiant_dec_deg:.6g}",
+                    f"epoch_unix={radiant_epoch_unix:.6f}",
+                    f"speed_km_s={radiant_speed_km_s:.6g}",
+                )
+                return
             fit_params, fit_cov = state_fit_payload_from_group(state_grp)
             ceplecha_payload = ceplecha_rows.get(label, {})
             payload = {
@@ -478,8 +511,8 @@ def main() -> None:
                 "alias_interstellar_nominal": alias_interstellar_nominal.astype(np.int8),
                 "all_aliases_interstellar_nominal": bool(np.all(alias_interstellar_nominal)) if len(alias_interstellar_nominal) else False,
                 "n_aliases_orbit_tested": int(len(alias_interstellar_nominal)),
-                "radiant_ra_deg": float(radiant_gcrs[0]),
-                "radiant_dec_deg": float(radiant_gcrs[1]),
+                "radiant_ra_deg": radiant_ra_deg,
+                "radiant_dec_deg": radiant_dec_deg,
                 "radiant_speed_km_s": radiant_speed_km_s,
                 "v_g_km_s": radiant_speed_km_s,
                 "radiant_ecliptic_lon_deg": float(radiant_gme[0]),

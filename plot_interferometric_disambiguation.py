@@ -2441,6 +2441,12 @@ def score_combined_hypotheses(tracks):
             if selection_params.size >= 6 and np.all(np.isfinite(selection_params[3:6]))
             else np.nan
         )
+        selection_radiant_alt_deg = np.nan
+        selection_radiant_below_horizon_reject = False
+        if np.isfinite(selection_speed_km_s) and selection_speed_km_s > 0.0:
+            radiant_up_fraction = float(-selection_params[5] / (selection_speed_km_s * 1e3))
+            selection_radiant_alt_deg = float(np.rad2deg(np.arcsin(np.clip(radiant_up_fraction, -1.0, 1.0))))
+            selection_radiant_below_horizon_reject = bool(selection_radiant_alt_deg <= 0.0)
         head_echo_speed_reject = bool(
             np.isfinite(selection_speed_km_s) and selection_speed_km_s < head_echo_min_speed_km_s
         )
@@ -2453,6 +2459,7 @@ def score_combined_hypotheses(tracks):
         trajectory_quality_reject = bool(
             track.get("linearity_reject", False)
             or track.get("descent_reject", False)
+            or selection_radiant_below_horizon_reject
             or track.get("low_detection_altitude_reject", False)
         )
         good_fit = bool(
@@ -2473,6 +2480,8 @@ def score_combined_hypotheses(tracks):
         track["combined_good_fit_redchi_threshold"] = float(good_fit_redchi_threshold)
         track["head_echo_min_speed_km_s"] = float(head_echo_min_speed_km_s)
         track["selection_speed_km_s"] = float(selection_speed_km_s)
+        track["selection_radiant_alt_deg"] = float(selection_radiant_alt_deg)
+        track["selection_radiant_below_horizon_reject"] = selection_radiant_below_horizon_reject
         track["head_echo_speed_reject"] = head_echo_speed_reject
         track["short_static_measurement_reject"] = short_static_measurement_reject
         track["trajectory_quality_reject"] = trajectory_quality_reject
@@ -2495,6 +2504,7 @@ def score_combined_hypotheses(tracks):
             bool(t.get("common_pulse_completion_reject", False)),
             bool(t.get("linearity_reject", False)),
             bool(t.get("descent_reject", False)),
+            bool(t.get("selection_radiant_below_horizon_reject", False)),
             bool(t.get("low_detection_altitude_reject", False)),
             bool(t.get("ballistic_low_start_altitude_reject", False)) and t.get("selection_model_type") != "fixed_velocity",
             bool(t.get("head_echo_speed_reject", False)),
@@ -2520,6 +2530,7 @@ def score_combined_hypotheses(tracks):
             or ballistic_reject_blocks
             or bool(track.get("linearity_reject", False))
             or bool(track.get("descent_reject", False))
+            or bool(track.get("selection_radiant_below_horizon_reject", False))
             or bool(track.get("low_detection_altitude_reject", False))
             or (bool(track.get("ballistic_low_start_altitude_reject", False)) and track.get("selection_model_type") != "fixed_velocity")
             or bool(track.get("head_echo_speed_reject", False))
@@ -3910,6 +3921,8 @@ def write_disambiguation_diagnostics_h5(
                     "selection_pos_rms_km": float(track.get("selection_pos_rms_km", np.nan)),
                     "selection_dop_rms_km_s": float(track.get("selection_dop_rms_km_s", np.nan)),
                     "selection_speed_km_s": float(track.get("selection_speed_km_s", np.nan)),
+                    "selection_radiant_alt_deg": float(track.get("selection_radiant_alt_deg", np.nan)),
+                    "selection_radiant_below_horizon_reject": bool(track.get("selection_radiant_below_horizon_reject", False)),
                     "physics_ceplecha_initial_radius_m": float(track.get("physics_ceplecha_initial_radius_m", np.nan)),
                     "physics_ceplecha_initial_radius_std_m": float(track.get("physics_ceplecha_initial_radius_std_m", np.nan)),
                     "physics_ceplecha_initial_mass_kg": float(track.get("physics_ceplecha_initial_mass_kg", np.nan)),

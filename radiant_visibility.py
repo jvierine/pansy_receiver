@@ -6,6 +6,7 @@ import numpy as np
 
 
 PANSY_SITE_LATITUDE_DEG = -69.010833
+PANSY_SITE_LONGITUDE_DEG = 39.599722
 PLOT_CENTER_LONGITUDE_DEG = -90.0
 MEAN_OBLIQUITY_DEG = 23.4392911
 
@@ -28,6 +29,45 @@ def horizon_declination_limit_deg(site_latitude_deg: float = PANSY_SITE_LATITUDE
     if site_latitude_deg < 0.0:
         return 90.0 + site_latitude_deg
     return site_latitude_deg - 90.0
+
+
+def radiant_declination_visible(dec_deg, site_latitude_deg: float = PANSY_SITE_LATITUDE_DEG):
+    """Return whether a celestial radiant has nonzero above-horizon time."""
+    dec = np.asarray(dec_deg, dtype=np.float64)
+    limit = horizon_declination_limit_deg(site_latitude_deg)
+    if float(site_latitude_deg) < 0.0:
+        return dec <= limit
+    return dec >= limit
+
+
+def radiant_altitude_deg(
+    ra_deg,
+    dec_deg,
+    epoch_unix,
+    site_latitude_deg: float = PANSY_SITE_LATITUDE_DEG,
+    site_longitude_deg: float = PANSY_SITE_LONGITUDE_DEG,
+):
+    """Return instantaneous local AltAz altitude for a GCRS radiant."""
+    from astropy import units as u
+    from astropy.coordinates import AltAz, EarthLocation, SkyCoord
+    from astropy.time import Time
+
+    t = Time(np.asarray(epoch_unix, dtype=np.float64), format="unix", scale="utc")
+    loc = EarthLocation(lat=float(site_latitude_deg) * u.deg, lon=float(site_longitude_deg) * u.deg, height=0.0 * u.m)
+    sky = SkyCoord(
+        ra=np.asarray(ra_deg, dtype=np.float64) * u.deg,
+        dec=np.asarray(dec_deg, dtype=np.float64) * u.deg,
+        frame="gcrs",
+        obstime=t,
+    )
+    alt = sky.transform_to(AltAz(location=loc, obstime=t)).alt.deg
+    return np.asarray(alt, dtype=np.float64)
+
+
+def radiant_above_local_horizon(ra_deg, dec_deg, epoch_unix, min_altitude_deg: float = 0.0):
+    """Return whether a GCRS radiant is above the local horizon at event time."""
+    alt = radiant_altitude_deg(ra_deg, dec_deg, epoch_unix)
+    return np.asarray(alt, dtype=np.float64) > float(min_altitude_deg)
 
 
 def radiant_visibility_boundary(

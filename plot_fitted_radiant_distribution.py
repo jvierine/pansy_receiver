@@ -5,12 +5,14 @@ from __future__ import annotations
 
 import argparse
 import multiprocessing as mp
+import os
 from pathlib import Path
 
 import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 
+from radiant_visibility import radiant_above_local_horizon
 from dasst_orbits_from_candidate_states import (
     DEFAULT_KERNEL,
     dasst_orbit_from_gcrs,
@@ -24,6 +26,7 @@ PLOT_CENTER_LONGITUDE_DEG = -90.0
 SCATTER_DIAMETER_CONSTANT = 7_500.0
 SCATTER_DIAMETER_MIN_PT = 2.2
 SCATTER_DIAMETER_MAX_PT = 7.0
+HEAD_ECHO_MIN_SPEED_KM_S = float(os.environ.get("PANSY_HEAD_ECHO_MIN_SPEED_KM_S", "6.0"))
 
 
 def wrap180(deg):
@@ -121,6 +124,21 @@ def radiant_row_from_payload(sample_idx: int, label: str, grp, payload: dict[str
     }
 
 
+def radiant_row_is_physically_possible(row: dict) -> bool:
+    ra = float(row.get("radiant_ra_gcrs_deg", np.nan))
+    dec = float(row.get("radiant_dec_gcrs_deg", np.nan))
+    epoch = float(row.get("epoch_unix", np.nan))
+    speed = float(row.get("speed_km_s", np.nan))
+    return bool(
+        np.isfinite(ra)
+        and np.isfinite(dec)
+        and np.isfinite(epoch)
+        and np.isfinite(speed)
+        and radiant_above_local_horizon(ra, dec, epoch)
+        and speed >= HEAD_ECHO_MIN_SPEED_KM_S
+    )
+
+
 def stored_radiant_payload(grp):
     payload = {}
     for frame in ("GCRS", "GeocentricMeanEcliptic"):
@@ -148,7 +166,8 @@ def collect_one(task):
                 grp = ho[label]
                 payload = stored_radiant_payload(grp)
                 if payload is not None:
-                    return radiant_row_from_payload(sample_idx, label, grp, payload, "stored_dasst_h5")
+                    row = radiant_row_from_payload(sample_idx, label, grp, payload, "stored_dasst_h5")
+                    return row if radiant_row_is_physically_possible(row) else None
     except OSError:
         return None
     if not recompute_missing:
@@ -167,7 +186,8 @@ def collect_one(task):
             epoch = float(state_grp.attrs.get("epoch_unix", attr_grp.attrs.get("epoch_unix", sample_idx / 1e6)))
             od = dasst_orbit_from_gcrs(state[None, :], epoch, Path(kernel))
             payload = radiant_payload_from_dasst(od)
-            return radiant_row_from_payload(sample_idx, label, attr_grp, payload, "recomputed_nominal_dasst")
+            row = radiant_row_from_payload(sample_idx, label, attr_grp, payload, "recomputed_nominal_dasst")
+            return row if radiant_row_is_physically_possible(row) else None
     except Exception as exc:
         return {"sample_idx": sample_idx, "error": repr(exc)}
 
@@ -244,6 +264,10 @@ def write_h5(path: Path, rows, errors, task_count: int):
         h.attrs["script"] = Path(__file__).name
         h.attrs["source"] = "DASST rebound_od radiant_orbit_GeocentricMeanEcliptic"
         h.attrs["selection"] = "accepted selected hypotheses unless include_rejected_best was requested"
+        h.attrs["physical_filter"] = (
+            "radiant GCRS RA/Dec must be above the PANSY local horizon at event time "
+            f"and speed_km_s >= {HEAD_ECHO_MIN_SPEED_KM_S:g}"
+        )
         h.attrs["radiant_definition"] = "DASST zenith-attraction corrected orbit radiant"
         h.attrs["longitude_convention"] = "lambda_radiant - lambda_sun wrapped to [0, 360) deg; signed copy in [-180, 180)"
         h.attrs["plot_center_longitude_deg"] = PLOT_CENTER_LONGITUDE_DEG

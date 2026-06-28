@@ -10,11 +10,13 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+from radiant_visibility import radiant_above_local_horizon
 from plot_fitted_radiant_distribution import (
     centered_plot_longitude_deg,
     wrap180,
     wrap360,
     PLOT_CENTER_LONGITUDE_DEG,
+    HEAD_ECHO_MIN_SPEED_KM_S,
 )
 
 
@@ -48,6 +50,10 @@ def rows_from_events(events: np.ndarray) -> np.ndarray:
     good &= np.isfinite(events["radiant_ecliptic_lat_deg"])
     good &= np.isfinite(events["radiant_sun_ecliptic_lon_deg"])
     good &= np.isfinite(events["v_g_km_s"])
+    good &= np.isfinite(events["radiant_ra_deg"])
+    good &= np.isfinite(events["radiant_dec_deg"])
+    good &= radiant_above_local_horizon(events["radiant_ra_deg"], events["radiant_dec_deg"], events["sample_idx"].astype(np.float64) / 1e6)
+    good &= events["v_g_km_s"] >= HEAD_ECHO_MIN_SPEED_KM_S
     events = events[good]
     rows = np.zeros(len(events), dtype=RADIANT_DTYPE)
     rows["sample_idx"] = events["sample_idx"]
