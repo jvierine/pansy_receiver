@@ -5144,6 +5144,7 @@ def main():
                 subprocess.run(cmd, check=True)
             except subprocess.CalledProcessError as exc:
                 print(f"dasst_failed sample_idx={args.sample_idx} returncode={exc.returncode}")
+                raise
         stage("orbit_products")
     elif not args.skip_orbit_products:
         for stale_path in (state_h5, dasst_orbit_h5):
