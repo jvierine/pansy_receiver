@@ -144,7 +144,10 @@ def mask_healpix_outside_oval(fig):
 
 
 def add_healpix_coordinate_labels():
-    longitude_labels = [(-90.0, 0.0, "0°"), (0.0, 0.0, "270°"), (90.0, 0.0, "180°")]
+    # hp.mollview receives the actual sun-centered longitude and handles the
+    # display rotation. Keep these labels in data coordinates, not plot-x
+    # coordinates: helion is 0 deg, apex is 270 deg, antihelion is 180 deg.
+    longitude_labels = [(0.0, 0.0, "0°"), (-90.0, 0.0, "270°"), (180.0, 0.0, "180°")]
     for lon, lat, label in longitude_labels:
         hp.projtext(
             lon,
