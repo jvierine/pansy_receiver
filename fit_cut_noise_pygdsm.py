@@ -382,6 +382,73 @@ def plot_module_fits(
     plt.close(fig)
 
 
+def plot_single_module_fit(
+    output: Path,
+    centers_s: np.ndarray,
+    counts: np.ndarray,
+    mean_power: np.ndarray,
+    tsky: np.ndarray,
+    fit: dict[str, float | np.ndarray],
+    trec_bootstrap: np.ndarray,
+    min_count: int,
+    outlier_mask: np.ndarray,
+    module_i: int,
+) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    colors = ["black", "tab:blue", "tab:orange", "tab:green", "tab:red"]
+    tms = centers_s.astype(np.int64).astype("datetime64[s]")
+    slope = float(fit["slope"])
+    trec = float(fit["receiver_temp_k"])
+    if len(trec_bootstrap):
+        lo, hi = np.nanpercentile(trec_bootstrap, [16.0, 84.0])
+        err_lo, err_hi = trec - lo, hi - trec
+    else:
+        err_lo = err_hi = np.nan
+
+    fig, ax = plt.subplots(figsize=(7.2, 4.1), constrained_layout=True)
+    for beam_i, name in enumerate(ppn.BEAM_NAMES):
+        good = (
+            (counts[module_i, beam_i] >= min_count)
+            & np.isfinite(mean_power[module_i, beam_i])
+            & ~outlier_mask[module_i, beam_i]
+        )
+        ax.plot(
+            tms[good],
+            10.0 * np.log10(mean_power[module_i, beam_i, good]),
+            ".",
+            ms=2.8,
+            color=colors[beam_i],
+            alpha=0.32,
+        )
+        model_power = slope * (tsky[beam_i] + trec)
+        ax.plot(tms, 10.0 * np.log10(np.maximum(model_power, 1.0)), "-", color=colors[beam_i], lw=1.9, label=name)
+    ax.set_ylabel("Raw noise power (dB)")
+    ax.set_xlabel("Time (UTC)")
+    ax.xaxis.set_major_locator(mdates.HourLocator(interval=3))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+
+    def db_to_kelvin(power_db):
+        return np.power(10.0, np.asarray(power_db) / 10.0) / slope
+
+    def kelvin_to_db(temp_k):
+        return 10.0 * np.log10(np.maximum(np.asarray(temp_k) * slope, 1.0))
+
+    temp_axis = ax.secondary_yaxis("right", functions=(db_to_kelvin, kelvin_to_db))
+    temp_axis.set_ylabel(r"Equivalent $T_{\mathrm{sys}}$ (K)")
+    ax.axhline(kelvin_to_db(trec), color="0.25", lw=1.0, alpha=0.55)
+    ax.text(
+        0.015,
+        0.96,
+        rf"Module {module_i}: $T_{{rec}}={trec:.0f}^{{+{err_hi:.0f}}}_{{-{err_lo:.0f}}}$ K",
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+    )
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, 1.02), ncol=5, fontsize=8, frameon=False, markerscale=2.0, handlelength=1.8)
+    fig.savefig(output, dpi=300)
+    plt.close(fig)
+
+
 def fit_all_modules(
     mean_power: np.ndarray,
     counts: np.ndarray,
@@ -426,6 +493,7 @@ def main() -> int:
     parser.add_argument("--min-elevation-deg", type=float, default=0.5)
     parser.add_argument("--bootstrap", type=int, default=500)
     parser.add_argument("--seed", type=int, default=20250708)
+    parser.add_argument("--paper-module", type=int, default=None, help="Write a one-panel paper plot for this receiver module index.")
     args = parser.parse_args()
 
     if args.measurements is None:
@@ -463,7 +531,21 @@ def main() -> int:
         n_bootstrap=args.bootstrap,
         seed=args.seed,
     )
-    plot_fit(args.output, args.day, centers_s, counts, mean_power, tsky, fits, trec_bootstrap, args.min_count, outlier_mask)
+    if args.paper_module is None:
+        plot_fit(args.output, args.day, centers_s, counts, mean_power, tsky, fits, trec_bootstrap, args.min_count, outlier_mask)
+    else:
+        plot_single_module_fit(
+            args.output,
+            centers_s,
+            counts,
+            mean_power,
+            tsky,
+            fits[args.paper_module],
+            trec_bootstrap[args.paper_module],
+            args.min_count,
+            outlier_mask,
+            args.paper_module,
+        )
     print(f"metadata {args.metadata}")
     print(f"output {args.output}")
     print(f"samples {len(day_data['noise_power'])}")
