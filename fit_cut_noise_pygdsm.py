@@ -14,6 +14,28 @@ import paper_plot_noise as ppn
 import pansy_config as pc
 
 
+def receive_sky_temperature_matrix(
+    times_s: np.ndarray,
+    n_az: int,
+    n_el: int,
+    min_elevation_deg: float,
+) -> np.ndarray:
+    """Beam-weighted sky temperature using the one-way receive pattern.
+
+    Thermal sky noise enters through the receiving antenna pattern only. This is
+    deliberately not configurable in the system-noise fit.
+    """
+    return ppn.sky_temperature_matrix(
+        times_s,
+        gain_model="rx",
+        n_az=n_az,
+        n_el=n_el,
+        min_elevation_deg=min_elevation_deg,
+        rx_channel=None,
+        freq_mhz=pc.freq / 1e6,
+    )
+
+
 def load_measurements(path: Path) -> dict[str, np.ndarray | str | int]:
     import h5py
 
@@ -296,14 +318,11 @@ def main() -> int:
     centers_s = binned["centers_s"]
     sky_step_s = float(args.sky_step_minutes) * 60.0
     model_times = np.arange(centers_s[0], centers_s[-1] + 0.5 * sky_step_s, sky_step_s)
-    model_tsky = ppn.sky_temperature_matrix(
+    model_tsky = receive_sky_temperature_matrix(
         model_times,
-        gain_model="rx",
         n_az=args.n_az,
         n_el=args.n_el,
         min_elevation_deg=args.min_elevation_deg,
-        rx_channel=None,
-        freq_mhz=pc.freq / 1e6,
     )
     tsky = interpolate_sky_model(model_times, model_tsky, centers_s)
     counts = np.asarray(binned["counts"], dtype=np.float64)

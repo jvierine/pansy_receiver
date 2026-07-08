@@ -16,6 +16,8 @@ import pansy_modes as pmm
 
 MIN_FIELD_AMPLITUDE = 1e-8
 MIN_POWER_GAIN = MIN_FIELD_AMPLITUDE**2
+YAGI_SIDELOBE_POWER_FLOOR = 10.0 ** (-12.0 / 10.0)
+YAGI_COSINE_POWER_EXPONENT = 4.0
 
 
 def _is_ready(value) -> bool:
@@ -93,10 +95,41 @@ def _as_direction_array(uvw: np.ndarray) -> tuple[np.ndarray, tuple[int, ...]]:
     return uvw.reshape(-1, 3), original_shape
 
 
+def crossed_yagi_element_power_gain(uvw: np.ndarray, steer: np.ndarray | None = None) -> np.ndarray:
+    """Canonical one-way 3-element crossed-Yagi power pattern.
+
+    This is a smooth engineering approximation for the individual circularly
+    polarized crossed-Yagi elements in each module.  It is normalized to one at
+    boresight, has an approximately 65 degree full half-power beamwidth, and
+    retains a -12 dB side-response floor to avoid pretending that real 3-element
+    Yagis have perfect horizon/null suppression.
+    """
+    dirs, original_shape = _as_direction_array(uvw)
+    steer = np.asarray([0.0, 0.0, -1.0] if steer is None else steer, dtype=np.float64)
+    steer_norm = np.linalg.norm(steer)
+    if not np.isfinite(steer_norm) or steer_norm == 0.0:
+        raise ValueError("steer must be a finite nonzero vector")
+    steer = steer / steer_norm
+    out = np.full(len(dirs), np.nan, dtype=np.float64)
+    good = np.all(np.isfinite(dirs), axis=1)
+    if np.any(good):
+        direction_norm = np.linalg.norm(dirs[good], axis=1)
+        valid = direction_norm > 0.0
+        vals = np.full(np.count_nonzero(good), np.nan, dtype=np.float64)
+        if np.any(valid):
+            unit_dirs = dirs[good][valid] / direction_norm[valid, None]
+            cos_theta = np.clip(unit_dirs @ steer, 0.0, 1.0)
+            main_lobe = cos_theta**YAGI_COSINE_POWER_EXPONENT
+            vals[valid] = YAGI_SIDELOBE_POWER_FLOOR + (1.0 - YAGI_SIDELOBE_POWER_FLOOR) * main_lobe
+        out[good] = vals
+    return out.reshape(original_shape)
+
+
 def module_field_pattern(
     uvw: np.ndarray,
     steer: np.ndarray | None = None,
     module_positions: np.ndarray | None = None,
+    include_element_pattern: bool = True,
 ) -> np.ndarray:
     """Complex single-module subarray voltage pattern.
 
@@ -116,7 +149,10 @@ def module_field_pattern(
     if np.any(good):
         delta = dirs[good] - steer
         phase = (2.0 * np.pi / pc.wavelength) * (rel_pos @ delta.T)
-        out[good] = np.mean(np.exp(1j * phase), axis=0)
+        field = np.mean(np.exp(1j * phase), axis=0)
+        if include_element_pattern:
+            field = field * np.sqrt(crossed_yagi_element_power_gain(dirs[good], steer=steer))
+        out[good] = field
     return out.reshape(original_shape)
 
 
@@ -124,9 +160,15 @@ def module_power_gain(
     uvw: np.ndarray,
     steer: np.ndarray | None = None,
     module_positions: np.ndarray | None = None,
+    include_element_pattern: bool = True,
 ) -> np.ndarray:
     """Single-module subarray receive/transmit power gain, linear units."""
-    field = module_field_pattern(uvw, steer=steer, module_positions=module_positions)
+    field = module_field_pattern(
+        uvw,
+        steer=steer,
+        module_positions=module_positions,
+        include_element_pattern=include_element_pattern,
+    )
     return np.maximum(np.abs(field) ** 2, MIN_POWER_GAIN)
 
 
