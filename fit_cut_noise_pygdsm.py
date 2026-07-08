@@ -406,6 +406,7 @@ def plot_single_module_fit(
     min_count: int,
     outlier_mask: np.ndarray,
     module_i: int,
+    show_trec_annotation: bool = True,
 ) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     colors = ["black", "tab:blue", "tab:orange", "tab:green", "tab:red"]
@@ -452,7 +453,7 @@ def plot_single_module_fit(
 
     temp_axis = ax.secondary_yaxis("right", functions=(db_to_kelvin, kelvin_to_db))
     temp_axis.set_ylabel(r"Equivalent $T_{\mathrm{sys}}$ (K)")
-    if trec > 0.0:
+    if show_trec_annotation and trec > 0.0:
         trec_db = float(kelvin_to_db(trec))
         ax.axhline(trec_db, color="0.25", lw=1.0, alpha=0.55)
         x_mid = datetime.fromtimestamp(0.5 * (start_us + end_us) / 1e6, tz=timezone.utc)
@@ -464,7 +465,7 @@ def plot_single_module_fit(
             ha="center",
             va="bottom",
         )
-    else:
+    elif show_trec_annotation:
         ax.text(
             0.015,
             0.96,
@@ -524,6 +525,7 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=20250708)
     parser.add_argument("--paper-module", type=int, default=None, help="Write a one-panel paper plot for this receiver module index.")
     parser.add_argument("--isotropic-module", action="store_true", help="Use 19 isotropic radiators for the receive module sky convolution.")
+    parser.add_argument("--hide-trec-annotation", action="store_true", help="Do not draw the flat T_rec line or annotation on paper plots.")
     parser.add_argument(
         "--element-pattern-blend",
         type=float,
@@ -584,6 +586,7 @@ def main() -> int:
             args.min_count,
             outlier_mask,
             args.paper_module,
+            show_trec_annotation=not args.hide_trec_annotation,
         )
     print(f"metadata {args.metadata}")
     print(f"output {args.output}")
