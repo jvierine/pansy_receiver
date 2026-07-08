@@ -34,6 +34,8 @@ Operational notes:
   from the git checkout with the standard Python environment.
 - For scientific/intermediate data products, use HDF5 (`.h5`) rather than NPZ.
   Do not create NPZ files for project data unless explicitly requested.
+- Plot, annotate, and discuss SNR in dB unless the user explicitly asks for
+  linear SNR. Label axes and stored derived fields clearly when converting.
 - Standard local Python environment for this repo is the base conda environment:
   use `conda run -n base python ...` for local project scripts unless explicitly
   told otherwise.
@@ -47,6 +49,37 @@ Operational notes:
   `/usr/bin/python3 -m pip install --user /home/j/src/iau_meteor_showers`. After
   installation, plain `/usr/bin/python3 -c "import iau_meteor_showers"` should
   work without `PYTHONPATH`.
+
+System noise calibration notes:
+- The current local system-noise calibration sidecar is
+  `/Users/j/src/pansy_receiver/figs/cut_noise_measurements_2025-05-10_guard25_mean_per_module.h5`.
+  It was generated from Revontuli cut metadata for 2025-05-10 using 25-sample
+  guards and mean raw-voltage power, preserving per-receiver-module powers.
+  The matching Revontuli path is
+  `/home/j/src/pansy_receiver/figs/cut_noise_measurements_2025-05-10_guard25_mean_per_module.h5`.
+- The current paper system-noise model fit uses PyGDSM/GSM2008 survey maps
+  convolved with the one-way single-module receive gain pattern, not two-way
+  gain and not the full transmit array. The adopted receive element pattern is
+  a blend of 90% canonical crossed-Yagi module element pattern and 10%
+  isotropic element response (`--element-pattern-blend 0.1`).
+- Adopted module-0 calibration from the 2025-05-10 fit:
+  `T_rec = 535.6 K`, bootstrap 16/50/84 percentiles about
+  `497.9 / 539.3 / 574.8 K`, and fractional system-noise model RMS `5.7%`.
+  Fit minimizes relative power residuals and enforces `T_rec >= 273 K`.
+- Per-module raw-power equalization factors from that fit, normalized to module
+  0 power: module 0 `1.000`, 1 `2.501`, 2 `1.380`, 3 `1.192`, 4 `1.681`,
+  5 `2.732`, 6 `9.067`. Voltage factors are the square roots of these.
+- Useful local scripts are `save_cut_noise_measurements.py`,
+  `fit_cut_noise_pygdsm.py`, `paper_plot_noise.py`, and `pansy_gain.py`.
+  Regenerate the per-module measurement sidecar with a command of the form:
+  `python save_cut_noise_measurements.py --day 2025-05-10 --metadata /mnt/data/juha/pansy/metadata/cut --output figs/cut_noise_measurements_2025-05-10_guard25_mean_per_module.h5 --workers 10 --chunk-seconds 60 --guard-samples 25 --per-module`.
+  Regenerate the fit/plot with a command of the form:
+  `python fit_cut_noise_pygdsm.py --day 2025-05-10 --measurements figs/cut_noise_measurements_2025-05-10_guard25_mean_per_module.h5 --output figs/cut_noise_pygdsm_fit_2025-05-10_guard25_module0_blend0p1_relative_paper.png --element-pattern-blend 0.1 --relative-fit --module 0 --n-bootstrap 200`.
+- Paper/memo outputs from the current fit are in `/Users/j/src/pansy_paper`:
+  `system_noise_model.png` for the paper and
+  `memos/figures/system_noise_fit_2025-05-10_module0_blend0p1_relative.png`
+  for the memo. The detailed writeup is
+  `/Users/j/src/pansy_paper/memos/cut_padding_noise_debug.tex`.
 - All PANSY user services were active after deployment.
 - Fresh tx metadata was initialized at `/media/analysis/metadata/tx/dmd_properties.h5`.
 - Downstream services use `pansy_wait_for_paths.sh` so they wait for required metadata instead of crash-looping on a fresh analysis disk.
