@@ -32,6 +32,8 @@ Operational notes:
   `scp`, `rsync`, heredocs, or manual paste as a deployment mechanism. Commit and
   push locally, then `git pull`/`git clone` on the remote and install packages
   from the git checkout with the standard Python environment.
+- For scientific/intermediate data products, use HDF5 (`.h5`) rather than NPZ.
+  Do not create NPZ files for project data unless explicitly requested.
 - Standard local Python environment for this repo is the base conda environment:
   use `conda run -n base python ...` for local project scripts unless explicitly
   told otherwise.

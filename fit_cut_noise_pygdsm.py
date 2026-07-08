@@ -15,13 +15,22 @@ import pansy_config as pc
 
 
 def load_measurements(path: Path) -> dict[str, np.ndarray | str | int]:
-    data = np.load(path)
+    import h5py
+
+    if path.suffix.lower() == ".npz":
+        raise ValueError("use HDF5 measurement files, not NPZ")
+    with h5py.File(path, "r") as data:
+        day = data.attrs.get("day", "")
+        guard_samples = int(data.attrs.get("guard_samples", 25))
+        times_s = np.asarray(data["times_s"], dtype=np.float64)
+        beam_id = np.asarray(data["beam_id"], dtype=np.int16)
+        noise_power = np.asarray(data["noise_power"], dtype=np.float64)
     return {
-        "day": str(data["day"]),
-        "times_s": np.asarray(data["times_s"], dtype=np.float64),
-        "beam_id": np.asarray(data["beam_id"], dtype=np.int16),
-        "noise_power": np.asarray(data["noise_power"], dtype=np.float64),
-        "guard_samples": int(data["guard_samples"]),
+        "day": str(day),
+        "times_s": times_s,
+        "beam_id": beam_id,
+        "noise_power": noise_power,
+        "guard_samples": guard_samples,
     }
 
 
@@ -67,31 +76,63 @@ def interpolate_sky_model(model_times_s: np.ndarray, model_tsky: np.ndarray, tar
     return out
 
 
-def fit_linear_trec(tsky: np.ndarray, power: np.ndarray, weights: np.ndarray) -> dict[str, float | np.ndarray]:
+def fit_receiver_temperature(tsky: np.ndarray, power: np.ndarray, weights: np.ndarray, max_trec_k: float = 20000.0) -> dict[str, float | np.ndarray]:
     good = np.isfinite(tsky) & np.isfinite(power) & np.isfinite(weights) & (weights > 0.0)
     if np.count_nonzero(good) < 3:
         raise RuntimeError("not enough finite samples for fit")
     x = np.asarray(tsky[good], dtype=np.float64)
     y = np.asarray(power[good], dtype=np.float64)
     w = np.asarray(weights[good], dtype=np.float64)
-    xmat = np.column_stack([x, np.ones_like(x)])
-    sw = np.sqrt(w / np.nanmedian(w))
-    beta = np.linalg.lstsq(xmat * sw[:, None], y * sw, rcond=None)[0]
-    slope, intercept = float(beta[0]), float(beta[1])
-    if slope <= 0.0:
-        raise RuntimeError(f"non-positive fitted slope {slope}")
-    model = slope * x + intercept
-    resid = y - model
-    dof = max(1, len(y) - 2)
-    sigma2 = float(np.sum((sw * resid) ** 2) / dof)
-    cov = sigma2 * np.linalg.inv((xmat * sw[:, None]).T @ (xmat * sw[:, None]))
-    grad = np.asarray([-intercept / slope**2, 1.0 / slope], dtype=np.float64)
-    trec_var = float(grad @ cov @ grad)
+
+    def slope_for(trec: float) -> float:
+        xt = x + trec
+        return float(np.sum(w * xt * y) / np.sum(w * xt * xt))
+
+    def objective(trec: float) -> float:
+        slope = slope_for(trec)
+        resid = y - slope * (x + trec)
+        return float(np.sum(w * resid * resid))
+
+    # Bounded one-dimensional search. The coarse pass prevents the golden
+    # search from wandering when the optimum is pinned to the physical boundary.
+    coarse = np.linspace(0.0, float(max_trec_k), 401)
+    coarse_obj = np.asarray([objective(float(trec)) for trec in coarse])
+    best_i = int(np.nanargmin(coarse_obj))
+    if best_i == 0:
+        trec = 0.0
+    elif best_i == len(coarse) - 1:
+        trec = float(max_trec_k)
+    else:
+        lo = float(coarse[best_i - 1])
+        hi = float(coarse[best_i + 1])
+        gr = (np.sqrt(5.0) - 1.0) / 2.0
+        c = hi - gr * (hi - lo)
+        d = lo + gr * (hi - lo)
+        fc = objective(c)
+        fd = objective(d)
+        for _ in range(80):
+            if abs(hi - lo) < 1e-3:
+                break
+            if fc < fd:
+                hi = d
+                d = c
+                fd = fc
+                c = hi - gr * (hi - lo)
+                fc = objective(c)
+            else:
+                lo = c
+                c = d
+                fc = fd
+                d = lo + gr * (hi - lo)
+                fd = objective(d)
+        trec = 0.5 * (lo + hi)
+    slope = slope_for(trec)
+    intercept = slope * trec
     return {
         "slope": slope,
         "intercept": intercept,
-        "receiver_temp_k": intercept / slope,
-        "receiver_temp_sigma_k": np.sqrt(max(0.0, trec_var)),
+        "receiver_temp_k": trec,
+        "receiver_temp_sigma_k": np.nan,
         "used": good,
     }
 
@@ -156,7 +197,7 @@ def bootstrap_trec(
         sampled = rng.choice(unique_minutes, size=len(unique_minutes), replace=True)
         idx = np.concatenate([by_minute[minute] for minute in sampled])
         try:
-            trec[bi] = float(fit_linear_trec(tsky[idx], power[idx], weights[idx])["receiver_temp_k"])
+            trec[bi] = float(fit_receiver_temperature(tsky[idx], power[idx], weights[idx])["receiver_temp_k"])
         except Exception:
             pass
     return trec[np.isfinite(trec)]
@@ -186,38 +227,38 @@ def plot_fit(
     else:
         err_lo = err_hi = float(fit["receiver_temp_sigma_k"])
 
-    fig, axes = plt.subplots(2, 1, figsize=(10.5, 7.4), constrained_layout=True, sharex=True)
+    fig, ax = plt.subplots(figsize=(7.2, 4.6), constrained_layout=True)
     for beam_i, name in enumerate(ppn.BEAM_NAMES):
         good = (counts[beam_i] >= min_count) & np.isfinite(mean_power[beam_i]) & ~outlier_mask[beam_i]
         bad = outlier_mask[beam_i]
-        axes[0].plot(tms[good], 10.0 * np.log10(mean_power[beam_i, good]), ".", ms=2.5, color=colors[beam_i], alpha=0.45)
+        ax.plot(tms[good], 10.0 * np.log10(mean_power[beam_i, good]), ".", ms=3.2, color=colors[beam_i], alpha=0.40)
         if np.any(bad):
-            axes[0].plot(tms[bad], 10.0 * np.log10(mean_power[beam_i, bad]), "x", ms=4.0, color=colors[beam_i], alpha=0.9)
+            ax.plot(tms[bad], 10.0 * np.log10(mean_power[beam_i, bad]), "x", ms=5.5, mew=1.2, color=colors[beam_i], alpha=0.95)
         model_power = slope * tsky[beam_i] + intercept
-        axes[0].plot(tms, 10.0 * np.log10(np.maximum(model_power, 1.0)), "-", color=colors[beam_i], lw=1.6, label=name)
-    axes[0].set_title(
-        f"PANSY cut-noise power fit, {day}: "
-        rf"$T_{{rec}}={trec:.0f}^{{+{err_hi:.0f}}}_{{-{err_lo:.0f}}}$ K"
-    )
-    axes[0].set_ylabel("Raw noise power (dB)")
+        ax.plot(tms, 10.0 * np.log10(np.maximum(model_power, 1.0)), "-", color=colors[beam_i], lw=2.0, label=name)
+    ax.set_title(f"PANSY cut-noise power fit, {day}")
+    ax.set_ylabel("Raw noise power (dB)")
+    ax.set_xlabel("Time (UTC)")
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
     def db_to_kelvin(power_db):
         return np.power(10.0, np.asarray(power_db) / 10.0) / slope
 
     def kelvin_to_db(temp_k):
         return 10.0 * np.log10(np.maximum(np.asarray(temp_k) * slope, 1.0))
 
-    temp_axis = axes[0].secondary_yaxis("right", functions=(db_to_kelvin, kelvin_to_db))
+    temp_axis = ax.secondary_yaxis("right", functions=(db_to_kelvin, kelvin_to_db))
     temp_axis.set_ylabel(r"Equivalent $T_{\mathrm{sys}}$ (K)")
-    axes[0].legend(loc="upper right", ncol=5, fontsize=8)
-
-    for beam_i, name in enumerate(ppn.BEAM_NAMES):
-        axes[1].plot(tms, tsky[beam_i] + trec, "-", color=colors[beam_i], lw=1.5, label=f"{name} $T_{{sky}}+T_{{rec}}$")
-    axes[1].axhline(trec, color="black", lw=1.6, label=rf"$T_{{rec}}={trec:.0f}$ K")
-    axes[1].axhspan(trec - err_lo, trec + err_hi, color="0.3", alpha=0.16, label="68% bootstrap")
-    axes[1].set_ylabel("Temperature (K)")
-    axes[1].set_xlabel("Time (UTC)")
-    axes[1].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
-    axes[1].legend(loc="upper right", fontsize=7, ncol=2)
+    if trec > 0.0:
+        ax.axhline(kelvin_to_db(trec), color="0.2", lw=1.0, alpha=0.6)
+    ax.text(
+        0.015,
+        0.96,
+        rf"$T_{{rec}}={trec:.0f}^{{+{err_hi:.0f}}}_{{-{err_lo:.0f}}}$ K",
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+    )
+    ax.legend(loc="upper right", ncol=5, fontsize=8, frameon=False, handlelength=1.8, markerscale=1.8)
     fig.savefig(output, dpi=220)
     plt.close(fig)
 
@@ -272,7 +313,7 @@ def main() -> int:
     outlier_mask, robust_score = robust_jump_outlier_mask(power_db, counts, args.min_count)
     keep = (counts >= args.min_count) & np.isfinite(mean_power) & ~outlier_mask
     minute_grid = np.broadcast_to(np.arange(1440, dtype=np.int64), mean_power.shape)
-    fit = fit_linear_trec(tsky[keep], mean_power[keep], counts[keep])
+    fit = fit_receiver_temperature(tsky[keep], mean_power[keep], counts[keep])
     trec_bootstrap = bootstrap_trec(
         minute_grid[keep],
         tsky[keep],
