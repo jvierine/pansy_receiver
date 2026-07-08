@@ -47,12 +47,14 @@ def load_measurements(path: Path) -> dict[str, np.ndarray | str | int]:
         times_s = np.asarray(data["times_s"][()], dtype=np.float64)
         beam_id = np.asarray(data["beam_id"][()], dtype=np.int16)
         noise_power = np.asarray(data["noise_power"][()], dtype=np.float64)
+        per_module = int(data.attrs.get("per_module", 1 if noise_power.ndim == 2 else 0))
     return {
         "day": str(day),
         "times_s": times_s,
         "beam_id": beam_id,
         "noise_power": noise_power,
         "guard_samples": guard_samples,
+        "per_module": per_module,
     }
 
 
@@ -67,20 +69,34 @@ def bin_cut_power(day_data: dict[str, np.ndarray | str | int]) -> dict[str, np.n
     times_s = np.asarray(day_data["times_s"], dtype=np.float64)
     beam_id = np.asarray(day_data["beam_id"], dtype=np.int16)
     power = np.asarray(day_data["noise_power"], dtype=np.float64)
+    if power.ndim == 1:
+        power = power[:, None]
+    if power.ndim != 2:
+        raise ValueError("noise_power must have shape (pulse,) or (pulse, module)")
+    n_module = power.shape[1]
     edges, centers = minute_edges(str(day_data["day"]))
     minute = np.searchsorted(edges, times_s, side="right") - 1
-    good = (
+    base_good = (
         (minute >= 0)
         & (minute < 1440)
         & (beam_id >= 0)
         & (beam_id < len(ppn.BEAM_NAMES))
-        & np.isfinite(power)
-        & (power > 0.0)
     )
-    flat_index = beam_id[good].astype(np.int64) * 1440 + minute[good].astype(np.int64)
-    counts = np.bincount(flat_index, minlength=len(ppn.BEAM_NAMES) * 1440).reshape(len(ppn.BEAM_NAMES), 1440)
-    sums = np.bincount(flat_index, weights=power[good], minlength=len(ppn.BEAM_NAMES) * 1440).reshape(len(ppn.BEAM_NAMES), 1440)
-    sums2 = np.bincount(flat_index, weights=power[good] ** 2, minlength=len(ppn.BEAM_NAMES) * 1440).reshape(len(ppn.BEAM_NAMES), 1440)
+    counts = np.zeros((n_module, len(ppn.BEAM_NAMES), 1440), dtype=np.int64)
+    sums = np.zeros_like(counts, dtype=np.float64)
+    sums2 = np.zeros_like(counts, dtype=np.float64)
+    for module_i in range(n_module):
+        good = base_good & np.isfinite(power[:, module_i]) & (power[:, module_i] > 0.0)
+        flat_index = beam_id[good].astype(np.int64) * 1440 + minute[good].astype(np.int64)
+        counts[module_i] = np.bincount(flat_index, minlength=len(ppn.BEAM_NAMES) * 1440).reshape(len(ppn.BEAM_NAMES), 1440)
+        sums[module_i] = np.bincount(flat_index, weights=power[good, module_i], minlength=len(ppn.BEAM_NAMES) * 1440).reshape(
+            len(ppn.BEAM_NAMES), 1440
+        )
+        sums2[module_i] = np.bincount(
+            flat_index,
+            weights=power[good, module_i] ** 2,
+            minlength=len(ppn.BEAM_NAMES) * 1440,
+        ).reshape(len(ppn.BEAM_NAMES), 1440)
     mean = np.full_like(sums, np.nan, dtype=np.float64)
     var = np.full_like(sums, np.nan, dtype=np.float64)
     nonzero = counts > 0
@@ -181,17 +197,21 @@ def robust_jump_outlier_mask(
 ) -> tuple[np.ndarray, np.ndarray]:
     mask = np.zeros_like(power_db, dtype=bool)
     score = np.full_like(power_db, np.nan, dtype=np.float64)
-    for beam_i in range(power_db.shape[0]):
-        series = np.asarray(power_db[beam_i], dtype=np.float64)
+    flat_power = power_db.reshape((-1, power_db.shape[-1]))
+    flat_counts = counts.reshape((-1, counts.shape[-1]))
+    flat_mask = mask.reshape((-1, mask.shape[-1]))
+    flat_score = score.reshape((-1, score.shape[-1]))
+    for series_i in range(flat_power.shape[0]):
+        series = np.asarray(flat_power[series_i], dtype=np.float64)
         baseline = rolling_nanmedian(series, half_width)
         residual = series - baseline
         local_mad = rolling_nanmedian(np.abs(residual), half_width)
         sigma = 1.4826 * np.maximum(local_mad, 0.08)
-        score[beam_i] = residual / sigma
+        flat_score[series_i] = residual / sigma
         jump = np.full_like(series, np.nan)
         jump[1:-1] = np.maximum(np.abs(series[1:-1] - series[:-2]), np.abs(series[1:-1] - series[2:]))
-        valid = np.isfinite(series) & (counts[beam_i] >= min_count)
-        mask[beam_i] = valid & (
+        valid = np.isfinite(series) & (flat_counts[series_i] >= min_count)
+        flat_mask[series_i] = valid & (
             (np.abs(residual) > np.maximum(db_threshold, sigma_threshold * sigma))
             | (jump > jump_db)
         )
@@ -237,6 +257,9 @@ def plot_fit(
     min_count: int,
     outlier_mask: np.ndarray,
 ) -> None:
+    if mean_power.ndim == 3:
+        plot_module_fits(output, day, centers_s, counts, mean_power, tsky, fit, trec_bootstrap, min_count, outlier_mask)
+        return
     output.parent.mkdir(parents=True, exist_ok=True)
     colors = ["black", "tab:blue", "tab:orange", "tab:green", "tab:red"]
     tms = centers_s.astype(np.int64).astype("datetime64[s]")
@@ -285,11 +308,107 @@ def plot_fit(
     plt.close(fig)
 
 
+def plot_module_fits(
+    output: Path,
+    day: str,
+    centers_s: np.ndarray,
+    counts: np.ndarray,
+    mean_power: np.ndarray,
+    tsky: np.ndarray,
+    fits: list[dict[str, float | np.ndarray]],
+    trec_bootstrap: list[np.ndarray],
+    min_count: int,
+    outlier_mask: np.ndarray,
+) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    colors = ["black", "tab:blue", "tab:orange", "tab:green", "tab:red"]
+    tms = centers_s.astype(np.int64).astype("datetime64[s]")
+    n_module = mean_power.shape[0]
+    ncol = 2
+    nrow = int(np.ceil(n_module / ncol))
+    fig, axes = plt.subplots(nrow, ncol, figsize=(7.5, 1.75 * nrow), sharex=True, constrained_layout=True)
+    axes = np.ravel(axes)
+    for module_i in range(n_module):
+        ax = axes[module_i]
+        fit = fits[module_i]
+        slope = float(fit["slope"])
+        trec = float(fit["receiver_temp_k"])
+        if len(trec_bootstrap[module_i]):
+            lo, hi = np.nanpercentile(trec_bootstrap[module_i], [16.0, 84.0])
+            err_lo, err_hi = trec - lo, hi - trec
+        else:
+            err_lo = err_hi = np.nan
+        for beam_i, name in enumerate(ppn.BEAM_NAMES):
+            good = (
+                (counts[module_i, beam_i] >= min_count)
+                & np.isfinite(mean_power[module_i, beam_i])
+                & ~outlier_mask[module_i, beam_i]
+            )
+            if np.any(good):
+                ax.plot(
+                    tms[good],
+                    10.0 * np.log10(mean_power[module_i, beam_i, good]),
+                    ".",
+                    ms=2.0,
+                    color=colors[beam_i],
+                    alpha=0.22,
+                )
+            model_power = slope * (tsky[beam_i] + trec)
+            ax.plot(tms, 10.0 * np.log10(np.maximum(model_power, 1.0)), "-", color=colors[beam_i], lw=1.15, label=name)
+        ax.text(
+            0.02,
+            0.94,
+            rf"M{module_i}: $T_{{rec}}={trec:.0f}^{{+{err_hi:.0f}}}_{{-{err_lo:.0f}}}$ K",
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=8,
+        )
+        ax.set_ylabel("dB")
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+    for ax in axes[n_module:]:
+        ax.set_visible(False)
+    axes[0].set_title(f"PANSY per-module cut-noise fits, {day}")
+    axes[min(n_module - 1, len(axes) - 1)].set_xlabel("Time (UTC)")
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", ncol=5, frameon=False, markerscale=1.8, fontsize=8)
+    fig.savefig(output, dpi=220)
+    plt.close(fig)
+
+
+def fit_all_modules(
+    mean_power: np.ndarray,
+    counts: np.ndarray,
+    tsky: np.ndarray,
+    min_count: int,
+    outlier_mask: np.ndarray,
+    n_bootstrap: int,
+    seed: int,
+) -> tuple[list[dict[str, float | np.ndarray]], list[np.ndarray]]:
+    fits = []
+    bootstraps = []
+    minute_grid = np.broadcast_to(np.arange(1440, dtype=np.int64), mean_power.shape[1:])
+    for module_i in range(mean_power.shape[0]):
+        keep = (counts[module_i] >= min_count) & np.isfinite(mean_power[module_i]) & ~outlier_mask[module_i]
+        fit = fit_receiver_temperature(tsky[keep], mean_power[module_i][keep], counts[module_i][keep])
+        boot = bootstrap_trec(
+            minute_grid[keep],
+            tsky[keep],
+            mean_power[module_i][keep],
+            counts[module_i][keep],
+            n_bootstrap=n_bootstrap,
+            seed=seed + module_i,
+        )
+        fits.append(fit)
+        bootstraps.append(boot)
+    return fits, bootstraps
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--day", default="2025-05-10")
     parser.add_argument("--metadata", type=Path, default=Path("/mnt/data/juha/pansy/metadata/cut"))
-    parser.add_argument("--measurements", type=Path, default=None, help="Existing cut noise measurement NPZ.")
+    parser.add_argument("--measurements", type=Path, default=None, help="Existing cut noise measurement HDF5 sidecar.")
     parser.add_argument("--output", type=Path, default=Path("figs/cut_noise_pygdsm_fit_2025-05-10.png"))
     parser.add_argument("--workers", type=int, default=10)
     parser.add_argument("--chunk-seconds", type=int, default=60)
@@ -329,30 +448,36 @@ def main() -> int:
     mean_power = np.asarray(binned["mean_power"], dtype=np.float64)
     power_db = 10.0 * np.log10(np.maximum(mean_power, 1.0))
     outlier_mask, robust_score = robust_jump_outlier_mask(power_db, counts, args.min_count)
-    keep = (counts >= args.min_count) & np.isfinite(mean_power) & ~outlier_mask
-    minute_grid = np.broadcast_to(np.arange(1440, dtype=np.int64), mean_power.shape)
-    fit = fit_receiver_temperature(tsky[keep], mean_power[keep], counts[keep])
-    trec_bootstrap = bootstrap_trec(
-        minute_grid[keep],
-        tsky[keep],
-        mean_power[keep],
-        counts[keep],
+    fits, trec_bootstrap = fit_all_modules(
+        mean_power,
+        counts,
+        tsky,
+        args.min_count,
+        outlier_mask,
         n_bootstrap=args.bootstrap,
         seed=args.seed,
     )
-    plot_fit(args.output, args.day, centers_s, counts, mean_power, tsky, fit, trec_bootstrap, args.min_count, outlier_mask)
+    plot_fit(args.output, args.day, centers_s, counts, mean_power, tsky, fits, trec_bootstrap, args.min_count, outlier_mask)
     print(f"metadata {args.metadata}")
     print(f"output {args.output}")
     print(f"samples {len(day_data['noise_power'])}")
-    print(f"fit_bins {np.count_nonzero(keep)}")
+    print(f"modules {mean_power.shape[0]}")
     print(f"outlier_bins {np.count_nonzero(outlier_mask)}")
-    print(f"slope_power_per_k {float(fit['slope']):.9g}")
-    print(f"intercept_power {float(fit['intercept']):.9g}")
-    print(f"receiver_temp_k {float(fit['receiver_temp_k']):.6g}")
-    print(f"receiver_temp_sigma_k {float(fit['receiver_temp_sigma_k']):.6g}")
-    if len(trec_bootstrap):
-        lo, med, hi = np.nanpercentile(trec_bootstrap, [16.0, 50.0, 84.0])
-        print(f"receiver_temp_bootstrap_p16_p50_p84_k {lo:.6g} {med:.6g} {hi:.6g}")
+    slopes = np.asarray([float(fit["slope"]) for fit in fits], dtype=np.float64)
+    ref_slope = slopes[0]
+    power_equalization = ref_slope / slopes
+    voltage_equalization = np.sqrt(power_equalization)
+    for module_i, fit in enumerate(fits):
+        keep_i = (counts[module_i] >= args.min_count) & np.isfinite(mean_power[module_i]) & ~outlier_mask[module_i]
+        print(f"module {module_i}")
+        print(f"  fit_bins {np.count_nonzero(keep_i)}")
+        print(f"  slope_power_per_k {float(fit['slope']):.9g}")
+        print(f"  receiver_temp_k {float(fit['receiver_temp_k']):.6g}")
+        print(f"  power_equalization_to_module0 {power_equalization[module_i]:.9g}")
+        print(f"  voltage_equalization_to_module0 {voltage_equalization[module_i]:.9g}")
+        if len(trec_bootstrap[module_i]):
+            lo, med, hi = np.nanpercentile(trec_bootstrap[module_i], [16.0, 50.0, 84.0])
+            print(f"  receiver_temp_bootstrap_p16_p50_p84_k {lo:.6g} {med:.6g} {hi:.6g}")
     return 0
 
 

@@ -81,11 +81,28 @@ def read_xc2_day(metadata_path: Path, day: str) -> dict[str, np.ndarray | int | 
     }
 
 
-def _read_cut_minute(task: tuple[str, int, int, int]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def load_receiver_amp_scale(calibration_h5: Path | None) -> np.ndarray | None:
+    """Return voltage scale factors that equalize receiver module powers."""
+    if calibration_h5 is None:
+        return None
+    import h5py
+
+    with h5py.File(calibration_h5, "r") as handle:
+        pwr = np.asarray(handle["pwr"][()], dtype=np.float64)
+    if pwr.ndim != 1 or len(pwr) == 0:
+        raise ValueError(f"{calibration_h5} does not contain a one-dimensional pwr calibration")
+    scale = np.real(np.sqrt(pwr[0]) / np.sqrt(pwr))
+    if not np.all(np.isfinite(scale)) or np.any(scale <= 0.0):
+        raise ValueError(f"{calibration_h5} contains invalid receiver power calibration")
+    return scale.astype(np.float32)
+
+
+def _read_cut_minute(task: tuple[str, int, int, int, str | None, bool]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Read one minute of cut metadata and return pulse noise samples."""
     import digital_rf as drf
 
-    metadata_path, start_us, end_us, guard_samples = task
+    metadata_path, start_us, end_us, guard_samples, calibration_h5, per_module = task
+    amp_scale = load_receiver_amp_scale(Path(calibration_h5)) if calibration_h5 else None
     dm = drf.DigitalMetadataReader(metadata_path)
     try:
         records = dm.read(start_us, end_us)
@@ -111,6 +128,12 @@ def _read_cut_minute(task: tuple[str, int, int, int]) -> tuple[np.ndarray, np.nd
             continue
         if zrx_re.ndim != 3 or zrx_re.shape != zrx_im.shape:
             continue
+        if amp_scale is not None:
+            if zrx_re.shape[1] > len(amp_scale):
+                continue
+            scale = amp_scale[: zrx_re.shape[1]][None, :, None]
+            zrx_re = zrx_re * scale
+            zrx_im = zrx_im * scale
         n_pulse = min(zrx_re.shape[0], len(beam_id), len(tx_idx))
         if n_pulse == 0:
             continue
@@ -123,8 +146,13 @@ def _read_cut_minute(task: tuple[str, int, int, int]) -> tuple[np.ndarray, np.nd
         if len(noise_idx) == 0:
             continue
         power = zrx_re[:n_pulse, :, :][:, :, noise_idx] ** 2 + zrx_im[:n_pulse, :, :][:, :, noise_idx] ** 2
-        pulse_power = np.nanmean(power, axis=(1, 2))
-        good = np.isfinite(pulse_power) & np.isfinite(tx_idx[:n_pulse]) & (beam_id[:n_pulse] >= 0) & (beam_id[:n_pulse] < len(BEAM_NAMES))
+        if per_module:
+            pulse_power = np.nanmean(power, axis=2)
+            power_good = np.all(np.isfinite(pulse_power), axis=1)
+        else:
+            pulse_power = np.nanmean(power, axis=(1, 2))
+            power_good = np.isfinite(pulse_power)
+        good = power_good & np.isfinite(tx_idx[:n_pulse]) & (beam_id[:n_pulse] >= 0) & (beam_id[:n_pulse] < len(BEAM_NAMES))
         if np.any(good):
             times.append(tx_idx[:n_pulse][good] / 1e6)
             beams.append(beam_id[:n_pulse][good])
@@ -149,11 +177,14 @@ def read_cut_day(
     workers: int,
     chunk_seconds: int = 60,
     guard_samples: int = 25,
+    calibration_h5: Path | None = Path("data/mesocal.h5"),
+    per_module: bool = False,
 ) -> dict[str, np.ndarray | str | int]:
     start_us, end_us, _date = utc_day_bounds(day)
     step_us = int(chunk_seconds * 1_000_000)
+    cal = str(calibration_h5) if calibration_h5 is not None else None
     tasks = [
-        (str(metadata_path), start, min(start + step_us, end_us), int(guard_samples))
+        (str(metadata_path), start, min(start + step_us, end_us), int(guard_samples), cal, bool(per_module))
         for start in range(start_us, end_us, step_us)
     ]
     if workers <= 1:
@@ -172,6 +203,8 @@ def read_cut_day(
         "beam_id": np.concatenate(beams),
         "noise_power": np.concatenate(powers),
         "guard_samples": int(guard_samples),
+        "calibration_h5": "" if calibration_h5 is None else str(calibration_h5),
+        "per_module": int(bool(per_module)),
     }
 
 
