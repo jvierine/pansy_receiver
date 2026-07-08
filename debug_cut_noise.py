@@ -80,7 +80,7 @@ def plot_debug(day_data: dict[str, np.ndarray | str], output: Path, example_reco
     guard_samples = int(day_data.get("guard_samples", 25))
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    fig, axes = plt.subplots(4, 1, figsize=(10.0, 10.0), constrained_layout=True)
+    fig, axes = plt.subplots(3, 1, figsize=(10.0, 8.0), constrained_layout=True)
     colors = ["black", "tab:blue", "tab:orange", "tab:green", "tab:red"]
     used_fraction = np.nan
     if example_record is not None:
@@ -106,18 +106,11 @@ def plot_debug(day_data: dict[str, np.ndarray | str], output: Path, example_reco
     for beam_i, name in enumerate(ppn.BEAM_NAMES):
         axes[1].plot(tms, counts[beam_i], color=colors[beam_i], lw=1.0, label=name)
         axes[2].plot(tms, power_db(medians[beam_i]), color=colors[beam_i], lw=1.0, label=name)
-        beam_power = power[valid & (beam_id == beam_i)]
-        beam_power = beam_power[np.isfinite(beam_power) & (beam_power > 0.0)]
-        if len(beam_power):
-            axes[3].hist(power_db(beam_power), bins=80, histtype="step", color=colors[beam_i], label=name)
 
     axes[1].set_title(f"Cut padding noise debug, {day}; guard {guard_samples} samples; per-pulse mean power")
     axes[1].set_ylabel("Pulses / minute")
     axes[2].set_ylabel("Binned power (dB)")
-    axes[3].set_xlabel("Pulse noise power (dB)")
-    axes[3].set_ylabel("Count")
     axes[1].legend(loc="upper right", ncol=5, fontsize=8)
-    axes[3].legend(loc="upper right", ncol=5, fontsize=8)
     for ax in axes[1:3]:
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
         ax.set_xlabel("Time (UTC)")
