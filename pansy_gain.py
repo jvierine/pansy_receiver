@@ -249,13 +249,18 @@ def tx_power_gain(
     return out.reshape(original_shape)
 
 
-def rx_power_gain(uvw: np.ndarray, channel: int | str | None = None, steer: np.ndarray | None = None) -> np.ndarray:
+def rx_power_gain(
+    uvw: np.ndarray,
+    channel: int | str | None = None,
+    steer: np.ndarray | None = None,
+    include_element_pattern: bool = True,
+) -> np.ndarray:
     """Receive power gain for one interferometric module, in linear units."""
     if channel is None:
         module_positions = None
     else:
         module_positions = rx_module_positions(channel)
-    return module_power_gain(uvw, steer=steer, module_positions=module_positions)
+    return module_power_gain(uvw, steer=steer, module_positions=module_positions, include_element_pattern=include_element_pattern)
 
 
 def power_to_db(power: np.ndarray, floor: float = MIN_POWER_GAIN) -> np.ndarray:

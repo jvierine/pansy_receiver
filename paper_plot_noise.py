@@ -216,6 +216,7 @@ def sky_temperature_matrix(
     min_elevation_deg: float,
     rx_channel: int | str | None,
     freq_mhz: float,
+    include_element_pattern: bool = True,
 ) -> np.ndarray:
     """Return beam-weighted T_sky with shape (time, beam)."""
     from pygdsm import GlobalSkyModel
@@ -223,6 +224,14 @@ def sky_temperature_matrix(
     grid = esn.local_sky_grid(n_az=n_az, n_el=n_el, min_elevation_deg=min_elevation_deg)
     gains = [
         esn.gain_weights(grid["uvw"], beam_id=beam_i, model=gain_model, rx_channel=rx_channel)
+        if gain_model != "rx"
+        else esn.gain_weights(
+            grid["uvw"],
+            beam_id=beam_i,
+            model=gain_model,
+            rx_channel=rx_channel,
+            include_element_pattern=include_element_pattern,
+        )
         for beam_i in range(len(BEAM_NAMES))
     ]
 

@@ -73,11 +73,17 @@ def gsm_temperature(az_deg: np.ndarray, el_deg: np.ndarray, unix_time: float, fr
         return np.asarray([float(gsm.get_sky_temperature(coord)) for coord in coords], dtype=np.float64)
 
 
-def gain_weights(uvw: np.ndarray, beam_id: int, model: str, rx_channel: int | str | None = None) -> np.ndarray:
+def gain_weights(
+    uvw: np.ndarray,
+    beam_id: int,
+    model: str,
+    rx_channel: int | str | None = None,
+    include_element_pattern: bool = True,
+) -> np.ndarray:
     """Return linear gain weights for one beam."""
     beam_vecs = pgain.tx_beam_unit_vectors()
     if model == "rx":
-        return pgain.rx_power_gain(uvw, channel=rx_channel, steer=beam_vecs[beam_id])
+        return pgain.rx_power_gain(uvw, channel=rx_channel, steer=beam_vecs[beam_id], include_element_pattern=include_element_pattern)
     if model == "tx":
         return pgain.tx_power_gain(uvw, beam_id, beam_vecs=beam_vecs)
     if model == "two_way":

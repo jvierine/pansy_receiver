@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 from pathlib import Path
 
 import matplotlib.dates as mdates
@@ -19,6 +20,7 @@ def receive_sky_temperature_matrix(
     n_az: int,
     n_el: int,
     min_elevation_deg: float,
+    include_element_pattern: bool = True,
 ) -> np.ndarray:
     """Beam-weighted sky temperature using the one-way receive pattern.
 
@@ -33,6 +35,7 @@ def receive_sky_temperature_matrix(
         min_elevation_deg=min_elevation_deg,
         rx_channel=None,
         freq_mhz=pc.freq / 1e6,
+        include_element_pattern=include_element_pattern,
     )
 
 
@@ -114,7 +117,13 @@ def interpolate_sky_model(model_times_s: np.ndarray, model_tsky: np.ndarray, tar
     return out
 
 
-def fit_receiver_temperature(tsky: np.ndarray, power: np.ndarray, weights: np.ndarray, max_trec_k: float = 20000.0) -> dict[str, float | np.ndarray]:
+def fit_receiver_temperature(
+    tsky: np.ndarray,
+    power: np.ndarray,
+    weights: np.ndarray,
+    min_trec_k: float = 273.0,
+    max_trec_k: float = 20000.0,
+) -> dict[str, float | np.ndarray]:
     good = np.isfinite(tsky) & np.isfinite(power) & np.isfinite(weights) & (weights > 0.0)
     if np.count_nonzero(good) < 3:
         raise RuntimeError("not enough finite samples for fit")
@@ -133,11 +142,11 @@ def fit_receiver_temperature(tsky: np.ndarray, power: np.ndarray, weights: np.nd
 
     # Bounded one-dimensional search. The coarse pass prevents the golden
     # search from wandering when the optimum is pinned to the physical boundary.
-    coarse = np.linspace(0.0, float(max_trec_k), 401)
+    coarse = np.linspace(float(min_trec_k), float(max_trec_k), 401)
     coarse_obj = np.asarray([objective(float(trec)) for trec in coarse])
     best_i = int(np.nanargmin(coarse_obj))
     if best_i == 0:
-        trec = 0.0
+        trec = float(min_trec_k)
     elif best_i == len(coarse) - 1:
         trec = float(max_trec_k)
     else:
@@ -384,6 +393,7 @@ def plot_module_fits(
 
 def plot_single_module_fit(
     output: Path,
+    day: str,
     centers_s: np.ndarray,
     counts: np.ndarray,
     mean_power: np.ndarray,
@@ -396,14 +406,16 @@ def plot_single_module_fit(
 ) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     colors = ["black", "tab:blue", "tab:orange", "tab:green", "tab:red"]
-    tms = centers_s.astype(np.int64).astype("datetime64[s]")
+    tms = np.asarray([datetime.fromtimestamp(float(t), tz=timezone.utc) for t in centers_s], dtype=object)
     slope = float(fit["slope"])
     trec = float(fit["receiver_temp_k"])
     if len(trec_bootstrap):
         lo, hi = np.nanpercentile(trec_bootstrap, [16.0, 84.0])
         err_lo, err_hi = trec - lo, hi - trec
+        trec_text = rf"Module {module_i}: $T_{{rec}}={trec:.0f}^{{+{err_hi:.0f}}}_{{-{err_lo:.0f}}}$ K"
     else:
         err_lo = err_hi = np.nan
+        trec_text = rf"Module {module_i}: $T_{{rec}}={trec:.0f}$ K"
 
     fig, ax = plt.subplots(figsize=(7.2, 4.1), constrained_layout=True)
     for beam_i, name in enumerate(ppn.BEAM_NAMES):
@@ -425,7 +437,9 @@ def plot_single_module_fit(
     ax.set_ylabel("Raw noise power (dB)")
     ax.set_xlabel("Time (UTC)")
     ax.xaxis.set_major_locator(mdates.HourLocator(interval=3))
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M", tz=timezone.utc))
+    start_us, end_us, _date = ppn.utc_day_bounds(day)
+    ax.set_xlim(datetime.fromtimestamp(start_us / 1e6, tz=timezone.utc), datetime.fromtimestamp(end_us / 1e6, tz=timezone.utc))
 
     def db_to_kelvin(power_db):
         return np.power(10.0, np.asarray(power_db) / 10.0) / slope
@@ -435,11 +449,12 @@ def plot_single_module_fit(
 
     temp_axis = ax.secondary_yaxis("right", functions=(db_to_kelvin, kelvin_to_db))
     temp_axis.set_ylabel(r"Equivalent $T_{\mathrm{sys}}$ (K)")
-    ax.axhline(kelvin_to_db(trec), color="0.25", lw=1.0, alpha=0.55)
+    if trec > 0.0:
+        ax.axhline(kelvin_to_db(trec), color="0.25", lw=1.0, alpha=0.55)
     ax.text(
         0.015,
         0.96,
-        rf"Module {module_i}: $T_{{rec}}={trec:.0f}^{{+{err_hi:.0f}}}_{{-{err_lo:.0f}}}$ K",
+        trec_text,
         transform=ax.transAxes,
         ha="left",
         va="top",
@@ -494,6 +509,7 @@ def main() -> int:
     parser.add_argument("--bootstrap", type=int, default=500)
     parser.add_argument("--seed", type=int, default=20250708)
     parser.add_argument("--paper-module", type=int, default=None, help="Write a one-panel paper plot for this receiver module index.")
+    parser.add_argument("--isotropic-module", action="store_true", help="Use 19 isotropic radiators for the receive module sky convolution.")
     args = parser.parse_args()
 
     if args.measurements is None:
@@ -516,6 +532,7 @@ def main() -> int:
         n_az=args.n_az,
         n_el=args.n_el,
         min_elevation_deg=args.min_elevation_deg,
+        include_element_pattern=not args.isotropic_module,
     )
     tsky = interpolate_sky_model(model_times, model_tsky, centers_s)
     counts = np.asarray(binned["counts"], dtype=np.float64)
@@ -536,6 +553,7 @@ def main() -> int:
     else:
         plot_single_module_fit(
             args.output,
+            args.day,
             centers_s,
             counts,
             mean_power,
