@@ -30,6 +30,7 @@ data/zenodo/
 plots/orbit_determination_example/
 
 # Local batch diagnostics and regenerated review plots
+figs/
 test_plots/
 test_plots_smoke/
 texput.log

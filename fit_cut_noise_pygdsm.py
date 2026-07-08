@@ -22,9 +22,9 @@ def load_measurements(path: Path) -> dict[str, np.ndarray | str | int]:
     with h5py.File(path, "r") as data:
         day = data.attrs.get("day", "")
         guard_samples = int(data.attrs.get("guard_samples", 25))
-        times_s = np.asarray(data["times_s"], dtype=np.float64)
-        beam_id = np.asarray(data["beam_id"], dtype=np.int16)
-        noise_power = np.asarray(data["noise_power"], dtype=np.float64)
+        times_s = np.asarray(data["times_s"][()], dtype=np.float64)
+        beam_id = np.asarray(data["beam_id"][()], dtype=np.int16)
+        noise_power = np.asarray(data["noise_power"][()], dtype=np.float64)
     return {
         "day": str(day),
         "times_s": times_s,
