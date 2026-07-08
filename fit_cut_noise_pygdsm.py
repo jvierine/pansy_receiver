@@ -326,7 +326,7 @@ def plot_module_fits(
     n_module = mean_power.shape[0]
     ncol = 2
     nrow = int(np.ceil(n_module / ncol))
-    fig, axes = plt.subplots(nrow, ncol, figsize=(7.5, 1.75 * nrow), sharex=True, constrained_layout=True)
+    fig, axes = plt.subplots(nrow, ncol, figsize=(7.6, 2.0 * nrow), sharex=True, constrained_layout=True)
     axes = np.ravel(axes)
     for module_i in range(n_module):
         ax = axes[module_i]
@@ -365,13 +365,19 @@ def plot_module_fits(
             fontsize=8,
         )
         ax.set_ylabel("dB")
+        ax.tick_params(labelsize=8)
+        ax.xaxis.set_major_locator(mdates.HourLocator(interval=6))
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
-    for ax in axes[n_module:]:
-        ax.set_visible(False)
-    axes[0].set_title(f"PANSY per-module cut-noise fits, {day}")
-    axes[min(n_module - 1, len(axes) - 1)].set_xlabel("Time (UTC)")
     handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="upper center", ncol=5, frameon=False, markerscale=1.8, fontsize=8)
+    for ax in axes[n_module:]:
+        ax.axis("off")
+    if len(axes) > n_module:
+        axes[n_module].legend(handles, labels, loc="center", ncol=1, frameon=False, markerscale=1.8, fontsize=10)
+    else:
+        fig.legend(handles, labels, loc="upper center", ncol=5, frameon=False, markerscale=1.8, fontsize=8)
+    for ax in axes[-ncol:]:
+        if ax.get_visible():
+            ax.set_xlabel("Time (UTC)")
     fig.savefig(output, dpi=220)
     plt.close(fig)
 
