@@ -10,6 +10,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 import scipy.constants as sc
+import scipy.special as ss
 
 import fit_cut_noise_pygdsm as noise_fit
 import orbit_metadata_table as omt
@@ -25,6 +26,7 @@ DEFAULT_TX_MODULES = 54
 DEFAULT_YAGIS_PER_MODULE = 19
 DEFAULT_CODE_BITS = 16
 DEFAULT_BAUD_S = 8e-6
+DEFAULT_SUMMED_RX_CHANNELS = 7
 
 
 def db_to_linear(db: float | np.ndarray) -> float | np.ndarray:
@@ -47,6 +49,19 @@ def absolute_tx_peak_gain_dbi(element_gain_dbi: float, modules: int, yagis_per_m
 
 def absolute_rx_module_gain_dbi(element_gain_dbi: float, yagis_per_module: int) -> float:
     return float(element_gain_dbi + 10.0 * np.log10(float(yagis_per_module)))
+
+
+def gamma_power_median_to_mean(shape: float) -> float:
+    """Median/mean factor for a gamma-distributed summed power estimate."""
+    shape = float(shape)
+    if shape <= 0.0:
+        raise ValueError("gamma shape must be positive")
+    return float(ss.gammaincinv(shape, 0.5) / shape)
+
+
+def median_referenced_snr_to_mean_referenced_snr(snr: np.ndarray, median_to_mean: float) -> np.ndarray:
+    """Convert ``(P - median_noise) / median_noise`` to ``(P - mean_noise) / mean_noise``."""
+    return (np.asarray(snr, dtype=np.float64) + 1.0) * float(median_to_mean) - 1.0
 
 
 class MainLobeMask:
@@ -233,7 +248,8 @@ def estimate_event_rcs(
 ) -> dict[str, np.ndarray | float | str | int]:
     beam_id = np.asarray(event["beam_id"], dtype=np.int64)
     uvw = np.asarray(event["uvw"], dtype=np.float64)
-    snr = np.asarray(event["snr"], dtype=np.float64)
+    snr_median_noise = np.asarray(event["snr"], dtype=np.float64)
+    snr = median_referenced_snr_to_mean_referenced_snr(snr_median_noise, float(args.snr_median_to_mean))
     range_m = np.asarray(event["range_km"], dtype=np.float64) * 1e3
     times_s = float(event["epoch_unix"]) + np.asarray(event["t_rel_s"], dtype=np.float64)
     selection_keep = np.asarray(event["selection_keep"], dtype=bool)
@@ -293,6 +309,8 @@ def estimate_event_rcs(
         "used_for_rcs": finite,
         "tsky_k": tsky_k,
         "tsys_k": tsys_k,
+        "snr_median_noise": snr_median_noise,
+        "snr_mean_noise": snr,
         "noise_power_w": noise_power_w,
         "received_echo_power_w": received_echo_power_w,
         "sigma_m2": sigma_m2,
@@ -375,6 +393,8 @@ def main() -> int:
     parser.add_argument("--baud-s", type=float, default=DEFAULT_BAUD_S)
     parser.add_argument("--code-bits", type=int, default=DEFAULT_CODE_BITS)
     parser.add_argument("--analysis-bandwidth-hz", type=float, default=None)
+    parser.add_argument("--summed-rx-channels", type=float, default=DEFAULT_SUMMED_RX_CHANNELS)
+    parser.add_argument("--snr-median-to-mean", type=float, default=None)
     parser.add_argument("--trec-k", type=float, default=DEFAULT_TREC_K)
     parser.add_argument("--system-noise-fractional-error", type=float, default=DEFAULT_TSYS_FRACTIONAL_ERROR)
     parser.add_argument("--element-pattern-blend", type=float, default=DEFAULT_ELEMENT_PATTERN_BLEND)
@@ -402,6 +422,11 @@ def main() -> int:
         if args.analysis_bandwidth_hz is None
         else float(args.analysis_bandwidth_hz)
     )
+    args.snr_median_to_mean = (
+        gamma_power_median_to_mean(float(args.summed_rx_channels))
+        if args.snr_median_to_mean is None
+        else float(args.snr_median_to_mean)
+    )
 
     if args.orbit_metadata_dir is None and not args.event_file:
         raise FileNotFoundError("select --day/--orbit-file orbit metadata, or pass --event-file")
@@ -419,11 +444,14 @@ def main() -> int:
         out.attrs["rx_module_gain_dbi"] = float(args.rx_module_gain_dbi)
         out.attrs["tx_power_w"] = float(args.tx_power_w)
         out.attrs["analysis_bandwidth_hz"] = float(args.analysis_bandwidth_hz)
+        out.attrs["snr_source"] = "stored path_snr = (range-Doppler power - median noise floor) / median noise floor"
+        out.attrs["summed_rx_channels"] = float(args.summed_rx_channels)
+        out.attrs["snr_median_to_mean"] = float(args.snr_median_to_mean)
         out.attrs["trec_k"] = float(args.trec_k)
         out.attrs["system_noise_fractional_error"] = float(args.system_noise_fractional_error)
         out.attrs["wavelength_m"] = float(pc.wavelength)
         out.attrs["main_lobe_threshold_db"] = float(args.main_lobe_threshold_db)
-        out.attrs["formula"] = "sigma = SNR k_B Tsys B (4pi)^3 R^4 / (Pt Gt Gr lambda^2)"
+        out.attrs["formula"] = "sigma = SNR_mean k_B Tsys B (4pi)^3 R^4 / (Pt Gt Gr lambda^2)"
         events = out.create_group("events")
         n_written = 0
         for idx, event in enumerate(iter_input_events(args)):
