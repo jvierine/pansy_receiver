@@ -200,6 +200,14 @@ def plot_fit(
         rf"$T_{{rec}}={trec:.0f}^{{+{err_hi:.0f}}}_{{-{err_lo:.0f}}}$ K"
     )
     axes[0].set_ylabel("Raw noise power (dB)")
+    def db_to_kelvin(power_db):
+        return np.power(10.0, np.asarray(power_db) / 10.0) / slope
+
+    def kelvin_to_db(temp_k):
+        return 10.0 * np.log10(np.maximum(np.asarray(temp_k) * slope, 1.0))
+
+    temp_axis = axes[0].secondary_yaxis("right", functions=(db_to_kelvin, kelvin_to_db))
+    temp_axis.set_ylabel(r"Equivalent $T_{\mathrm{sys}}$ (K)")
     axes[0].legend(loc="upper right", ncol=5, fontsize=8)
 
     for beam_i, name in enumerate(ppn.BEAM_NAMES):
