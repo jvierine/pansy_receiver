@@ -273,7 +273,6 @@ def main() -> int:
     parser.add_argument("--chunk-seconds", type=int, default=60)
     parser.add_argument("--guard-samples", type=int, default=25)
     parser.add_argument("--min-count", type=int, default=20)
-    parser.add_argument("--gain-model", choices=["rx", "tx", "two_way"], default="rx")
     parser.add_argument("--sky-step-minutes", type=float, default=10.0)
     parser.add_argument("--n-az", type=int, default=180)
     parser.add_argument("--n-el", type=int, default=60)
@@ -299,7 +298,7 @@ def main() -> int:
     model_times = np.arange(centers_s[0], centers_s[-1] + 0.5 * sky_step_s, sky_step_s)
     model_tsky = ppn.sky_temperature_matrix(
         model_times,
-        gain_model=args.gain_model,
+        gain_model="rx",
         n_az=args.n_az,
         n_el=args.n_el,
         min_elevation_deg=args.min_elevation_deg,
