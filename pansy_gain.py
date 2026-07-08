@@ -130,6 +130,7 @@ def module_field_pattern(
     steer: np.ndarray | None = None,
     module_positions: np.ndarray | None = None,
     include_element_pattern: bool = True,
+    element_pattern_blend: float = 0.0,
 ) -> np.ndarray:
     """Complex single-module subarray voltage pattern.
 
@@ -151,7 +152,11 @@ def module_field_pattern(
         phase = (2.0 * np.pi / pc.wavelength) * (rel_pos @ delta.T)
         field = np.mean(np.exp(1j * phase), axis=0)
         if include_element_pattern:
-            field = field * np.sqrt(crossed_yagi_element_power_gain(dirs[good], steer=steer))
+            blend = float(np.clip(element_pattern_blend, 0.0, 1.0))
+            element_gain = crossed_yagi_element_power_gain(dirs[good], steer=steer)
+            if blend > 0.0:
+                element_gain = (1.0 - blend) * element_gain + blend
+            field = field * np.sqrt(element_gain)
         out[good] = field
     return out.reshape(original_shape)
 
@@ -161,6 +166,7 @@ def module_power_gain(
     steer: np.ndarray | None = None,
     module_positions: np.ndarray | None = None,
     include_element_pattern: bool = True,
+    element_pattern_blend: float = 0.0,
 ) -> np.ndarray:
     """Single-module subarray receive/transmit power gain, linear units."""
     field = module_field_pattern(
@@ -168,6 +174,7 @@ def module_power_gain(
         steer=steer,
         module_positions=module_positions,
         include_element_pattern=include_element_pattern,
+        element_pattern_blend=element_pattern_blend,
     )
     return np.maximum(np.abs(field) ** 2, MIN_POWER_GAIN)
 
@@ -254,13 +261,20 @@ def rx_power_gain(
     channel: int | str | None = None,
     steer: np.ndarray | None = None,
     include_element_pattern: bool = True,
+    element_pattern_blend: float = 0.0,
 ) -> np.ndarray:
     """Receive power gain for one interferometric module, in linear units."""
     if channel is None:
         module_positions = None
     else:
         module_positions = rx_module_positions(channel)
-    return module_power_gain(uvw, steer=steer, module_positions=module_positions, include_element_pattern=include_element_pattern)
+    return module_power_gain(
+        uvw,
+        steer=steer,
+        module_positions=module_positions,
+        include_element_pattern=include_element_pattern,
+        element_pattern_blend=element_pattern_blend,
+    )
 
 
 def power_to_db(power: np.ndarray, floor: float = MIN_POWER_GAIN) -> np.ndarray:

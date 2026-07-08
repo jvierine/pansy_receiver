@@ -21,6 +21,7 @@ def receive_sky_temperature_matrix(
     n_el: int,
     min_elevation_deg: float,
     include_element_pattern: bool = True,
+    element_pattern_blend: float = 0.0,
 ) -> np.ndarray:
     """Beam-weighted sky temperature using the one-way receive pattern.
 
@@ -36,6 +37,7 @@ def receive_sky_temperature_matrix(
         rx_channel=None,
         freq_mhz=pc.freq / 1e6,
         include_element_pattern=include_element_pattern,
+        element_pattern_blend=element_pattern_blend,
     )
 
 
@@ -450,15 +452,26 @@ def plot_single_module_fit(
     temp_axis = ax.secondary_yaxis("right", functions=(db_to_kelvin, kelvin_to_db))
     temp_axis.set_ylabel(r"Equivalent $T_{\mathrm{sys}}$ (K)")
     if trec > 0.0:
-        ax.axhline(kelvin_to_db(trec), color="0.25", lw=1.0, alpha=0.55)
-    ax.text(
-        0.015,
-        0.96,
-        trec_text,
-        transform=ax.transAxes,
-        ha="left",
-        va="top",
-    )
+        trec_db = float(kelvin_to_db(trec))
+        ax.axhline(trec_db, color="0.25", lw=1.0, alpha=0.55)
+        x_mid = datetime.fromtimestamp(0.5 * (start_us + end_us) / 1e6, tz=timezone.utc)
+        ax.annotate(
+            trec_text,
+            xy=(x_mid, trec_db),
+            xytext=(0, 6),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+        )
+    else:
+        ax.text(
+            0.015,
+            0.96,
+            trec_text,
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+        )
     ax.legend(loc="upper center", bbox_to_anchor=(0.5, 1.02), ncol=5, fontsize=8, frameon=False, markerscale=2.0, handlelength=1.8)
     fig.savefig(output, dpi=300)
     plt.close(fig)
@@ -510,6 +523,12 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=20250708)
     parser.add_argument("--paper-module", type=int, default=None, help="Write a one-panel paper plot for this receiver module index.")
     parser.add_argument("--isotropic-module", action="store_true", help="Use 19 isotropic radiators for the receive module sky convolution.")
+    parser.add_argument(
+        "--element-pattern-blend",
+        type=float,
+        default=0.0,
+        help="Blend crossed-Yagi element power pattern toward isotropic: 0=yagi, 1=isotropic.",
+    )
     args = parser.parse_args()
 
     if args.measurements is None:
@@ -533,6 +552,7 @@ def main() -> int:
         n_el=args.n_el,
         min_elevation_deg=args.min_elevation_deg,
         include_element_pattern=not args.isotropic_module,
+        element_pattern_blend=1.0 if args.isotropic_module else args.element_pattern_blend,
     )
     tsky = interpolate_sky_model(model_times, model_tsky, centers_s)
     counts = np.asarray(binned["counts"], dtype=np.float64)

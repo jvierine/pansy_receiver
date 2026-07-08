@@ -79,11 +79,18 @@ def gain_weights(
     model: str,
     rx_channel: int | str | None = None,
     include_element_pattern: bool = True,
+    element_pattern_blend: float = 0.0,
 ) -> np.ndarray:
     """Return linear gain weights for one beam."""
     beam_vecs = pgain.tx_beam_unit_vectors()
     if model == "rx":
-        return pgain.rx_power_gain(uvw, channel=rx_channel, steer=beam_vecs[beam_id], include_element_pattern=include_element_pattern)
+        return pgain.rx_power_gain(
+            uvw,
+            channel=rx_channel,
+            steer=beam_vecs[beam_id],
+            include_element_pattern=include_element_pattern,
+            element_pattern_blend=element_pattern_blend,
+        )
     if model == "tx":
         return pgain.tx_power_gain(uvw, beam_id, beam_vecs=beam_vecs)
     if model == "two_way":

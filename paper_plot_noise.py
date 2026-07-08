@@ -217,6 +217,7 @@ def sky_temperature_matrix(
     rx_channel: int | str | None,
     freq_mhz: float,
     include_element_pattern: bool = True,
+    element_pattern_blend: float = 0.0,
 ) -> np.ndarray:
     """Return beam-weighted T_sky with shape (time, beam)."""
     from pygdsm import GlobalSkyModel
@@ -231,6 +232,7 @@ def sky_temperature_matrix(
             model=gain_model,
             rx_channel=rx_channel,
             include_element_pattern=include_element_pattern,
+            element_pattern_blend=element_pattern_blend,
         )
         for beam_i in range(len(BEAM_NAMES))
     ]
