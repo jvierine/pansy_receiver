@@ -135,11 +135,12 @@ def fit_receiver_temperature(
 
     def slope_for(trec: float) -> float:
         xt = x + trec
-        return float(np.sum(w * xt * y) / np.sum(w * xt * xt))
+        rel_x = xt / y
+        return float(np.sum(w * rel_x) / np.sum(w * rel_x * rel_x))
 
     def objective(trec: float) -> float:
         slope = slope_for(trec)
-        resid = y - slope * (x + trec)
+        resid = (y - slope * (x + trec)) / y
         return float(np.sum(w * resid * resid))
 
     # Bounded one-dimensional search. The coarse pass prevents the golden
