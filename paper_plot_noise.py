@@ -81,11 +81,11 @@ def read_xc2_day(metadata_path: Path, day: str) -> dict[str, np.ndarray | int | 
     }
 
 
-def _read_cut_minute(task: tuple[str, int, int]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _read_cut_minute(task: tuple[str, int, int, int]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Read one minute of cut metadata and return pulse noise samples."""
     import digital_rf as drf
 
-    metadata_path, start_us, end_us = task
+    metadata_path, start_us, end_us, guard_samples = task
     dm = drf.DigitalMetadataReader(metadata_path)
     try:
         records = dm.read(start_us, end_us)
@@ -115,14 +115,15 @@ def _read_cut_minute(task: tuple[str, int, int]) -> tuple[np.ndarray, np.ndarray
         if n_pulse == 0:
             continue
         n_sample = zrx_re.shape[2]
-        pre = np.arange(0, max(0, min(pad, n_sample)), dtype=np.int64)
-        post_start = max(0, min(pad + txlen, n_sample))
+        pre_end = max(0, min(pad - guard_samples, n_sample))
+        post_start = max(0, min(pad + txlen + guard_samples, n_sample))
+        pre = np.arange(0, pre_end, dtype=np.int64)
         post = np.arange(post_start, n_sample, dtype=np.int64)
         noise_idx = np.concatenate([pre, post])
         if len(noise_idx) == 0:
             continue
         power = zrx_re[:n_pulse, :, :][:, :, noise_idx] ** 2 + zrx_im[:n_pulse, :, :][:, :, noise_idx] ** 2
-        pulse_power = np.nanmedian(power, axis=(1, 2))
+        pulse_power = np.nanmean(power, axis=(1, 2))
         good = np.isfinite(pulse_power) & np.isfinite(tx_idx[:n_pulse]) & (beam_id[:n_pulse] >= 0) & (beam_id[:n_pulse] < len(BEAM_NAMES))
         if np.any(good):
             times.append(tx_idx[:n_pulse][good] / 1e6)
@@ -142,10 +143,19 @@ def _read_cut_minute(task: tuple[str, int, int]) -> tuple[np.ndarray, np.ndarray
     )
 
 
-def read_cut_day(metadata_path: Path, day: str, workers: int, chunk_seconds: int = 60) -> dict[str, np.ndarray | str]:
+def read_cut_day(
+    metadata_path: Path,
+    day: str,
+    workers: int,
+    chunk_seconds: int = 60,
+    guard_samples: int = 25,
+) -> dict[str, np.ndarray | str | int]:
     start_us, end_us, _date = utc_day_bounds(day)
     step_us = int(chunk_seconds * 1_000_000)
-    tasks = [(str(metadata_path), start, min(start + step_us, end_us)) for start in range(start_us, end_us, step_us)]
+    tasks = [
+        (str(metadata_path), start, min(start + step_us, end_us), int(guard_samples))
+        for start in range(start_us, end_us, step_us)
+    ]
     if workers <= 1:
         parts = [_read_cut_minute(task) for task in tasks]
     else:
@@ -161,6 +171,7 @@ def read_cut_day(metadata_path: Path, day: str, workers: int, chunk_seconds: int
         "times_s": np.concatenate(times),
         "beam_id": np.concatenate(beams),
         "noise_power": np.concatenate(powers),
+        "guard_samples": int(guard_samples),
     }
 
 

@@ -28,16 +28,16 @@ def read_example_cut(metadata_path: Path, day: str):
     return None, None
 
 
-def example_power_and_mask(record) -> tuple[np.ndarray, np.ndarray, int, int]:
+def example_power_and_mask(record, guard_samples: int) -> tuple[np.ndarray, np.ndarray, int, int]:
     zrx_re = np.asarray(record["zrx_echoes_re"], dtype=np.float32)
     zrx_im = np.asarray(record["zrx_echoes_im"], dtype=np.float32)
     pad = int(np.asarray(record["pad"]).reshape(()))
     txlen = int(np.asarray(record["txlen"]).reshape(()))
-    sample_power = np.nanmedian(zrx_re**2 + zrx_im**2, axis=(0, 1))
+    sample_power = np.nanmean(zrx_re**2 + zrx_im**2, axis=(0, 1))
     n_sample = len(sample_power)
     used = np.zeros(n_sample, dtype=bool)
-    used[: max(0, min(pad, n_sample))] = True
-    post_start = max(0, min(pad + txlen, n_sample))
+    used[: max(0, min(pad - guard_samples, n_sample))] = True
+    post_start = max(0, min(pad + txlen + guard_samples, n_sample))
     used[post_start:] = True
     return sample_power, used, pad, txlen
 
@@ -66,6 +66,10 @@ def binned_counts_and_medians(times_s: np.ndarray, beam_id: np.ndarray, power: n
     return centers, counts, medians, valid
 
 
+def power_db(power: np.ndarray) -> np.ndarray:
+    return 10.0 * np.log10(np.maximum(np.asarray(power, dtype=np.float64), 1.0))
+
+
 def plot_debug(day_data: dict[str, np.ndarray | str], output: Path, example_record=None) -> dict[str, float]:
     times_s = np.asarray(day_data["times_s"], dtype=np.float64)
     beam_id = np.asarray(day_data["beam_id"], dtype=np.int16)
@@ -73,25 +77,26 @@ def plot_debug(day_data: dict[str, np.ndarray | str], output: Path, example_reco
     day = str(day_data["day"])
     centers, counts, medians, valid = binned_counts_and_medians(times_s, beam_id, power, day)
     tms = centers
+    guard_samples = int(day_data.get("guard_samples", 25))
 
     output.parent.mkdir(parents=True, exist_ok=True)
     fig, axes = plt.subplots(4, 1, figsize=(10.0, 10.0), constrained_layout=True)
     colors = ["black", "tab:blue", "tab:orange", "tab:green", "tab:red"]
     used_fraction = np.nan
     if example_record is not None:
-        sample_power, used, pad, txlen = example_power_and_mask(example_record)
+        sample_power, used, pad, txlen = example_power_and_mask(example_record, guard_samples)
         x = np.arange(len(sample_power))
-        axes[0].plot(x, sample_power, color="0.15", lw=1.2)
-        axes[0].fill_between(x, sample_power, where=used, color="tab:green", alpha=0.30, label="used padding")
-        axes[0].fill_between(x, sample_power, where=~used, color="tab:red", alpha=0.18, label="excluded echo window")
+        sample_db = power_db(sample_power)
+        axes[0].plot(x, sample_db, color="0.15", lw=1.2)
+        axes[0].fill_between(x, sample_db, where=used, color="tab:green", alpha=0.30, label="used padding")
+        axes[0].fill_between(x, sample_db, where=~used, color="tab:red", alpha=0.18, label="excluded echo window")
         axes[0].axvline(pad, color="tab:red", lw=0.8)
         axes[0].axvline(pad + txlen, color="tab:red", lw=0.8)
-        axes[0].set_yscale("log")
-        axes[0].set_ylabel("Raw power")
+        axes[0].set_ylabel("Raw power (dB)")
         used_fraction = float(np.count_nonzero(used) / len(used))
         axes[0].set_title(
             f"Used samples in one cut: {np.count_nonzero(used)}/{len(used)} "
-            f"({100.0 * used_fraction:.1f}%)"
+            f"({100.0 * used_fraction:.1f}%), guard {guard_samples} samples"
         )
         axes[0].legend(loc="upper right", fontsize=8)
     else:
@@ -100,17 +105,16 @@ def plot_debug(day_data: dict[str, np.ndarray | str], output: Path, example_reco
 
     for beam_i, name in enumerate(ppn.BEAM_NAMES):
         axes[1].plot(tms, counts[beam_i], color=colors[beam_i], lw=1.0, label=name)
-        axes[2].plot(tms, medians[beam_i], color=colors[beam_i], lw=1.0, label=name)
+        axes[2].plot(tms, power_db(medians[beam_i]), color=colors[beam_i], lw=1.0, label=name)
         beam_power = power[valid & (beam_id == beam_i)]
         beam_power = beam_power[np.isfinite(beam_power) & (beam_power > 0.0)]
         if len(beam_power):
-            axes[3].hist(np.log10(beam_power), bins=80, histtype="step", color=colors[beam_i], label=name)
+            axes[3].hist(power_db(beam_power), bins=80, histtype="step", color=colors[beam_i], label=name)
 
-    axes[1].set_title(f"Cut padding noise debug, {day}")
+    axes[1].set_title(f"Cut padding noise debug, {day}; guard {guard_samples} samples; per-pulse mean power")
     axes[1].set_ylabel("Pulses / minute")
-    axes[2].set_ylabel("Median raw power")
-    axes[2].set_yscale("log")
-    axes[3].set_xlabel(r"$\log_{10}$ raw noise power")
+    axes[2].set_ylabel("Binned power (dB)")
+    axes[3].set_xlabel("Pulse noise power (dB)")
     axes[3].set_ylabel("Count")
     axes[1].legend(loc="upper right", ncol=5, fontsize=8)
     axes[3].legend(loc="upper right", ncol=5, fontsize=8)
@@ -135,10 +139,17 @@ def main() -> int:
     parser.add_argument("--output", type=Path, default=Path("figs/cut_noise_debug_2025-05-10.png"))
     parser.add_argument("--workers", type=int, default=10)
     parser.add_argument("--chunk-seconds", type=int, default=60)
+    parser.add_argument("--guard-samples", type=int, default=25)
     args = parser.parse_args()
 
     example_key, example_record = read_example_cut(args.metadata, args.day)
-    data = ppn.read_cut_day(args.metadata, args.day, workers=args.workers, chunk_seconds=args.chunk_seconds)
+    data = ppn.read_cut_day(
+        args.metadata,
+        args.day,
+        workers=args.workers,
+        chunk_seconds=args.chunk_seconds,
+        guard_samples=args.guard_samples,
+    )
     stats = plot_debug(data, args.output, example_record=example_record)
     print(f"metadata {args.metadata}")
     print(f"example_key {example_key}")
