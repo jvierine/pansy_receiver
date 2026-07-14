@@ -314,6 +314,36 @@ def sample_indices_with_min_arc_length(paths: np.ndarray, min_arc_length_km: flo
     return sample[np.isfinite(arc) & (arc >= float(min_arc_length_km))].astype(np.int64)
 
 
+def initial_tx_beam_angles_deg(paths: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    if len(paths) == 0 or paths.dtype.names is None or "sample_idx" not in paths.dtype.names:
+        return np.zeros(0, dtype=np.int64), np.zeros(0, dtype=np.float32)
+    keep = np.ones(len(paths), dtype=bool)
+    if "selection_keep" in paths.dtype.names:
+        keep &= np.asarray(paths["selection_keep"], dtype=bool)
+    angle = path_tx_beam_angle_deg(paths)
+    keep &= np.isfinite(angle)
+    if not np.any(keep):
+        return np.zeros(0, dtype=np.int64), np.zeros(0, dtype=np.float32)
+
+    sample = np.asarray(paths["sample_idx"], dtype=np.int64)[keep]
+    t_rel = np.asarray(paths["t_rel_s"], dtype=np.float64)[keep] if "t_rel_s" in paths.dtype.names else np.zeros(np.count_nonzero(keep))
+    angle = angle[keep]
+    order = np.lexsort((t_rel, sample))
+    sample = sample[order]
+    angle = angle[order]
+    unique_sample, first = np.unique(sample, return_index=True)
+    return unique_sample.astype(np.int64), angle[first].astype(np.float32)
+
+
+def sample_indices_with_max_initial_tx_beam_angle(paths: np.ndarray, max_angle_deg: float | None) -> np.ndarray | None:
+    if max_angle_deg is None:
+        return None
+    sample, angle = initial_tx_beam_angles_deg(paths)
+    if len(sample) == 0:
+        return np.zeros(0, dtype=np.int64)
+    return sample[np.isfinite(angle) & (angle <= float(max_angle_deg))].astype(np.int64)
+
+
 def quality_mask(
     events: np.ndarray,
     max_radiant_sigma_deg: float | None,
@@ -322,6 +352,7 @@ def quality_mask(
     selected_closest_tx_sample_idx: np.ndarray | None = None,
     required_sample_idx: np.ndarray | None = None,
     min_arc_sample_idx: np.ndarray | None = None,
+    initial_tx_sample_idx: np.ndarray | None = None,
 ) -> np.ndarray:
     good = np.ones(len(events), dtype=bool)
     if events.dtype.names is None or "sample_idx" not in events.dtype.names:
@@ -334,6 +365,8 @@ def quality_mask(
         good &= np.isin(sample_idx, np.asarray(required_sample_idx, dtype=np.int64))
     if min_arc_sample_idx is not None:
         good &= np.isin(sample_idx, np.asarray(min_arc_sample_idx, dtype=np.int64))
+    if initial_tx_sample_idx is not None:
+        good &= np.isin(sample_idx, np.asarray(initial_tx_sample_idx, dtype=np.int64))
     for name in ("initial_detection_height_km", "v_g_km_s", "radiant_sun_ecliptic_lon_deg"):
         good &= np.isfinite(finite_field(events, name))
     good &= finite_field(events, "v_g_km_s") > 0.0
@@ -360,6 +393,7 @@ def fit_quality_mask(
     selected_closest_tx_sample_idx: np.ndarray | None = None,
     required_sample_idx: np.ndarray | None = None,
     min_arc_sample_idx: np.ndarray | None = None,
+    initial_tx_sample_idx: np.ndarray | None = None,
 ) -> np.ndarray:
     good = quality_mask(
         events,
@@ -369,6 +403,7 @@ def fit_quality_mask(
         selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
         required_sample_idx=required_sample_idx,
         min_arc_sample_idx=min_arc_sample_idx,
+        initial_tx_sample_idx=initial_tx_sample_idx,
     )
     if events.dtype.names is None:
         return good
@@ -409,6 +444,7 @@ def catalogue_arrays(
     selected_closest_tx_sample_idx: np.ndarray | None = None,
     required_sample_idx: np.ndarray | None = None,
     min_arc_sample_idx: np.ndarray | None = None,
+    initial_tx_sample_idx: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
     keep = quality_mask(
         events,
@@ -418,6 +454,7 @@ def catalogue_arrays(
         selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
         required_sample_idx=required_sample_idx,
         min_arc_sample_idx=min_arc_sample_idx,
+        initial_tx_sample_idx=initial_tx_sample_idx,
     )
     kept = events[keep]
     out = {
@@ -444,6 +481,7 @@ def fit_catalogue_arrays(
     selected_closest_tx_sample_idx: np.ndarray | None = None,
     required_sample_idx: np.ndarray | None = None,
     min_arc_sample_idx: np.ndarray | None = None,
+    initial_tx_sample_idx: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
     keep = fit_quality_mask(
         events,
@@ -458,6 +496,7 @@ def fit_catalogue_arrays(
         selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
         required_sample_idx=required_sample_idx,
         min_arc_sample_idx=min_arc_sample_idx,
+        initial_tx_sample_idx=initial_tx_sample_idx,
     )
     kept = events[keep]
     return {
@@ -489,7 +528,10 @@ def measurement_height_velocity_arrays(
     selected_closest_tx_sample_idx: np.ndarray | None = None,
     required_sample_idx: np.ndarray | None = None,
     min_arc_sample_idx: np.ndarray | None = None,
+    initial_tx_sample_idx: np.ndarray | None = None,
     max_tx_beam_angle_deg: float | None = None,
+    height_min_km: float = HEIGHT_VELOCITY_HEIGHT_MIN_KM,
+    height_max_km: float = HEIGHT_VELOCITY_HEIGHT_MAX_KM,
 ) -> dict[str, np.ndarray]:
     if len(events) == 0 or len(paths) == 0 or paths.dtype.names is None:
         return empty_measurement_arrays()
@@ -506,6 +548,7 @@ def measurement_height_velocity_arrays(
         selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
         required_sample_idx=required_sample_idx,
         min_arc_sample_idx=min_arc_sample_idx,
+        initial_tx_sample_idx=initial_tx_sample_idx,
     )
     kept = events[keep]
     sample_idx = np.asarray(kept["sample_idx"], dtype=np.int64)
@@ -534,8 +577,8 @@ def measurement_height_velocity_arrays(
     out_speed = np.full(len(paths), np.nan, dtype=np.float32)
     out_speed[matched] = speeds[match[matched]]
     good &= np.isfinite(out_speed)
-    good &= height >= HEIGHT_VELOCITY_HEIGHT_MIN_KM
-    good &= height < HEIGHT_VELOCITY_HEIGHT_MAX_KM
+    good &= height >= float(height_min_km)
+    good &= height < float(height_max_km)
     good &= out_speed >= HEIGHT_VELOCITY_SPEED_MIN_KM_S
     good &= out_speed < HEIGHT_VELOCITY_SPEED_MAX_KM_S
     return {
@@ -560,7 +603,9 @@ def measurement_low_height_diagnostics(
     selected_closest_tx_sample_idx: np.ndarray | None = None,
     required_sample_idx: np.ndarray | None = None,
     min_arc_sample_idx: np.ndarray | None = None,
+    initial_tx_sample_idx: np.ndarray | None = None,
     max_tx_beam_angle_deg: float | None = None,
+    height_max_km: float = HEIGHT_VELOCITY_HEIGHT_MAX_KM,
 ) -> np.ndarray:
     if len(events) == 0 or len(paths) == 0 or paths.dtype.names is None:
         return np.zeros(0, dtype=LOW_HEIGHT_AUDIT_DTYPE)
@@ -577,6 +622,7 @@ def measurement_low_height_diagnostics(
         selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
         required_sample_idx=required_sample_idx,
         min_arc_sample_idx=min_arc_sample_idx,
+        initial_tx_sample_idx=initial_tx_sample_idx,
     )
     kept = events[keep]
     if len(kept) == 0 or "position_enu_km" not in paths.dtype.names:
@@ -608,7 +654,7 @@ def measurement_low_height_diagnostics(
         tx_angle = path_tx_beam_angle_deg(paths)
         good &= np.isfinite(tx_angle) & (tx_angle <= float(max_tx_beam_angle_deg))
     good &= height > 0.0
-    good &= height < HEIGHT_VELOCITY_HEIGHT_MAX_KM
+    good &= height < float(height_max_km)
     good &= path_speed >= HEIGHT_VELOCITY_SPEED_MIN_KM_S
     good &= path_speed < HEIGHT_VELOCITY_SPEED_MAX_KM_S
     if not np.any(good):
@@ -681,8 +727,13 @@ def count_density_from_counts(
     return density_by_year, all_density
 
 
-def histogram_height_velocity(height_km: np.ndarray, speed_km_s: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    height_edges = np.arange(HEIGHT_VELOCITY_HEIGHT_MIN_KM, HEIGHT_VELOCITY_HEIGHT_MAX_KM + 1.0, 1.0, dtype=np.float32)
+def histogram_height_velocity(
+    height_km: np.ndarray,
+    speed_km_s: np.ndarray,
+    height_min_km: float = HEIGHT_VELOCITY_HEIGHT_MIN_KM,
+    height_max_km: float = HEIGHT_VELOCITY_HEIGHT_MAX_KM,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    height_edges = np.arange(float(height_min_km), float(height_max_km) + 1.0, 1.0, dtype=np.float32)
     speed_edges = np.arange(HEIGHT_VELOCITY_SPEED_MIN_KM_S, HEIGHT_VELOCITY_SPEED_MAX_KM_S + 1.0, 1.0, dtype=np.float32)
     hist, h_edges, v_edges = np.histogram2d(height_km, speed_km_s, bins=[height_edges, speed_edges])
     return hist.astype(np.int32), h_edges.astype(np.float32), v_edges.astype(np.float32)
@@ -713,6 +764,8 @@ def write_statistics_h5(
     measurement_max_tx_beam_angle_deg: float | None,
     min_measurement_arc_length_km: float | None,
     min_arc_event_count: int,
+    max_initial_tx_beam_angle_deg: float | None,
+    initial_tx_event_count: int,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(path, "w") as h:
@@ -738,6 +791,10 @@ def write_statistics_h5(
             np.nan if min_measurement_arc_length_km is None else float(min_measurement_arc_length_km)
         )
         h.attrs["min_arc_event_count"] = int(min_arc_event_count)
+        h.attrs["max_initial_tx_beam_angle_deg"] = (
+            np.nan if max_initial_tx_beam_angle_deg is None else float(max_initial_tx_beam_angle_deg)
+        )
+        h.attrs["initial_tx_beam_angle_event_count"] = int(initial_tx_event_count)
         h.attrs["solar_longitude_count_density_unit"] = "count per degree"
         h.attrs["height_velocity_quality_filter"] = (
             "static radiant monitor high-quality gate: valid DASST winning alias, "
@@ -828,6 +885,8 @@ def main() -> None:
     parser.add_argument("--height-velocity-output", type=Path, default=Path("paper_height_velocity.png"))
     parser.add_argument("--measurement-height-velocity-output", type=Path, default=Path("paper_measurement_height_velocity.png"))
     parser.add_argument("--solar-bin-width-deg", type=float, default=1.0)
+    parser.add_argument("--height-min-km", type=float, default=HEIGHT_VELOCITY_HEIGHT_MIN_KM)
+    parser.add_argument("--height-max-km", type=float, default=HEIGHT_VELOCITY_HEIGHT_MAX_KM)
     parser.add_argument("--max-radiant-sigma-deg", type=float, default=None)
     parser.add_argument("--min-sample-idx", type=int, default=DEFAULT_MIN_SAMPLE_IDX)
     parser.add_argument("--max-sample-idx", type=int, default=DEFAULT_MAX_SAMPLE_IDX)
@@ -839,6 +898,12 @@ def main() -> None:
     parser.add_argument("--height-max-initial-state-radiant-angle-sigma-deg", type=float, default=3.0)
     parser.add_argument("--min-measurement-arc-length-km", type=float, default=None)
     parser.add_argument("--measurement-max-tx-beam-angle-deg", type=float, default=10.0)
+    parser.add_argument(
+        "--max-initial-tx-beam-angle-deg",
+        type=float,
+        default=None,
+        help="For catalogue event plots, keep events whose first selected trajectory point is within this angle of the active TX beam center.",
+    )
     parser.add_argument("--low-height-audit-threshold-km", type=float, default=60.0)
     parser.add_argument(
         "--require-selected-closest-tx-alias",
@@ -853,9 +918,14 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    need_paths = (
+        args.include_measurements
+        or args.min_measurement_arc_length_km is not None
+        or args.max_initial_tx_beam_angle_deg is not None
+    )
     events, paths, aliases, files_read = collect_events_paths_aliases(
         args.orbit_metadata_dir,
-        include_paths=args.include_measurements,
+        include_paths=need_paths,
         include_aliases=args.require_selected_closest_tx_alias,
     )
     selected_closest_tx_sample_idx = (
@@ -872,6 +942,8 @@ def main() -> None:
     required_sample_index_count = int(len(required_sample_idx)) if required_sample_idx is not None else int(len(events))
     min_arc_sample_idx = sample_indices_with_min_arc_length(paths, args.min_measurement_arc_length_km)
     min_arc_event_count = int(len(min_arc_sample_idx)) if min_arc_sample_idx is not None else int(len(events))
+    initial_tx_sample_idx = sample_indices_with_max_initial_tx_beam_angle(paths, args.max_initial_tx_beam_angle_deg)
+    initial_tx_event_count = int(len(initial_tx_sample_idx)) if initial_tx_sample_idx is not None else int(len(events))
     arrays = catalogue_arrays(
         events,
         args.max_radiant_sigma_deg,
@@ -880,6 +952,7 @@ def main() -> None:
         selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
         required_sample_idx=required_sample_idx,
         min_arc_sample_idx=min_arc_sample_idx,
+        initial_tx_sample_idx=initial_tx_sample_idx,
     )
     fit_arrays = fit_catalogue_arrays(
         events,
@@ -894,6 +967,7 @@ def main() -> None:
         selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
         required_sample_idx=required_sample_idx,
         min_arc_sample_idx=min_arc_sample_idx,
+        initial_tx_sample_idx=initial_tx_sample_idx,
     )
     measurement_arrays = (
         measurement_height_velocity_arrays(
@@ -910,7 +984,10 @@ def main() -> None:
             selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
             required_sample_idx=required_sample_idx,
             min_arc_sample_idx=min_arc_sample_idx,
+            initial_tx_sample_idx=initial_tx_sample_idx,
             max_tx_beam_angle_deg=args.measurement_max_tx_beam_angle_deg,
+            height_min_km=args.height_min_km,
+            height_max_km=args.height_max_km,
         )
         if args.include_measurements
         else empty_measurement_arrays()
@@ -931,7 +1008,9 @@ def main() -> None:
             selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
             required_sample_idx=required_sample_idx,
             min_arc_sample_idx=min_arc_sample_idx,
+            initial_tx_sample_idx=initial_tx_sample_idx,
             max_tx_beam_angle_deg=args.measurement_max_tx_beam_angle_deg,
+            height_max_km=args.height_max_km,
         )
         if args.include_measurements
         else np.zeros(0, dtype=LOW_HEIGHT_AUDIT_DTYPE)
@@ -946,10 +1025,14 @@ def main() -> None:
     hv_counts, height_edges, speed_edges = histogram_height_velocity(
         fit_arrays["fit_initial_detection_height_km"],
         fit_arrays["fit_v_g_km_s"],
+        height_min_km=args.height_min_km,
+        height_max_km=args.height_max_km,
     )
     measurement_hv_counts, _, _ = histogram_height_velocity(
         measurement_arrays["measurement_height_km"],
         measurement_arrays["measurement_event_v_g_km_s"],
+        height_min_km=args.height_min_km,
+        height_max_km=args.height_max_km,
     )
     write_statistics_h5(
         args.output_h5,
@@ -976,6 +1059,8 @@ def main() -> None:
         args.measurement_max_tx_beam_angle_deg,
         args.min_measurement_arc_length_km,
         min_arc_event_count,
+        args.max_initial_tx_beam_angle_deg,
+        initial_tx_event_count,
     )
     plot_solar_counts(args.solar_output, solar_years, solar_year_count_density, solar_all_count_density, solar_edges)
     plot_height_velocity(
@@ -1002,8 +1087,10 @@ def main() -> None:
         f"low_height_events={len(low_height_diagnostics)} "
         f"selected_closest_tx_events={selected_closest_tx_event_count} "
         f"measurement_max_tx_beam_angle_deg={args.measurement_max_tx_beam_angle_deg:g} "
+        f"max_initial_tx_beam_angle_deg={args.max_initial_tx_beam_angle_deg} "
         f"min_measurement_arc_length_km={args.min_measurement_arc_length_km} "
         f"min_arc_events={min_arc_event_count} "
+        f"initial_tx_events={initial_tx_event_count} "
         f"required_sample_index_count={required_sample_index_count} files_read={files_read}"
     )
     print(args.output_h5)

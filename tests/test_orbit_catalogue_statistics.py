@@ -36,6 +36,21 @@ def test_height_velocity_histogram_spans_60_to_160_km():
     assert counts.sum() == 2
 
 
+def test_height_velocity_histogram_can_use_custom_height_range():
+    from plot_orbit_catalogue_statistics import histogram_height_velocity
+
+    counts, height_edges, _speed_edges = histogram_height_velocity(
+        np.asarray([49.9, 50.1, 179.9, 180.1]),
+        np.asarray([20.0, 20.0, 20.0, 20.0]),
+        height_min_km=50.0,
+        height_max_km=180.0,
+    )
+
+    assert height_edges[0] == 50.0
+    assert height_edges[-1] == 180.0
+    assert counts.sum() == 2
+
+
 def test_measurement_histogram_input_excludes_robust_fit_outliers():
     import orbit_metadata_table as omt
     from plot_orbit_catalogue_statistics import measurement_height_velocity_arrays
@@ -234,6 +249,43 @@ def test_measurement_histogram_input_excludes_points_far_from_tx_beam_center():
     )
 
     np.testing.assert_allclose(result["measurement_height_km"], [100.0 * beam_vec[2]], rtol=1e-6)
+
+
+def test_catalogue_arrays_can_require_initial_point_near_tx_beam_center():
+    import orbit_metadata_table as omt
+    import pansy_gain as pgain
+    from plot_orbit_catalogue_statistics import catalogue_arrays, sample_indices_with_max_initial_tx_beam_angle
+
+    events = np.zeros(2, dtype=omt.EVENT_DTYPE)
+    events["sample_idx"] = [10, 20]
+    events["initial_detection_height_km"] = 100.0
+    events["v_g_km_s"] = 40.0
+    events["radiant_sun_ecliptic_lon_deg"] = 120.0
+
+    beam_vec = np.asarray(pgain.tx_beam_unit_vectors()[0], dtype=np.float64)
+    beam_vec[2] *= -1.0
+    far_vec = beam_vec.copy()
+    far_vec[:2] += np.asarray([np.sin(np.deg2rad(20.0)), 0.0])
+    far_vec /= np.linalg.norm(far_vec)
+
+    paths = np.zeros(4, dtype=omt.PATH_DTYPE)
+    paths["sample_idx"] = [10, 10, 20, 20]
+    paths["t_rel_s"] = [0.0, 1.0, 0.0, 1.0]
+    paths["position_enu_km"] = np.vstack([100.0 * beam_vec, 100.0 * far_vec, 100.0 * far_vec, 100.0 * beam_vec])
+    paths["beam_id"] = 0
+    paths["selection_keep"] = True
+
+    initial_tx_sample_idx = sample_indices_with_max_initial_tx_beam_angle(paths, 10.0)
+    result = catalogue_arrays(
+        events,
+        max_radiant_sigma_deg=None,
+        min_sample_idx=0,
+        max_sample_idx=30,
+        initial_tx_sample_idx=initial_tx_sample_idx,
+    )
+
+    np.testing.assert_array_equal(initial_tx_sample_idx, [10])
+    np.testing.assert_array_equal(result["sample_idx"], [10])
 
 
 def test_low_height_diagnostics_identifies_suspicious_selected_measurements():
