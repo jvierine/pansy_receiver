@@ -72,6 +72,24 @@ def test_measurement_histogram_input_excludes_robust_fit_outliers():
     np.testing.assert_array_equal(result["measurement_height_km"], [100.0])
 
 
+def test_selected_closest_tx_alias_sample_indices_requires_selected_alias_to_be_tx_nearest():
+    import orbit_metadata_table as omt
+    from plot_orbit_catalogue_statistics import selected_closest_tx_alias_sample_indices
+
+    events = np.zeros(2, dtype=omt.EVENT_DTYPE)
+    events["sample_idx"] = [10, 20]
+    events["selected_hypothesis"] = [b"H02", b"H01"]
+
+    aliases = np.zeros(4, dtype=omt.ALIAS_DTYPE)
+    aliases["sample_idx"] = [10, 10, 20, 20]
+    aliases["hypothesis_label"] = [b"H01", b"H02", b"H01", b"H02"]
+    aliases["tx_beam_snr_weighted_mean_dc"] = [0.1, 0.02, 0.4, 0.03]
+
+    result = selected_closest_tx_alias_sample_indices(events, aliases)
+
+    np.testing.assert_array_equal(result, [10])
+
+
 def test_measurement_histogram_input_excludes_points_outside_plot_domain():
     import orbit_metadata_table as omt
     from plot_orbit_catalogue_statistics import measurement_height_velocity_arrays

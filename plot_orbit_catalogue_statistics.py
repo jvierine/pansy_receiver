@@ -117,7 +117,7 @@ def coerce_structured(arr: np.ndarray, dtype: np.dtype) -> np.ndarray:
     return out
 
 
-def iter_orbit_tables(orbit_metadata_dir: Path, include_paths: bool):
+def iter_orbit_tables(orbit_metadata_dir: Path, include_paths: bool, include_aliases: bool = False):
     for path in sorted(orbit_metadata_dir.glob("**/orbit@*.h5")):
         try:
             with h5py.File(path, "r") as h:
@@ -125,22 +125,35 @@ def iter_orbit_tables(orbit_metadata_dir: Path, include_paths: bool):
                     continue
                 events = coerce_structured(h["events"][()], omt.EVENT_DTYPE)
                 paths = coerce_structured(h["paths"][()], omt.PATH_DTYPE) if include_paths and "paths" in h else None
-                yield path, events, paths
+                aliases = coerce_structured(h["aliases"][()], omt.ALIAS_DTYPE) if include_aliases and "aliases" in h else None
+                yield path, events, paths, aliases
         except OSError:
             continue
 
 
-def collect_events_and_paths(orbit_metadata_dir: Path, include_paths: bool) -> tuple[np.ndarray, np.ndarray, int]:
+def collect_events_paths_aliases(
+    orbit_metadata_dir: Path,
+    include_paths: bool,
+    include_aliases: bool = False,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
     event_chunks = []
     path_chunks = []
+    alias_chunks = []
     files_read = 0
-    for _path, events, paths in iter_orbit_tables(orbit_metadata_dir, include_paths=include_paths):
+    for _path, events, paths, aliases in iter_orbit_tables(
+        orbit_metadata_dir,
+        include_paths=include_paths,
+        include_aliases=include_aliases,
+    ):
         event_chunks.append(events)
         if paths is not None and len(paths):
             path_chunks.append(paths)
+        if aliases is not None and len(aliases):
+            alias_chunks.append(aliases)
         files_read += 1
     events = np.concatenate(event_chunks) if event_chunks else np.zeros(0, dtype=omt.EVENT_DTYPE)
     paths = np.concatenate(path_chunks) if path_chunks else np.zeros(0, dtype=omt.PATH_DTYPE)
+    aliases = np.concatenate(alias_chunks) if alias_chunks else np.zeros(0, dtype=omt.ALIAS_DTYPE)
     if len(events) and "sample_idx" in events.dtype.names:
         events = events[np.argsort(events["sample_idx"])]
         _, unique_i = np.unique(events["sample_idx"], return_index=True)
@@ -148,6 +161,17 @@ def collect_events_and_paths(orbit_metadata_dir: Path, include_paths: bool) -> t
             events = events[np.sort(unique_i)]
     if len(paths) and "sample_idx" in paths.dtype.names:
         paths = paths[np.argsort(paths["sample_idx"])]
+    if len(aliases) and "sample_idx" in aliases.dtype.names:
+        aliases = aliases[np.argsort(aliases["sample_idx"])]
+    return events, paths, aliases, files_read
+
+
+def collect_events_and_paths(orbit_metadata_dir: Path, include_paths: bool) -> tuple[np.ndarray, np.ndarray, int]:
+    events, paths, _aliases, files_read = collect_events_paths_aliases(
+        orbit_metadata_dir,
+        include_paths=include_paths,
+        include_aliases=False,
+    )
     return events, paths, files_read
 
 
@@ -162,17 +186,64 @@ def finite_field(events: np.ndarray, name: str) -> np.ndarray:
     return out
 
 
+def selected_closest_tx_alias_sample_indices(events: np.ndarray, aliases: np.ndarray) -> np.ndarray:
+    """Return event sample indices whose selected alias is the closest finite TX alias."""
+    if (
+        len(events) == 0
+        or len(aliases) == 0
+        or events.dtype.names is None
+        or aliases.dtype.names is None
+        or "sample_idx" not in events.dtype.names
+        or "selected_hypothesis" not in events.dtype.names
+        or "sample_idx" not in aliases.dtype.names
+        or "hypothesis_label" not in aliases.dtype.names
+        or "tx_beam_snr_weighted_mean_dc" not in aliases.dtype.names
+    ):
+        return np.zeros(0, dtype=np.int64)
+
+    selected_by_sample = {
+        int(sample): label
+        for sample, label in zip(np.asarray(events["sample_idx"], dtype=np.int64), np.asarray(events["selected_hypothesis"], dtype="S8"))
+        if label != b""
+    }
+    if not selected_by_sample:
+        return np.zeros(0, dtype=np.int64)
+
+    alias_sample = np.asarray(aliases["sample_idx"], dtype=np.int64)
+    alias_label = np.asarray(aliases["hypothesis_label"], dtype="S8")
+    tx_distance = np.asarray(aliases["tx_beam_snr_weighted_mean_dc"], dtype=np.float64)
+    good_alias = np.isfinite(tx_distance) & (alias_label != b"")
+    if not np.any(good_alias):
+        return np.zeros(0, dtype=np.int64)
+
+    order = np.lexsort((tx_distance[good_alias], alias_sample[good_alias]))
+    sample_sorted = alias_sample[good_alias][order]
+    label_sorted = alias_label[good_alias][order]
+    _, first = np.unique(sample_sorted, return_index=True)
+    closest_sample = sample_sorted[first]
+    closest_label = label_sorted[first]
+    keep = [
+        int(sample)
+        for sample, label in zip(closest_sample, closest_label)
+        if selected_by_sample.get(int(sample), b"") == label
+    ]
+    return np.asarray(keep, dtype=np.int64)
+
+
 def quality_mask(
     events: np.ndarray,
     max_radiant_sigma_deg: float | None,
     min_sample_idx: int,
     max_sample_idx: int,
+    selected_closest_tx_sample_idx: np.ndarray | None = None,
 ) -> np.ndarray:
     good = np.ones(len(events), dtype=bool)
     if events.dtype.names is None or "sample_idx" not in events.dtype.names:
         return np.zeros(len(events), dtype=bool)
     sample_idx = np.asarray(events["sample_idx"], dtype=np.int64)
     good &= (sample_idx >= int(min_sample_idx)) & (sample_idx < int(max_sample_idx))
+    if selected_closest_tx_sample_idx is not None:
+        good &= np.isin(sample_idx, np.asarray(selected_closest_tx_sample_idx, dtype=np.int64))
     for name in ("initial_detection_height_km", "v_g_km_s", "radiant_sun_ecliptic_lon_deg"):
         good &= np.isfinite(finite_field(events, name))
     good &= finite_field(events, "v_g_km_s") > 0.0
@@ -196,8 +267,15 @@ def fit_quality_mask(
     min_uncertainty_samples: int,
     max_initial_state_position_sigma_m: float | None,
     max_initial_state_radiant_angle_sigma_deg: float | None,
+    selected_closest_tx_sample_idx: np.ndarray | None = None,
 ) -> np.ndarray:
-    good = quality_mask(events, max_radiant_sigma_deg, min_sample_idx, max_sample_idx)
+    good = quality_mask(
+        events,
+        max_radiant_sigma_deg,
+        min_sample_idx,
+        max_sample_idx,
+        selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
+    )
     if events.dtype.names is None:
         return good
     if "orbit_solution_type" in events.dtype.names:
@@ -234,8 +312,15 @@ def catalogue_arrays(
     max_radiant_sigma_deg: float | None,
     min_sample_idx: int,
     max_sample_idx: int,
+    selected_closest_tx_sample_idx: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
-    keep = quality_mask(events, max_radiant_sigma_deg, min_sample_idx, max_sample_idx)
+    keep = quality_mask(
+        events,
+        max_radiant_sigma_deg,
+        min_sample_idx,
+        max_sample_idx,
+        selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
+    )
     kept = events[keep]
     out = {
         "sample_idx": np.asarray(kept["sample_idx"], dtype=np.int64),
@@ -258,6 +343,7 @@ def fit_catalogue_arrays(
     min_uncertainty_samples: int,
     max_initial_state_position_sigma_m: float | None,
     max_initial_state_radiant_angle_sigma_deg: float | None,
+    selected_closest_tx_sample_idx: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
     keep = fit_quality_mask(
         events,
@@ -269,6 +355,7 @@ def fit_catalogue_arrays(
         min_uncertainty_samples,
         max_initial_state_position_sigma_m,
         max_initial_state_radiant_angle_sigma_deg,
+        selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
     )
     kept = events[keep]
     return {
@@ -297,6 +384,7 @@ def measurement_height_velocity_arrays(
     min_uncertainty_samples: int,
     max_initial_state_position_sigma_m: float | None,
     max_initial_state_radiant_angle_sigma_deg: float | None,
+    selected_closest_tx_sample_idx: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
     if len(events) == 0 or len(paths) == 0 or paths.dtype.names is None:
         return empty_measurement_arrays()
@@ -310,6 +398,7 @@ def measurement_height_velocity_arrays(
         min_uncertainty_samples,
         max_initial_state_position_sigma_m,
         max_initial_state_radiant_angle_sigma_deg,
+        selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
     )
     kept = events[keep]
     sample_idx = np.asarray(kept["sample_idx"], dtype=np.int64)
@@ -358,6 +447,7 @@ def measurement_low_height_diagnostics(
     max_initial_state_position_sigma_m: float | None,
     max_initial_state_radiant_angle_sigma_deg: float | None,
     low_height_threshold_km: float,
+    selected_closest_tx_sample_idx: np.ndarray | None = None,
 ) -> np.ndarray:
     if len(events) == 0 or len(paths) == 0 or paths.dtype.names is None:
         return np.zeros(0, dtype=LOW_HEIGHT_AUDIT_DTYPE)
@@ -371,6 +461,7 @@ def measurement_low_height_diagnostics(
         min_uncertainty_samples,
         max_initial_state_position_sigma_m,
         max_initial_state_radiant_angle_sigma_deg,
+        selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
     )
     kept = events[keep]
     if len(kept) == 0 or "position_enu_km" not in paths.dtype.names:
@@ -497,6 +588,8 @@ def write_statistics_h5(
     speed_edges,
     files_read: int,
     low_height_threshold_km: float,
+    require_selected_closest_tx_alias: bool,
+    selected_closest_tx_event_count: int,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(path, "w") as h:
@@ -511,6 +604,8 @@ def write_statistics_h5(
         h.attrs["measurement_count"] = int(measurement_count)
         h.attrs["low_height_audit_threshold_km"] = float(low_height_threshold_km)
         h.attrs["low_height_audit_event_count"] = int(len(low_height_diagnostics))
+        h.attrs["require_selected_closest_tx_alias"] = bool(require_selected_closest_tx_alias)
+        h.attrs["selected_closest_tx_alias_event_count"] = int(selected_closest_tx_event_count)
         h.attrs["solar_longitude_count_density_unit"] = "count per degree"
         h.attrs["height_velocity_quality_filter"] = (
             "static radiant monitor high-quality gate: valid DASST winning alias, "
@@ -611,10 +706,35 @@ def main() -> None:
     parser.add_argument("--height-max-initial-state-position-sigma-m", type=float, default=1000.0)
     parser.add_argument("--height-max-initial-state-radiant-angle-sigma-deg", type=float, default=3.0)
     parser.add_argument("--low-height-audit-threshold-km", type=float, default=60.0)
+    parser.add_argument(
+        "--require-selected-closest-tx-alias",
+        action="store_true",
+        help="For height/measurement histograms, keep only events where selected_hypothesis is the alias with minimum finite TX beam-center distance.",
+    )
     args = parser.parse_args()
 
-    events, paths, files_read = collect_events_and_paths(args.orbit_metadata_dir, include_paths=args.include_measurements)
-    arrays = catalogue_arrays(events, args.max_radiant_sigma_deg, args.min_sample_idx, args.max_sample_idx)
+    events, paths, aliases, files_read = collect_events_paths_aliases(
+        args.orbit_metadata_dir,
+        include_paths=args.include_measurements,
+        include_aliases=args.require_selected_closest_tx_alias,
+    )
+    selected_closest_tx_sample_idx = (
+        selected_closest_tx_alias_sample_indices(events, aliases)
+        if args.require_selected_closest_tx_alias
+        else None
+    )
+    selected_closest_tx_event_count = (
+        int(len(selected_closest_tx_sample_idx))
+        if selected_closest_tx_sample_idx is not None
+        else int(len(events))
+    )
+    arrays = catalogue_arrays(
+        events,
+        args.max_radiant_sigma_deg,
+        args.min_sample_idx,
+        args.max_sample_idx,
+        selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
+    )
     fit_arrays = fit_catalogue_arrays(
         events,
         args.max_radiant_sigma_deg,
@@ -625,6 +745,7 @@ def main() -> None:
         args.height_min_uncertainty_samples,
         args.height_max_initial_state_position_sigma_m,
         args.height_max_initial_state_radiant_angle_sigma_deg,
+        selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
     )
     measurement_arrays = (
         measurement_height_velocity_arrays(
@@ -638,6 +759,7 @@ def main() -> None:
             args.height_min_uncertainty_samples,
             args.height_max_initial_state_position_sigma_m,
             args.height_max_initial_state_radiant_angle_sigma_deg,
+            selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
         )
         if args.include_measurements
         else empty_measurement_arrays()
@@ -655,6 +777,7 @@ def main() -> None:
             args.height_max_initial_state_position_sigma_m,
             args.height_max_initial_state_radiant_angle_sigma_deg,
             args.low_height_audit_threshold_km,
+            selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
         )
         if args.include_measurements
         else np.zeros(0, dtype=LOW_HEIGHT_AUDIT_DTYPE)
@@ -692,6 +815,8 @@ def main() -> None:
         speed_edges,
         files_read,
         args.low_height_audit_threshold_km,
+        args.require_selected_closest_tx_alias,
+        selected_closest_tx_event_count,
     )
     plot_solar_counts(args.solar_output, solar_years, solar_year_count_density, solar_all_count_density, solar_edges)
     plot_height_velocity(
@@ -715,7 +840,8 @@ def main() -> None:
         f"orbit_catalogue_statistics events={len(arrays['sample_idx'])} "
         f"fit_events={len(fit_arrays['fit_sample_idx'])} "
         f"measurements={len(measurement_arrays['measurement_height_km'])} "
-        f"low_height_events={len(low_height_diagnostics)} files_read={files_read}"
+        f"low_height_events={len(low_height_diagnostics)} "
+        f"selected_closest_tx_events={selected_closest_tx_event_count} files_read={files_read}"
     )
     print(args.output_h5)
     print(args.solar_output)
