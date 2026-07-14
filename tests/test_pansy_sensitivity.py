@@ -20,9 +20,9 @@ def test_single_pulse_minimum_detectable_rcs():
         pulse_length_s=128e-6,
         peak_power_w=500e3,
         transmit_gain_linear=transmit_gain,
-        receive_gain_linear=transmit_gain / 54.0,
+        receive_gain_linear=10.0 ** (20.0 / 10.0),
         frequency_hz=47e6,
     )
 
-    np.testing.assert_allclose(rcs_m2, 7.204277073777118e-5, rtol=1e-12)
-    np.testing.assert_allclose(10.0 * np.log10(rcs_m2), -41.42409592729447, rtol=1e-12)
+    np.testing.assert_allclose(rcs_m2, 6.686466105353215e-5, rtol=1e-12)
+    np.testing.assert_allclose(10.0 * np.log10(rcs_m2), -41.748033525524164, rtol=1e-12)

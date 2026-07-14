@@ -39,7 +39,7 @@ def main() -> None:
         pulse_length_s=128e-6,
         peak_power_w=500e3,
         transmit_gain_linear=transmit_gain,
-        receive_gain_linear=transmit_gain / 54.0,
+        receive_gain_linear=10.0 ** (20.0 / 10.0),
         frequency_hz=47e6,
     )
     print(f"minimum_detectable_rcs_m2 {rcs_m2:.9g}")
