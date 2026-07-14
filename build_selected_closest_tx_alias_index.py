@@ -8,6 +8,7 @@ because the compact orbit alias table only retains a subset of aliases.
 from __future__ import annotations
 
 import argparse
+import multiprocessing as mp
 from pathlib import Path
 
 import h5py
@@ -71,15 +72,27 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--events-dir", type=Path, default=Path("/mnt/data/juha/pansy/events"))
     parser.add_argument("--output-h5", type=Path, required=True)
+    parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--progress-every", type=int, default=10000)
     args = parser.parse_args()
 
     rows = []
-    files_read = 0
-    for path in diagnostic_paths(args.events_dir):
-        files_read += 1
-        row = read_one(path)
-        if row is not None:
-            rows.append(row)
+    paths = list(diagnostic_paths(args.events_dir))
+    files_read = len(paths)
+    if args.workers <= 1:
+        iterator = map(read_one, paths)
+        for n_done, row in enumerate(iterator, start=1):
+            if row is not None:
+                rows.append(row)
+            if args.progress_every > 0 and n_done % int(args.progress_every) == 0:
+                print(f"progress {n_done}/{files_read} rows={len(rows)}", flush=True)
+    else:
+        with mp.Pool(processes=int(args.workers)) as pool:
+            for n_done, row in enumerate(pool.imap_unordered(read_one, paths, chunksize=128), start=1):
+                if row is not None:
+                    rows.append(row)
+                if args.progress_every > 0 and n_done % int(args.progress_every) == 0:
+                    print(f"progress {n_done}/{files_read} rows={len(rows)}", flush=True)
 
     table = np.zeros(len(rows), dtype=RESULT_DTYPE)
     for i, row in enumerate(rows):
