@@ -10,6 +10,8 @@ from pathlib import Path
 import h5py
 import matplotlib.pyplot as plt
 import numpy as np
+from astropy.coordinates import get_sun
+from astropy.time import Time
 from matplotlib.colors import LogNorm
 
 import orbit_metadata_table as omt
@@ -21,6 +23,46 @@ DEFAULT_MAX_SAMPLE_IDX = int(dt.datetime(2027, 1, 1, tzinfo=dt.timezone.utc).tim
 
 def wrap360(deg: np.ndarray) -> np.ndarray:
     return np.asarray(deg, dtype=np.float64) % 360.0
+
+
+def sun_ecliptic_longitude_deg(unix_time: np.ndarray) -> np.ndarray:
+    time = Time(np.asarray(unix_time, dtype=np.float64), format="unix", scale="utc")
+    sun = get_sun(time).transform_to("geocentricmeanecliptic")
+    return wrap360(sun.lon.deg)
+
+
+def date_labels_for_solar_longitude(year: int, ticks_deg: np.ndarray) -> list[str]:
+    start = dt.datetime(year, 1, 1, tzinfo=dt.timezone.utc)
+    stop = dt.datetime(year + 1, 1, 1, tzinfo=dt.timezone.utc)
+    step_seconds = 6 * 3600
+    times = np.arange(int(start.timestamp()), int(stop.timestamp()) + step_seconds, step_seconds, dtype=np.float64)
+    lon = np.rad2deg(np.unwrap(np.deg2rad(sun_ecliptic_longitude_deg(times))))
+    labels = []
+    for tick in np.asarray(ticks_deg, dtype=np.float64):
+        target = float(tick)
+        while target < lon[0]:
+            target += 360.0
+        while target > lon[-1]:
+            target -= 360.0
+        if target < lon[0] or target > lon[-1]:
+            labels.append("")
+            continue
+        unix = float(np.interp(target, lon, times))
+        date = dt.datetime.fromtimestamp(unix, tz=dt.timezone.utc)
+        labels.append(date.strftime("%b %d"))
+    return labels
+
+
+def add_calendar_axes(ax, ticks_deg: np.ndarray) -> None:
+    ax.set_xticks(ticks_deg)
+    for year, offset, pad in ((2025, 0, 2), (2026, 34, 2)):
+        top = ax.twiny()
+        top.set_xlim(ax.get_xlim())
+        top.set_xticks(ticks_deg)
+        top.set_xticklabels(date_labels_for_solar_longitude(year, ticks_deg), fontsize=8)
+        top.set_xlabel(f"{year} UTC date", labelpad=pad)
+        top.tick_params(axis="x", direction="out", pad=pad)
+        top.spines["top"].set_position(("outward", offset))
 
 
 def coerce_structured(arr: np.ndarray, dtype: np.dtype) -> np.ndarray:
@@ -218,6 +260,7 @@ def plot_solar_counts(path: Path, counts: np.ndarray, edges: np.ndarray) -> None
     ax.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)")
     ax.set_ylabel("Catalogue meteor count")
     ax.grid(True, alpha=0.25)
+    add_calendar_axes(ax, np.arange(0.0, 361.0, 60.0))
     fig.savefig(path, dpi=220)
     plt.close(fig)
 
