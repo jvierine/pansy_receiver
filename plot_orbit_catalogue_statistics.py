@@ -108,6 +108,9 @@ def collect_events_and_paths(orbit_metadata_dir: Path, include_paths: bool) -> t
     paths = np.concatenate(path_chunks) if path_chunks else np.zeros(0, dtype=omt.PATH_DTYPE)
     if len(events) and "sample_idx" in events.dtype.names:
         events = events[np.argsort(events["sample_idx"])]
+        _, unique_i = np.unique(events["sample_idx"], return_index=True)
+        if len(unique_i) != len(events):
+            events = events[np.sort(unique_i)]
     if len(paths) and "sample_idx" in paths.dtype.names:
         paths = paths[np.argsort(paths["sample_idx"])]
     return events, paths, files_read
@@ -297,6 +300,9 @@ def write_statistics_h5(
     with h5py.File(path, "w") as h:
         h.attrs["script"] = Path(__file__).name
         h.attrs["source"] = "compact orbit metadata events tables"
+        h.attrs["height_velocity_source"] = "orbit metadata paths.position_enu_km[:,2] joined to events.v_g_km_s by sample_idx"
+        h.attrs["event_height_velocity_source"] = "orbit metadata events.initial_detection_height_km and events.v_g_km_s"
+        h.attrs["no_detection_metadata_used"] = True
         h.attrs["files_read"] = int(files_read)
         h.attrs["event_count"] = int(len(arrays["sample_idx"]))
         h.attrs["fit_event_count"] = int(len(fit_arrays["fit_sample_idx"]))
