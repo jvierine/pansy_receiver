@@ -384,7 +384,7 @@ def plot_height_velocity(
     plot_count = np.asarray(hv_counts, dtype=np.float64)
     plot_count[plot_count <= 0.0] = np.nan
     cmap = plt.get_cmap("magma").copy()
-    cmap.set_bad("white")
+    cmap.set_bad("black")
     fig, ax = plt.subplots(figsize=(7.2, 5.0), constrained_layout=True)
     mesh = ax.pcolormesh(
         speed_edges,
