@@ -82,7 +82,7 @@ def add_month_axis(ax, year: int) -> None:
     top.set_xlim(ax.get_xlim())
     top.set_xticks(positions)
     top.set_xticklabels(labels, fontsize=8)
-    top.set_xlabel(f"{year}", labelpad=2)
+    top.set_xlabel("")
     top.tick_params(axis="x", direction="out", pad=2)
 
 
