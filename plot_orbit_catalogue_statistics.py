@@ -148,6 +148,28 @@ def quality_mask(
     return good
 
 
+def fit_quality_mask(
+    events: np.ndarray,
+    max_radiant_sigma_deg: float | None,
+    min_sample_idx: int,
+    max_sample_idx: int,
+    max_combined_score: float | None,
+    max_frac_e_gt_1: float | None,
+) -> np.ndarray:
+    good = quality_mask(events, max_radiant_sigma_deg, min_sample_idx, max_sample_idx)
+    if events.dtype.names is None:
+        return good
+    if "orbit_solution_type" in events.dtype.names:
+        good &= np.asarray(events["orbit_solution_type"]) == b"dasst_winning_alias"
+    if max_combined_score is not None and "combined_score" in events.dtype.names:
+        combined_score = finite_field(events, "combined_score")
+        good &= np.isfinite(combined_score) & (combined_score <= float(max_combined_score))
+    if max_frac_e_gt_1 is not None and "frac_e_gt_1" in events.dtype.names:
+        frac_e_gt_1 = finite_field(events, "frac_e_gt_1")
+        good &= np.isfinite(frac_e_gt_1) & (frac_e_gt_1 <= float(max_frac_e_gt_1))
+    return good
+
+
 def catalogue_arrays(
     events: np.ndarray,
     max_radiant_sigma_deg: float | None,
@@ -167,6 +189,30 @@ def catalogue_arrays(
     return out
 
 
+def fit_catalogue_arrays(
+    events: np.ndarray,
+    max_radiant_sigma_deg: float | None,
+    min_sample_idx: int,
+    max_sample_idx: int,
+    max_combined_score: float | None,
+    max_frac_e_gt_1: float | None,
+) -> dict[str, np.ndarray]:
+    keep = fit_quality_mask(
+        events,
+        max_radiant_sigma_deg,
+        min_sample_idx,
+        max_sample_idx,
+        max_combined_score,
+        max_frac_e_gt_1,
+    )
+    kept = events[keep]
+    return {
+        "fit_sample_idx": np.asarray(kept["sample_idx"], dtype=np.int64),
+        "fit_initial_detection_height_km": finite_field(kept, "initial_detection_height_km").astype(np.float32),
+        "fit_v_g_km_s": finite_field(kept, "v_g_km_s").astype(np.float32),
+    }
+
+
 def empty_measurement_arrays() -> dict[str, np.ndarray]:
     return {
         "measurement_event_sample_idx": np.zeros(0, dtype=np.int64),
@@ -181,10 +227,19 @@ def measurement_height_velocity_arrays(
     max_radiant_sigma_deg: float | None,
     min_sample_idx: int,
     max_sample_idx: int,
+    max_combined_score: float | None,
+    max_frac_e_gt_1: float | None,
 ) -> dict[str, np.ndarray]:
     if len(events) == 0 or len(paths) == 0 or paths.dtype.names is None:
         return empty_measurement_arrays()
-    keep = quality_mask(events, max_radiant_sigma_deg, min_sample_idx, max_sample_idx)
+    keep = fit_quality_mask(
+        events,
+        max_radiant_sigma_deg,
+        min_sample_idx,
+        max_sample_idx,
+        max_combined_score,
+        max_frac_e_gt_1,
+    )
     kept = events[keep]
     sample_idx = np.asarray(kept["sample_idx"], dtype=np.int64)
     speeds = finite_field(kept, "v_g_km_s")
@@ -228,6 +283,7 @@ def histogram_height_velocity(height_km: np.ndarray, speed_km_s: np.ndarray) -> 
 def write_statistics_h5(
     path: Path,
     arrays: dict[str, np.ndarray],
+    fit_arrays: dict[str, np.ndarray],
     measurement_count: int,
     solar_counts,
     solar_edges,
@@ -243,8 +299,11 @@ def write_statistics_h5(
         h.attrs["source"] = "compact orbit metadata events tables"
         h.attrs["files_read"] = int(files_read)
         h.attrs["event_count"] = int(len(arrays["sample_idx"]))
+        h.attrs["fit_event_count"] = int(len(fit_arrays["fit_sample_idx"]))
         h.attrs["measurement_count"] = int(measurement_count)
         for name, values in arrays.items():
+            h.create_dataset(name, data=values, compression="gzip", shuffle=True)
+        for name, values in fit_arrays.items():
             h.create_dataset(name, data=values, compression="gzip", shuffle=True)
         h.create_dataset("solar_longitude_count", data=solar_counts, compression="gzip", shuffle=True)
         h.create_dataset("solar_longitude_edges_deg", data=solar_edges)
@@ -313,10 +372,20 @@ def main() -> None:
     parser.add_argument("--min-sample-idx", type=int, default=DEFAULT_MIN_SAMPLE_IDX)
     parser.add_argument("--max-sample-idx", type=int, default=DEFAULT_MAX_SAMPLE_IDX)
     parser.add_argument("--include-measurements", action="store_true")
+    parser.add_argument("--height-max-combined-score", type=float, default=1.5)
+    parser.add_argument("--height-max-frac-e-gt-1", type=float, default=0.5)
     args = parser.parse_args()
 
     events, paths, files_read = collect_events_and_paths(args.orbit_metadata_dir, include_paths=args.include_measurements)
     arrays = catalogue_arrays(events, args.max_radiant_sigma_deg, args.min_sample_idx, args.max_sample_idx)
+    fit_arrays = fit_catalogue_arrays(
+        events,
+        args.max_radiant_sigma_deg,
+        args.min_sample_idx,
+        args.max_sample_idx,
+        args.height_max_combined_score,
+        args.height_max_frac_e_gt_1,
+    )
     measurement_arrays = (
         measurement_height_velocity_arrays(
             events,
@@ -324,12 +393,17 @@ def main() -> None:
             args.max_radiant_sigma_deg,
             args.min_sample_idx,
             args.max_sample_idx,
+            args.height_max_combined_score,
+            args.height_max_frac_e_gt_1,
         )
         if args.include_measurements
         else empty_measurement_arrays()
     )
     solar_counts, solar_edges = histogram_solar_longitude(arrays["solar_longitude_deg"], args.solar_bin_width_deg)
-    hv_counts, height_edges, speed_edges = histogram_height_velocity(arrays["initial_detection_height_km"], arrays["v_g_km_s"])
+    hv_counts, height_edges, speed_edges = histogram_height_velocity(
+        fit_arrays["fit_initial_detection_height_km"],
+        fit_arrays["fit_v_g_km_s"],
+    )
     measurement_hv_counts, _, _ = histogram_height_velocity(
         measurement_arrays["measurement_height_km"],
         measurement_arrays["measurement_event_v_g_km_s"],
@@ -337,6 +411,7 @@ def main() -> None:
     write_statistics_h5(
         args.output_h5,
         arrays,
+        fit_arrays,
         len(measurement_arrays["measurement_height_km"]),
         solar_counts,
         solar_edges,
@@ -366,6 +441,7 @@ def main() -> None:
         )
     print(
         f"orbit_catalogue_statistics events={len(arrays['sample_idx'])} "
+        f"fit_events={len(fit_arrays['fit_sample_idx'])} "
         f"measurements={len(measurement_arrays['measurement_height_km'])} files_read={files_read}"
     )
     print(args.output_h5)
