@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import multiprocessing as mp
 import os
+import re
 from pathlib import Path
 
 import h5py
@@ -28,7 +29,32 @@ RESULT_DTYPE = np.dtype(
 )
 
 
-def diagnostic_paths(events_dir: Path):
+DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def diagnostic_paths(events_dir: Path, start_day: str | None = None, end_day: str | None = None):
+    day_dirs = []
+    for child in events_dir.iterdir():
+        if not child.is_dir() or not DAY_RE.match(child.name):
+            continue
+        if start_day is not None and child.name < start_day:
+            continue
+        if end_day is not None and child.name > end_day:
+            continue
+        day_dirs.append(child)
+    for day_dir in sorted(day_dirs):
+        for root, _dirs, files in os.walk(day_dir):
+            for name in files:
+                if name.startswith("pansy_disambiguation_diagnostics_") and name.endswith(".h5"):
+                    yield Path(root) / name
+
+
+def all_diagnostic_paths(events_dir: Path, start_day: str | None = None, end_day: str | None = None):
+    if events_dir.is_dir():
+        yield from diagnostic_paths(events_dir, start_day=start_day, end_day=end_day)
+
+
+def legacy_diagnostic_paths(events_dir: Path):
     for root, _dirs, files in os.walk(events_dir):
         for name in files:
             if name.startswith("pansy_disambiguation_diagnostics_") and name.endswith(".h5"):
@@ -78,10 +104,17 @@ def main() -> None:
     parser.add_argument("--output-h5", type=Path, required=True)
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--progress-every", type=int, default=10000)
+    parser.add_argument("--start-day", type=str, default=None)
+    parser.add_argument("--end-day", type=str, default=None)
+    parser.add_argument("--legacy-recursive-walk", action="store_true")
     args = parser.parse_args()
 
     rows = []
-    paths = diagnostic_paths(args.events_dir)
+    paths = (
+        legacy_diagnostic_paths(args.events_dir)
+        if args.legacy_recursive_walk
+        else all_diagnostic_paths(args.events_dir, start_day=args.start_day, end_day=args.end_day)
+    )
     files_read = 0
     if args.workers <= 1:
         iterator = map(read_one, paths)
