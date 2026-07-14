@@ -21,16 +21,16 @@ def test_solar_longitude_count_density_uses_bin_width():
     np.testing.assert_allclose(all_density, [7.0, 7.0])
 
 
-def test_height_velocity_histogram_spans_20_to_180_km():
+def test_height_velocity_histogram_spans_60_to_160_km():
     from plot_orbit_catalogue_statistics import histogram_height_velocity
 
     counts, height_edges, speed_edges = histogram_height_velocity(
-        np.asarray([19.9, 20.1, 179.9, 180.1]),
+        np.asarray([59.9, 60.1, 159.9, 160.1]),
         np.asarray([20.0, 20.0, 20.0, 20.0]),
     )
 
-    assert height_edges[0] == 20.0
-    assert height_edges[-1] == 180.0
+    assert height_edges[0] == 60.0
+    assert height_edges[-1] == 160.0
     assert speed_edges[0] == 0.0
     assert speed_edges[-1] == 80.0
     assert counts.sum() == 2
@@ -107,7 +107,7 @@ def test_measurement_histogram_input_excludes_points_outside_plot_domain():
 
     paths = np.zeros(3, dtype=omt.PATH_DTYPE)
     paths["sample_idx"] = sample_idx
-    paths["position_enu_km"][:, 2] = [19.0, 100.0, 181.0]
+    paths["position_enu_km"][:, 2] = [59.0, 100.0, 161.0]
     paths["selection_keep"] = True
 
     result = measurement_height_velocity_arrays(
@@ -124,6 +124,71 @@ def test_measurement_histogram_input_excludes_points_outside_plot_domain():
     )
 
     np.testing.assert_array_equal(result["measurement_height_km"], [100.0])
+
+
+def test_path_arc_length_uses_selected_points_along_best_fit_direction():
+    import orbit_metadata_table as omt
+    from plot_orbit_catalogue_statistics import path_arc_lengths_km, sample_indices_with_min_arc_length
+
+    paths = np.zeros(5, dtype=omt.PATH_DTYPE)
+    paths["sample_idx"] = [10, 10, 10, 20, 20]
+    paths["position_enu_km"] = [
+        [0.0, 0.0, 100.0],
+        [9.0, 0.1, 100.0],
+        [30.0, 0.0, 100.0],
+        [0.0, 0.0, 100.0],
+        [10.0, 0.0, 100.0],
+    ]
+    paths["selection_keep"] = [True, True, False, True, True]
+
+    sample, arc = path_arc_lengths_km(paths)
+
+    np.testing.assert_array_equal(sample, [10, 20])
+    np.testing.assert_allclose(arc, [9.0005, 10.0], rtol=1e-4)
+    np.testing.assert_array_equal(sample_indices_with_min_arc_length(paths, 9.5), [20])
+
+
+def test_measurement_histogram_input_requires_min_arc_length_when_requested():
+    import orbit_metadata_table as omt
+    from plot_orbit_catalogue_statistics import measurement_height_velocity_arrays, sample_indices_with_min_arc_length
+
+    events = np.zeros(2, dtype=omt.EVENT_DTYPE)
+    events["sample_idx"] = [10, 20]
+    events["initial_detection_height_km"] = 100.0
+    events["v_g_km_s"] = 40.0
+    events["radiant_sun_ecliptic_lon_deg"] = 120.0
+    events["orbit_solution_type"] = b"dasst_winning_alias"
+    events["combined_score"] = 0.5
+    events["frac_e_gt_1"] = 0.0
+    events["n_uncertainty_samples"] = 3
+
+    paths = np.zeros(4, dtype=omt.PATH_DTYPE)
+    paths["sample_idx"] = [10, 10, 20, 20]
+    paths["position_enu_km"] = [
+        [0.0, 0.0, 100.0],
+        [10.0, 0.0, 100.0],
+        [0.0, 0.0, 100.0],
+        [20.0, 0.0, 100.0],
+    ]
+    paths["selection_keep"] = True
+    long_sample = sample_indices_with_min_arc_length(paths, 15.0)
+
+    result = measurement_height_velocity_arrays(
+        events,
+        paths,
+        max_radiant_sigma_deg=None,
+        min_sample_idx=0,
+        max_sample_idx=30,
+        max_combined_score=1.5,
+        max_frac_e_gt_1=0.5,
+        min_uncertainty_samples=3,
+        max_initial_state_position_sigma_m=1000.0,
+        max_initial_state_radiant_angle_sigma_deg=3.0,
+        min_arc_sample_idx=long_sample,
+    )
+
+    np.testing.assert_array_equal(result["measurement_event_sample_idx"], [20, 20])
+    np.testing.assert_array_equal(result["measurement_height_km"], [100.0, 100.0])
 
 
 def test_measurement_histogram_input_excludes_points_far_from_tx_beam_center():
