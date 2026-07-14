@@ -355,7 +355,7 @@ def count_density_from_counts(
 
 
 def histogram_height_velocity(height_km: np.ndarray, speed_km_s: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    height_edges = np.arange(50.0, 180.0 + 1.0, 1.0, dtype=np.float32)
+    height_edges = np.arange(40.0, 180.0 + 1.0, 1.0, dtype=np.float32)
     speed_edges = np.arange(0.0, 80.0 + 1.0, 1.0, dtype=np.float32)
     hist, h_edges, v_edges = np.histogram2d(height_km, speed_km_s, bins=[height_edges, speed_edges])
     return hist.astype(np.int32), h_edges.astype(np.float32), v_edges.astype(np.float32)
