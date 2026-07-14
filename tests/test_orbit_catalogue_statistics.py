@@ -126,6 +126,51 @@ def test_measurement_histogram_input_excludes_points_outside_plot_domain():
     np.testing.assert_array_equal(result["measurement_height_km"], [100.0])
 
 
+def test_measurement_histogram_input_excludes_points_far_from_tx_beam_center():
+    import orbit_metadata_table as omt
+    import pansy_gain as pgain
+    from plot_orbit_catalogue_statistics import measurement_height_velocity_arrays
+
+    sample_idx = 1_740_000_000_000_000
+    events = np.zeros(1, dtype=omt.EVENT_DTYPE)
+    events["sample_idx"] = sample_idx
+    events["initial_detection_height_km"] = 100.0
+    events["v_g_km_s"] = 40.0
+    events["radiant_sun_ecliptic_lon_deg"] = 120.0
+    events["orbit_solution_type"] = b"dasst_winning_alias"
+    events["combined_score"] = 0.5
+    events["frac_e_gt_1"] = 0.0
+    events["n_uncertainty_samples"] = 3
+
+    beam_vec = np.asarray(pgain.tx_beam_unit_vectors()[0], dtype=np.float64)
+    beam_vec[2] *= -1.0
+    far_vec = beam_vec.copy()
+    far_vec[:2] += np.asarray([np.sin(np.deg2rad(20.0)), 0.0])
+    far_vec /= np.linalg.norm(far_vec)
+
+    paths = np.zeros(2, dtype=omt.PATH_DTYPE)
+    paths["sample_idx"] = sample_idx
+    paths["position_enu_km"] = np.vstack([100.0 * beam_vec, 100.0 * far_vec])
+    paths["beam_id"] = 0
+    paths["selection_keep"] = True
+
+    result = measurement_height_velocity_arrays(
+        events,
+        paths,
+        max_radiant_sigma_deg=None,
+        min_sample_idx=sample_idx - 1,
+        max_sample_idx=sample_idx + 1,
+        max_combined_score=1.5,
+        max_frac_e_gt_1=0.5,
+        min_uncertainty_samples=3,
+        max_initial_state_position_sigma_m=1000.0,
+        max_initial_state_radiant_angle_sigma_deg=3.0,
+        max_tx_beam_angle_deg=10.0,
+    )
+
+    np.testing.assert_allclose(result["measurement_height_km"], [100.0 * beam_vec[2]], rtol=1e-6)
+
+
 def test_low_height_diagnostics_identifies_suspicious_selected_measurements():
     import orbit_metadata_table as omt
     from plot_orbit_catalogue_statistics import measurement_low_height_diagnostics

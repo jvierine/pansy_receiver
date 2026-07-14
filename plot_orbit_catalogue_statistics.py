@@ -17,6 +17,7 @@ from astropy.time import Time
 from matplotlib.colors import LogNorm
 
 import orbit_metadata_table as omt
+import pansy_gain as pgain
 
 
 DEFAULT_MIN_SAMPLE_IDX = int(dt.datetime(2025, 1, 1, tzinfo=dt.timezone.utc).timestamp() * 1_000_000)
@@ -240,6 +241,38 @@ def selected_closest_tx_alias_sample_indices(events: np.ndarray, aliases: np.nda
     return np.asarray(keep, dtype=np.int64)
 
 
+def path_tx_beam_angle_deg(paths: np.ndarray) -> np.ndarray:
+    """Angle between each path point direction and the active TX beam center."""
+    if (
+        len(paths) == 0
+        or paths.dtype.names is None
+        or "position_enu_km" not in paths.dtype.names
+        or "beam_id" not in paths.dtype.names
+    ):
+        return np.full(len(paths), np.nan, dtype=np.float32)
+    pos = np.asarray(paths["position_enu_km"], dtype=np.float64)
+    beam_id = np.asarray(paths["beam_id"], dtype=np.int64)
+    beam_vecs = np.asarray(pgain.tx_beam_unit_vectors(), dtype=np.float64)
+    # pansy_gain uses the interferometric propagation-vector convention
+    # (zenith has w=-1).  Orbit path positions are radar-to-meteor ENU vectors
+    # (zenith has up=+1), so flip the vertical component before comparing.
+    beam_los = beam_vecs.copy()
+    beam_los[:, 2] *= -1.0
+    good = (
+        np.all(np.isfinite(pos), axis=1)
+        & (beam_id >= 0)
+        & (beam_id < len(beam_vecs))
+    )
+    rng = np.linalg.norm(pos, axis=1)
+    good &= np.isfinite(rng) & (rng > 0.0)
+    out = np.full(len(paths), np.nan, dtype=np.float32)
+    if np.any(good):
+        direction = pos[good] / rng[good, None]
+        dot = np.sum(direction * beam_los[beam_id[good]], axis=1)
+        out[good] = np.rad2deg(np.arccos(np.clip(dot, -1.0, 1.0))).astype(np.float32)
+    return out
+
+
 def quality_mask(
     events: np.ndarray,
     max_radiant_sigma_deg: float | None,
@@ -405,6 +438,7 @@ def measurement_height_velocity_arrays(
     max_initial_state_radiant_angle_sigma_deg: float | None,
     selected_closest_tx_sample_idx: np.ndarray | None = None,
     required_sample_idx: np.ndarray | None = None,
+    max_tx_beam_angle_deg: float | None = None,
 ) -> dict[str, np.ndarray]:
     if len(events) == 0 or len(paths) == 0 or paths.dtype.names is None:
         return empty_measurement_arrays()
@@ -441,6 +475,9 @@ def measurement_height_velocity_arrays(
         good &= np.asarray(paths["selection_keep"], dtype=bool)
     else:
         good &= False
+    if max_tx_beam_angle_deg is not None:
+        tx_angle = path_tx_beam_angle_deg(paths)
+        good &= np.isfinite(tx_angle) & (tx_angle <= float(max_tx_beam_angle_deg))
     good &= height > 0.0
     out_speed = np.full(len(paths), np.nan, dtype=np.float32)
     out_speed[matched] = speeds[match[matched]]
@@ -470,6 +507,7 @@ def measurement_low_height_diagnostics(
     low_height_threshold_km: float,
     selected_closest_tx_sample_idx: np.ndarray | None = None,
     required_sample_idx: np.ndarray | None = None,
+    max_tx_beam_angle_deg: float | None = None,
 ) -> np.ndarray:
     if len(events) == 0 or len(paths) == 0 or paths.dtype.names is None:
         return np.zeros(0, dtype=LOW_HEIGHT_AUDIT_DTYPE)
@@ -512,6 +550,9 @@ def measurement_low_height_diagnostics(
         good &= np.asarray(paths["selection_keep"], dtype=bool)
     else:
         good &= False
+    if max_tx_beam_angle_deg is not None:
+        tx_angle = path_tx_beam_angle_deg(paths)
+        good &= np.isfinite(tx_angle) & (tx_angle <= float(max_tx_beam_angle_deg))
     good &= height > 0.0
     good &= height < HEIGHT_VELOCITY_HEIGHT_MAX_KM
     good &= path_speed >= HEIGHT_VELOCITY_SPEED_MIN_KM_S
@@ -615,6 +656,7 @@ def write_statistics_h5(
     selected_closest_tx_event_count: int,
     required_sample_index_h5: Path | None,
     required_sample_index_count: int,
+    measurement_max_tx_beam_angle_deg: float | None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(path, "w") as h:
@@ -633,6 +675,9 @@ def write_statistics_h5(
         h.attrs["selected_closest_tx_alias_event_count"] = int(selected_closest_tx_event_count)
         h.attrs["required_sample_index_h5"] = str(required_sample_index_h5) if required_sample_index_h5 is not None else ""
         h.attrs["required_sample_index_count"] = int(required_sample_index_count)
+        h.attrs["measurement_max_tx_beam_angle_deg"] = (
+            np.nan if measurement_max_tx_beam_angle_deg is None else float(measurement_max_tx_beam_angle_deg)
+        )
         h.attrs["solar_longitude_count_density_unit"] = "count per degree"
         h.attrs["height_velocity_quality_filter"] = (
             "static radiant monitor high-quality gate: valid DASST winning alias, "
@@ -732,6 +777,7 @@ def main() -> None:
     parser.add_argument("--height-min-uncertainty-samples", type=int, default=3)
     parser.add_argument("--height-max-initial-state-position-sigma-m", type=float, default=1000.0)
     parser.add_argument("--height-max-initial-state-radiant-angle-sigma-deg", type=float, default=3.0)
+    parser.add_argument("--measurement-max-tx-beam-angle-deg", type=float, default=10.0)
     parser.add_argument("--low-height-audit-threshold-km", type=float, default=60.0)
     parser.add_argument(
         "--require-selected-closest-tx-alias",
@@ -798,6 +844,7 @@ def main() -> None:
             args.height_max_initial_state_radiant_angle_sigma_deg,
             selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
             required_sample_idx=required_sample_idx,
+            max_tx_beam_angle_deg=args.measurement_max_tx_beam_angle_deg,
         )
         if args.include_measurements
         else empty_measurement_arrays()
@@ -817,6 +864,7 @@ def main() -> None:
             args.low_height_audit_threshold_km,
             selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
             required_sample_idx=required_sample_idx,
+            max_tx_beam_angle_deg=args.measurement_max_tx_beam_angle_deg,
         )
         if args.include_measurements
         else np.zeros(0, dtype=LOW_HEIGHT_AUDIT_DTYPE)
@@ -858,6 +906,7 @@ def main() -> None:
         selected_closest_tx_event_count,
         args.required_sample_index_h5,
         required_sample_index_count,
+        args.measurement_max_tx_beam_angle_deg,
     )
     plot_solar_counts(args.solar_output, solar_years, solar_year_count_density, solar_all_count_density, solar_edges)
     plot_height_velocity(
@@ -883,6 +932,7 @@ def main() -> None:
         f"measurements={len(measurement_arrays['measurement_height_km'])} "
         f"low_height_events={len(low_height_diagnostics)} "
         f"selected_closest_tx_events={selected_closest_tx_event_count} "
+        f"measurement_max_tx_beam_angle_deg={args.measurement_max_tx_beam_angle_deg:g} "
         f"required_sample_index_count={required_sample_index_count} files_read={files_read}"
     )
     print(args.output_h5)
