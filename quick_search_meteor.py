@@ -39,14 +39,31 @@ def log0(message):
     if rank == 0:
         print(message)
 
+RANGE_SAMPLE_KM = c.c / 2.0 / 1e6 / 1e3
+METEOR_SEARCH_MIN_SLANT_RANGE_KM = 60.0
+METEOR_SEARCH_MAX_SLANT_RANGE_KM = 170.0
+METEOR_SEARCH_RANGE_GATE_STEP = 2
+
+
+def meteor_search_range_gates(
+    min_range_km=METEOR_SEARCH_MIN_SLANT_RANGE_KM,
+    max_range_km=METEOR_SEARCH_MAX_SLANT_RANGE_KM,
+    gate_step=METEOR_SEARCH_RANGE_GATE_STEP,
+):
+    start_gate = int(n.floor(float(min_range_km) / RANGE_SAMPLE_KM))
+    stop_gate = int(n.floor(float(max_range_km) / RANGE_SAMPLE_KM)) + 1
+    return n.arange(start_gate, stop_gate, int(gate_step), dtype=n.int64)
+
+
 class range_doppler_search:
     def __init__(self,
                  txlen=132,
-                 rg=n.arange(400,1000,2,dtype=n.int64),
+                 rg=None,
                  fdec=8, # how much do we decimate before fft. can save a lot of compute
                  fftlen=256
                  ):
-        
+        if rg is None:
+            rg = meteor_search_range_gates()
         self.idx=n.arange(txlen,dtype=n.int64)
         self.n_rg=len(rg)
         self.txlen=txlen

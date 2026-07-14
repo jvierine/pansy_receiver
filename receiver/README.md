@@ -15,7 +15,7 @@ The service set includes:
 - `pansy-mesomode-boundary.service`: runs `mesomode_boundary.py`
 - `pansy-cluster-mf.service`: runs `cluster_mf.py`
 - `pansy-quick-search-meteor.service`: runs
-  `mpirun -np 5 python3 quick_search_meteor.py`
+  `mpirun -np 6 python3 quick_search_meteor.py`
 - `pansy-meso-xc.service`: runs `meso_xc.py`
 - `pansy-tx-xphase.service`: runs `tx_xphase.py`
 - `pansy-cut-meteors.service`: runs `cut_meteors.py`
