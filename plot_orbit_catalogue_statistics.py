@@ -409,7 +409,7 @@ def plot_solar_counts(path: Path, years: np.ndarray, counts_by_year: np.ndarray,
     ax.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)")
     ax.set_ylabel("Catalogue meteor count")
     ax.grid(True, alpha=0.25)
-    ax.legend(frameon=False, loc="upper right", ncols=3)
+    ax.legend(frameon=False, loc="upper right", ncol=3)
     add_month_axis(ax, 2025)
     fig.savefig(path, dpi=220)
     plt.close(fig)
