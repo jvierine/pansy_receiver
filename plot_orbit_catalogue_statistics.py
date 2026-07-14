@@ -175,6 +175,16 @@ def collect_events_and_paths(orbit_metadata_dir: Path, include_paths: bool) -> t
     return events, paths, files_read
 
 
+def load_required_sample_indices(path: Path | None) -> np.ndarray | None:
+    if path is None:
+        return None
+    with h5py.File(path, "r") as h:
+        for name in ("sample_idx", "matched_sample_idx"):
+            if name in h:
+                return np.asarray(h[name], dtype=np.int64)
+    raise KeyError(f"{path} does not contain sample_idx or matched_sample_idx")
+
+
 def finite_field(events: np.ndarray, name: str) -> np.ndarray:
     if events.dtype.names is None or name not in events.dtype.names:
         return np.full(len(events), np.nan, dtype=np.float32)
@@ -236,6 +246,7 @@ def quality_mask(
     min_sample_idx: int,
     max_sample_idx: int,
     selected_closest_tx_sample_idx: np.ndarray | None = None,
+    required_sample_idx: np.ndarray | None = None,
 ) -> np.ndarray:
     good = np.ones(len(events), dtype=bool)
     if events.dtype.names is None or "sample_idx" not in events.dtype.names:
@@ -244,6 +255,8 @@ def quality_mask(
     good &= (sample_idx >= int(min_sample_idx)) & (sample_idx < int(max_sample_idx))
     if selected_closest_tx_sample_idx is not None:
         good &= np.isin(sample_idx, np.asarray(selected_closest_tx_sample_idx, dtype=np.int64))
+    if required_sample_idx is not None:
+        good &= np.isin(sample_idx, np.asarray(required_sample_idx, dtype=np.int64))
     for name in ("initial_detection_height_km", "v_g_km_s", "radiant_sun_ecliptic_lon_deg"):
         good &= np.isfinite(finite_field(events, name))
     good &= finite_field(events, "v_g_km_s") > 0.0
@@ -268,6 +281,7 @@ def fit_quality_mask(
     max_initial_state_position_sigma_m: float | None,
     max_initial_state_radiant_angle_sigma_deg: float | None,
     selected_closest_tx_sample_idx: np.ndarray | None = None,
+    required_sample_idx: np.ndarray | None = None,
 ) -> np.ndarray:
     good = quality_mask(
         events,
@@ -275,6 +289,7 @@ def fit_quality_mask(
         min_sample_idx,
         max_sample_idx,
         selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
+        required_sample_idx=required_sample_idx,
     )
     if events.dtype.names is None:
         return good
@@ -313,6 +328,7 @@ def catalogue_arrays(
     min_sample_idx: int,
     max_sample_idx: int,
     selected_closest_tx_sample_idx: np.ndarray | None = None,
+    required_sample_idx: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
     keep = quality_mask(
         events,
@@ -320,6 +336,7 @@ def catalogue_arrays(
         min_sample_idx,
         max_sample_idx,
         selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
+        required_sample_idx=required_sample_idx,
     )
     kept = events[keep]
     out = {
@@ -344,6 +361,7 @@ def fit_catalogue_arrays(
     max_initial_state_position_sigma_m: float | None,
     max_initial_state_radiant_angle_sigma_deg: float | None,
     selected_closest_tx_sample_idx: np.ndarray | None = None,
+    required_sample_idx: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
     keep = fit_quality_mask(
         events,
@@ -356,6 +374,7 @@ def fit_catalogue_arrays(
         max_initial_state_position_sigma_m,
         max_initial_state_radiant_angle_sigma_deg,
         selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
+        required_sample_idx=required_sample_idx,
     )
     kept = events[keep]
     return {
@@ -385,6 +404,7 @@ def measurement_height_velocity_arrays(
     max_initial_state_position_sigma_m: float | None,
     max_initial_state_radiant_angle_sigma_deg: float | None,
     selected_closest_tx_sample_idx: np.ndarray | None = None,
+    required_sample_idx: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
     if len(events) == 0 or len(paths) == 0 or paths.dtype.names is None:
         return empty_measurement_arrays()
@@ -399,6 +419,7 @@ def measurement_height_velocity_arrays(
         max_initial_state_position_sigma_m,
         max_initial_state_radiant_angle_sigma_deg,
         selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
+        required_sample_idx=required_sample_idx,
     )
     kept = events[keep]
     sample_idx = np.asarray(kept["sample_idx"], dtype=np.int64)
@@ -448,6 +469,7 @@ def measurement_low_height_diagnostics(
     max_initial_state_radiant_angle_sigma_deg: float | None,
     low_height_threshold_km: float,
     selected_closest_tx_sample_idx: np.ndarray | None = None,
+    required_sample_idx: np.ndarray | None = None,
 ) -> np.ndarray:
     if len(events) == 0 or len(paths) == 0 or paths.dtype.names is None:
         return np.zeros(0, dtype=LOW_HEIGHT_AUDIT_DTYPE)
@@ -462,6 +484,7 @@ def measurement_low_height_diagnostics(
         max_initial_state_position_sigma_m,
         max_initial_state_radiant_angle_sigma_deg,
         selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
+        required_sample_idx=required_sample_idx,
     )
     kept = events[keep]
     if len(kept) == 0 or "position_enu_km" not in paths.dtype.names:
@@ -590,6 +613,8 @@ def write_statistics_h5(
     low_height_threshold_km: float,
     require_selected_closest_tx_alias: bool,
     selected_closest_tx_event_count: int,
+    required_sample_index_h5: Path | None,
+    required_sample_index_count: int,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(path, "w") as h:
@@ -606,6 +631,8 @@ def write_statistics_h5(
         h.attrs["low_height_audit_event_count"] = int(len(low_height_diagnostics))
         h.attrs["require_selected_closest_tx_alias"] = bool(require_selected_closest_tx_alias)
         h.attrs["selected_closest_tx_alias_event_count"] = int(selected_closest_tx_event_count)
+        h.attrs["required_sample_index_h5"] = str(required_sample_index_h5) if required_sample_index_h5 is not None else ""
+        h.attrs["required_sample_index_count"] = int(required_sample_index_count)
         h.attrs["solar_longitude_count_density_unit"] = "count per degree"
         h.attrs["height_velocity_quality_filter"] = (
             "static radiant monitor high-quality gate: valid DASST winning alias, "
@@ -711,6 +738,12 @@ def main() -> None:
         action="store_true",
         help="For height/measurement histograms, keep only events where selected_hypothesis is the alias with minimum finite TX beam-center distance.",
     )
+    parser.add_argument(
+        "--required-sample-index-h5",
+        type=Path,
+        default=None,
+        help="Optional HDF5 file with sample_idx or matched_sample_idx dataset. Only these events are kept in catalogue/height plots.",
+    )
     args = parser.parse_args()
 
     events, paths, aliases, files_read = collect_events_paths_aliases(
@@ -728,12 +761,15 @@ def main() -> None:
         if selected_closest_tx_sample_idx is not None
         else int(len(events))
     )
+    required_sample_idx = load_required_sample_indices(args.required_sample_index_h5)
+    required_sample_index_count = int(len(required_sample_idx)) if required_sample_idx is not None else int(len(events))
     arrays = catalogue_arrays(
         events,
         args.max_radiant_sigma_deg,
         args.min_sample_idx,
         args.max_sample_idx,
         selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
+        required_sample_idx=required_sample_idx,
     )
     fit_arrays = fit_catalogue_arrays(
         events,
@@ -746,6 +782,7 @@ def main() -> None:
         args.height_max_initial_state_position_sigma_m,
         args.height_max_initial_state_radiant_angle_sigma_deg,
         selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
+        required_sample_idx=required_sample_idx,
     )
     measurement_arrays = (
         measurement_height_velocity_arrays(
@@ -760,6 +797,7 @@ def main() -> None:
             args.height_max_initial_state_position_sigma_m,
             args.height_max_initial_state_radiant_angle_sigma_deg,
             selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
+            required_sample_idx=required_sample_idx,
         )
         if args.include_measurements
         else empty_measurement_arrays()
@@ -778,6 +816,7 @@ def main() -> None:
             args.height_max_initial_state_radiant_angle_sigma_deg,
             args.low_height_audit_threshold_km,
             selected_closest_tx_sample_idx=selected_closest_tx_sample_idx,
+            required_sample_idx=required_sample_idx,
         )
         if args.include_measurements
         else np.zeros(0, dtype=LOW_HEIGHT_AUDIT_DTYPE)
@@ -817,6 +856,8 @@ def main() -> None:
         args.low_height_audit_threshold_km,
         args.require_selected_closest_tx_alias,
         selected_closest_tx_event_count,
+        args.required_sample_index_h5,
+        required_sample_index_count,
     )
     plot_solar_counts(args.solar_output, solar_years, solar_year_count_density, solar_all_count_density, solar_edges)
     plot_height_velocity(
@@ -841,7 +882,8 @@ def main() -> None:
         f"fit_events={len(fit_arrays['fit_sample_idx'])} "
         f"measurements={len(measurement_arrays['measurement_height_km'])} "
         f"low_height_events={len(low_height_diagnostics)} "
-        f"selected_closest_tx_events={selected_closest_tx_event_count} files_read={files_read}"
+        f"selected_closest_tx_events={selected_closest_tx_event_count} "
+        f"required_sample_index_count={required_sample_index_count} files_read={files_read}"
     )
     print(args.output_h5)
     print(args.solar_output)
