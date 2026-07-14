@@ -1,33 +1,51 @@
-import numpy as n
-import scipy.constants as sc
+#!/usr/bin/env python3
+"""Calculate the PANSY single-pulse minimum detectable radar cross section."""
 
-# PANSY
-G=10**3.7
-Grx=(10**3.7/54)
-Pt=500e3
-f=47e6
-lam=sc.c/f
-A=Grx*lam**2/(4*n.pi)
-B=1/128e-6
-tsys=5000
-#SNR=Pt*G*A*sigma/((4*n.pi)**2*(100e3**4)*sc.k*4000*B)
-SNR=4
-sigma=SNR*(((4*n.pi)**2)*(100e3**4)*sc.k*tsys*B)/(Pt*G*A) #=*sigma/
-#print(sigma)
-print(10*n.log10(sigma))
+import numpy as np
+from scipy.constants import c, k
 
 
-# MAARSY
-G=10**3.35
-Grx=10**2.5
-Pt=800e3
-f=53.5e6
-lam=sc.c/f
-A=Grx*(lam**2)/(4*n.pi)
-B=1/32e-6
+def minimum_detectable_rcs_m2(
+    *,
+    snr_linear: float,
+    range_m: float,
+    system_temperature_k: float,
+    pulse_length_s: float,
+    peak_power_w: float,
+    transmit_gain_linear: float,
+    receive_gain_linear: float,
+    frequency_hz: float,
+) -> float:
+    wavelength_m = c / frequency_hz
+    receive_effective_area_m2 = receive_gain_linear * wavelength_m**2 / (4.0 * np.pi)
+    noise_bandwidth_hz = 1.0 / pulse_length_s
+    return float(
+        snr_linear
+        * (4.0 * np.pi) ** 2
+        * range_m**4
+        * k
+        * system_temperature_k
+        * noise_bandwidth_hz
+        / (peak_power_w * transmit_gain_linear * receive_effective_area_m2)
+    )
 
-#SNR=Pt*G*A*sigma/((4*n.pi)**2*(100e3**4)*sc.k*4000*B)
-SNR=4
-sigma=SNR*(((4*n.pi)**2)*(100e3**4)*sc.k*tsys*B)/(Pt*G*A) #=*sigma/
-#print(sigma)
-print(10*n.log10(sigma))
+
+def main() -> None:
+    transmit_gain = 10.0 ** (37.0 / 10.0)
+    rcs_m2 = minimum_detectable_rcs_m2(
+        snr_linear=7.0,
+        range_m=100e3,
+        system_temperature_k=4550.0,
+        pulse_length_s=128e-6,
+        peak_power_w=500e3,
+        transmit_gain_linear=transmit_gain,
+        receive_gain_linear=transmit_gain / 54.0,
+        frequency_hz=47e6,
+    )
+    print(f"minimum_detectable_rcs_m2 {rcs_m2:.9g}")
+    print(f"minimum_detectable_rcs_dbsm {10.0 * np.log10(rcs_m2):.6f}")
+    print(f"snr_threshold_db {10.0 * np.log10(7.0):.6f}")
+
+
+if __name__ == "__main__":
+    main()
