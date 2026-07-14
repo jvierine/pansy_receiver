@@ -21,6 +21,24 @@ import orbit_metadata_table as omt
 
 DEFAULT_MIN_SAMPLE_IDX = int(dt.datetime(2025, 1, 1, tzinfo=dt.timezone.utc).timestamp() * 1_000_000)
 DEFAULT_MAX_SAMPLE_IDX = int(dt.datetime(2027, 1, 1, tzinfo=dt.timezone.utc).timestamp() * 1_000_000)
+HEIGHT_VELOCITY_HEIGHT_MIN_KM = 20.0
+HEIGHT_VELOCITY_HEIGHT_MAX_KM = 180.0
+HEIGHT_VELOCITY_SPEED_MIN_KM_S = 0.0
+HEIGHT_VELOCITY_SPEED_MAX_KM_S = 80.0
+LOW_HEIGHT_AUDIT_DTYPE = np.dtype(
+    [
+        ("sample_idx", "<i8"),
+        ("n_selected_measurements", "<i4"),
+        ("n_below_threshold", "<i4"),
+        ("frac_below_threshold", "<f4"),
+        ("min_height_km", "<f4"),
+        ("p05_height_km", "<f4"),
+        ("median_height_km", "<f4"),
+        ("max_height_km", "<f4"),
+        ("v_g_km_s", "<f4"),
+        ("combined_score", "<f4"),
+    ]
+)
 
 
 def wrap360(deg: np.ndarray) -> np.ndarray:
@@ -317,11 +335,107 @@ def measurement_height_velocity_arrays(
     out_speed = np.full(len(paths), np.nan, dtype=np.float32)
     out_speed[matched] = speeds[match[matched]]
     good &= np.isfinite(out_speed)
+    good &= height >= HEIGHT_VELOCITY_HEIGHT_MIN_KM
+    good &= height < HEIGHT_VELOCITY_HEIGHT_MAX_KM
+    good &= out_speed >= HEIGHT_VELOCITY_SPEED_MIN_KM_S
+    good &= out_speed < HEIGHT_VELOCITY_SPEED_MAX_KM_S
     return {
         "measurement_event_sample_idx": path_sample_idx[good].astype(np.int64),
         "measurement_height_km": height[good].astype(np.float32),
         "measurement_event_v_g_km_s": out_speed[good].astype(np.float32),
     }
+
+
+def measurement_low_height_diagnostics(
+    events: np.ndarray,
+    paths: np.ndarray,
+    max_radiant_sigma_deg: float | None,
+    min_sample_idx: int,
+    max_sample_idx: int,
+    max_combined_score: float | None,
+    max_frac_e_gt_1: float | None,
+    min_uncertainty_samples: int,
+    max_initial_state_position_sigma_m: float | None,
+    max_initial_state_radiant_angle_sigma_deg: float | None,
+    low_height_threshold_km: float,
+) -> np.ndarray:
+    if len(events) == 0 or len(paths) == 0 or paths.dtype.names is None:
+        return np.zeros(0, dtype=LOW_HEIGHT_AUDIT_DTYPE)
+    keep = fit_quality_mask(
+        events,
+        max_radiant_sigma_deg,
+        min_sample_idx,
+        max_sample_idx,
+        max_combined_score,
+        max_frac_e_gt_1,
+        min_uncertainty_samples,
+        max_initial_state_position_sigma_m,
+        max_initial_state_radiant_angle_sigma_deg,
+    )
+    kept = events[keep]
+    if len(kept) == 0 or "position_enu_km" not in paths.dtype.names:
+        return np.zeros(0, dtype=LOW_HEIGHT_AUDIT_DTYPE)
+
+    sample_idx = np.asarray(kept["sample_idx"], dtype=np.int64)
+    speeds = finite_field(kept, "v_g_km_s")
+    combined_score = finite_field(kept, "combined_score") if "combined_score" in kept.dtype.names else np.full(len(kept), np.nan, dtype=np.float32)
+    order = np.argsort(sample_idx)
+    sample_idx = sample_idx[order]
+    speeds = speeds[order]
+    combined_score = combined_score[order]
+
+    path_sample_idx = np.asarray(paths["sample_idx"], dtype=np.int64)
+    match = np.searchsorted(sample_idx, path_sample_idx)
+    in_range = match < len(sample_idx)
+    matched = np.zeros(len(paths), dtype=bool)
+    matched[in_range] = sample_idx[match[in_range]] == path_sample_idx[in_range]
+    height = np.asarray(paths["position_enu_km"], dtype=np.float32)[:, 2]
+    path_speed = np.full(len(paths), np.nan, dtype=np.float32)
+    path_speed[matched] = speeds[match[matched]]
+
+    good = matched & np.isfinite(height) & np.isfinite(path_speed)
+    if "selection_keep" in paths.dtype.names:
+        good &= np.asarray(paths["selection_keep"], dtype=bool)
+    else:
+        good &= False
+    good &= height > 0.0
+    good &= height < HEIGHT_VELOCITY_HEIGHT_MAX_KM
+    good &= path_speed >= HEIGHT_VELOCITY_SPEED_MIN_KM_S
+    good &= path_speed < HEIGHT_VELOCITY_SPEED_MAX_KM_S
+    if not np.any(good):
+        return np.zeros(0, dtype=LOW_HEIGHT_AUDIT_DTYPE)
+
+    good_sample = path_sample_idx[good]
+    good_height = height[good]
+    sort_i = np.argsort(good_sample)
+    good_sample = good_sample[sort_i]
+    good_height = good_height[sort_i]
+    unique_sample, start, n_selected = np.unique(good_sample, return_index=True, return_counts=True)
+    n_below = np.add.reduceat((good_height < float(low_height_threshold_km)).astype(np.int32), start)
+    suspicious = n_below > 0
+    if not np.any(suspicious):
+        return np.zeros(0, dtype=LOW_HEIGHT_AUDIT_DTYPE)
+
+    unique_sample = unique_sample[suspicious]
+    start = start[suspicious]
+    n_selected = n_selected[suspicious].astype(np.int32)
+    n_below = n_below[suspicious].astype(np.int32)
+    event_match = np.searchsorted(sample_idx, unique_sample)
+
+    out = np.zeros(len(unique_sample), dtype=LOW_HEIGHT_AUDIT_DTYPE)
+    out["sample_idx"] = unique_sample.astype(np.int64)
+    out["n_selected_measurements"] = n_selected
+    out["n_below_threshold"] = n_below
+    out["frac_below_threshold"] = (n_below / np.maximum(n_selected, 1)).astype(np.float32)
+    out["v_g_km_s"] = speeds[event_match].astype(np.float32)
+    out["combined_score"] = combined_score[event_match].astype(np.float32)
+    for i, (s0, n) in enumerate(zip(start, n_selected)):
+        h = good_height[s0 : s0 + n]
+        out["min_height_km"][i] = np.min(h)
+        out["p05_height_km"][i] = np.percentile(h, 5)
+        out["median_height_km"][i] = np.median(h)
+        out["max_height_km"][i] = np.max(h)
+    return out
 
 
 def histogram_solar_longitude(solar_longitude_deg: np.ndarray, bin_width_deg: float) -> tuple[np.ndarray, np.ndarray]:
@@ -359,8 +473,8 @@ def count_density_from_counts(
 
 
 def histogram_height_velocity(height_km: np.ndarray, speed_km_s: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    height_edges = np.arange(20.0, 180.0 + 1.0, 1.0, dtype=np.float32)
-    speed_edges = np.arange(0.0, 80.0 + 1.0, 1.0, dtype=np.float32)
+    height_edges = np.arange(HEIGHT_VELOCITY_HEIGHT_MIN_KM, HEIGHT_VELOCITY_HEIGHT_MAX_KM + 1.0, 1.0, dtype=np.float32)
+    speed_edges = np.arange(HEIGHT_VELOCITY_SPEED_MIN_KM_S, HEIGHT_VELOCITY_SPEED_MAX_KM_S + 1.0, 1.0, dtype=np.float32)
     hist, h_edges, v_edges = np.histogram2d(height_km, speed_km_s, bins=[height_edges, speed_edges])
     return hist.astype(np.int32), h_edges.astype(np.float32), v_edges.astype(np.float32)
 
@@ -378,9 +492,11 @@ def write_statistics_h5(
     solar_edges,
     hv_counts,
     measurement_hv_counts,
+    low_height_diagnostics,
     height_edges,
     speed_edges,
     files_read: int,
+    low_height_threshold_km: float,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(path, "w") as h:
@@ -393,6 +509,8 @@ def write_statistics_h5(
         h.attrs["event_count"] = int(len(arrays["sample_idx"]))
         h.attrs["fit_event_count"] = int(len(fit_arrays["fit_sample_idx"]))
         h.attrs["measurement_count"] = int(measurement_count)
+        h.attrs["low_height_audit_threshold_km"] = float(low_height_threshold_km)
+        h.attrs["low_height_audit_event_count"] = int(len(low_height_diagnostics))
         h.attrs["solar_longitude_count_density_unit"] = "count per degree"
         h.attrs["height_velocity_quality_filter"] = (
             "static radiant monitor high-quality gate: valid DASST winning alias, "
@@ -411,6 +529,7 @@ def write_statistics_h5(
         h.create_dataset("solar_longitude_edges_deg", data=solar_edges)
         h.create_dataset("height_velocity_count", data=hv_counts, compression="gzip", shuffle=True)
         h.create_dataset("measurement_height_velocity_count", data=measurement_hv_counts, compression="gzip", shuffle=True)
+        h.create_dataset("measurement_low_height_diagnostics", data=low_height_diagnostics, compression="gzip", shuffle=True)
         h.create_dataset("height_edges_km", data=height_edges)
         h.create_dataset("speed_edges_km_s", data=speed_edges)
 
@@ -491,6 +610,7 @@ def main() -> None:
     parser.add_argument("--height-min-uncertainty-samples", type=int, default=3)
     parser.add_argument("--height-max-initial-state-position-sigma-m", type=float, default=1000.0)
     parser.add_argument("--height-max-initial-state-radiant-angle-sigma-deg", type=float, default=3.0)
+    parser.add_argument("--low-height-audit-threshold-km", type=float, default=60.0)
     args = parser.parse_args()
 
     events, paths, files_read = collect_events_and_paths(args.orbit_metadata_dir, include_paths=args.include_measurements)
@@ -522,6 +642,23 @@ def main() -> None:
         if args.include_measurements
         else empty_measurement_arrays()
     )
+    low_height_diagnostics = (
+        measurement_low_height_diagnostics(
+            events,
+            paths,
+            args.max_radiant_sigma_deg,
+            args.min_sample_idx,
+            args.max_sample_idx,
+            args.height_max_combined_score,
+            args.height_max_frac_e_gt_1,
+            args.height_min_uncertainty_samples,
+            args.height_max_initial_state_position_sigma_m,
+            args.height_max_initial_state_radiant_angle_sigma_deg,
+            args.low_height_audit_threshold_km,
+        )
+        if args.include_measurements
+        else np.zeros(0, dtype=LOW_HEIGHT_AUDIT_DTYPE)
+    )
     solar_counts, solar_edges = histogram_solar_longitude(arrays["solar_longitude_deg"], args.solar_bin_width_deg)
     solar_years, solar_year_counts, solar_edges = histogram_solar_longitude_by_year(
         arrays["sample_idx"],
@@ -550,9 +687,11 @@ def main() -> None:
         solar_edges,
         hv_counts,
         measurement_hv_counts,
+        low_height_diagnostics,
         height_edges,
         speed_edges,
         files_read,
+        args.low_height_audit_threshold_km,
     )
     plot_solar_counts(args.solar_output, solar_years, solar_year_count_density, solar_all_count_density, solar_edges)
     plot_height_velocity(
@@ -575,7 +714,8 @@ def main() -> None:
     print(
         f"orbit_catalogue_statistics events={len(arrays['sample_idx'])} "
         f"fit_events={len(fit_arrays['fit_sample_idx'])} "
-        f"measurements={len(measurement_arrays['measurement_height_km'])} files_read={files_read}"
+        f"measurements={len(measurement_arrays['measurement_height_km'])} "
+        f"low_height_events={len(low_height_diagnostics)} files_read={files_read}"
     )
     print(args.output_h5)
     print(args.solar_output)
