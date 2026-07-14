@@ -49,7 +49,10 @@ def finite_field(events: np.ndarray, name: str) -> np.ndarray:
 
 def quality_mask(events: np.ndarray, max_radiant_sigma_deg: float | None) -> np.ndarray:
     good = np.ones(len(events), dtype=bool)
-    for name in ("sample_idx", "initial_detection_height_km", "v_g_km_s", "radiant_sun_ecliptic_lon_deg"):
+    if events.dtype.names is None or "sample_idx" not in events.dtype.names:
+        return np.zeros(len(events), dtype=bool)
+    good &= np.isfinite(np.asarray(events["sample_idx"], dtype=np.float64))
+    for name in ("initial_detection_height_km", "v_g_km_s", "radiant_sun_ecliptic_lon_deg"):
         good &= np.isfinite(finite_field(events, name))
     good &= finite_field(events, "v_g_km_s") > 0.0
     good &= finite_field(events, "initial_detection_height_km") > 0.0
