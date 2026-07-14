@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 from pathlib import Path
 
 import h5py
@@ -11,34 +12,59 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import LogNorm
 
+import orbit_metadata_table as omt
+
+
+DEFAULT_MIN_SAMPLE_IDX = int(dt.datetime(2025, 1, 1, tzinfo=dt.timezone.utc).timestamp() * 1_000_000)
+DEFAULT_MAX_SAMPLE_IDX = int(dt.datetime(2027, 1, 1, tzinfo=dt.timezone.utc).timestamp() * 1_000_000)
+
 
 def wrap360(deg: np.ndarray) -> np.ndarray:
     return np.asarray(deg, dtype=np.float64) % 360.0
 
 
-def iter_orbit_event_tables(orbit_metadata_dir: Path):
+def coerce_structured(arr: np.ndarray, dtype: np.dtype) -> np.ndarray:
+    arr = np.asarray(arr)
+    out = np.zeros(arr.shape, dtype=dtype)
+    if arr.dtype.names is None:
+        return out
+    for name in dtype.names:
+        if name in arr.dtype.names:
+            out[name] = arr[name]
+        elif dtype[name].kind == "f":
+            out[name] = np.nan
+    return out
+
+
+def iter_orbit_tables(orbit_metadata_dir: Path, include_paths: bool):
     for path in sorted(orbit_metadata_dir.glob("**/orbit@*.h5")):
         try:
             with h5py.File(path, "r") as h:
                 if "events" not in h:
                     continue
-                yield path, h["events"][()]
+                events = coerce_structured(h["events"][()], omt.EVENT_DTYPE)
+                paths = coerce_structured(h["paths"][()], omt.PATH_DTYPE) if include_paths and "paths" in h else None
+                yield path, events, paths
         except OSError:
             continue
 
 
-def collect_events(orbit_metadata_dir: Path) -> tuple[np.ndarray, int]:
-    chunks = []
+def collect_events_and_paths(orbit_metadata_dir: Path, include_paths: bool) -> tuple[np.ndarray, np.ndarray, int]:
+    event_chunks = []
+    path_chunks = []
     files_read = 0
-    for _path, events in iter_orbit_event_tables(orbit_metadata_dir):
-        chunks.append(events)
+    for _path, events, paths in iter_orbit_tables(orbit_metadata_dir, include_paths=include_paths):
+        event_chunks.append(events)
+        if paths is not None and len(paths):
+            path_chunks.append(paths)
         files_read += 1
-    if not chunks:
-        return np.zeros(0, dtype=[]), files_read
-    events = np.concatenate(chunks)
-    if "sample_idx" in events.dtype.names:
+    events = np.concatenate(event_chunks) if event_chunks else np.zeros(0, dtype=omt.EVENT_DTYPE)
+    paths = np.concatenate(path_chunks) if path_chunks else np.zeros(0, dtype=omt.PATH_DTYPE)
+    if len(events) and "sample_idx" in events.dtype.names:
         events = events[np.argsort(events["sample_idx"])]
-    return events, files_read
+    if len(paths) and "sample_idx" in paths.dtype.names:
+        paths = paths[np.argsort(paths["sample_idx"])]
+    return events, paths, files_read
 
 
 def finite_field(events: np.ndarray, name: str) -> np.ndarray:
@@ -52,11 +78,17 @@ def finite_field(events: np.ndarray, name: str) -> np.ndarray:
     return out
 
 
-def quality_mask(events: np.ndarray, max_radiant_sigma_deg: float | None) -> np.ndarray:
+def quality_mask(
+    events: np.ndarray,
+    max_radiant_sigma_deg: float | None,
+    min_sample_idx: int,
+    max_sample_idx: int,
+) -> np.ndarray:
     good = np.ones(len(events), dtype=bool)
     if events.dtype.names is None or "sample_idx" not in events.dtype.names:
         return np.zeros(len(events), dtype=bool)
-    good &= np.isfinite(np.asarray(events["sample_idx"], dtype=np.float64))
+    sample_idx = np.asarray(events["sample_idx"], dtype=np.int64)
+    good &= (sample_idx >= int(min_sample_idx)) & (sample_idx < int(max_sample_idx))
     for name in ("initial_detection_height_km", "v_g_km_s", "radiant_sun_ecliptic_lon_deg"):
         good &= np.isfinite(finite_field(events, name))
     good &= finite_field(events, "v_g_km_s") > 0.0
@@ -70,8 +102,13 @@ def quality_mask(events: np.ndarray, max_radiant_sigma_deg: float | None) -> np.
     return good
 
 
-def catalogue_arrays(events: np.ndarray, max_radiant_sigma_deg: float | None) -> dict[str, np.ndarray]:
-    keep = quality_mask(events, max_radiant_sigma_deg)
+def catalogue_arrays(
+    events: np.ndarray,
+    max_radiant_sigma_deg: float | None,
+    min_sample_idx: int,
+    max_sample_idx: int,
+) -> dict[str, np.ndarray]:
+    keep = quality_mask(events, max_radiant_sigma_deg, min_sample_idx, max_sample_idx)
     kept = events[keep]
     out = {
         "sample_idx": np.asarray(kept["sample_idx"], dtype=np.int64),
@@ -82,6 +119,51 @@ def catalogue_arrays(events: np.ndarray, max_radiant_sigma_deg: float | None) ->
     if "combined_score" in kept.dtype.names:
         out["combined_score"] = finite_field(kept, "combined_score").astype(np.float32)
     return out
+
+
+def empty_measurement_arrays() -> dict[str, np.ndarray]:
+    return {
+        "measurement_event_sample_idx": np.zeros(0, dtype=np.int64),
+        "measurement_height_km": np.zeros(0, dtype=np.float32),
+        "measurement_event_v_g_km_s": np.zeros(0, dtype=np.float32),
+    }
+
+
+def measurement_height_velocity_arrays(
+    events: np.ndarray,
+    paths: np.ndarray,
+    max_radiant_sigma_deg: float | None,
+    min_sample_idx: int,
+    max_sample_idx: int,
+) -> dict[str, np.ndarray]:
+    if len(events) == 0 or len(paths) == 0 or paths.dtype.names is None:
+        return empty_measurement_arrays()
+    keep = quality_mask(events, max_radiant_sigma_deg, min_sample_idx, max_sample_idx)
+    kept = events[keep]
+    sample_idx = np.asarray(kept["sample_idx"], dtype=np.int64)
+    speeds = finite_field(kept, "v_g_km_s")
+    order = np.argsort(sample_idx)
+    sample_idx = sample_idx[order]
+    speeds = speeds[order]
+
+    path_sample_idx = np.asarray(paths["sample_idx"], dtype=np.int64)
+    match = np.searchsorted(sample_idx, path_sample_idx)
+    in_range = match < len(sample_idx)
+    matched = np.zeros(len(paths), dtype=bool)
+    matched[in_range] = sample_idx[match[in_range]] == path_sample_idx[in_range]
+    if "position_enu_km" not in paths.dtype.names:
+        matched &= False
+    height = np.asarray(paths["position_enu_km"], dtype=np.float32)[:, 2] if "position_enu_km" in paths.dtype.names else np.zeros(len(paths), dtype=np.float32)
+    good = matched & np.isfinite(height)
+    good &= height > 0.0
+    out_speed = np.full(len(paths), np.nan, dtype=np.float32)
+    out_speed[matched] = speeds[match[matched]]
+    good &= np.isfinite(out_speed)
+    return {
+        "measurement_event_sample_idx": path_sample_idx[good].astype(np.int64),
+        "measurement_height_km": height[good].astype(np.float32),
+        "measurement_event_v_g_km_s": out_speed[good].astype(np.float32),
+    }
 
 
 def histogram_solar_longitude(solar_longitude_deg: np.ndarray, bin_width_deg: float) -> tuple[np.ndarray, np.ndarray]:
@@ -97,18 +179,33 @@ def histogram_height_velocity(height_km: np.ndarray, speed_km_s: np.ndarray) -> 
     return hist.astype(np.int32), h_edges.astype(np.float32), v_edges.astype(np.float32)
 
 
-def write_statistics_h5(path: Path, arrays: dict[str, np.ndarray], solar_counts, solar_edges, hv_counts, height_edges, speed_edges, files_read: int) -> None:
+def write_statistics_h5(
+    path: Path,
+    arrays: dict[str, np.ndarray],
+    measurement_arrays: dict[str, np.ndarray],
+    solar_counts,
+    solar_edges,
+    hv_counts,
+    measurement_hv_counts,
+    height_edges,
+    speed_edges,
+    files_read: int,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(path, "w") as h:
         h.attrs["script"] = Path(__file__).name
         h.attrs["source"] = "compact orbit metadata events tables"
         h.attrs["files_read"] = int(files_read)
         h.attrs["event_count"] = int(len(arrays["sample_idx"]))
+        h.attrs["measurement_count"] = int(len(measurement_arrays["measurement_height_km"]))
         for name, values in arrays.items():
+            h.create_dataset(name, data=values, compression="gzip", shuffle=True)
+        for name, values in measurement_arrays.items():
             h.create_dataset(name, data=values, compression="gzip", shuffle=True)
         h.create_dataset("solar_longitude_count", data=solar_counts, compression="gzip", shuffle=True)
         h.create_dataset("solar_longitude_edges_deg", data=solar_edges)
         h.create_dataset("height_velocity_count", data=hv_counts, compression="gzip", shuffle=True)
+        h.create_dataset("measurement_height_velocity_count", data=measurement_hv_counts, compression="gzip", shuffle=True)
         h.create_dataset("height_edges_km", data=height_edges)
         h.create_dataset("speed_edges_km_s", data=speed_edges)
 
@@ -158,21 +255,58 @@ def main() -> None:
     parser.add_argument("--output-h5", type=Path, default=Path("paper_orbit_catalogue_statistics.h5"))
     parser.add_argument("--solar-output", type=Path, default=Path("paper_counts_solar_longitude.png"))
     parser.add_argument("--height-velocity-output", type=Path, default=Path("paper_height_velocity.png"))
+    parser.add_argument("--measurement-height-velocity-output", type=Path, default=Path("paper_measurement_height_velocity.png"))
     parser.add_argument("--solar-bin-width-deg", type=float, default=1.0)
     parser.add_argument("--max-radiant-sigma-deg", type=float, default=None)
+    parser.add_argument("--min-sample-idx", type=int, default=DEFAULT_MIN_SAMPLE_IDX)
+    parser.add_argument("--max-sample-idx", type=int, default=DEFAULT_MAX_SAMPLE_IDX)
+    parser.add_argument("--include-measurements", action="store_true")
     args = parser.parse_args()
 
-    events, files_read = collect_events(args.orbit_metadata_dir)
-    arrays = catalogue_arrays(events, args.max_radiant_sigma_deg)
+    events, paths, files_read = collect_events_and_paths(args.orbit_metadata_dir, include_paths=args.include_measurements)
+    arrays = catalogue_arrays(events, args.max_radiant_sigma_deg, args.min_sample_idx, args.max_sample_idx)
+    measurement_arrays = (
+        measurement_height_velocity_arrays(
+            events,
+            paths,
+            args.max_radiant_sigma_deg,
+            args.min_sample_idx,
+            args.max_sample_idx,
+        )
+        if args.include_measurements
+        else empty_measurement_arrays()
+    )
     solar_counts, solar_edges = histogram_solar_longitude(arrays["solar_longitude_deg"], args.solar_bin_width_deg)
     hv_counts, height_edges, speed_edges = histogram_height_velocity(arrays["initial_detection_height_km"], arrays["v_g_km_s"])
-    write_statistics_h5(args.output_h5, arrays, solar_counts, solar_edges, hv_counts, height_edges, speed_edges, files_read)
+    measurement_hv_counts, _, _ = histogram_height_velocity(
+        measurement_arrays["measurement_height_km"],
+        measurement_arrays["measurement_event_v_g_km_s"],
+    )
+    write_statistics_h5(
+        args.output_h5,
+        arrays,
+        measurement_arrays,
+        solar_counts,
+        solar_edges,
+        hv_counts,
+        measurement_hv_counts,
+        height_edges,
+        speed_edges,
+        files_read,
+    )
     plot_solar_counts(args.solar_output, solar_counts, solar_edges)
     plot_height_velocity(args.height_velocity_output, hv_counts, height_edges, speed_edges)
-    print(f"orbit_catalogue_statistics events={len(arrays['sample_idx'])} files_read={files_read}")
+    if args.include_measurements:
+        plot_height_velocity(args.measurement_height_velocity_output, measurement_hv_counts, height_edges, speed_edges)
+    print(
+        f"orbit_catalogue_statistics events={len(arrays['sample_idx'])} "
+        f"measurements={len(measurement_arrays['measurement_height_km'])} files_read={files_read}"
+    )
     print(args.output_h5)
     print(args.solar_output)
     print(args.height_velocity_output)
+    if args.include_measurements:
+        print(args.measurement_height_velocity_output)
 
 
 if __name__ == "__main__":
