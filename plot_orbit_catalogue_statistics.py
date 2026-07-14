@@ -129,23 +129,23 @@ def plot_solar_counts(path: Path, counts: np.ndarray, edges: np.ndarray) -> None
 
 def plot_height_velocity(path: Path, hv_counts: np.ndarray, height_edges: np.ndarray, speed_edges: np.ndarray) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    plot_count = np.asarray(hv_counts, dtype=np.float64).T
+    plot_count = np.asarray(hv_counts, dtype=np.float64)
     plot_count[plot_count <= 0.0] = np.nan
     cmap = plt.get_cmap("magma").copy()
     cmap.set_bad("white")
     fig, ax = plt.subplots(figsize=(7.2, 5.0), constrained_layout=True)
     mesh = ax.pcolormesh(
-        height_edges,
         speed_edges,
+        height_edges,
         plot_count,
         shading="auto",
         cmap=cmap,
         norm=LogNorm(vmin=1.0, vmax=max(1.0, float(np.nanmax(plot_count)) if np.any(np.isfinite(plot_count)) else 1.0)),
     )
-    ax.set_xlabel("Initial detection height (km)")
-    ax.set_ylabel(r"Geocentric velocity, $v_g$ (km s$^{-1}$)")
-    ax.set_xlim(float(height_edges[0]), float(height_edges[-1]))
-    ax.set_ylim(float(speed_edges[0]), float(speed_edges[-1]))
+    ax.set_xlabel(r"Geocentric velocity, $v_g$ (km s$^{-1}$)")
+    ax.set_ylabel("Initial detection height (km)")
+    ax.set_xlim(float(speed_edges[0]), float(speed_edges[-1]))
+    ax.set_ylim(float(height_edges[0]), float(height_edges[-1]))
     cb = fig.colorbar(mesh, ax=ax)
     cb.set_label("Catalogue meteor count")
     fig.savefig(path, dpi=220)
