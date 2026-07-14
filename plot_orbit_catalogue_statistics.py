@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import warnings
 from pathlib import Path
 
 import h5py
 import matplotlib.pyplot as plt
 import numpy as np
+from erfa import ErfaWarning
 from astropy.coordinates import get_sun
 from astropy.time import Time
 from matplotlib.colors import LogNorm
@@ -26,8 +28,10 @@ def wrap360(deg: np.ndarray) -> np.ndarray:
 
 
 def sun_ecliptic_longitude_deg(unix_time: np.ndarray) -> np.ndarray:
-    time = Time(np.asarray(unix_time, dtype=np.float64), format="unix", scale="utc")
-    sun = get_sun(time).transform_to("geocentricmeanecliptic")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ErfaWarning)
+        time = Time(np.asarray(unix_time, dtype=np.float64), format="unix", scale="utc")
+        sun = get_sun(time).transform_to("geocentricmeanecliptic")
     return wrap360(sun.lon.deg)
 
 
