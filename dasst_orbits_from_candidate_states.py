@@ -595,6 +595,11 @@ def main() -> None:
                 ),
                 "path_snr": optional_dataset(state_grp, "path_snr"),
                 "path_beam_id": optional_dataset(state_grp, "path_beam_id", default=np.asarray([], dtype=np.int64)),
+                "path_selection_keep": optional_dataset(
+                    state_grp,
+                    "path_selection_keep",
+                    default=np.zeros(len(optional_dataset(state_grp, "path_t_rel_s")), dtype=bool),
+                ),
             }
         write_orbit_metadata(args.metadata_dir, sample_key, payload)
         print(f"orbit_metadata_write {args.metadata_dir} {sample_key}")

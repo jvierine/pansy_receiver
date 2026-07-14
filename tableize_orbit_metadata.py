@@ -68,6 +68,11 @@ def payload_from_packed_group(group: h5py.Group) -> dict:
                 "path_doppler_mps": path["doppler_mps"] if "doppler_mps" in path.dtype.names else np.full(len(path), np.nan),
                 "path_snr": path["snr"],
                 "path_beam_id": path["beam_id"],
+                "path_selection_keep": (
+                    path["selection_keep"]
+                    if "selection_keep" in path.dtype.names
+                    else np.zeros(len(path), dtype=bool)
+                ),
             }
         )
     return payload

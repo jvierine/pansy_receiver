@@ -90,6 +90,7 @@ PATH_DTYPE = np.dtype(
         ("doppler_mps", "<f4"),
         ("snr", "<f4"),
         ("beam_id", "<i1"),
+        ("selection_keep", "?"),
     ]
 )
 
@@ -206,9 +207,13 @@ def payload_to_rows(sample_idx: int, payload: dict) -> tuple[np.ndarray, np.ndar
     dop = np.asarray(payload.get("path_doppler_mps", np.asarray([], dtype=np.float64)), dtype=np.float64)
     snr = np.asarray(payload.get("path_snr", np.asarray([], dtype=np.float64)), dtype=np.float64)
     beam = np.asarray(payload.get("path_beam_id", np.asarray([], dtype=np.int64)), dtype=np.int64)
+    selection_keep = np.asarray(
+        payload.get("path_selection_keep", np.zeros(len(t), dtype=bool)),
+        dtype=bool,
+    )
     if len(dop) == 0 and len(t):
         dop = np.full(len(t), np.nan, dtype=np.float64)
-    n_path = min(len(t), len(pos), len(dop), len(snr), len(beam))
+    n_path = min(len(t), len(pos), len(dop), len(snr), len(beam), len(selection_keep))
     paths = np.zeros(n_path, dtype=PATH_DTYPE)
     if n_path:
         paths["sample_idx"] = int(sample_idx)
@@ -217,6 +222,7 @@ def payload_to_rows(sample_idx: int, payload: dict) -> tuple[np.ndarray, np.ndar
         paths["doppler_mps"] = dop[:n_path]
         paths["snr"] = snr[:n_path]
         paths["beam_id"] = beam[:n_path]
+        paths["selection_keep"] = selection_keep[:n_path]
     return event, aliases, paths
 
 

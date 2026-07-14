@@ -63,6 +63,7 @@ RETAIN_DATASETS = {
     "path_doppler_mps",
     "path_snr",
     "path_beam_id",
+    "path_selection_keep",
     "alias_hypothesis_labels",
     "alias_candidate_numbers",
     "alias_combined_ranks",

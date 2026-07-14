@@ -309,6 +309,10 @@ def measurement_height_velocity_arrays(
         matched &= False
     height = np.asarray(paths["position_enu_km"], dtype=np.float32)[:, 2] if "position_enu_km" in paths.dtype.names else np.zeros(len(paths), dtype=np.float32)
     good = matched & np.isfinite(height)
+    if "selection_keep" in paths.dtype.names:
+        good &= np.asarray(paths["selection_keep"], dtype=bool)
+    else:
+        good &= False
     good &= height > 0.0
     out_speed = np.full(len(paths), np.nan, dtype=np.float32)
     out_speed[matched] = speeds[match[matched]]

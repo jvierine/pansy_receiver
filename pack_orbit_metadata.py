@@ -81,6 +81,7 @@ PATH_DTYPE = np.dtype(
         ("doppler_mps", "<f4"),
         ("snr", "<f4"),
         ("beam_id", "<i1"),
+        ("selection_keep", "?"),
     ]
 )
 
@@ -173,9 +174,13 @@ def make_path(group: h5py.Group) -> np.ndarray:
     snr = np.asarray(dataset(group, "path_snr", np.asarray([], dtype=np.float64)), dtype=np.float64)
     dop = np.asarray(dataset(group, "path_doppler_mps", np.asarray([], dtype=np.float64)), dtype=np.float64)
     beam = np.asarray(dataset(group, "path_beam_id", np.asarray([], dtype=np.int64)), dtype=np.int64)
+    selection_keep = np.asarray(
+        dataset(group, "path_selection_keep", np.zeros(len(t), dtype=bool)),
+        dtype=bool,
+    )
     if len(dop) == 0 and len(t):
         dop = np.full(len(t), np.nan, dtype=np.float64)
-    n = min(len(t), len(pos), len(dop), len(snr), len(beam))
+    n = min(len(t), len(pos), len(dop), len(snr), len(beam), len(selection_keep))
     arr = np.zeros(n, dtype=PATH_DTYPE)
     if n:
         arr["t_rel_s"] = t[:n]
@@ -183,6 +188,7 @@ def make_path(group: h5py.Group) -> np.ndarray:
         arr["doppler_mps"] = dop[:n]
         arr["snr"] = snr[:n]
         arr["beam_id"] = beam[:n]
+        arr["selection_keep"] = selection_keep[:n]
     return arr
 
 

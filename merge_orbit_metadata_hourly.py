@@ -22,9 +22,9 @@ def read_any_orbit_file(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]
     with h5py.File(path, "r") as h:
         if "events" in h:
             return (
-                h["events"][()].astype(omt.EVENT_DTYPE, copy=False),
-                h["aliases"][()].astype(omt.ALIAS_DTYPE, copy=False) if "aliases" in h else np.zeros(0, omt.ALIAS_DTYPE),
-                h["paths"][()].astype(omt.PATH_DTYPE, copy=False) if "paths" in h else np.zeros(0, omt.PATH_DTYPE),
+                omt._coerce_structured(h["events"][()], omt.EVENT_DTYPE),
+                omt._coerce_structured(h["aliases"][()], omt.ALIAS_DTYPE) if "aliases" in h else np.zeros(0, omt.ALIAS_DTYPE),
+                omt._coerce_structured(h["paths"][()], omt.PATH_DTYPE) if "paths" in h else np.zeros(0, omt.PATH_DTYPE),
             )
         for name, obj in h.items():
             if not isinstance(obj, h5py.Group):
