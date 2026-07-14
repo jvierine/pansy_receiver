@@ -158,6 +158,9 @@ def fit_quality_mask(
     max_sample_idx: int,
     max_combined_score: float | None,
     max_frac_e_gt_1: float | None,
+    min_uncertainty_samples: int,
+    max_initial_state_position_sigma_m: float | None,
+    max_initial_state_radiant_angle_sigma_deg: float | None,
 ) -> np.ndarray:
     good = quality_mask(events, max_radiant_sigma_deg, min_sample_idx, max_sample_idx)
     if events.dtype.names is None:
@@ -170,6 +173,24 @@ def fit_quality_mask(
     if max_frac_e_gt_1 is not None and "frac_e_gt_1" in events.dtype.names:
         frac_e_gt_1 = finite_field(events, "frac_e_gt_1")
         good &= np.isfinite(frac_e_gt_1) & (frac_e_gt_1 <= float(max_frac_e_gt_1))
+    if "n_uncertainty_samples" in events.dtype.names:
+        good &= np.asarray(events["n_uncertainty_samples"], dtype=np.int64) >= int(min_uncertainty_samples)
+    if (
+        max_initial_state_position_sigma_m is not None
+        or max_initial_state_radiant_angle_sigma_deg is not None
+    ) and "fit_parameter_covariance" in events.dtype.names:
+        cov = np.asarray(events["fit_parameter_covariance"], dtype=np.float64)
+        pos_var = np.trace(cov[:, :3, :3], axis1=1, axis2=2)
+        vel_var = np.trace(cov[:, 3:6, 3:6], axis1=1, axis2=2)
+        pos_sigma = np.sqrt(np.where(pos_var >= 0.0, pos_var, np.nan))
+        vel_sigma = np.sqrt(np.where(vel_var >= 0.0, vel_var, np.nan))
+        angle_sigma = np.rad2deg(
+            np.arctan2(vel_sigma, np.maximum(finite_field(events, "v_g_km_s") * 1e3, 1.0))
+        )
+        if max_initial_state_position_sigma_m is not None:
+            good &= np.isfinite(pos_sigma) & (pos_sigma <= float(max_initial_state_position_sigma_m))
+        if max_initial_state_radiant_angle_sigma_deg is not None:
+            good &= np.isfinite(angle_sigma) & (angle_sigma <= float(max_initial_state_radiant_angle_sigma_deg))
     return good
 
 
@@ -199,6 +220,9 @@ def fit_catalogue_arrays(
     max_sample_idx: int,
     max_combined_score: float | None,
     max_frac_e_gt_1: float | None,
+    min_uncertainty_samples: int,
+    max_initial_state_position_sigma_m: float | None,
+    max_initial_state_radiant_angle_sigma_deg: float | None,
 ) -> dict[str, np.ndarray]:
     keep = fit_quality_mask(
         events,
@@ -207,6 +231,9 @@ def fit_catalogue_arrays(
         max_sample_idx,
         max_combined_score,
         max_frac_e_gt_1,
+        min_uncertainty_samples,
+        max_initial_state_position_sigma_m,
+        max_initial_state_radiant_angle_sigma_deg,
     )
     kept = events[keep]
     return {
@@ -232,6 +259,9 @@ def measurement_height_velocity_arrays(
     max_sample_idx: int,
     max_combined_score: float | None,
     max_frac_e_gt_1: float | None,
+    min_uncertainty_samples: int,
+    max_initial_state_position_sigma_m: float | None,
+    max_initial_state_radiant_angle_sigma_deg: float | None,
 ) -> dict[str, np.ndarray]:
     if len(events) == 0 or len(paths) == 0 or paths.dtype.names is None:
         return empty_measurement_arrays()
@@ -242,6 +272,9 @@ def measurement_height_velocity_arrays(
         max_sample_idx,
         max_combined_score,
         max_frac_e_gt_1,
+        min_uncertainty_samples,
+        max_initial_state_position_sigma_m,
+        max_initial_state_radiant_angle_sigma_deg,
     )
     kept = events[keep]
     sample_idx = np.asarray(kept["sample_idx"], dtype=np.int64)
@@ -307,6 +340,11 @@ def write_statistics_h5(
         h.attrs["event_count"] = int(len(arrays["sample_idx"]))
         h.attrs["fit_event_count"] = int(len(fit_arrays["fit_sample_idx"]))
         h.attrs["measurement_count"] = int(measurement_count)
+        h.attrs["height_velocity_quality_filter"] = (
+            "static radiant monitor high-quality gate: valid DASST winning alias, "
+            "combined_score, n_uncertainty_samples, initial_state_position_sigma_m, "
+            "and initial_state_radiant_angle_sigma_deg"
+        )
         for name, values in arrays.items():
             h.create_dataset(name, data=values, compression="gzip", shuffle=True)
         for name, values in fit_arrays.items():
@@ -380,6 +418,9 @@ def main() -> None:
     parser.add_argument("--include-measurements", action="store_true")
     parser.add_argument("--height-max-combined-score", type=float, default=1.5)
     parser.add_argument("--height-max-frac-e-gt-1", type=float, default=0.5)
+    parser.add_argument("--height-min-uncertainty-samples", type=int, default=3)
+    parser.add_argument("--height-max-initial-state-position-sigma-m", type=float, default=1000.0)
+    parser.add_argument("--height-max-initial-state-radiant-angle-sigma-deg", type=float, default=3.0)
     args = parser.parse_args()
 
     events, paths, files_read = collect_events_and_paths(args.orbit_metadata_dir, include_paths=args.include_measurements)
@@ -391,6 +432,9 @@ def main() -> None:
         args.max_sample_idx,
         args.height_max_combined_score,
         args.height_max_frac_e_gt_1,
+        args.height_min_uncertainty_samples,
+        args.height_max_initial_state_position_sigma_m,
+        args.height_max_initial_state_radiant_angle_sigma_deg,
     )
     measurement_arrays = (
         measurement_height_velocity_arrays(
@@ -401,6 +445,9 @@ def main() -> None:
             args.max_sample_idx,
             args.height_max_combined_score,
             args.height_max_frac_e_gt_1,
+            args.height_min_uncertainty_samples,
+            args.height_max_initial_state_position_sigma_m,
+            args.height_max_initial_state_radiant_angle_sigma_deg,
         )
         if args.include_measurements
         else empty_measurement_arrays()
