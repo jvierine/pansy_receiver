@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import multiprocessing as mp
+import os
 from pathlib import Path
 
 import h5py
@@ -28,7 +29,10 @@ RESULT_DTYPE = np.dtype(
 
 
 def diagnostic_paths(events_dir: Path):
-    yield from sorted(events_dir.glob("**/pansy_disambiguation_diagnostics_*.h5"))
+    for root, _dirs, files in os.walk(events_dir):
+        for name in files:
+            if name.startswith("pansy_disambiguation_diagnostics_") and name.endswith(".h5"):
+                yield Path(root) / name
 
 
 def read_one(path: Path):
@@ -77,22 +81,24 @@ def main() -> None:
     args = parser.parse_args()
 
     rows = []
-    paths = list(diagnostic_paths(args.events_dir))
-    files_read = len(paths)
+    paths = diagnostic_paths(args.events_dir)
+    files_read = 0
     if args.workers <= 1:
         iterator = map(read_one, paths)
         for n_done, row in enumerate(iterator, start=1):
+            files_read = n_done
             if row is not None:
                 rows.append(row)
             if args.progress_every > 0 and n_done % int(args.progress_every) == 0:
-                print(f"progress {n_done}/{files_read} rows={len(rows)}", flush=True)
+                print(f"progress {n_done} rows={len(rows)}", flush=True)
     else:
         with mp.Pool(processes=int(args.workers)) as pool:
             for n_done, row in enumerate(pool.imap_unordered(read_one, paths, chunksize=128), start=1):
+                files_read = n_done
                 if row is not None:
                     rows.append(row)
                 if args.progress_every > 0 and n_done % int(args.progress_every) == 0:
-                    print(f"progress {n_done}/{files_read} rows={len(rows)}", flush=True)
+                    print(f"progress {n_done} rows={len(rows)}", flush=True)
 
     table = np.zeros(len(rows), dtype=RESULT_DTYPE)
     for i, row in enumerate(rows):
