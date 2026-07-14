@@ -69,6 +69,23 @@ def add_calendar_axes(ax, ticks_deg: np.ndarray) -> None:
         top.spines["top"].set_position(("outward", offset))
 
 
+def month_tick_positions_deg(year: int) -> tuple[np.ndarray, list[str]]:
+    dates = [dt.datetime(year, month, 1, 12, tzinfo=dt.timezone.utc) for month in range(1, 13)]
+    unix = np.asarray([date.timestamp() for date in dates], dtype=np.float64)
+    labels = [date.strftime("%b") for date in dates]
+    return sun_ecliptic_longitude_deg(unix), labels
+
+
+def add_month_axis(ax, year: int) -> None:
+    positions, labels = month_tick_positions_deg(year)
+    top = ax.twiny()
+    top.set_xlim(ax.get_xlim())
+    top.set_xticks(positions)
+    top.set_xticklabels(labels, fontsize=8)
+    top.set_xlabel(f"{year}", labelpad=2)
+    top.tick_params(axis="x", direction="out", pad=2)
+
+
 def coerce_structured(arr: np.ndarray, dtype: np.dtype) -> np.ndarray:
     arr = np.asarray(arr)
     out = np.zeros(arr.shape, dtype=dtype)
@@ -309,6 +326,23 @@ def histogram_solar_longitude(solar_longitude_deg: np.ndarray, bin_width_deg: fl
     return counts.astype(np.int32), edges.astype(np.float32)
 
 
+def histogram_solar_longitude_by_year(
+    sample_idx: np.ndarray,
+    solar_longitude_deg: np.ndarray,
+    bin_width_deg: float,
+    years: tuple[int, ...] = (2025, 2026),
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    edges = np.arange(0.0, 360.0 + float(bin_width_deg), float(bin_width_deg), dtype=np.float32)
+    epoch_s = np.asarray(sample_idx, dtype=np.float64) / 1_000_000.0
+    event_year = np.asarray([dt.datetime.fromtimestamp(float(t), tz=dt.timezone.utc).year for t in epoch_s], dtype=np.int16)
+    counts = []
+    solar_longitude = np.asarray(solar_longitude_deg, dtype=np.float64)
+    for year in years:
+        hist, _ = np.histogram(solar_longitude[event_year == int(year)], bins=edges)
+        counts.append(hist.astype(np.int32))
+    return np.asarray(years, dtype=np.int16), np.asarray(counts, dtype=np.int32), edges.astype(np.float32)
+
+
 def histogram_height_velocity(height_km: np.ndarray, speed_km_s: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     height_edges = np.arange(50.0, 180.0 + 1.0, 1.0, dtype=np.float32)
     speed_edges = np.arange(0.0, 80.0 + 1.0, 1.0, dtype=np.float32)
@@ -322,6 +356,8 @@ def write_statistics_h5(
     fit_arrays: dict[str, np.ndarray],
     measurement_count: int,
     solar_counts,
+    solar_years,
+    solar_year_counts,
     solar_edges,
     hv_counts,
     measurement_hv_counts,
@@ -350,6 +386,8 @@ def write_statistics_h5(
         for name, values in fit_arrays.items():
             h.create_dataset(name, data=values, compression="gzip", shuffle=True)
         h.create_dataset("solar_longitude_count", data=solar_counts, compression="gzip", shuffle=True)
+        h.create_dataset("solar_longitude_year", data=solar_years)
+        h.create_dataset("solar_longitude_count_by_year", data=solar_year_counts, compression="gzip", shuffle=True)
         h.create_dataset("solar_longitude_edges_deg", data=solar_edges)
         h.create_dataset("height_velocity_count", data=hv_counts, compression="gzip", shuffle=True)
         h.create_dataset("measurement_height_velocity_count", data=measurement_hv_counts, compression="gzip", shuffle=True)
@@ -357,17 +395,21 @@ def write_statistics_h5(
         h.create_dataset("speed_edges_km_s", data=speed_edges)
 
 
-def plot_solar_counts(path: Path, counts: np.ndarray, edges: np.ndarray) -> None:
+def plot_solar_counts(path: Path, years: np.ndarray, counts_by_year: np.ndarray, edges: np.ndarray) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     centers = 0.5 * (edges[:-1] + edges[1:])
-    fig, ax = plt.subplots(figsize=(8.0, 3.4), constrained_layout=True)
-    ax.step(centers, counts, where="mid", color="#2f5f8f", linewidth=1.6)
-    ax.fill_between(centers, counts, step="mid", color="#2f5f8f", alpha=0.24)
-    ax.set_xlim(0, 360)
-    ax.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)")
-    ax.set_ylabel("Catalogue meteor count")
-    ax.grid(True, alpha=0.25)
-    add_calendar_axes(ax, np.arange(0.0, 361.0, 60.0))
+    fig, axes = plt.subplots(len(years), 1, figsize=(8.0, 4.8), sharex=True, constrained_layout=True)
+    axes = np.atleast_1d(axes)
+    ymax = max(1, int(np.nanmax(counts_by_year)) if counts_by_year.size else 1)
+    for ax, year, counts in zip(axes, years, counts_by_year):
+        ax.step(centers, counts, where="mid", color="#2f5f8f", linewidth=1.35)
+        ax.set_xlim(0, 360)
+        ax.set_ylim(0, ymax * 1.08)
+        ax.set_ylabel("Count")
+        ax.grid(True, alpha=0.25)
+        ax.text(0.012, 0.82, str(int(year)), transform=ax.transAxes, ha="left", va="center", fontsize=10)
+        add_month_axis(ax, int(year))
+    axes[-1].set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)")
     fig.savefig(path, dpi=220)
     plt.close(fig)
 
@@ -453,6 +495,11 @@ def main() -> None:
         else empty_measurement_arrays()
     )
     solar_counts, solar_edges = histogram_solar_longitude(arrays["solar_longitude_deg"], args.solar_bin_width_deg)
+    solar_years, solar_year_counts, solar_edges = histogram_solar_longitude_by_year(
+        arrays["sample_idx"],
+        arrays["solar_longitude_deg"],
+        args.solar_bin_width_deg,
+    )
     hv_counts, height_edges, speed_edges = histogram_height_velocity(
         fit_arrays["fit_initial_detection_height_km"],
         fit_arrays["fit_v_g_km_s"],
@@ -467,6 +514,8 @@ def main() -> None:
         fit_arrays,
         len(measurement_arrays["measurement_height_km"]),
         solar_counts,
+        solar_years,
+        solar_year_counts,
         solar_edges,
         hv_counts,
         measurement_hv_counts,
@@ -474,7 +523,7 @@ def main() -> None:
         speed_edges,
         files_read,
     )
-    plot_solar_counts(args.solar_output, solar_counts, solar_edges)
+    plot_solar_counts(args.solar_output, solar_years, solar_year_counts, solar_edges)
     plot_height_velocity(
         args.height_velocity_output,
         hv_counts,
