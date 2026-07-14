@@ -44,7 +44,12 @@ def collect_events(orbit_metadata_dir: Path) -> tuple[np.ndarray, int]:
 def finite_field(events: np.ndarray, name: str) -> np.ndarray:
     if events.dtype.names is None or name not in events.dtype.names:
         return np.full(len(events), np.nan, dtype=np.float32)
-    return np.asarray(events[name], dtype=np.float32)
+    values = np.asarray(events[name], dtype=np.float64)
+    out = np.full(values.shape, np.nan, dtype=np.float32)
+    finite = np.isfinite(values)
+    finite &= np.abs(values) <= np.finfo(np.float32).max
+    out[finite] = values[finite].astype(np.float32)
+    return out
 
 
 def quality_mask(events: np.ndarray, max_radiant_sigma_deg: float | None) -> np.ndarray:
