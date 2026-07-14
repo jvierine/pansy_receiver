@@ -182,7 +182,7 @@ def histogram_height_velocity(height_km: np.ndarray, speed_km_s: np.ndarray) -> 
 def write_statistics_h5(
     path: Path,
     arrays: dict[str, np.ndarray],
-    measurement_arrays: dict[str, np.ndarray],
+    measurement_count: int,
     solar_counts,
     solar_edges,
     hv_counts,
@@ -197,10 +197,8 @@ def write_statistics_h5(
         h.attrs["source"] = "compact orbit metadata events tables"
         h.attrs["files_read"] = int(files_read)
         h.attrs["event_count"] = int(len(arrays["sample_idx"]))
-        h.attrs["measurement_count"] = int(len(measurement_arrays["measurement_height_km"]))
+        h.attrs["measurement_count"] = int(measurement_count)
         for name, values in arrays.items():
-            h.create_dataset(name, data=values, compression="gzip", shuffle=True)
-        for name, values in measurement_arrays.items():
             h.create_dataset(name, data=values, compression="gzip", shuffle=True)
         h.create_dataset("solar_longitude_count", data=solar_counts, compression="gzip", shuffle=True)
         h.create_dataset("solar_longitude_edges_deg", data=solar_edges)
@@ -224,7 +222,14 @@ def plot_solar_counts(path: Path, counts: np.ndarray, edges: np.ndarray) -> None
     plt.close(fig)
 
 
-def plot_height_velocity(path: Path, hv_counts: np.ndarray, height_edges: np.ndarray, speed_edges: np.ndarray) -> None:
+def plot_height_velocity(
+    path: Path,
+    hv_counts: np.ndarray,
+    height_edges: np.ndarray,
+    speed_edges: np.ndarray,
+    ylabel: str,
+    colorbar_label: str,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     plot_count = np.asarray(hv_counts, dtype=np.float64)
     plot_count[plot_count <= 0.0] = np.nan
@@ -240,11 +245,11 @@ def plot_height_velocity(path: Path, hv_counts: np.ndarray, height_edges: np.nda
         norm=LogNorm(vmin=1.0, vmax=max(1.0, float(np.nanmax(plot_count)) if np.any(np.isfinite(plot_count)) else 1.0)),
     )
     ax.set_xlabel(r"Geocentric velocity, $v_g$ (km s$^{-1}$)")
-    ax.set_ylabel("Initial detection height (km)")
+    ax.set_ylabel(ylabel)
     ax.set_xlim(float(speed_edges[0]), float(speed_edges[-1]))
     ax.set_ylim(float(height_edges[0]), float(height_edges[-1]))
     cb = fig.colorbar(mesh, ax=ax)
-    cb.set_label("Catalogue meteor count")
+    cb.set_label(colorbar_label)
     fig.savefig(path, dpi=220)
     plt.close(fig)
 
@@ -285,7 +290,7 @@ def main() -> None:
     write_statistics_h5(
         args.output_h5,
         arrays,
-        measurement_arrays,
+        len(measurement_arrays["measurement_height_km"]),
         solar_counts,
         solar_edges,
         hv_counts,
@@ -295,9 +300,23 @@ def main() -> None:
         files_read,
     )
     plot_solar_counts(args.solar_output, solar_counts, solar_edges)
-    plot_height_velocity(args.height_velocity_output, hv_counts, height_edges, speed_edges)
+    plot_height_velocity(
+        args.height_velocity_output,
+        hv_counts,
+        height_edges,
+        speed_edges,
+        "Initial detection height (km)",
+        "Catalogue meteor count",
+    )
     if args.include_measurements:
-        plot_height_velocity(args.measurement_height_velocity_output, measurement_hv_counts, height_edges, speed_edges)
+        plot_height_velocity(
+            args.measurement_height_velocity_output,
+            measurement_hv_counts,
+            height_edges,
+            speed_edges,
+            "Measurement height (km)",
+            "Measurement count",
+        )
     print(
         f"orbit_catalogue_statistics events={len(arrays['sample_idx'])} "
         f"measurements={len(measurement_arrays['measurement_height_km'])} files_read={files_read}"
