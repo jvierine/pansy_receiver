@@ -343,6 +343,17 @@ def histogram_solar_longitude_by_year(
     return np.asarray(years, dtype=np.int16), np.asarray(counts, dtype=np.int32), edges.astype(np.float32)
 
 
+def count_density_from_counts(
+    counts_by_year: np.ndarray,
+    edges: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    counts = np.asarray(counts_by_year, dtype=np.float64)
+    bin_width_deg = np.diff(np.asarray(edges, dtype=np.float64))
+    density_by_year = (counts / bin_width_deg[np.newaxis, :]).astype(np.float32)
+    all_density = (np.sum(counts, axis=0) / bin_width_deg).astype(np.float32)
+    return density_by_year, all_density
+
+
 def histogram_height_velocity(height_km: np.ndarray, speed_km_s: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     height_edges = np.arange(50.0, 180.0 + 1.0, 1.0, dtype=np.float32)
     speed_edges = np.arange(0.0, 80.0 + 1.0, 1.0, dtype=np.float32)
@@ -358,6 +369,8 @@ def write_statistics_h5(
     solar_counts,
     solar_years,
     solar_year_counts,
+    solar_year_count_density,
+    solar_all_count_density,
     solar_edges,
     hv_counts,
     measurement_hv_counts,
@@ -376,6 +389,7 @@ def write_statistics_h5(
         h.attrs["event_count"] = int(len(arrays["sample_idx"]))
         h.attrs["fit_event_count"] = int(len(fit_arrays["fit_sample_idx"]))
         h.attrs["measurement_count"] = int(measurement_count)
+        h.attrs["solar_longitude_count_density_unit"] = "count per degree"
         h.attrs["height_velocity_quality_filter"] = (
             "static radiant monitor high-quality gate: valid DASST winning alias, "
             "combined_score, n_uncertainty_samples, initial_state_position_sigma_m, "
@@ -388,6 +402,8 @@ def write_statistics_h5(
         h.create_dataset("solar_longitude_count", data=solar_counts, compression="gzip", shuffle=True)
         h.create_dataset("solar_longitude_year", data=solar_years)
         h.create_dataset("solar_longitude_count_by_year", data=solar_year_counts, compression="gzip", shuffle=True)
+        h.create_dataset("solar_longitude_count_per_degree_by_year", data=solar_year_count_density, compression="gzip", shuffle=True)
+        h.create_dataset("solar_longitude_count_per_degree", data=solar_all_count_density, compression="gzip", shuffle=True)
         h.create_dataset("solar_longitude_edges_deg", data=solar_edges)
         h.create_dataset("height_velocity_count", data=hv_counts, compression="gzip", shuffle=True)
         h.create_dataset("measurement_height_velocity_count", data=measurement_hv_counts, compression="gzip", shuffle=True)
@@ -395,19 +411,26 @@ def write_statistics_h5(
         h.create_dataset("speed_edges_km_s", data=speed_edges)
 
 
-def plot_solar_counts(path: Path, years: np.ndarray, counts_by_year: np.ndarray, edges: np.ndarray) -> None:
+def plot_solar_counts(
+    path: Path,
+    years: np.ndarray,
+    count_density_by_year: np.ndarray,
+    all_count_density: np.ndarray,
+    edges: np.ndarray,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     centers = 0.5 * (edges[:-1] + edges[1:])
     fig, ax = plt.subplots(figsize=(8.0, 3.6), constrained_layout=True)
-    all_counts = np.sum(counts_by_year, axis=0)
-    ax.step(centers, all_counts, where="mid", color="black", linewidth=1.55, label="All")
+    ax.step(centers, all_count_density, where="mid", color="black", linewidth=1.55, label="All")
     colors = ("#2f5f8f", "#c04b37", "#4f7f3f")
-    for year, counts, color in zip(years, counts_by_year, colors):
-        ax.step(centers, counts, where="mid", color=color, linewidth=1.2, label=str(int(year)))
+    for year, count_density, color in zip(years, count_density_by_year, colors):
+        ax.step(centers, count_density, where="mid", color=color, linewidth=1.2, label=str(int(year)))
     ax.set_xlim(0, 360)
-    ax.set_ylim(0, max(1.0, float(np.nanmax(all_counts))) * 1.08)
+    finite_density = np.concatenate((np.ravel(all_count_density), np.ravel(count_density_by_year)))
+    finite_density = finite_density[np.isfinite(finite_density)]
+    ax.set_ylim(0, max(1.0, float(np.max(finite_density)) if len(finite_density) else 1.0) * 1.08)
     ax.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)")
-    ax.set_ylabel("Catalogue meteor count")
+    ax.set_ylabel(r"Catalogue count (deg$^{-1}$)")
     ax.grid(True, alpha=0.25)
     ax.legend(frameon=False, loc="upper right", ncol=3)
     add_month_axis(ax, 2025)
@@ -501,6 +524,7 @@ def main() -> None:
         arrays["solar_longitude_deg"],
         args.solar_bin_width_deg,
     )
+    solar_year_count_density, solar_all_count_density = count_density_from_counts(solar_year_counts, solar_edges)
     hv_counts, height_edges, speed_edges = histogram_height_velocity(
         fit_arrays["fit_initial_detection_height_km"],
         fit_arrays["fit_v_g_km_s"],
@@ -517,6 +541,8 @@ def main() -> None:
         solar_counts,
         solar_years,
         solar_year_counts,
+        solar_year_count_density,
+        solar_all_count_density,
         solar_edges,
         hv_counts,
         measurement_hv_counts,
@@ -524,7 +550,7 @@ def main() -> None:
         speed_edges,
         files_read,
     )
-    plot_solar_counts(args.solar_output, solar_years, solar_year_counts, solar_edges)
+    plot_solar_counts(args.solar_output, solar_years, solar_year_count_density, solar_all_count_density, solar_edges)
     plot_height_velocity(
         args.height_velocity_output,
         hv_counts,
