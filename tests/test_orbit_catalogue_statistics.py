@@ -21,15 +21,15 @@ def test_solar_longitude_count_density_uses_bin_width():
     np.testing.assert_allclose(all_density, [7.0, 7.0])
 
 
-def test_height_velocity_histogram_spans_40_to_180_km():
+def test_height_velocity_histogram_spans_20_to_180_km():
     from plot_orbit_catalogue_statistics import histogram_height_velocity
 
     counts, height_edges, speed_edges = histogram_height_velocity(
-        np.asarray([39.9, 40.1, 179.9, 180.1]),
+        np.asarray([19.9, 20.1, 179.9, 180.1]),
         np.asarray([20.0, 20.0, 20.0, 20.0]),
     )
 
-    assert height_edges[0] == 40.0
+    assert height_edges[0] == 20.0
     assert height_edges[-1] == 180.0
     assert speed_edges[0] == 0.0
     assert speed_edges[-1] == 80.0
