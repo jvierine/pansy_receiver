@@ -33,6 +33,8 @@ APEX_BETA_MAX_DEG = 35.0
 class Shower:
     name: str
     solar_lon_deg: float
+    snapshot_solar_lon_deg: float | None
+    snapshot_half_width_deg: float | None
     sc_lon_deg: float
     beta_deg: float
     ra_deg: float
@@ -49,6 +51,8 @@ SHOWERS = (
     Shower(
         name=r"$\omega$-Eridanids",
         solar_lon_deg=109.24,
+        snapshot_solar_lon_deg=None,
+        snapshot_half_width_deg=None,
         sc_lon_deg=288.74,
         beta_deg=-48.17,
         ra_deg=52.01,
@@ -63,6 +67,8 @@ SHOWERS = (
     Shower(
         name=r"$\kappa$-Scorpiids",
         solar_lon_deg=1.25,
+        snapshot_solar_lon_deg=0.0,
+        snapshot_half_width_deg=2.0,
         sc_lon_deg=240.62,
         beta_deg=-55.12,
         ra_deg=206.83,
@@ -77,6 +83,8 @@ SHOWERS = (
     Shower(
         name=r"$\phi$-Capricornids",
         solar_lon_deg=312.72,
+        snapshot_solar_lon_deg=None,
+        snapshot_half_width_deg=None,
         sc_lon_deg=354.51,
         beta_deg=-8.34,
         ra_deg=312.00,
@@ -529,8 +537,10 @@ def plot_snapshots(
     axes = [fig.add_subplot(1, 3, i + 1, projection="hammer") for i in range(3)]
     xcenters, ycenters, _, _ = histogram_grid_centers(xedges, yedges)
     for ax, shower in zip(axes, SHOWERS, strict=True):
-        sub = rows[solar_window_mask(rows, shower.solar_lon_deg, half_width_deg)]
-        obs_keep = solar_longitude_window_mask(observation_sun, shower.solar_lon_deg, half_width_deg)
+        window_center = shower.snapshot_solar_lon_deg if shower.snapshot_solar_lon_deg is not None else shower.solar_lon_deg
+        window_half_width = shower.snapshot_half_width_deg if shower.snapshot_half_width_deg is not None else half_width_deg
+        sub = rows[solar_window_mask(rows, window_center, window_half_width)]
+        obs_keep = solar_longitude_window_mask(observation_sun, window_center, window_half_width)
         if not np.any(obs_keep):
             raise RuntimeError(f"No observing-time samples found for {shower.name} snapshot")
         _, _, exposure_hours = radiant_exposure_hours_grid(
@@ -546,7 +556,7 @@ def plot_snapshots(
             ax,
             sub,
             None,
-            rf"{shower.name}, $\lambda_\odot={shower.solar_lon_deg:.1f}^\circ\pm{half_width_deg:g}^\circ$",
+            rf"{shower.name}, $\lambda_\odot={window_center:.1f}^\circ\pm{window_half_width:g}^\circ$",
             norm,
         )
         add_exposure_contours(ax, exposure_hours, hist, xedges, yedges)
