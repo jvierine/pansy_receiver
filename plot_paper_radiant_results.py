@@ -555,10 +555,11 @@ def plot_snapshots(
             np.deg2rad(centered_plot_longitude_deg(shower.sc_lon_deg)),
             np.deg2rad(shower.beta_deg),
             marker="o",
-            s=260,
+            s=520,
             linewidth=1.6,
             facecolors="none",
             edgecolors="cyan",
+            alpha=0.5,
             zorder=10,
         )
         ax.set_xticklabels([])
