@@ -167,7 +167,10 @@ def plot_hist_panel(ax, rows, weights, title, norm, cmap="magma"):
     hist, xedges, yedges = radiant_histogram(rows, weights=weights)
     x = np.deg2rad(xedges)
     y = np.deg2rad(yedges)
-    mesh = ax.pcolormesh(x, y, np.ma.masked_less_equal(hist, 0.0), shading="auto", cmap=cmap, norm=norm)
+    plot_hist = np.asarray(hist, dtype=np.float64).copy()
+    floor = float(norm.vmin) if norm is not None and np.isfinite(norm.vmin) else 1.0
+    plot_hist[~np.isfinite(plot_hist) | (plot_hist <= 0.0)] = floor
+    mesh = ax.pcolormesh(x, y, plot_hist, shading="auto", cmap=cmap, norm=norm)
     style_hammer(ax)
     ax.set_title(title, fontsize=10)
     return mesh
