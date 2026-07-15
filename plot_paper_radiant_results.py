@@ -354,6 +354,24 @@ def exposure_contour_levels(exposure_hours: np.ndarray) -> np.ndarray:
     return np.unique(levels[(levels > 0.0) & (levels < np.nanmax(positive))])
 
 
+def add_source_markers(ax) -> None:
+    for lon_deg, marker, color, size in (
+        (0.0, "o", "#ffd21f", 22),
+        (-90.0, r"$\otimes$", "black", 45),
+        (180.0, "o", "black", 22),
+    ):
+        ax.scatter(
+            np.deg2rad(centered_plot_longitude_deg(lon_deg)),
+            0.0,
+            marker=marker,
+            s=size,
+            color=color,
+            edgecolor="black" if marker == "o" else None,
+            linewidth=0.3 if marker == "o" else 0.0,
+            zorder=12,
+        )
+
+
 def plot_all_radiants(
     rows: np.ndarray,
     raw_hist: np.ndarray,
@@ -390,6 +408,7 @@ def plot_all_radiants(
             levels=levels,
             colors="white",
             linewidths=0.75,
+            linestyles="--",
             alpha=0.55,
             zorder=8,
         )
@@ -408,6 +427,8 @@ def plot_all_radiants(
         )
         ax0.clabel(zero_boundary, fmt={0.5: "0 h"}, fontsize=6, colors="white", inline_spacing=2)
     for ax in (ax0, ax1):
+        ax.set_xticklabels([])
+        add_source_markers(ax)
         ax.set_xlabel(r"Sun-centered ecliptic longitude, $\lambda-\lambda_\odot$")
         ax.set_ylabel(r"Ecliptic latitude, $\beta$")
     cb0 = fig.colorbar(mesh0, ax=ax0, orientation="horizontal", pad=0.10, fraction=0.045)
