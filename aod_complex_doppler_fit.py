@@ -95,7 +95,7 @@ def envelope_segments(env2: np.ndarray, threshold: float = 0.05) -> list[np.ndar
 
 
 def fit_baud_complex_sinusoid(decoded: np.ndarray, tx: np.ndarray, coarse_doppler_mps: float, search_hz: float):
-    """Estimate one complex decoded amplitude per TX baud blob, then fit Doppler."""
+    """Estimate one matched-filter complex amplitude per TX baud blob, then fit Doppler."""
     ns = np.arange(len(tx), dtype=np.float64)
     t = ns / 1e6
     env2 = np.abs(tx) ** 2
@@ -107,11 +107,10 @@ def fit_baud_complex_sinusoid(decoded: np.ndarray, tx: np.ndarray, coarse_dopple
     baud_z = []
     baud_w = []
     for seg in segs:
-        basis = env2[seg]
-        weight = basis**2
+        weight = env2[seg]
         den = np.sum(weight)
         baud_t.append(float(np.sum(t[seg] * weight) / max(float(den), 1e-30)))
-        baud_z.append(np.sum(basis * decoded[seg]) / max(float(np.sum(basis**2)), 1e-30))
+        baud_z.append(np.sum(decoded[seg]) / max(float(den), 1e-30))
         baud_w.append(float(den))
     baud_t = np.asarray(baud_t)
     baud_z = np.asarray(baud_z)
