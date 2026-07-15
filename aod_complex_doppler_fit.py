@@ -26,7 +26,7 @@ def beamform_echo(echo_ch: np.ndarray, uvw: np.ndarray, beam: int) -> tuple[np.n
     for s_cal in (-1, 1):
         for s_geom in (-1, 1):
             weights = np.exp(1j * (s_cal * phasecal + s_geom * geom_phase))
-            summed = np.sum(echo_ch * weights[None, :], axis=1) / len(weights)
+            summed = np.sum(echo_ch * weights[:, None], axis=0) / len(weights)
             amp = float(np.nanmax(np.abs(summed)))
             if best is None or amp > best[0]:
                 best = (amp, summed, (s_cal, s_geom))
