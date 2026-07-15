@@ -43,6 +43,10 @@ Operational notes:
   with the user site `/home/j/.local/lib/python3.10/site-packages` enabled. Install
   project-adjacent Python packages there with `/usr/bin/python3 -m pip install
   --user ...`.
+- If direct DNS/SSH to `revontuli.uit.no` or `avaruus.uit.no` is unavailable,
+  access them through the user's work laptop: connect via `j@juha.no` using
+  the port-forward on port `31337`, then SSH from the work laptop to
+  `revontuli.uit.no` or `avaruus.uit.no`.
 - `iau_meteor_showers` is a local git package, not a PyPI package. Source lives
   locally at `/Users/jvi019/src/iau_meteor_showers`; on `revontuli`, clone/pull it
   as a git checkout under `/home/j/src/iau_meteor_showers`, then install with
