@@ -1,9 +1,12 @@
+from types import SimpleNamespace
+
 import numpy as np
 
 from plot_paper_radiant_results import (
     corrected_flux_histogram,
     fit_zenith_exponent,
     observing_time_samples,
+    right_side_contour_label_positions,
 )
 from radiant_visibility import (
     altitude_from_radec_deg,
@@ -63,3 +66,29 @@ def test_apex_symmetry_fit_recovers_known_exponent():
     np.testing.assert_allclose(north_flux, south_flux, rtol=2e-3)
     _, _, flux = corrected_flux_histogram(rows, cos_z, exposure, 0.1, alpha)
     assert np.sum(flux) > 0.0
+
+
+def test_contour_labels_prefer_dark_right_side():
+    xcenters = np.asarray([-120.0, 60.0, 110.0, 145.0])
+    ycenters = np.asarray([-20.0, 20.0])
+    raw_hist = np.asarray([[0.0, 100.0, 0.0, 20.0], [0.0, 100.0, 50.0, 20.0]])
+    contour_set = SimpleNamespace(
+        allsegs=[
+            [
+                np.deg2rad(
+                    np.asarray(
+                        [
+                            [-120.0, -20.0],
+                            [60.0, -20.0],
+                            [110.0, -20.0],
+                            [145.0, -20.0],
+                        ]
+                    )
+                )
+            ]
+        ]
+    )
+
+    positions = right_side_contour_label_positions(contour_set, raw_hist, xcenters, ycenters)
+
+    np.testing.assert_allclose(np.rad2deg(positions[0]), [110.0, -20.0])

@@ -354,6 +354,46 @@ def exposure_contour_levels(exposure_hours: np.ndarray) -> np.ndarray:
     return np.unique(levels[(levels > 0.0) & (levels < np.nanmax(positive))])
 
 
+def right_side_contour_label_positions(
+    contour_set,
+    raw_hist: np.ndarray,
+    xcenters_deg: np.ndarray,
+    ycenters_deg: np.ndarray,
+) -> list[tuple[float, float]]:
+    """Choose one low-density label location per contour on the map's right side."""
+    xcenters_rad = np.deg2rad(np.asarray(xcenters_deg, dtype=np.float64))
+    ycenters_rad = np.deg2rad(np.asarray(ycenters_deg, dtype=np.float64))
+    density = np.log1p(np.maximum(np.asarray(raw_hist, dtype=np.float64), 0.0))
+    density_scale = max(float(np.nanmax(density)), 1.0)
+    target_x = np.deg2rad(110.0)
+    right_min = np.deg2rad(45.0)
+    right_max = np.deg2rad(155.0)
+    positions: list[tuple[float, float]] = []
+
+    for segments in contour_set.allsegs:
+        candidates = []
+        fallback = []
+        for segment in segments:
+            segment = np.asarray(segment, dtype=np.float64)
+            if segment.ndim != 2 or segment.shape[0] == 0:
+                continue
+            fallback.extend(segment)
+            candidates.extend(segment[(segment[:, 0] >= right_min) & (segment[:, 0] <= right_max)])
+        points = np.asarray(candidates if candidates else fallback, dtype=np.float64)
+        if points.size == 0:
+            positions.append((target_x, 0.0))
+            continue
+
+        scores = np.empty(len(points), dtype=np.float64)
+        for i, (x, y) in enumerate(points):
+            ix = int(np.argmin(np.abs(xcenters_rad - x)))
+            iy = int(np.argmin(np.abs(ycenters_rad - y)))
+            longitude_cost = abs(x - target_x) / np.deg2rad(45.0)
+            scores[i] = longitude_cost + 2.5 * density[iy, ix] / density_scale
+        positions.append(tuple(points[int(np.argmin(scores))]))
+    return positions
+
+
 def add_source_markers(ax) -> None:
     for lon_deg, marker, color, size in (
         (0.0, "o", "#ffd21f", 22),
@@ -412,7 +452,16 @@ def plot_all_radiants(
             alpha=0.55,
             zorder=8,
         )
-        ax0.clabel(contours, fmt=lambda value: f"{value:g} h", fontsize=6, colors="white", inline_spacing=2)
+        label_positions = right_side_contour_label_positions(contours, raw_hist, xcenters, ycenters)
+        ax0.clabel(
+            contours,
+            levels=contours.levels,
+            manual=label_positions,
+            fmt=lambda value: f"{value:g} h",
+            fontsize=6,
+            colors="white",
+            inline_spacing=2,
+        )
     if np.any(exposure_hours <= 0.0) and np.any(exposure_hours > 0.0):
         zero_boundary = ax0.contour(
             np.deg2rad(xcenters),
@@ -425,7 +474,16 @@ def plot_all_radiants(
             alpha=0.72,
             zorder=9,
         )
-        ax0.clabel(zero_boundary, fmt={0.5: "0 h"}, fontsize=6, colors="white", inline_spacing=2)
+        zero_position = right_side_contour_label_positions(zero_boundary, raw_hist, xcenters, ycenters)[0]
+        ax0.clabel(
+            zero_boundary,
+            levels=[0.5],
+            manual=[zero_position],
+            fmt={0.5: "0 h"},
+            fontsize=6,
+            colors="white",
+            inline_spacing=2,
+        )
     for ax in (ax0, ax1):
         ax.set_xticklabels([])
         add_source_markers(ax)
