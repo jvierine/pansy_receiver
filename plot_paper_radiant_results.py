@@ -412,6 +412,61 @@ def add_source_markers(ax) -> None:
         )
 
 
+def add_exposure_contours(
+    ax,
+    exposure_hours: np.ndarray,
+    raw_hist: np.ndarray,
+    xedges: np.ndarray,
+    yedges: np.ndarray,
+) -> None:
+    xcenters, ycenters, _, _ = histogram_grid_centers(xedges, yedges)
+    levels = exposure_contour_levels(exposure_hours)
+    if len(levels) > 0:
+        contours = ax.contour(
+            np.deg2rad(xcenters),
+            np.deg2rad(ycenters),
+            exposure_hours,
+            levels=levels,
+            colors="white",
+            linewidths=0.75,
+            linestyles="--",
+            alpha=0.55,
+            zorder=8,
+        )
+        label_positions = right_side_contour_label_positions(contours, raw_hist, xcenters, ycenters)
+        ax.clabel(
+            contours,
+            levels=contours.levels,
+            manual=label_positions,
+            fmt=lambda value: f"{value:g} h",
+            fontsize=6,
+            colors="white",
+            inline_spacing=2,
+        )
+    if np.any(exposure_hours <= 0.0) and np.any(exposure_hours > 0.0):
+        zero_boundary = ax.contour(
+            np.deg2rad(xcenters),
+            np.deg2rad(ycenters),
+            (exposure_hours > 0.0).astype(np.float32),
+            levels=[0.5],
+            colors="white",
+            linewidths=0.9,
+            linestyles="--",
+            alpha=0.72,
+            zorder=9,
+        )
+        zero_position = right_side_contour_label_positions(zero_boundary, raw_hist, xcenters, ycenters)[0]
+        ax.clabel(
+            zero_boundary,
+            levels=[0.5],
+            manual=[zero_position],
+            fmt={0.5: "0 h"},
+            fontsize=6,
+            colors="white",
+            inline_spacing=2,
+        )
+
+
 def plot_all_radiants(
     rows: np.ndarray,
     raw_hist: np.ndarray,
@@ -438,52 +493,7 @@ def plot_all_radiants(
         rf"Exposure-corrected radiant rate ($\alpha={alpha:.2f}$)",
         flux_norm,
     )
-    xcenters, ycenters, _, _ = histogram_grid_centers(xedges, yedges)
-    levels = exposure_contour_levels(exposure_hours)
-    if len(levels) > 0:
-        contours = ax0.contour(
-            np.deg2rad(xcenters),
-            np.deg2rad(ycenters),
-            exposure_hours,
-            levels=levels,
-            colors="white",
-            linewidths=0.75,
-            linestyles="--",
-            alpha=0.55,
-            zorder=8,
-        )
-        label_positions = right_side_contour_label_positions(contours, raw_hist, xcenters, ycenters)
-        ax0.clabel(
-            contours,
-            levels=contours.levels,
-            manual=label_positions,
-            fmt=lambda value: f"{value:g} h",
-            fontsize=6,
-            colors="white",
-            inline_spacing=2,
-        )
-    if np.any(exposure_hours <= 0.0) and np.any(exposure_hours > 0.0):
-        zero_boundary = ax0.contour(
-            np.deg2rad(xcenters),
-            np.deg2rad(ycenters),
-            (exposure_hours > 0.0).astype(np.float32),
-            levels=[0.5],
-            colors="white",
-            linewidths=0.9,
-            linestyles="--",
-            alpha=0.72,
-            zorder=9,
-        )
-        zero_position = right_side_contour_label_positions(zero_boundary, raw_hist, xcenters, ycenters)[0]
-        ax0.clabel(
-            zero_boundary,
-            levels=[0.5],
-            manual=[zero_position],
-            fmt={0.5: "0 h"},
-            fontsize=6,
-            colors="white",
-            inline_spacing=2,
-        )
+    add_exposure_contours(ax0, exposure_hours, raw_hist, xedges, yedges)
     for ax in (ax0, ax1):
         ax.set_xticklabels([])
         add_source_markers(ax)
@@ -501,11 +511,35 @@ def solar_window_mask(rows: np.ndarray, center_deg: float, half_width_deg: float
     return np.abs(wrap180(np.asarray(rows["sun_lambda_ecliptic_deg"], dtype=np.float64) - float(center_deg))) <= float(half_width_deg)
 
 
-def plot_snapshots(rows: np.ndarray, out: Path, half_width_deg: float) -> None:
+def solar_longitude_window_mask(solar_longitude_deg: np.ndarray, center_deg: float, half_width_deg: float) -> np.ndarray:
+    return np.abs(wrap180(np.asarray(solar_longitude_deg, dtype=np.float64) - float(center_deg))) <= float(half_width_deg)
+
+
+def plot_snapshots(
+    rows: np.ndarray,
+    observation_epoch: np.ndarray,
+    observation_sun: np.ndarray,
+    observation_hours: np.ndarray,
+    xedges: np.ndarray,
+    yedges: np.ndarray,
+    out: Path,
+    half_width_deg: float,
+) -> None:
     fig = plt.figure(figsize=(11.0, 4.4), constrained_layout=True)
     axes = [fig.add_subplot(1, 3, i + 1, projection="hammer") for i in range(3)]
+    xcenters, ycenters, _, _ = histogram_grid_centers(xedges, yedges)
     for ax, shower in zip(axes, SHOWERS, strict=True):
         sub = rows[solar_window_mask(rows, shower.solar_lon_deg, half_width_deg)]
+        obs_keep = solar_longitude_window_mask(observation_sun, shower.solar_lon_deg, half_width_deg)
+        if not np.any(obs_keep):
+            raise RuntimeError(f"No observing-time samples found for {shower.name} snapshot")
+        _, _, exposure_hours = radiant_exposure_hours_grid(
+            observation_epoch[obs_keep],
+            observation_sun[obs_keep],
+            observation_hours[obs_keep],
+            plot_longitude_deg=xcenters,
+            beta_deg=ycenters,
+        )
         hist, *_ = radiant_histogram(sub)
         norm = LogNorm(vmin=1.0, vmax=max(2.0, np.nanpercentile(hist[hist > 0], 99.4))) if np.any(hist > 0) else None
         plot_hist_panel(
@@ -515,15 +549,19 @@ def plot_snapshots(rows: np.ndarray, out: Path, half_width_deg: float) -> None:
             rf"{shower.name}, $\lambda_\odot={shower.solar_lon_deg:.1f}^\circ\pm{half_width_deg:g}^\circ$",
             norm,
         )
+        add_exposure_contours(ax, exposure_hours, hist, xedges, yedges)
+        add_source_markers(ax)
         ax.scatter(
             np.deg2rad(centered_plot_longitude_deg(shower.sc_lon_deg)),
             np.deg2rad(shower.beta_deg),
-            marker="+",
-            s=170,
-            linewidth=1.5,
-            color="cyan",
+            marker="o",
+            s=260,
+            linewidth=1.6,
+            facecolors="none",
+            edgecolors="cyan",
             zorder=10,
         )
+        ax.set_xticklabels([])
         ax.set_xlabel(r"$\lambda-\lambda_\odot$")
     axes[0].set_ylabel(r"$\beta$")
     fig.savefig(out, dpi=240)
@@ -539,10 +577,10 @@ def plot_candidate_showers(rows: np.ndarray, out: Path, half_width_deg: float, r
         y = np.asarray(sub["radiant_beta_ecliptic_deg"], dtype=np.float64)
         near = np.abs(x) <= 24.0
         near &= np.abs(y - shower.beta_deg) <= 18.0
-        ax.scatter(x[near], y[near], s=2.0, c="0.55", alpha=0.45, linewidths=0)
+        ax.scatter(x[near], y[near], s=4.0, c="0.55", alpha=0.45, linewidths=0)
         sep = angular_separation_deg(sub["lambda_minus_sun_deg"], sub["radiant_beta_ecliptic_deg"], shower.sc_lon_deg, shower.beta_deg)
         member = sep <= float(radius_deg)
-        ax.scatter(x[member], y[member], s=8.0, c="#d62728", alpha=0.9, linewidths=0)
+        ax.scatter(x[member], y[member], s=16.0, c="#d62728", alpha=0.9, linewidths=0)
         ax.scatter(0.0, shower.beta_deg, marker="+", s=180, linewidth=1.6, color="black")
         circle = plt.Circle((0.0, shower.beta_deg), radius_deg, color="black", fill=False, lw=0.8, ls="--")
         ax.add_patch(circle)
@@ -669,7 +707,16 @@ def main() -> None:
         alpha,
         args.output_dir / "paper_radiant_distribution_corrected.png",
     )
-    plot_snapshots(rows, args.output_dir / "paper_radiant_snapshots.png", half_width_deg=args.snapshot_half_width_deg)
+    plot_snapshots(
+        rows,
+        observation_epoch,
+        observation_sun,
+        observation_hours,
+        xedges,
+        yedges,
+        args.output_dir / "paper_radiant_snapshots.png",
+        half_width_deg=args.snapshot_half_width_deg,
+    )
     plot_candidate_showers(rows, args.output_dir / "paper_candidate_showers.png", half_width_deg=args.snapshot_half_width_deg, radius_deg=args.shower_radius_deg)
     write_sidecar(
         args.output_dir / "paper_radiant_results.h5",
