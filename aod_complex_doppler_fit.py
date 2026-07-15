@@ -151,6 +151,8 @@ def main() -> int:
     parser.add_argument("--range-search-samples", type=int, default=8)
     parser.add_argument("--fractional-delay-step", type=float, default=0.05)
     parser.add_argument("--frequency-search-hz", type=float, default=20000.0)
+    parser.add_argument("--phasecal-sign", type=int, choices=(-1, 1), default=-1)
+    parser.add_argument("--geometry-sign", type=int, choices=(-1, 1), default=1)
     args = parser.parse_args()
 
     cut = load_cut(args.cut_dir, args.sample_idx)
@@ -186,34 +188,34 @@ def main() -> int:
     tx = z_tx[pulse].astype(np.complex128)
     best = None
     frac_delays = np.arange(-0.5, 0.5001, args.fractional_delay_step)
-    for signs in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
-        summed_i = beamform_echo(z_rx[pulse].astype(np.complex128), uvw[pulse], beam, signs)
-        for range_bin_i in range(
-            int(coarse["range_bin"][pulse]) - args.range_search_samples,
-            int(coarse["range_bin"][pulse]) + args.range_search_samples + 1,
-        ):
-            if range_bin_i < 0 or range_bin_i + len(tx) > len(summed_i):
-                continue
-            for frac_delay in frac_delays:
-                shifted_i = fractional_delay_fft(summed_i, frac_delay)
-                decoded_i = shifted_i[range_bin_i : range_bin_i + len(tx)] * np.conj(tx)
-                fit_i = fit_baud_complex_sinusoid(
-                    decoded_i,
-                    tx,
-                    float(coarse["doppler_mps"][pulse]),
-                    search_hz=float(args.frequency_search_hz),
-                )
-                score = fit_i["chi"]
-                if best is None or score < best["score"]:
-                    best = {
-                        "score": score,
-                        "signs": signs,
-                        "range_bin": range_bin_i,
-                        "frac_delay": float(frac_delay),
-                        "summed": summed_i,
-                        "decoded": decoded_i,
-                        "fit": fit_i,
-                    }
+    signs = (args.phasecal_sign, args.geometry_sign)
+    summed_i = beamform_echo(z_rx[pulse].astype(np.complex128), uvw[pulse], beam, signs)
+    for range_bin_i in range(
+        int(coarse["range_bin"][pulse]) - args.range_search_samples,
+        int(coarse["range_bin"][pulse]) + args.range_search_samples + 1,
+    ):
+        if range_bin_i < 0 or range_bin_i + len(tx) > len(summed_i):
+            continue
+        for frac_delay in frac_delays:
+            shifted_i = fractional_delay_fft(summed_i, frac_delay)
+            decoded_i = shifted_i[range_bin_i : range_bin_i + len(tx)] * np.conj(tx)
+            fit_i = fit_baud_complex_sinusoid(
+                decoded_i,
+                tx,
+                float(coarse["doppler_mps"][pulse]),
+                search_hz=float(args.frequency_search_hz),
+            )
+            score = fit_i["chi"]
+            if best is None or score < best["score"]:
+                best = {
+                    "score": score,
+                    "signs": signs,
+                    "range_bin": range_bin_i,
+                    "frac_delay": float(frac_delay),
+                    "summed": summed_i,
+                    "decoded": decoded_i,
+                    "fit": fit_i,
+                }
     if best is None:
         raise RuntimeError("no valid range/sign candidates")
     signs = best["signs"]
