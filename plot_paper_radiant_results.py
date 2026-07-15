@@ -13,6 +13,7 @@ import numpy as np
 from astropy import units as u
 from astropy.coordinates import AltAz, EarthLocation, SkyCoord
 from astropy.time import Time
+from matplotlib.ticker import FuncFormatter
 from matplotlib.colors import LogNorm
 from scipy.optimize import minimize_scalar
 
@@ -586,22 +587,20 @@ def plot_candidate_showers(rows: np.ndarray, out: Path, half_width_deg: float, r
     for ax, shower in zip(axes, SHOWERS, strict=True):
         solar_keep = solar_window_mask(rows, shower.solar_lon_deg, half_width_deg)
         sub = rows[solar_keep]
-        x = wrap180(np.asarray(sub["lambda_minus_sun_deg"], dtype=np.float64) - shower.sc_lon_deg)
+        x_offset = wrap180(np.asarray(sub["lambda_minus_sun_deg"], dtype=np.float64) - shower.sc_lon_deg)
+        x = shower.sc_lon_deg + x_offset
         y = np.asarray(sub["radiant_beta_ecliptic_deg"], dtype=np.float64)
-        near = np.abs(x) <= longitude_zoom_deg
+        near = np.abs(x_offset) <= longitude_zoom_deg
         near &= np.abs(y - shower.beta_deg) <= latitude_zoom_deg
-        ax.scatter(x[near], y[near], s=8.0, c="0.55", alpha=0.45, linewidths=0)
-        sep = angular_separation_deg(sub["lambda_minus_sun_deg"], sub["radiant_beta_ecliptic_deg"], shower.sc_lon_deg, shower.beta_deg)
-        member = sep <= float(radius_deg)
-        ax.scatter(x[member], y[member], s=32.0, c="#d62728", alpha=0.9, linewidths=0)
-        ax.scatter(0.0, shower.beta_deg, marker="+", s=180, linewidth=1.6, color="black")
-        circle = plt.Circle((0.0, shower.beta_deg), radius_deg, color="black", fill=False, lw=0.8, ls="--")
+        ax.scatter(x[near], y[near], s=8.0, c="0.35", alpha=0.45, linewidths=0)
+        circle = plt.Circle((shower.sc_lon_deg, shower.beta_deg), radius_deg, color="black", fill=False, lw=0.8, ls="--")
         ax.add_patch(circle)
-        ax.set_xlim(longitude_zoom_deg, -longitude_zoom_deg)
+        ax.set_xlim(shower.sc_lon_deg + longitude_zoom_deg, shower.sc_lon_deg - longitude_zoom_deg)
         ax.set_ylim(shower.beta_deg - latitude_zoom_deg, shower.beta_deg + latitude_zoom_deg)
+        ax.xaxis.set_major_formatter(FuncFormatter(lambda value, _position: f"{float(wrap360(value)):g}"))
         ax.set_title(f"{shower.name}\nN={shower.n}, $v_g$={shower.vg_km_s:.1f} km/s", fontsize=10)
         ax.grid(alpha=0.25, lw=0.45)
-        ax.set_xlabel(r"$\Delta(\lambda-\lambda_\odot)$ (deg)")
+        ax.set_xlabel(r"$\lambda'_g = \lambda_g - \lambda_\odot$ (deg)")
     axes[0].set_ylabel(r"Ecliptic latitude, $\beta$ (deg)")
     fig.savefig(out, dpi=240)
     plt.close(fig)
