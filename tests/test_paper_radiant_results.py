@@ -1,0 +1,65 @@
+import numpy as np
+
+from plot_paper_radiant_results import (
+    corrected_flux_histogram,
+    fit_zenith_exponent,
+    observing_time_samples,
+)
+from radiant_visibility import (
+    altitude_from_radec_deg,
+    ecliptic_lonlat_to_radec_deg,
+    radiant_exposure_hours_grid,
+    wrap360,
+)
+
+
+def test_observing_time_samples_preserves_partial_bin_duration():
+    intervals = np.asarray([[100.0, 1000.0], [1100.0, 1700.0]])
+    epoch, hours = observing_time_samples(intervals, cadence_seconds=900.0)
+    np.testing.assert_allclose(epoch, [450.0, 1350.0])
+    np.testing.assert_allclose(hours, [800.0 / 3600.0, 700.0 / 3600.0])
+
+
+def test_exposure_grid_matches_direct_altitude_calculation():
+    epoch = np.asarray([1_750_000_000.0])
+    sun = np.asarray([123.0])
+    plot_lon = np.asarray([-120.0, 15.0])
+    beta = np.asarray([-25.0, 20.0])
+    _, _, exposure = radiant_exposure_hours_grid(epoch, sun, [0.25], plot_lon, beta)
+
+    for iy, beta_deg in enumerate(beta):
+        for ix, plot_deg in enumerate(plot_lon):
+            lambda_minus_sun = wrap360(-90.0 - plot_deg)
+            ra, dec = ecliptic_lonlat_to_radec_deg(wrap360(sun[0] + lambda_minus_sun), beta_deg)
+            altitude = altitude_from_radec_deg(ra, dec, epoch[0])
+            expected = 0.25 if altitude > 0.0 else 0.0
+            assert exposure[iy, ix] == expected
+
+
+def test_apex_symmetry_fit_recovers_known_exponent():
+    dtype = np.dtype(
+        [
+            ("plot_longitude_deg", "f8"),
+            ("radiant_beta_ecliptic_deg", "f8"),
+            ("speed_km_s", "f8"),
+        ]
+    )
+    rows = np.zeros(3, dtype=dtype)
+    rows["plot_longitude_deg"] = 0.0
+    rows["radiant_beta_ecliptic_deg"] = [20.0, 20.0, -20.0]
+    rows["speed_km_s"] = 73.0
+    cos_z = np.asarray([1.0, 1.0, 0.5])
+    exposure = np.ones((72, 144), dtype=np.float64)
+
+    alpha, objective, north_flux, south_flux = fit_zenith_exponent(
+        rows,
+        cos_z,
+        exposure,
+        min_cos_z=0.1,
+        alpha_bounds=(0.0, 3.0),
+    )
+    assert abs(alpha - 1.0) < 2e-3
+    assert objective < 1e-8
+    np.testing.assert_allclose(north_flux, south_flux, rtol=2e-3)
+    _, _, flux = corrected_flux_histogram(rows, cos_z, exposure, 0.1, alpha)
+    assert np.sum(flux) > 0.0
