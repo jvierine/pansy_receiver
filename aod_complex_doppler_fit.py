@@ -110,7 +110,7 @@ def fit_baud_complex_sinusoid(decoded: np.ndarray, tx: np.ndarray, coarse_dopple
         weight = env2[seg]
         den = np.sum(weight)
         baud_t.append(float(np.sum(t[seg] * weight) / max(float(den), 1e-30)))
-        baud_z.append(np.sum(decoded[seg]) / max(float(den), 1e-30))
+        baud_z.append(np.sum(weight * decoded[seg]) / max(float(den), 1e-30))
         baud_w.append(float(den))
     baud_t = np.asarray(baud_t)
     baud_z = np.asarray(baud_z)
