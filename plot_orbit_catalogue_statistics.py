@@ -727,6 +727,34 @@ def count_density_from_counts(
     return density_by_year, all_density
 
 
+def mesomode_exposure_by_solar_longitude(
+    sidecar_path: Path | None,
+    edges: np.ndarray,
+    years: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Histogram mesosphere-mode observing hours by solar longitude and UTC year."""
+    n_year = len(years)
+    n_bin = len(edges) - 1
+    if sidecar_path is None:
+        return np.zeros((n_year, n_bin), dtype=np.float32), np.zeros(n_bin, dtype=np.float32)
+    if not sidecar_path.exists():
+        raise FileNotFoundError(sidecar_path)
+    with h5py.File(sidecar_path, "r") as h:
+        t0 = np.asarray(h["intervals/t0_unix"], dtype=np.float64)
+        t1 = np.asarray(h["intervals/t1_unix"], dtype=np.float64)
+        duration_h = np.asarray(h["intervals/duration_s"], dtype=np.float64) / 3600.0
+    mid_unix = 0.5 * (t0 + t1)
+    good = np.isfinite(mid_unix) & np.isfinite(duration_h) & (duration_h > 0.0)
+    mid_unix = mid_unix[good]
+    duration_h = duration_h[good]
+    solar_lon = sun_ecliptic_longitude_deg(mid_unix)
+    interval_year = np.asarray([dt.datetime.fromtimestamp(float(t), tz=dt.timezone.utc).year for t in mid_unix], dtype=np.int16)
+    by_year = np.zeros((n_year, n_bin), dtype=np.float64)
+    for i, year in enumerate(years):
+        by_year[i], _ = np.histogram(solar_lon[interval_year == int(year)], bins=edges, weights=duration_h[interval_year == int(year)])
+    return by_year.astype(np.float32), np.sum(by_year, axis=0).astype(np.float32)
+
+
 def histogram_height_velocity(
     height_km: np.ndarray,
     speed_km_s: np.ndarray,
@@ -749,6 +777,8 @@ def write_statistics_h5(
     solar_year_counts,
     solar_year_count_density,
     solar_all_count_density,
+    solar_mesomode_hours_by_year,
+    solar_mesomode_hours,
     solar_edges,
     hv_counts,
     measurement_hv_counts,
@@ -796,6 +826,7 @@ def write_statistics_h5(
         )
         h.attrs["initial_tx_beam_angle_event_count"] = int(initial_tx_event_count)
         h.attrs["solar_longitude_count_density_unit"] = "count per degree"
+        h.attrs["solar_longitude_mesomode_exposure_unit"] = "mesosphere-mode beam hours per solar-longitude bin"
         h.attrs["height_velocity_quality_filter"] = (
             "static radiant monitor high-quality gate: valid DASST winning alias, "
             "combined_score, n_uncertainty_samples, initial_state_position_sigma_m, "
@@ -810,6 +841,8 @@ def write_statistics_h5(
         h.create_dataset("solar_longitude_count_by_year", data=solar_year_counts, compression="gzip", shuffle=True)
         h.create_dataset("solar_longitude_count_per_degree_by_year", data=solar_year_count_density, compression="gzip", shuffle=True)
         h.create_dataset("solar_longitude_count_per_degree", data=solar_all_count_density, compression="gzip", shuffle=True)
+        h.create_dataset("solar_longitude_mesomode_hours_by_year", data=solar_mesomode_hours_by_year, compression="gzip", shuffle=True)
+        h.create_dataset("solar_longitude_mesomode_hours", data=solar_mesomode_hours, compression="gzip", shuffle=True)
         h.create_dataset("solar_longitude_edges_deg", data=solar_edges)
         h.create_dataset("height_velocity_count", data=hv_counts, compression="gzip", shuffle=True)
         h.create_dataset("measurement_height_velocity_count", data=measurement_hv_counts, compression="gzip", shuffle=True)
@@ -824,10 +857,19 @@ def plot_solar_counts(
     count_density_by_year: np.ndarray,
     all_count_density: np.ndarray,
     edges: np.ndarray,
+    mesomode_hours_by_year: np.ndarray | None = None,
+    mesomode_hours: np.ndarray | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     centers = 0.5 * (edges[:-1] + edges[1:])
-    fig, ax = plt.subplots(figsize=(8.0, 3.6), constrained_layout=True)
+    has_exposure = mesomode_hours_by_year is not None and mesomode_hours is not None
+    if has_exposure:
+        fig, axes = plt.subplots(2, 1, figsize=(8.0, 5.6), sharex=True, constrained_layout=True)
+        ax = axes[0]
+        ax_exp = axes[1]
+    else:
+        fig, ax = plt.subplots(figsize=(8.0, 3.6), constrained_layout=True)
+        ax_exp = None
     ax.step(centers, all_count_density, where="mid", color="black", linewidth=1.55, label="All")
     colors = ("#2f5f8f", "#c04b37", "#4f7f3f")
     for year, count_density, color in zip(years, count_density_by_year, colors):
@@ -836,11 +878,25 @@ def plot_solar_counts(
     finite_density = np.concatenate((np.ravel(all_count_density), np.ravel(count_density_by_year)))
     finite_density = finite_density[np.isfinite(finite_density)]
     ax.set_ylim(0, max(1.0, float(np.max(finite_density)) if len(finite_density) else 1.0) * 1.08)
-    ax.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)")
     ax.set_ylabel(r"Catalogue count (deg$^{-1}$)")
     ax.grid(True, alpha=0.25)
     ax.legend(frameon=False, loc="upper center", ncol=3)
-    add_month_axis(ax, 2025)
+    if ax_exp is None:
+        ax.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)")
+        add_month_axis(ax, 2025)
+    else:
+        ax.tick_params(labelbottom=False)
+        ax_exp.step(centers, mesomode_hours, where="mid", color="black", linewidth=1.55, label="All")
+        for year, hours, color in zip(years, mesomode_hours_by_year, colors):
+            ax_exp.step(centers, hours, where="mid", color=color, linewidth=1.2, label=str(int(year)))
+        finite_hours = np.concatenate((np.ravel(mesomode_hours), np.ravel(mesomode_hours_by_year)))
+        finite_hours = finite_hours[np.isfinite(finite_hours)]
+        ax_exp.set_ylim(0, max(0.1, float(np.max(finite_hours)) if len(finite_hours) else 0.1) * 1.10)
+        ax_exp.set_xlim(0, 360)
+        ax_exp.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)")
+        ax_exp.set_ylabel("Mesosphere time (h)")
+        ax_exp.grid(True, alpha=0.25)
+        add_month_axis(ax_exp, 2025)
     fig.savefig(path, dpi=220)
     plt.close(fig)
 
@@ -882,6 +938,12 @@ def main() -> None:
     parser.add_argument("--orbit-metadata-dir", type=Path, default=Path("data/metadata/orbit"))
     parser.add_argument("--output-h5", type=Path, default=Path("paper_orbit_catalogue_statistics.h5"))
     parser.add_argument("--solar-output", type=Path, default=Path("paper_counts_solar_longitude.png"))
+    parser.add_argument(
+        "--mesomode-interval-sidecar",
+        type=Path,
+        default=None,
+        help="Optional HDF5 sidecar from build_mesomode_interval_sidecar.py; adds mesosphere observing hours as a second solar-longitude panel.",
+    )
     parser.add_argument("--height-velocity-output", type=Path, default=Path("paper_height_velocity.png"))
     parser.add_argument("--measurement-height-velocity-output", type=Path, default=Path("paper_measurement_height_velocity.png"))
     parser.add_argument("--solar-bin-width-deg", type=float, default=1.0)
@@ -1022,6 +1084,11 @@ def main() -> None:
         args.solar_bin_width_deg,
     )
     solar_year_count_density, solar_all_count_density = count_density_from_counts(solar_year_counts, solar_edges)
+    solar_mesomode_hours_by_year, solar_mesomode_hours = mesomode_exposure_by_solar_longitude(
+        args.mesomode_interval_sidecar,
+        solar_edges,
+        solar_years,
+    )
     hv_counts, height_edges, speed_edges = histogram_height_velocity(
         fit_arrays["fit_initial_detection_height_km"],
         fit_arrays["fit_v_g_km_s"],
@@ -1044,6 +1111,8 @@ def main() -> None:
         solar_year_counts,
         solar_year_count_density,
         solar_all_count_density,
+        solar_mesomode_hours_by_year,
+        solar_mesomode_hours,
         solar_edges,
         hv_counts,
         measurement_hv_counts,
@@ -1062,7 +1131,15 @@ def main() -> None:
         args.max_initial_tx_beam_angle_deg,
         initial_tx_event_count,
     )
-    plot_solar_counts(args.solar_output, solar_years, solar_year_count_density, solar_all_count_density, solar_edges)
+    plot_solar_counts(
+        args.solar_output,
+        solar_years,
+        solar_year_count_density,
+        solar_all_count_density,
+        solar_edges,
+        solar_mesomode_hours_by_year if args.mesomode_interval_sidecar is not None else None,
+        solar_mesomode_hours if args.mesomode_interval_sidecar is not None else None,
+    )
     plot_height_velocity(
         args.height_velocity_output,
         hv_counts,
