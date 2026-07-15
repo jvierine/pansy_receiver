@@ -17,6 +17,16 @@ import pansy_config as pc
 import pansy_interferometry as pint
 
 
+STEERING_SIGN_NOTE = """
+The AoD coherent-sum sign convention is intentionally measured, not assumed.
+For each diagnostic event the script evaluates all four single-channel voltage
+weights exp(i*(cal_sign*phasecal + geom_sign*k*r.u)) and selects the sign pair
+with the largest coherent baud-fit SNR. This avoids baking in a convention from
+pairwise interferometric imaging, where the stored cross spectrum is
+ZF[ch0] * conj(ZF[ch1]) and calibration appears as phasecal[ch0]-phasecal[ch1].
+"""
+
+
 def beamform_echo(echo_ch: np.ndarray, uvw: np.ndarray, beam: int, signs: tuple[int, int]) -> np.ndarray:
     """AoD-coherently sum receiver channels for one sign convention."""
     antpos = pint.get_antpos()
@@ -142,6 +152,13 @@ def fit_baud_complex_sinusoid(decoded: np.ndarray, tx: np.ndarray, coarse_dopple
     }
 
 
+def baud_fit_snr_db(fit: dict) -> float:
+    """Model-to-residual SNR for the baud-integrated complex amplitudes."""
+    signal = np.sum(fit["baud_w"] * np.abs(fit["baud_model"]) ** 2)
+    resid = np.sum(fit["baud_w"] * np.abs(fit["baud_z"] - fit["baud_model"]) ** 2)
+    return float(10.0 * np.log10(max(float(signal), 1e-300) / max(float(resid), 1e-300)))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sample-idx", type=int, required=True)
@@ -151,8 +168,8 @@ def main() -> int:
     parser.add_argument("--range-search-samples", type=int, default=8)
     parser.add_argument("--fractional-delay-step", type=float, default=0.05)
     parser.add_argument("--frequency-search-hz", type=float, default=20000.0)
-    parser.add_argument("--phasecal-sign", type=int, choices=(-1, 1), default=-1)
-    parser.add_argument("--geometry-sign", type=int, choices=(-1, 1), default=1)
+    parser.add_argument("--phasecal-sign", type=int, choices=(-1, 1), default=None)
+    parser.add_argument("--geometry-sign", type=int, choices=(-1, 1), default=None)
     args = parser.parse_args()
 
     cut = load_cut(args.cut_dir, args.sample_idx)
@@ -187,28 +204,36 @@ def main() -> int:
     beam = int(beam_id[pulse])
     tx = z_tx[pulse].astype(np.complex128)
     best = None
+    sign_summary = []
     frac_delays = np.arange(-0.5, 0.5001, args.fractional_delay_step)
-    signs = (args.phasecal_sign, args.geometry_sign)
-    summed_i = beamform_echo(z_rx[pulse].astype(np.complex128), uvw[pulse], beam, signs)
-    for range_bin_i in range(
-        int(coarse["range_bin"][pulse]) - args.range_search_samples,
-        int(coarse["range_bin"][pulse]) + args.range_search_samples + 1,
-    ):
-        if range_bin_i < 0 or range_bin_i + len(tx) > len(summed_i):
-            continue
-        for frac_delay in frac_delays:
-            shifted_i = fractional_delay_fft(summed_i, frac_delay)
-            decoded_i = shifted_i[range_bin_i : range_bin_i + len(tx)] * np.conj(tx)
-            fit_i = fit_baud_complex_sinusoid(
-                decoded_i,
-                tx,
-                float(coarse["doppler_mps"][pulse]),
-                search_hz=float(args.frequency_search_hz),
-            )
-            score = fit_i["chi"]
-            if best is None or score < best["score"]:
-                best = {
-                    "score": score,
+    if args.phasecal_sign is None and args.geometry_sign is None:
+        sign_options = [(-1, -1), (-1, 1), (1, -1), (1, 1)]
+    elif args.phasecal_sign is not None and args.geometry_sign is not None:
+        sign_options = [(args.phasecal_sign, args.geometry_sign)]
+    else:
+        raise ValueError("--phasecal-sign and --geometry-sign must be supplied together")
+
+    for signs in sign_options:
+        sign_best = None
+        summed_i = beamform_echo(z_rx[pulse].astype(np.complex128), uvw[pulse], beam, signs)
+        for range_bin_i in range(
+            int(coarse["range_bin"][pulse]) - args.range_search_samples,
+            int(coarse["range_bin"][pulse]) + args.range_search_samples + 1,
+        ):
+            if range_bin_i < 0 or range_bin_i + len(tx) > len(summed_i):
+                continue
+            for frac_delay in frac_delays:
+                shifted_i = fractional_delay_fft(summed_i, frac_delay)
+                decoded_i = shifted_i[range_bin_i : range_bin_i + len(tx)] * np.conj(tx)
+                fit_i = fit_baud_complex_sinusoid(
+                    decoded_i,
+                    tx,
+                    float(coarse["doppler_mps"][pulse]),
+                    search_hz=float(args.frequency_search_hz),
+                )
+                snr_db_i = baud_fit_snr_db(fit_i)
+                candidate = {
+                    "score": snr_db_i,
                     "signs": signs,
                     "range_bin": range_bin_i,
                     "frac_delay": float(frac_delay),
@@ -216,6 +241,12 @@ def main() -> int:
                     "decoded": decoded_i,
                     "fit": fit_i,
                 }
+                if sign_best is None or candidate["score"] > sign_best["score"]:
+                    sign_best = candidate
+                if best is None or candidate["score"] > best["score"]:
+                    best = candidate
+        if sign_best is not None:
+            sign_summary.append(sign_best)
     if best is None:
         raise RuntimeError("no valid range/sign candidates")
     signs = best["signs"]
@@ -239,6 +270,21 @@ def main() -> int:
     axes[0].set_title(
         f"AoD coherent sum + weighted complex sinusoid, sample {args.sample_idx}, "
         f"pulse {pulse}, beam {beam}, SNR {10*np.log10(max(coarse['snr'][pulse], 1e-30)):.1f} dB"
+    )
+    sign_text = "\n".join(
+        f"cal={cand['signs'][0]:+d}, geom={cand['signs'][1]:+d}: "
+        f"{cand['score']:.1f} dB @ {cand['range_bin']}{cand['frac_delay']:+.2f}"
+        for cand in sorted(sign_summary, key=lambda row: row["score"], reverse=True)
+    )
+    axes[0].text(
+        0.01,
+        0.96,
+        sign_text,
+        transform=axes[0].transAxes,
+        va="top",
+        ha="left",
+        fontsize=8,
+        bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.75, "pad": 2.5},
     )
 
     axes[1].plot(sample, decoded.real, ".", ms=3, color="tab:blue", alpha=0.75, label="decoded real")
@@ -280,7 +326,7 @@ def main() -> int:
         f"coarse Doppler {coarse['doppler_mps'][pulse]:.1f} m/s; "
         f"sinusoid Doppler {fit['doppler_mps']:.1f} m/s; "
         f"f={fit['freq_hz']:.1f} Hz; range {range_bin}{frac_delay:+.2f}; "
-        f"signs cal={signs[0]}, geom={signs[1]}; chi={fit['chi']:.3g}",
+        f"signs cal={signs[0]}, geom={signs[1]}; baud-fit SNR={best['score']:.1f} dB; chi={fit['chi']:.3g}",
         fontsize=9,
     )
     fig.savefig(args.output, dpi=170)
@@ -289,6 +335,13 @@ def main() -> int:
     print(f"coarse_doppler_mps {coarse['doppler_mps'][pulse]:.6g}")
     print(f"fit_doppler_mps {fit['doppler_mps']:.6g}")
     print(f"fit_frequency_hz {fit['freq_hz']:.6g}")
+    print("sign convention summary, sorted by coherent baud-fit SNR:")
+    for cand in sorted(sign_summary, key=lambda row: row["score"], reverse=True):
+        print(
+            f"  cal={cand['signs'][0]:+d} geom={cand['signs'][1]:+d} "
+            f"snr_db={cand['score']:.6g} range={cand['range_bin']}{cand['frac_delay']:+.2f} "
+            f"doppler_mps={cand['fit']['doppler_mps']:.6g}"
+        )
     return 0
 
 
