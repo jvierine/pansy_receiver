@@ -389,11 +389,24 @@ def plot_all_radiants(
             exposure_hours,
             levels=levels,
             colors="white",
-            linewidths=0.55,
-            alpha=0.34,
+            linewidths=0.75,
+            alpha=0.55,
             zorder=8,
         )
         ax0.clabel(contours, fmt=lambda value: f"{value:g} h", fontsize=6, colors="white", inline_spacing=2)
+    if np.any(exposure_hours <= 0.0) and np.any(exposure_hours > 0.0):
+        zero_boundary = ax0.contour(
+            np.deg2rad(xcenters),
+            np.deg2rad(ycenters),
+            (exposure_hours > 0.0).astype(np.float32),
+            levels=[0.5],
+            colors="white",
+            linewidths=0.9,
+            linestyles="--",
+            alpha=0.72,
+            zorder=9,
+        )
+        ax0.clabel(zero_boundary, fmt={0.5: "0 h"}, fontsize=6, colors="white", inline_spacing=2)
     for ax in (ax0, ax1):
         ax.set_xlabel(r"Sun-centered ecliptic longitude, $\lambda-\lambda_\odot$")
         ax.set_ylabel(r"Ecliptic latitude, $\beta$")
