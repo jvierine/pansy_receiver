@@ -65,6 +65,74 @@ def fit_weighted_complex_sinusoid(decoded: np.ndarray, tx: np.ndarray, coarse_do
     }
 
 
+def envelope_segments(env2: np.ndarray, threshold: float = 0.05) -> list[np.ndarray]:
+    """Contiguous above-threshold TX-envelope blobs."""
+    above = np.asarray(env2) > threshold
+    idx = np.flatnonzero(above)
+    if len(idx) == 0:
+        return []
+    breaks = np.where(np.diff(idx) > 1)[0] + 1
+    return [seg for seg in np.split(idx, breaks) if len(seg) >= 2]
+
+
+def fit_baud_complex_sinusoid(decoded: np.ndarray, tx: np.ndarray, coarse_doppler_mps: float, search_hz: float):
+    """Estimate one complex decoded amplitude per TX baud blob, then fit Doppler."""
+    ns = np.arange(len(tx), dtype=np.float64)
+    t = ns / 1e6
+    env2 = np.abs(tx) ** 2
+    env2 = env2 / max(float(np.nanmax(env2)), 1e-30)
+    segs = envelope_segments(env2)
+    if len(segs) < 4:
+        raise RuntimeError("too few TX envelope blobs for baud Doppler fit")
+    baud_t = []
+    baud_z = []
+    baud_w = []
+    for seg in segs:
+        basis = env2[seg]
+        weight = basis**2
+        den = np.sum(weight)
+        baud_t.append(float(np.sum(t[seg] * weight) / max(float(den), 1e-30)))
+        baud_z.append(np.sum(basis * decoded[seg]) / max(float(np.sum(basis**2)), 1e-30))
+        baud_w.append(float(den))
+    baud_t = np.asarray(baud_t)
+    baud_z = np.asarray(baud_z)
+    baud_w = np.asarray(baud_w)
+    baud_w = baud_w / max(float(np.nanmax(baud_w)), 1e-30)
+
+    coarse_hz = coarse_doppler_mps * 2.0 * pc.freq / sc.c
+    freqs = np.linspace(coarse_hz - search_hz, coarse_hz + search_hz, 4001)
+    chi = np.empty(len(freqs), dtype=np.float64)
+    coef = np.empty(len(freqs), dtype=np.complex128)
+    for i, freq in enumerate(freqs):
+        basis = np.exp(1j * 2.0 * np.pi * freq * baud_t)
+        den = np.sum(baud_w * np.abs(basis) ** 2)
+        c = np.sum(baud_w * np.conj(basis) * baud_z) / max(float(den), 1e-30)
+        resid = baud_z - c * basis
+        chi[i] = np.sum(baud_w * np.abs(resid) ** 2) / max(float(np.sum(baud_w)), 1e-30)
+        coef[i] = c
+    best = int(np.argmin(chi))
+    freq = float(freqs[best])
+    sample_model = coef[best] * env2 * np.exp(1j * 2.0 * np.pi * freq * t)
+    baud_model = coef[best] * np.exp(1j * 2.0 * np.pi * freq * baud_t)
+    return {
+        "sample": ns,
+        "time_s": t,
+        "env2": env2,
+        "freq_hz": freq,
+        "doppler_mps": float(freq * sc.c / (2.0 * pc.freq)),
+        "coef": coef[best],
+        "model": sample_model,
+        "resid": decoded - sample_model,
+        "chi": float(chi[best]),
+        "baud_t": baud_t,
+        "baud_sample": baud_t * 1e6,
+        "baud_z": baud_z,
+        "baud_w": baud_w,
+        "baud_model": baud_model,
+        "n_bauds": int(len(baud_t)),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sample-idx", type=int, required=True)
@@ -72,7 +140,7 @@ def main() -> int:
     parser.add_argument("--orbit-file", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--range-search-samples", type=int, default=8)
-    parser.add_argument("--frequency-search-hz", type=float, default=150000.0)
+    parser.add_argument("--frequency-search-hz", type=float, default=20000.0)
     args = parser.parse_args()
 
     cut = load_cut(args.cut_dir, args.sample_idx)
@@ -116,7 +184,7 @@ def main() -> int:
             if range_bin_i < 0 or range_bin_i + len(tx) > len(summed_i):
                 continue
             decoded_i = summed_i[range_bin_i : range_bin_i + len(tx)] * np.conj(tx)
-            fit_i = fit_weighted_complex_sinusoid(
+            fit_i = fit_baud_complex_sinusoid(
                 decoded_i,
                 tx,
                 float(coarse["doppler_mps"][pulse]),
@@ -147,6 +215,9 @@ def main() -> int:
     phase_data = np.unwrap(np.angle(data_norm))
     phase_model = np.unwrap(np.angle(model_norm))
     phase_data -= np.nanmedian(phase_data - phase_model)
+    baud_phase = np.unwrap(np.angle(fit["baud_z"]))
+    baud_model_phase = np.unwrap(np.angle(fit["baud_model"]))
+    baud_phase -= np.nanmedian(baud_phase - baud_model_phase)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     fig, axes = plt.subplots(4, 1, figsize=(8.2, 9.0), sharex=True, constrained_layout=True)
@@ -167,7 +238,8 @@ def main() -> int:
     axes[1].legend(frameon=False, ncol=2, loc="upper right")
 
     axes[2].plot(sample[env_mask], phase_data, ".", ms=4, color="tab:green", label="decoded / envelope")
-    axes[2].plot(sample[env_mask], phase_model, "-", lw=1.4, color="black", label="sinusoid phase")
+    axes[2].plot(fit["baud_sample"], baud_phase, "o", ms=5, color="tab:purple", label="per-baud amplitude")
+    axes[2].plot(fit["baud_sample"], baud_model_phase, "-", lw=1.5, color="black", label="baud sinusoid phase")
     axes[2].set_ylabel("unwrapped phase (rad)")
     axes[2].legend(frameon=False, loc="upper left")
 
