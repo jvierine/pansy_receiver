@@ -839,7 +839,7 @@ def plot_solar_counts(
     ax.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)")
     ax.set_ylabel(r"Catalogue count (deg$^{-1}$)")
     ax.grid(True, alpha=0.25)
-    ax.legend(frameon=False, loc="upper right", ncol=3)
+    ax.legend(frameon=False, loc="upper center", ncol=3)
     add_month_axis(ax, 2025)
     fig.savefig(path, dpi=220)
     plt.close(fig)
