@@ -17,14 +17,16 @@ import pansy_config as pc
 import pansy_interferometry as pint
 
 
-STEERING_SIGN_NOTE = """
-The AoD coherent-sum sign convention is intentionally measured, not assumed.
-For each diagnostic event the script evaluates all four single-channel voltage
-weights exp(i*(cal_sign*phasecal + geom_sign*k*r.u)) and selects the sign pair
-with the largest coherent baud-fit SNR. This avoids baking in a convention from
-pairwise interferometric imaging, where the stored cross spectrum is
-ZF[ch0] * conj(ZF[ch1]) and calibration appears as phasecal[ch0]-phasecal[ch1].
-"""
+ESTABLISHED_AOD_PHASECAL_SIGN = -1
+ESTABLISHED_AOD_GEOMETRY_SIGN = -1
+ESTABLISHED_AOD_SIGN_EVIDENCE = (
+    "2025-05-10 sample 1746912595445243, pulse 298, beam 1: all four AoD coherent "
+    "voltage steering conventions were scored by baud-averaged decoded-voltage "
+    "sinusoid fit SNR. The best was cal=-1, geom=-1 at 30.8 dB, followed by "
+    "cal=+1, geom=+1 at 30.4 dB, cal=+1, geom=-1 at 25.5 dB, and "
+    "cal=-1, geom=+1 at 25.0 dB. The default is therefore fixed to cal=-1, geom=-1; "
+    "use --search-sign-conventions only as a calibration diagnostic."
+)
 
 
 def beamform_echo(echo_ch: np.ndarray, uvw: np.ndarray, beam: int, signs: tuple[int, int]) -> np.ndarray:
@@ -169,6 +171,7 @@ def main() -> int:
     parser.add_argument("--frequency-search-hz", type=float, default=20000.0)
     parser.add_argument("--phasecal-sign", type=int, choices=(-1, 1), default=None)
     parser.add_argument("--geometry-sign", type=int, choices=(-1, 1), default=None)
+    parser.add_argument("--search-sign-conventions", action="store_true")
     args = parser.parse_args()
 
     cut = load_cut(args.cut_dir, args.sample_idx)
@@ -205,10 +208,14 @@ def main() -> int:
     best = None
     sign_summary = []
     frac_delays = np.arange(-0.5, 0.5001, args.fractional_delay_step)
-    if args.phasecal_sign is None and args.geometry_sign is None:
+    if args.search_sign_conventions:
+        if args.phasecal_sign is not None or args.geometry_sign is not None:
+            raise ValueError("--search-sign-conventions cannot be combined with explicit sign overrides")
         sign_options = [(-1, -1), (-1, 1), (1, -1), (1, 1)]
     elif args.phasecal_sign is not None and args.geometry_sign is not None:
         sign_options = [(args.phasecal_sign, args.geometry_sign)]
+    elif args.phasecal_sign is None and args.geometry_sign is None:
+        sign_options = [(ESTABLISHED_AOD_PHASECAL_SIGN, ESTABLISHED_AOD_GEOMETRY_SIGN)]
     else:
         raise ValueError("--phasecal-sign and --geometry-sign must be supplied together")
 
@@ -270,11 +277,17 @@ def main() -> int:
         f"AoD coherent sum + weighted complex sinusoid, sample {args.sample_idx}, "
         f"pulse {pulse}, beam {beam}, SNR {10*np.log10(max(coarse['snr'][pulse], 1e-30)):.1f} dB"
     )
-    sign_text = "\n".join(
-        f"cal={cand['signs'][0]:+d}, geom={cand['signs'][1]:+d}: "
-        f"{cand['score']:.1f} dB @ {cand['range_bin']}{cand['frac_delay']:+.2f}"
-        for cand in sorted(sign_summary, key=lambda row: row["score"], reverse=True)
-    )
+    if args.search_sign_conventions:
+        sign_text = "\n".join(
+            f"cal={cand['signs'][0]:+d}, geom={cand['signs'][1]:+d}: "
+            f"{cand['score']:.1f} dB @ {cand['range_bin']}{cand['frac_delay']:+.2f}"
+            for cand in sorted(sign_summary, key=lambda row: row["score"], reverse=True)
+        )
+    else:
+        sign_text = (
+            f"fixed AoD signs: cal={signs[0]:+d}, geom={signs[1]:+d}\n"
+            f"baud-fit SNR {best['score']:.1f} dB @ {range_bin}{frac_delay:+.2f}"
+        )
     axes[0].text(
         0.01,
         0.96,
@@ -334,7 +347,11 @@ def main() -> int:
     print(f"coarse_doppler_mps {coarse['doppler_mps'][pulse]:.6g}")
     print(f"fit_doppler_mps {fit['doppler_mps']:.6g}")
     print(f"fit_frequency_hz {fit['freq_hz']:.6g}")
-    print("sign convention summary, sorted by coherent baud-fit SNR:")
+    print(f"steering_signs cal={signs[0]:+d} geom={signs[1]:+d}")
+    if args.search_sign_conventions:
+        print("sign convention summary, sorted by coherent baud-fit SNR:")
+    else:
+        print(f"established sign convention evidence: {ESTABLISHED_AOD_SIGN_EVIDENCE}")
     for cand in sorted(sign_summary, key=lambda row: row["score"], reverse=True):
         print(
             f"  cal={cand['signs'][0]:+d} geom={cand['signs'][1]:+d} "
