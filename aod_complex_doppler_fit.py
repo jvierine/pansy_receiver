@@ -17,24 +17,17 @@ import pansy_config as pc
 import pansy_interferometry as pint
 
 
-def beamform_echo(echo_ch: np.ndarray, uvw: np.ndarray, beam: int) -> tuple[np.ndarray, tuple[int, int]]:
-    """Try calibration/geometry sign conventions and keep the strongest one."""
+def beamform_echo(echo_ch: np.ndarray, uvw: np.ndarray, beam: int, signs: tuple[int, int]) -> np.ndarray:
+    """AoD-coherently sum receiver channels for one sign convention."""
     antpos = pint.get_antpos()
     phasecal = pint.get_phasecal()[beam]
     geom_phase = (2.0 * np.pi / pc.wavelength) * (antpos @ uvw)
-    best = None
-    for s_cal in (-1, 1):
-        for s_geom in (-1, 1):
-            weights = np.exp(1j * (s_cal * phasecal + s_geom * geom_phase))
-            summed = np.sum(echo_ch * weights[:, None], axis=0) / len(weights)
-            amp = float(np.nanmax(np.abs(summed)))
-            if best is None or amp > best[0]:
-                best = (amp, summed, (s_cal, s_geom))
-    assert best is not None
-    return best[1], best[2]
+    s_cal, s_geom = signs
+    weights = np.exp(1j * (s_cal * phasecal + s_geom * geom_phase))
+    return np.sum(echo_ch * weights[:, None], axis=0) / len(weights)
 
 
-def fit_weighted_complex_sinusoid(decoded: np.ndarray, tx: np.ndarray, coarse_doppler_mps: float):
+def fit_weighted_complex_sinusoid(decoded: np.ndarray, tx: np.ndarray, coarse_doppler_mps: float, search_hz: float):
     """Fit decoded ~= C |tx|^2 exp(i 2 pi f t), weighted by TX envelope."""
     ns = np.arange(len(tx), dtype=np.float64)
     t = ns / 1e6
@@ -44,7 +37,7 @@ def fit_weighted_complex_sinusoid(decoded: np.ndarray, tx: np.ndarray, coarse_do
     weights[env2 <= 0.05] = 0.0
 
     coarse_hz = coarse_doppler_mps * 2.0 * pc.freq / sc.c
-    freqs = np.linspace(coarse_hz - 12000.0, coarse_hz + 12000.0, 2401)
+    freqs = np.linspace(coarse_hz - search_hz, coarse_hz + search_hz, 4001)
     chi = np.empty(len(freqs), dtype=np.float64)
     coef = np.empty(len(freqs), dtype=np.complex128)
     for i, freq in enumerate(freqs):
@@ -68,6 +61,7 @@ def fit_weighted_complex_sinusoid(decoded: np.ndarray, tx: np.ndarray, coarse_do
         "coef": coef[best],
         "model": model,
         "resid": decoded - model,
+        "chi": float(chi[best]),
     }
 
 
@@ -77,6 +71,8 @@ def main() -> int:
     parser.add_argument("--cut-dir", type=Path, default=Path("/mnt/data/juha/pansy/metadata/cut"))
     parser.add_argument("--orbit-file", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--range-search-samples", type=int, default=8)
+    parser.add_argument("--frequency-search-hz", type=float, default=150000.0)
     args = parser.parse_args()
 
     cut = load_cut(args.cut_dir, args.sample_idx)
@@ -109,11 +105,39 @@ def main() -> int:
     valid = np.all(np.isfinite(uvw), axis=1) & (beam_id >= 0) & (beam_id < 5)
     pulse = int(next(i for i in np.argsort(coarse["snr"])[::-1] if valid[i]))
     beam = int(beam_id[pulse])
-    range_bin = int(coarse["range_bin"][pulse])
-    summed, signs = beamform_echo(z_rx[pulse].astype(np.complex128), uvw[pulse], beam)
     tx = z_tx[pulse].astype(np.complex128)
-    decoded = summed[range_bin : range_bin + len(tx)] * np.conj(tx)
-    fit = fit_weighted_complex_sinusoid(decoded, tx, float(coarse["doppler_mps"][pulse]))
+    best = None
+    for signs in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
+        summed_i = beamform_echo(z_rx[pulse].astype(np.complex128), uvw[pulse], beam, signs)
+        for range_bin_i in range(
+            int(coarse["range_bin"][pulse]) - args.range_search_samples,
+            int(coarse["range_bin"][pulse]) + args.range_search_samples + 1,
+        ):
+            if range_bin_i < 0 or range_bin_i + len(tx) > len(summed_i):
+                continue
+            decoded_i = summed_i[range_bin_i : range_bin_i + len(tx)] * np.conj(tx)
+            fit_i = fit_weighted_complex_sinusoid(
+                decoded_i,
+                tx,
+                float(coarse["doppler_mps"][pulse]),
+                search_hz=float(args.frequency_search_hz),
+            )
+            score = fit_i["chi"]
+            if best is None or score < best["score"]:
+                best = {
+                    "score": score,
+                    "signs": signs,
+                    "range_bin": range_bin_i,
+                    "summed": summed_i,
+                    "decoded": decoded_i,
+                    "fit": fit_i,
+                }
+    if best is None:
+        raise RuntimeError("no valid range/sign candidates")
+    signs = best["signs"]
+    range_bin = best["range_bin"]
+    decoded = best["decoded"]
+    fit = best["fit"]
 
     sample = fit["sample"]
     model = fit["model"]
@@ -159,7 +183,7 @@ def main() -> int:
         0.01,
         f"coarse Doppler {coarse['doppler_mps'][pulse]:.1f} m/s; "
         f"sinusoid Doppler {fit['doppler_mps']:.1f} m/s; "
-        f"f={fit['freq_hz']:.1f} Hz; signs cal={signs[0]}, geom={signs[1]}",
+        f"f={fit['freq_hz']:.1f} Hz; range_bin {range_bin}; signs cal={signs[0]}, geom={signs[1]}; chi={fit['chi']:.3g}",
         fontsize=9,
     )
     fig.savefig(args.output, dpi=170)
