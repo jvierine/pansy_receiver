@@ -81,8 +81,12 @@ def clip_interval_to_day(start: int, end: int, utc_day: date) -> tuple[int, int]
     return clipped_start, clipped_end
 
 
-def sample_to_datetime64_us(samples: np.ndarray) -> np.ndarray:
-    return samples.astype("datetime64[us]")
+def sample_to_iso_utc(samples: np.ndarray) -> np.ndarray:
+    values = [
+        datetime.fromtimestamp(int(sample) / US_PER_SECOND, timezone.utc).isoformat(timespec="microseconds").encode("ascii")
+        for sample in samples
+    ]
+    return np.asarray(values, dtype="S32")
 
 
 def write_sidecar(
@@ -119,8 +123,8 @@ def write_sidecar(
         g.create_dataset("t1_unix", data=t1_unix, compression="gzip", shuffle=True)
         g.create_dataset("duration_s", data=durations_s, compression="gzip", shuffle=True)
         g.create_dataset("utc_day", data=days, compression="gzip", shuffle=True)
-        g.create_dataset("t0_datetime64_us", data=sample_to_datetime64_us(starts), compression="gzip", shuffle=True)
-        g.create_dataset("t1_datetime64_us", data=sample_to_datetime64_us(ends), compression="gzip", shuffle=True)
+        g.create_dataset("t0_iso_utc", data=sample_to_iso_utc(starts), compression="gzip", shuffle=True)
+        g.create_dataset("t1_iso_utc", data=sample_to_iso_utc(ends), compression="gzip", shuffle=True)
 
         gd = h.create_group("daily")
         gd.create_dataset("utc_day", data=daily_day, compression="gzip", shuffle=True)
@@ -169,7 +173,7 @@ def main() -> None:
             all_intervals.append((start, end, day_text))
         daily_hours = sum((end - start) for start, end in day_intervals) / (US_PER_SECOND * 3600.0)
         daily_rows.append((day_text, len(day_intervals), daily_hours))
-        print(f"{day_text} intervals={len(day_intervals):4d} mesosphere_hours={daily_hours:6.2f}")
+        print(f"{day_text} intervals={len(day_intervals):4d} mesosphere_hours={daily_hours:6.2f}", flush=True)
 
     write_sidecar(args.output, all_intervals, daily_rows, args.metadata_dir, args.merge_tolerance_us)
     print(f"wrote {args.output}")
