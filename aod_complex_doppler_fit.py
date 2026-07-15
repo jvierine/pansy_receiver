@@ -27,6 +27,15 @@ def beamform_echo(echo_ch: np.ndarray, uvw: np.ndarray, beam: int, signs: tuple[
     return np.sum(echo_ch * weights[:, None], axis=0) / len(weights)
 
 
+def fractional_delay_fft(x: np.ndarray, delay_samples: float) -> np.ndarray:
+    """Apply a fractional sample delay using an FFT phase ramp."""
+    if abs(delay_samples) < 1e-12:
+        return x
+    freq = np.fft.fftfreq(len(x))
+    phase = np.exp(-1j * 2.0 * np.pi * freq * delay_samples)
+    return np.fft.ifft(np.fft.fft(x) * phase)
+
+
 def fit_weighted_complex_sinusoid(decoded: np.ndarray, tx: np.ndarray, coarse_doppler_mps: float, search_hz: float):
     """Fit decoded ~= C |tx|^2 exp(i 2 pi f t), weighted by TX envelope."""
     ns = np.arange(len(tx), dtype=np.float64)
@@ -140,6 +149,7 @@ def main() -> int:
     parser.add_argument("--orbit-file", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--range-search-samples", type=int, default=8)
+    parser.add_argument("--fractional-delay-step", type=float, default=0.05)
     parser.add_argument("--frequency-search-hz", type=float, default=20000.0)
     args = parser.parse_args()
 
@@ -175,6 +185,7 @@ def main() -> int:
     beam = int(beam_id[pulse])
     tx = z_tx[pulse].astype(np.complex128)
     best = None
+    frac_delays = np.arange(-0.5, 0.5001, args.fractional_delay_step)
     for signs in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
         summed_i = beamform_echo(z_rx[pulse].astype(np.complex128), uvw[pulse], beam, signs)
         for range_bin_i in range(
@@ -183,38 +194,36 @@ def main() -> int:
         ):
             if range_bin_i < 0 or range_bin_i + len(tx) > len(summed_i):
                 continue
-            decoded_i = summed_i[range_bin_i : range_bin_i + len(tx)] * np.conj(tx)
-            fit_i = fit_baud_complex_sinusoid(
-                decoded_i,
-                tx,
-                float(coarse["doppler_mps"][pulse]),
-                search_hz=float(args.frequency_search_hz),
-            )
-            score = fit_i["chi"]
-            if best is None or score < best["score"]:
-                best = {
-                    "score": score,
-                    "signs": signs,
-                    "range_bin": range_bin_i,
-                    "summed": summed_i,
-                    "decoded": decoded_i,
-                    "fit": fit_i,
-                }
+            for frac_delay in frac_delays:
+                shifted_i = fractional_delay_fft(summed_i, frac_delay)
+                decoded_i = shifted_i[range_bin_i : range_bin_i + len(tx)] * np.conj(tx)
+                fit_i = fit_baud_complex_sinusoid(
+                    decoded_i,
+                    tx,
+                    float(coarse["doppler_mps"][pulse]),
+                    search_hz=float(args.frequency_search_hz),
+                )
+                score = fit_i["chi"]
+                if best is None or score < best["score"]:
+                    best = {
+                        "score": score,
+                        "signs": signs,
+                        "range_bin": range_bin_i,
+                        "frac_delay": float(frac_delay),
+                        "summed": summed_i,
+                        "decoded": decoded_i,
+                        "fit": fit_i,
+                    }
     if best is None:
         raise RuntimeError("no valid range/sign candidates")
     signs = best["signs"]
     range_bin = best["range_bin"]
+    frac_delay = best["frac_delay"]
     decoded = best["decoded"]
     fit = best["fit"]
 
     sample = fit["sample"]
     model = fit["model"]
-    env_mask = fit["env2"] > 0.05
-    data_norm = decoded[env_mask] / np.maximum(fit["env2"][env_mask], 1e-6)
-    model_norm = fit["coef"] * np.exp(1j * 2.0 * np.pi * fit["freq_hz"] * fit["time_s"][env_mask])
-    phase_data = np.unwrap(np.angle(data_norm))
-    phase_model = np.unwrap(np.angle(model_norm))
-    phase_data -= np.nanmedian(phase_data - phase_model)
     baud_phase = np.unwrap(np.angle(fit["baud_z"]))
     baud_model_phase = np.unwrap(np.angle(fit["baud_model"]))
     baud_phase -= np.nanmedian(baud_phase - baud_model_phase)
@@ -237,15 +246,28 @@ def main() -> int:
     axes[1].set_ylabel("decoded amplitude")
     axes[1].legend(frameon=False, ncol=2, loc="upper right")
 
-    axes[2].plot(sample[env_mask], phase_data, ".", ms=4, color="tab:green", label="decoded / envelope")
-    axes[2].plot(fit["baud_sample"], baud_phase, "o", ms=5, color="tab:purple", label="per-baud amplitude")
+    axes[2].scatter(
+        fit["baud_sample"],
+        baud_phase,
+        s=16.0 + 34.0 * fit["baud_w"],
+        color="tab:purple",
+        label="baud-integrated amplitude phase",
+        zorder=3,
+    )
     axes[2].plot(fit["baud_sample"], baud_model_phase, "-", lw=1.5, color="black", label="baud sinusoid phase")
     axes[2].set_ylabel("unwrapped phase (rad)")
     axes[2].legend(frameon=False, loc="upper left")
 
-    axes[3].plot(sample, np.abs(fit["resid"]), ".", ms=3, color="0.3", label="|residual|")
-    axes[3].plot(sample, np.abs(decoded), "-", lw=1.0, color="0.75", label="|decoded|")
-    axes[3].set_ylabel("amplitude")
+    axes[3].plot(fit["baud_sample"], np.abs(fit["baud_z"]), "o", ms=5, color="tab:blue", label="|baud amplitude|")
+    axes[3].plot(
+        fit["baud_sample"],
+        np.abs(fit["baud_z"] - fit["baud_model"]),
+        "o",
+        ms=5,
+        color="0.3",
+        label="|baud residual|",
+    )
+    axes[3].set_ylabel("baud amplitude")
     axes[3].set_xlabel("sample within decoded TX pulse")
     axes[3].legend(frameon=False, loc="upper right")
     for ax in axes:
@@ -255,12 +277,13 @@ def main() -> int:
         0.01,
         f"coarse Doppler {coarse['doppler_mps'][pulse]:.1f} m/s; "
         f"sinusoid Doppler {fit['doppler_mps']:.1f} m/s; "
-        f"f={fit['freq_hz']:.1f} Hz; range_bin {range_bin}; signs cal={signs[0]}, geom={signs[1]}; chi={fit['chi']:.3g}",
+        f"f={fit['freq_hz']:.1f} Hz; range {range_bin}{frac_delay:+.2f}; "
+        f"signs cal={signs[0]}, geom={signs[1]}; chi={fit['chi']:.3g}",
         fontsize=9,
     )
     fig.savefig(args.output, dpi=170)
     print(args.output)
-    print(f"pulse {pulse} beam {beam} range_bin {range_bin}")
+    print(f"pulse {pulse} beam {beam} range_bin {range_bin} fractional_delay {frac_delay:.6g}")
     print(f"coarse_doppler_mps {coarse['doppler_mps'][pulse]:.6g}")
     print(f"fit_doppler_mps {fit['doppler_mps']:.6g}")
     print(f"fit_frequency_hz {fit['freq_hz']:.6g}")
