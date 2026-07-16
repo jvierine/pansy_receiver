@@ -14,8 +14,7 @@ from astropy import units as u
 from astropy.coordinates import AltAz, EarthLocation, SkyCoord
 from astropy.time import Time
 from matplotlib.ticker import FuncFormatter
-from matplotlib.colors import LogNorm
-from scipy.optimize import minimize_scalar
+from matplotlib.colors import LogNorm, Normalize
 
 from radiant_visibility import radiant_exposure_hours_grid
 
@@ -48,6 +47,14 @@ class Shower:
     note: str
 
 
+@dataclass(frozen=True)
+class SnapshotWindow:
+    label: str
+    solar_lon_deg: float
+    marker_sc_lon_deg: float | None = None
+    marker_beta_deg: float | None = None
+
+
 SHOWERS = (
     Shower(
         name=r"$\omega$-Eridanids",
@@ -66,22 +73,6 @@ SHOWERS = (
         note="No close established-shower match",
     ),
     Shower(
-        name=r"$\kappa$-Scorpiids",
-        solar_lon_deg=1.25,
-        snapshot_solar_lon_deg=0.0,
-        snapshot_half_width_deg=2.0,
-        sc_lon_deg=240.62,
-        beta_deg=-55.12,
-        ra_deg=206.83,
-        dec_deg=-72.41,
-        vg_km_s=39.40,
-        n=29,
-        semi_major_axis_au=2.3628,
-        eccentricity=0.5430,
-        inclination_deg=71.77,
-        note=r"Nearest broad match: $\lambda$-Centaurids",
-    ),
-    Shower(
         name=r"$\phi$-Capricornids",
         solar_lon_deg=312.72,
         snapshot_solar_lon_deg=None,
@@ -96,6 +87,26 @@ SHOWERS = (
         eccentricity=0.7859,
         inclination_deg=7.43,
         note="Possible Daytime Capricornids-Sagittariids substructure",
+    ),
+)
+
+
+SNAPSHOT_WINDOWS = (
+    SnapshotWindow(label=r"$\lambda_\odot=38.8^\circ$", solar_lon_deg=38.8),
+    SnapshotWindow(label=r"$\lambda_\odot=78.8^\circ$", solar_lon_deg=78.8),
+    SnapshotWindow(
+        label=r"$\omega$-Eridanids, $\lambda_\odot=109.2^\circ$",
+        solar_lon_deg=109.2,
+        marker_sc_lon_deg=288.74,
+        marker_beta_deg=-48.17,
+    ),
+    SnapshotWindow(label=r"$\lambda_\odot=130.5^\circ$", solar_lon_deg=130.5),
+    SnapshotWindow(label=r"$\lambda_\odot=197.0^\circ$", solar_lon_deg=197.0),
+    SnapshotWindow(
+        label=r"Daytime $\chi$ Capricornids, $\lambda_\odot=312.7^\circ$",
+        solar_lon_deg=312.7,
+        marker_sc_lon_deg=354.51,
+        marker_beta_deg=-8.34,
     ),
 )
 
@@ -288,6 +299,8 @@ def fit_zenith_exponent(
     min_cos_z: float,
     alpha_bounds: tuple[float, float],
 ) -> tuple[float, float, float, float]:
+    from scipy.optimize import minimize_scalar
+
     _, xedges, yedges = radiant_histogram(rows)
     north, south = apex_masks(xedges, yedges)
     valid_exposure = exposure_hours > 0.0
@@ -353,14 +366,8 @@ def exposure_contour_levels(exposure_hours: np.ndarray) -> np.ndarray:
     positive = positive[np.isfinite(positive) & (positive > 0.0)]
     if len(positive) == 0:
         return np.asarray([], dtype=np.float64)
-    lo = max(1.0, float(np.nanpercentile(positive, 20.0)))
-    hi = float(np.nanpercentile(positive, 95.0))
-    if hi <= lo:
-        return np.asarray([lo], dtype=np.float64)
-    targets = np.geomspace(lo, hi, 5)
-    magnitude = 10.0 ** np.floor(np.log10(targets))
-    levels = np.round(targets / magnitude) * magnitude
-    return np.unique(levels[(levels > 0.0) & (levels < np.nanmax(positive))])
+    levels = np.asarray([40.0, 60.0], dtype=np.float64)
+    return levels[levels < np.nanmax(positive)]
 
 
 def right_side_contour_label_positions(
@@ -487,7 +494,8 @@ def plot_all_radiants(
     out: Path,
 ) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
-    raw_norm = LogNorm(vmin=1.0, vmax=max(2.0, np.nanpercentile(raw_hist[raw_hist > 0], 99.5)))
+    positive_raw = raw_hist[np.isfinite(raw_hist) & (raw_hist > 0.0)]
+    raw_norm = LogNorm(vmin=1.0, vmax=max(2.0, np.nanmax(positive_raw)))
     positive_flux = flux_hist[np.isfinite(flux_hist) & (flux_hist > 0.0)]
     flux_norm = LogNorm(vmin=np.nanpercentile(positive_flux, 5.0), vmax=np.nanpercentile(positive_flux, 99.5))
     fig = plt.figure(figsize=(10.8, 5.4), constrained_layout=True)
@@ -534,16 +542,16 @@ def plot_snapshots(
     out: Path,
     half_width_deg: float,
 ) -> None:
-    fig = plt.figure(figsize=(11.0, 4.4), constrained_layout=True)
-    axes = [fig.add_subplot(1, 3, i + 1, projection="hammer") for i in range(3)]
+    fig = plt.figure(figsize=(8.0, 6.15), constrained_layout=True)
+    axes = [fig.add_subplot(3, 2, i + 1, projection="hammer") for i in range(len(SNAPSHOT_WINDOWS))]
     xcenters, ycenters, _, _ = histogram_grid_centers(xedges, yedges)
-    for ax, shower in zip(axes, SHOWERS, strict=True):
-        window_center = shower.snapshot_solar_lon_deg if shower.snapshot_solar_lon_deg is not None else shower.solar_lon_deg
-        window_half_width = shower.snapshot_half_width_deg if shower.snapshot_half_width_deg is not None else half_width_deg
+    for ax, window in zip(axes, SNAPSHOT_WINDOWS, strict=True):
+        window_center = window.solar_lon_deg
+        window_half_width = half_width_deg
         sub = rows[solar_window_mask(rows, window_center, window_half_width)]
         obs_keep = solar_longitude_window_mask(observation_sun, window_center, window_half_width)
         if not np.any(obs_keep):
-            raise RuntimeError(f"No observing-time samples found for {shower.name} snapshot")
+            raise RuntimeError(f"No observing-time samples found for {window.label} snapshot")
         _, _, exposure_hours = radiant_exposure_hours_grid(
             observation_epoch[obs_keep],
             observation_sun[obs_keep],
@@ -557,42 +565,48 @@ def plot_snapshots(
             ax,
             sub,
             None,
-            rf"{shower.name}, $\lambda_\odot={window_center:.1f}^\circ\pm{window_half_width:g}^\circ$",
+            rf"{window.label}$\pm{window_half_width:g}^\circ$",
             norm,
         )
         add_exposure_contours(ax, exposure_hours, hist, xedges, yedges)
         add_source_markers(ax)
-        ax.scatter(
-            np.deg2rad(centered_plot_longitude_deg(shower.sc_lon_deg)),
-            np.deg2rad(shower.beta_deg),
-            marker="o",
-            s=520,
-            linewidth=1.6,
-            facecolors="none",
-            edgecolors="cyan",
-            alpha=0.5,
-            zorder=10,
-        )
+        if window.marker_sc_lon_deg is not None and window.marker_beta_deg is not None:
+            ax.scatter(
+                np.deg2rad(centered_plot_longitude_deg(window.marker_sc_lon_deg)),
+                np.deg2rad(window.marker_beta_deg),
+                marker="o",
+                s=520,
+                linewidth=1.6,
+                facecolors="none",
+                edgecolors="cyan",
+                alpha=0.5,
+                zorder=10,
+            )
         ax.set_xticklabels([])
         ax.set_xlabel(r"$\lambda-\lambda_\odot$")
-    axes[0].set_ylabel(r"$\beta$")
-    fig.savefig(out, dpi=240)
+    for ax in axes[::2]:
+        ax.set_ylabel(r"$\beta$")
+    fig.savefig(out, dpi=240, bbox_inches="tight", pad_inches=0.02)
     plt.close(fig)
 
 
 def plot_candidate_showers(rows: np.ndarray, out: Path, half_width_deg: float, radius_deg: float) -> None:
     longitude_zoom_deg = 32.0
     latitude_zoom_deg = 24.0
-    fig, axes = plt.subplots(1, 3, figsize=(11.0, 3.8), constrained_layout=True)
+    speed_norm = Normalize(vmin=10.0, vmax=75.0)
+    fig, axes = plt.subplots(1, len(SHOWERS), figsize=(8.2, 3.8), constrained_layout=True)
+    axes = np.atleast_1d(axes)
+    scatter = None
     for ax, shower in zip(axes, SHOWERS, strict=True):
         solar_keep = solar_window_mask(rows, shower.solar_lon_deg, half_width_deg)
         sub = rows[solar_keep]
         x_offset = wrap180(np.asarray(sub["lambda_minus_sun_deg"], dtype=np.float64) - shower.sc_lon_deg)
         x = shower.sc_lon_deg + x_offset
         y = np.asarray(sub["radiant_beta_ecliptic_deg"], dtype=np.float64)
+        speed = np.asarray(sub["speed_km_s"], dtype=np.float64)
         near = np.abs(x_offset) <= longitude_zoom_deg
         near &= np.abs(y - shower.beta_deg) <= latitude_zoom_deg
-        ax.scatter(x[near], y[near], s=8.0, c="0.35", alpha=0.45, linewidths=0)
+        scatter = ax.scatter(x[near], y[near], s=8.0, c=speed[near], cmap="viridis", norm=speed_norm, alpha=0.65, linewidths=0)
         circle = plt.Circle((shower.sc_lon_deg, shower.beta_deg), radius_deg, color="black", fill=False, lw=0.8, ls="--")
         ax.add_patch(circle)
         ax.set_xlim(shower.sc_lon_deg + longitude_zoom_deg, shower.sc_lon_deg - longitude_zoom_deg)
@@ -602,6 +616,9 @@ def plot_candidate_showers(rows: np.ndarray, out: Path, half_width_deg: float, r
         ax.grid(alpha=0.25, lw=0.45)
         ax.set_xlabel(r"$\lambda'_g = \lambda_g - \lambda_\odot$ (deg)")
     axes[0].set_ylabel(r"Ecliptic latitude, $\beta$ (deg)")
+    if scatter is not None:
+        cb = fig.colorbar(scatter, ax=axes, orientation="horizontal", pad=0.10, fraction=0.06)
+        cb.set_label(r"Geocentric speed, $v_g$ (km s$^{-1}$)")
     fig.savefig(out, dpi=240)
     plt.close(fig)
 
