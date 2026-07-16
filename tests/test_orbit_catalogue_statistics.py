@@ -21,6 +21,27 @@ def test_solar_longitude_count_density_uses_bin_width():
     np.testing.assert_allclose(all_density, [7.0, 7.0])
 
 
+def test_solar_longitude_count_rate_uses_measurement_hours():
+    from plot_orbit_catalogue_statistics import count_rate_from_density_and_exposure
+
+    density_by_year = np.asarray([[10.0, 8.0], [6.0, 4.0]], dtype=np.float32)
+    all_density = np.asarray([16.0, 12.0], dtype=np.float32)
+    hours_by_year = np.asarray([[2.0, 0.0], [3.0, 4.0]], dtype=np.float32)
+    all_hours = np.asarray([5.0, 4.0], dtype=np.float32)
+
+    rate_by_year, all_rate = count_rate_from_density_and_exposure(
+        density_by_year,
+        all_density,
+        hours_by_year,
+        all_hours,
+    )
+
+    np.testing.assert_allclose(rate_by_year[0, 0], 5.0)
+    assert np.isnan(rate_by_year[0, 1])
+    np.testing.assert_allclose(rate_by_year[1], [2.0, 1.0])
+    np.testing.assert_allclose(all_rate, [3.2, 3.0])
+
+
 def test_height_velocity_histogram_spans_60_to_160_km():
     from plot_orbit_catalogue_statistics import histogram_height_velocity
 

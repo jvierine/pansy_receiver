@@ -95,14 +95,14 @@ def month_tick_positions_deg(year: int) -> tuple[np.ndarray, list[str]]:
     return sun_ecliptic_longitude_deg(unix), labels
 
 
-def add_month_axis(ax, year: int) -> None:
+def add_month_axis(ax, year: int, fontsize: float = 10.0) -> None:
     positions, labels = month_tick_positions_deg(year)
     top = ax.twiny()
     top.set_xlim(ax.get_xlim())
     top.set_xticks(positions)
-    top.set_xticklabels(labels, fontsize=8)
+    top.set_xticklabels(labels, fontsize=fontsize)
     top.set_xlabel("")
-    top.tick_params(axis="x", direction="out", pad=2)
+    top.tick_params(axis="x", direction="out", pad=2, labelsize=fontsize)
 
 
 def coerce_structured(arr: np.ndarray, dtype: np.dtype) -> np.ndarray:
@@ -727,6 +727,28 @@ def count_density_from_counts(
     return density_by_year, all_density
 
 
+def count_rate_from_density_and_exposure(
+    count_density_by_year: np.ndarray,
+    all_count_density: np.ndarray,
+    mesomode_hours_by_year: np.ndarray,
+    mesomode_hours: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return count rates per degree per measurement hour, leaving unsampled bins undefined."""
+
+    def divide(density: np.ndarray, hours: np.ndarray) -> np.ndarray:
+        density = np.asarray(density, dtype=np.float64)
+        hours = np.asarray(hours, dtype=np.float64)
+        rate = np.full(density.shape, np.nan, dtype=np.float64)
+        valid = np.isfinite(density) & np.isfinite(hours) & (hours > 0.0)
+        np.divide(density, hours, out=rate, where=valid)
+        return rate.astype(np.float32)
+
+    return (
+        divide(count_density_by_year, mesomode_hours_by_year),
+        divide(all_count_density, mesomode_hours),
+    )
+
+
 def mesomode_exposure_by_solar_longitude(
     sidecar_path: Path | None,
     edges: np.ndarray,
@@ -826,7 +848,8 @@ def write_statistics_h5(
         )
         h.attrs["initial_tx_beam_angle_event_count"] = int(initial_tx_event_count)
         h.attrs["solar_longitude_count_density_unit"] = "count per degree"
-        h.attrs["solar_longitude_mesomode_exposure_unit"] = "mesosphere-mode beam hours per solar-longitude bin"
+        h.attrs["solar_longitude_count_rate_unit"] = "count per degree per mesosphere-mode measurement hour"
+        h.attrs["solar_longitude_mesomode_exposure_unit"] = "mesosphere-mode measurement hours per solar-longitude bin"
         h.attrs["height_velocity_quality_filter"] = (
             "static radiant monitor high-quality gate: valid DASST winning alias, "
             "combined_score, n_uncertainty_samples, initial_state_position_sigma_m, "
@@ -843,6 +866,14 @@ def write_statistics_h5(
         h.create_dataset("solar_longitude_count_per_degree", data=solar_all_count_density, compression="gzip", shuffle=True)
         h.create_dataset("solar_longitude_mesomode_hours_by_year", data=solar_mesomode_hours_by_year, compression="gzip", shuffle=True)
         h.create_dataset("solar_longitude_mesomode_hours", data=solar_mesomode_hours, compression="gzip", shuffle=True)
+        solar_rate_by_year, solar_rate = count_rate_from_density_and_exposure(
+            solar_year_count_density,
+            solar_all_count_density,
+            solar_mesomode_hours_by_year,
+            solar_mesomode_hours,
+        )
+        h.create_dataset("solar_longitude_count_per_degree_hour_by_year", data=solar_rate_by_year, compression="gzip", shuffle=True)
+        h.create_dataset("solar_longitude_count_per_degree_hour", data=solar_rate, compression="gzip", shuffle=True)
         h.create_dataset("solar_longitude_edges_deg", data=solar_edges)
         h.create_dataset("height_velocity_count", data=hv_counts, compression="gzip", shuffle=True)
         h.create_dataset("measurement_height_velocity_count", data=measurement_hv_counts, compression="gzip", shuffle=True)
@@ -864,39 +895,51 @@ def plot_solar_counts(
     centers = 0.5 * (edges[:-1] + edges[1:])
     has_exposure = mesomode_hours_by_year is not None and mesomode_hours is not None
     if has_exposure:
-        fig, axes = plt.subplots(2, 1, figsize=(8.0, 5.6), sharex=True, constrained_layout=True)
+        fig, axes = plt.subplots(2, 1, figsize=(8.4, 6.2), sharex=True, constrained_layout=True)
         ax = axes[0]
         ax_exp = axes[1]
+        plotted_by_year, plotted_all = count_rate_from_density_and_exposure(
+            count_density_by_year,
+            all_count_density,
+            mesomode_hours_by_year,
+            mesomode_hours,
+        )
+        count_ylabel = r"Meteor count rate (deg$^{-1}$ h$^{-1}$)"
     else:
-        fig, ax = plt.subplots(figsize=(8.0, 3.6), constrained_layout=True)
+        fig, ax = plt.subplots(figsize=(8.4, 4.2), constrained_layout=True)
         ax_exp = None
-    ax.step(centers, all_count_density, where="mid", color="black", linewidth=1.55, label="All")
+        plotted_by_year = count_density_by_year
+        plotted_all = all_count_density
+        count_ylabel = r"Catalogue count (deg$^{-1}$)"
+    ax.step(centers, plotted_all, where="mid", color="black", linewidth=1.8, label="All")
     colors = ("#2f5f8f", "#c04b37", "#4f7f3f")
-    for year, count_density, color in zip(years, count_density_by_year, colors):
-        ax.step(centers, count_density, where="mid", color=color, linewidth=1.2, label=str(int(year)))
+    for year, values, color in zip(years, plotted_by_year, colors):
+        ax.step(centers, values, where="mid", color=color, linewidth=1.4, label=str(int(year)))
     ax.set_xlim(0, 360)
-    finite_density = np.concatenate((np.ravel(all_count_density), np.ravel(count_density_by_year)))
+    finite_density = np.concatenate((np.ravel(plotted_all), np.ravel(plotted_by_year)))
     finite_density = finite_density[np.isfinite(finite_density)]
     ax.set_ylim(0, max(1.0, float(np.max(finite_density)) if len(finite_density) else 1.0) * 1.08)
-    ax.set_ylabel(r"Catalogue count (deg$^{-1}$)")
+    ax.set_ylabel(count_ylabel, fontsize=13)
+    ax.tick_params(axis="both", labelsize=11)
     ax.grid(True, alpha=0.25)
-    ax.legend(frameon=False, loc="upper center", ncol=3)
+    ax.legend(frameon=False, loc="upper center", ncol=3, fontsize=11)
     if ax_exp is None:
-        ax.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)")
-        add_month_axis(ax, 2025)
+        ax.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)", fontsize=13)
+        add_month_axis(ax, 2025, fontsize=10)
     else:
         ax.tick_params(labelbottom=False)
-        ax_exp.step(centers, mesomode_hours, where="mid", color="black", linewidth=1.55, label="All")
+        ax_exp.step(centers, mesomode_hours, where="mid", color="black", linewidth=1.8, label="All")
         for year, hours, color in zip(years, mesomode_hours_by_year, colors):
-            ax_exp.step(centers, hours, where="mid", color=color, linewidth=1.2, label=str(int(year)))
+            ax_exp.step(centers, hours, where="mid", color=color, linewidth=1.4, label=str(int(year)))
         finite_hours = np.concatenate((np.ravel(mesomode_hours), np.ravel(mesomode_hours_by_year)))
         finite_hours = finite_hours[np.isfinite(finite_hours)]
         ax_exp.set_ylim(0, max(0.1, float(np.max(finite_hours)) if len(finite_hours) else 0.1) * 1.10)
         ax_exp.set_xlim(0, 360)
-        ax_exp.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)")
-        ax_exp.set_ylabel("Mesosphere time (h)")
+        ax_exp.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)", fontsize=13)
+        ax_exp.set_ylabel("Measurement time (h)", fontsize=13)
+        ax_exp.tick_params(axis="both", labelsize=11)
         ax_exp.grid(True, alpha=0.25)
-        add_month_axis(ax_exp, 2025)
+        add_month_axis(ax_exp, 2025, fontsize=10)
     fig.savefig(path, dpi=220)
     plt.close(fig)
 
