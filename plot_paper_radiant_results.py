@@ -27,6 +27,8 @@ APEX_LONGITUDE_DEG = 270.0
 APEX_LONGITUDE_HALF_WIDTH_DEG = 30.0
 APEX_BETA_MIN_DEG = 5.0
 APEX_BETA_MAX_DEG = 35.0
+FIGURE7_EXPOSURE_CONTOUR_HOURS = np.asarray([100.0, 1500.0, 3000.0], dtype=np.float64)
+SNAPSHOT_EXPOSURE_CONTOUR_HOURS = np.asarray([40.0, 60.0], dtype=np.float64)
 
 
 @dataclass(frozen=True)
@@ -361,12 +363,12 @@ def plot_grid_panel(ax, hist, xedges, yedges, title, norm, cmap="magma"):
     return mesh
 
 
-def exposure_contour_levels(exposure_hours: np.ndarray) -> np.ndarray:
+def exposure_contour_levels(exposure_hours: np.ndarray, requested_levels: np.ndarray) -> np.ndarray:
     positive = np.asarray(exposure_hours, dtype=np.float64)
     positive = positive[np.isfinite(positive) & (positive > 0.0)]
     if len(positive) == 0:
         return np.asarray([], dtype=np.float64)
-    levels = np.asarray([40.0, 60.0], dtype=np.float64)
+    levels = np.asarray(requested_levels, dtype=np.float64)
     return levels[levels < np.nanmax(positive)]
 
 
@@ -434,9 +436,10 @@ def add_exposure_contours(
     raw_hist: np.ndarray,
     xedges: np.ndarray,
     yedges: np.ndarray,
+    contour_levels: np.ndarray = SNAPSHOT_EXPOSURE_CONTOUR_HOURS,
 ) -> None:
     xcenters, ycenters, _, _ = histogram_grid_centers(xedges, yedges)
-    levels = exposure_contour_levels(exposure_hours)
+    levels = exposure_contour_levels(exposure_hours, contour_levels)
     if len(levels) > 0:
         contours = ax.contour(
             np.deg2rad(xcenters),
@@ -510,7 +513,7 @@ def plot_all_radiants(
         rf"Exposure-corrected radiant rate ($\alpha={alpha:.2f}$)",
         flux_norm,
     )
-    add_exposure_contours(ax0, exposure_hours, raw_hist, xedges, yedges)
+    add_exposure_contours(ax0, exposure_hours, raw_hist, xedges, yedges, contour_levels=FIGURE7_EXPOSURE_CONTOUR_HOURS)
     for ax in (ax0, ax1):
         ax.set_xticklabels([])
         add_source_markers(ax)
