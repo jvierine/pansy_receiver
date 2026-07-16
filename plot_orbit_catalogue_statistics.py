@@ -732,14 +732,15 @@ def count_rate_from_density_and_exposure(
     all_count_density: np.ndarray,
     mesomode_hours_by_year: np.ndarray,
     mesomode_hours: np.ndarray,
+    min_measurement_hours: float = 5.0,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Return count rates per degree per measurement hour, leaving unsampled bins undefined."""
+    """Return rates only where a solar-longitude bin has sufficient measurement time."""
 
     def divide(density: np.ndarray, hours: np.ndarray) -> np.ndarray:
         density = np.asarray(density, dtype=np.float64)
         hours = np.asarray(hours, dtype=np.float64)
         rate = np.full(density.shape, np.nan, dtype=np.float64)
-        valid = np.isfinite(density) & np.isfinite(hours) & (hours > 0.0)
+        valid = np.isfinite(density) & np.isfinite(hours) & (hours >= float(min_measurement_hours))
         np.divide(density, hours, out=rate, where=valid)
         return rate.astype(np.float32)
 
@@ -855,6 +856,7 @@ def write_statistics_h5(
         h.attrs["initial_tx_beam_angle_event_count"] = int(initial_tx_event_count)
         h.attrs["solar_longitude_count_density_unit"] = "count per degree"
         h.attrs["solar_longitude_count_rate_unit"] = "count per degree per mesosphere-mode measurement hour"
+        h.attrs["solar_longitude_count_rate_min_measurement_hours"] = 5.0
         h.attrs["solar_longitude_mesomode_exposure_unit"] = "mesosphere-mode measurement hours per solar-longitude bin"
         h.attrs["height_velocity_quality_filter"] = (
             "static radiant monitor high-quality gate: valid DASST winning alias, "

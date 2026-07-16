@@ -27,8 +27,8 @@ def test_solar_longitude_count_rate_uses_measurement_hours():
 
     density_by_year = np.asarray([[10.0, 8.0], [6.0, 4.0]], dtype=np.float32)
     all_density = np.asarray([16.0, 12.0], dtype=np.float32)
-    hours_by_year = np.asarray([[2.0, 0.0], [3.0, 4.0]], dtype=np.float32)
-    all_hours = np.asarray([5.0, 4.0], dtype=np.float32)
+    hours_by_year = np.asarray([[5.0, 4.0], [10.0, 8.0]], dtype=np.float32)
+    all_hours = np.asarray([15.0, 12.0], dtype=np.float32)
 
     rate_by_year, all_rate = count_rate_from_density_and_exposure(
         density_by_year,
@@ -37,10 +37,10 @@ def test_solar_longitude_count_rate_uses_measurement_hours():
         all_hours,
     )
 
-    np.testing.assert_allclose(rate_by_year[0, 0], 5.0)
+    np.testing.assert_allclose(rate_by_year[0, 0], 2.0)
     assert np.isnan(rate_by_year[0, 1])
-    np.testing.assert_allclose(rate_by_year[1], [2.0, 1.0])
-    np.testing.assert_allclose(all_rate, [3.2, 3.0])
+    np.testing.assert_allclose(rate_by_year[1], [0.6, 0.5])
+    np.testing.assert_allclose(all_rate, [16.0 / 15.0, 1.0])
 
 
 def test_solar_longitude_exposure_is_clipped_to_catalogue_time_span(tmp_path):
