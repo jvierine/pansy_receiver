@@ -27,7 +27,7 @@ APEX_LONGITUDE_DEG = 270.0
 APEX_LONGITUDE_HALF_WIDTH_DEG = 30.0
 APEX_BETA_MIN_DEG = 5.0
 APEX_BETA_MAX_DEG = 25.0
-FIGURE7_EXPOSURE_CONTOUR_HOURS = np.asarray([100.0, 1500.0, 3000.0], dtype=np.float64)
+FIGURE7_EXPOSURE_CONTOUR_HOURS = np.asarray([750.0, 1500.0, 3000.0], dtype=np.float64)
 SNAPSHOT_EXPOSURE_CONTOUR_HOURS = np.asarray([40.0, 60.0], dtype=np.float64)
 
 
@@ -102,7 +102,12 @@ SNAPSHOT_WINDOWS = (
         marker_sc_lon_deg=288.74,
         marker_beta_deg=-48.17,
     ),
-    SnapshotWindow(label=r"$\lambda_\odot=130.5^\circ$", solar_lon_deg=130.5),
+    SnapshotWindow(
+        label=r"$\lambda_\odot=120.5^\circ$",
+        solar_lon_deg=120.5,
+        marker_sc_lon_deg=343.6,
+        marker_beta_deg=-48.4,
+    ),
     SnapshotWindow(label=r"$\lambda_\odot=197.0^\circ$", solar_lon_deg=197.0),
     SnapshotWindow(
         label=r"Daytime $\chi$ Capricornids, $\lambda_\odot=312.7^\circ$",

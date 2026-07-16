@@ -394,7 +394,9 @@ def plot_orbits(ax, selections: list[tuple[Passage, np.ndarray]], colors: list[s
     ax.set_xlabel("Ecliptic X (AU)")
     ax.set_ylabel("Ecliptic Y (AU)")
     ax.grid(alpha=0.22, lw=0.45)
-    ax.legend(loc="upper right", fontsize=8, frameon=False)
+    legend = ax.legend(loc="upper right", fontsize=8, frameon=True, framealpha=1.0)
+    legend.get_frame().set_facecolor("white")
+    legend.get_frame().set_edgecolor("none")
 
 
 def plot_orbit_panel_figure(selections: list[tuple[Passage, np.ndarray]], out: Path):
