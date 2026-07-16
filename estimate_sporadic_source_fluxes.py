@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 import h5py
+import healpy as hp
 import numpy as np
 
 
@@ -61,17 +62,14 @@ def main() -> None:
     args = parser.parse_args()
 
     with h5py.File(args.sidecar, "r") as h5:
-        aperture_rate = np.asarray(h5["zenith_only_rate_h_inv"], dtype=np.float64)
-        velocity_rate = np.asarray(h5["debiased_rate_h_inv"], dtype=np.float64)
-        raw = np.asarray(h5["raw_count"], dtype=np.float64)
-        exposure = np.asarray(h5["radiant_exposure_hours"], dtype=np.float64)
-        xedges = np.asarray(h5["plot_longitude_edges_deg"], dtype=np.float64)
-        yedges = np.asarray(h5["ecliptic_latitude_edges_deg"], dtype=np.float64)
+        aperture_rate = np.asarray(h5["healpix_zenith_only_rate_h_inv"], dtype=np.float64)
+        velocity_rate = np.asarray(h5["healpix_debiased_rate_h_inv"], dtype=np.float64)
+        raw = np.asarray(h5["healpix_raw_count"], dtype=np.float64)
+        exposure = np.asarray(h5["healpix_radiant_exposure_hours"], dtype=np.float64)
+        nside = int(h5.attrs["healpix_nside"])
 
-    xcenters = 0.5 * (xedges[:-1] + xedges[1:])
-    ycenters = 0.5 * (yedges[:-1] + yedges[1:])
-    xgrid, beta = np.meshgrid(xcenters, ycenters)
-    lon = physical_lon_from_plot_x(xgrid)
+    pixel = np.arange(hp.nside2npix(nside), dtype=np.int64)
+    lon, beta = hp.pix2ang(nside, pixel, lonlat=True)
     valid = exposure > 0.0
 
     regions_json, toroidal_region_names, _ = load_regions(args.regions)

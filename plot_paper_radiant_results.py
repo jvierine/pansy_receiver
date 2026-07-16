@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import h5py
+import healpy as hp
 import matplotlib.pyplot as plt
 import numpy as np
 from astropy import units as u
@@ -16,13 +17,16 @@ from astropy.time import Time
 from matplotlib.ticker import FuncFormatter
 from matplotlib.colors import LogNorm, Normalize
 
-from radiant_visibility import radiant_exposure_hours_grid
+from healpix_hammer import healpix_centers, render_healpix_hammer
+from radiant_visibility import radiant_exposure_hours_grid, radiant_exposure_hours_points
 
 
 PANSY_LOCATION = EarthLocation(lat=-69.010833 * u.deg, lon=39.599722 * u.deg, height=100.0 * u.m)
 PLOT_CENTER_LONGITUDE_DEG = -90.0
 LONGITUDE_BINS = 144
 LATITUDE_BINS = 72
+HEALPIX_NSIDE = 64
+SNAPSHOT_HEALPIX_NSIDE = 32
 APEX_LONGITUDE_DEG = 270.0
 APEX_LONGITUDE_HALF_WIDTH_DEG = 30.0
 APEX_BETA_MIN_DEG = 5.0
@@ -192,6 +196,76 @@ def radiant_histogram(rows: np.ndarray, weights=None, lon_bins: int = LONGITUDE_
         weights=weights,
     )
     return hist.T, xedges, yedges
+
+
+def radiant_healpix_histogram(rows: np.ndarray, weights=None, nside: int = HEALPIX_NSIDE) -> np.ndarray:
+    pixel = hp.ang2pix(
+        int(nside),
+        np.asarray(rows["lambda_minus_sun_deg"], dtype=np.float64),
+        np.asarray(rows["radiant_beta_ecliptic_deg"], dtype=np.float64),
+        lonlat=True,
+    )
+    return np.bincount(pixel, weights=weights, minlength=hp.nside2npix(int(nside))).astype(np.float64)
+
+
+def corrected_flux_healpix(
+    rows: np.ndarray,
+    cos_z: np.ndarray,
+    exposure_hours: np.ndarray,
+    min_cos_z: float,
+    alpha: float,
+    speed_power: float = 3.0,
+    nside: int = HEALPIX_NSIDE,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    weights = corrected_weight(rows, cos_z, min_cos_z=min_cos_z, alpha=alpha, speed_power=speed_power)
+    weighted_count = radiant_healpix_histogram(rows, weights=weights, nside=nside)
+    rate = np.zeros_like(weighted_count)
+    np.divide(weighted_count, exposure_hours, out=rate, where=exposure_hours > 0.0)
+    return weights, weighted_count, rate
+
+
+def fit_zenith_exponent_healpix(
+    rows: np.ndarray,
+    cos_z: np.ndarray,
+    exposure_hours: np.ndarray,
+    min_cos_z: float,
+    alpha_bounds: tuple[float, float],
+    nside: int = HEALPIX_NSIDE,
+) -> tuple[float, float, float, float]:
+    from scipy.optimize import minimize_scalar
+
+    _, lon, beta, _ = healpix_centers(nside, center_longitude_deg=PLOT_CENTER_LONGITUDE_DEG)
+    near_apex = np.abs(wrap180(lon - APEX_LONGITUDE_DEG)) <= APEX_LONGITUDE_HALF_WIDTH_DEG
+    north = near_apex & (beta >= APEX_BETA_MIN_DEG) & (beta <= APEX_BETA_MAX_DEG)
+    south = near_apex & (beta <= -APEX_BETA_MIN_DEG) & (beta >= -APEX_BETA_MAX_DEG)
+    valid_exposure = exposure_hours > 0.0
+
+    def fluxes(alpha: float) -> tuple[float, float]:
+        _, _, rate = corrected_flux_healpix(
+            rows,
+            cos_z,
+            exposure_hours,
+            min_cos_z,
+            alpha,
+            nside=nside,
+        )
+        return float(np.sum(rate[north & valid_exposure])), float(np.sum(rate[south & valid_exposure]))
+
+    def objective(alpha: float) -> float:
+        north_flux, south_flux = fluxes(alpha)
+        if north_flux <= 0.0 or south_flux <= 0.0:
+            return np.inf
+        return float(np.log(north_flux / south_flux) ** 2)
+
+    result = minimize_scalar(
+        objective,
+        bounds=(float(alpha_bounds[0]), float(alpha_bounds[1])),
+        method="bounded",
+        options={"xatol": 1e-3},
+    )
+    alpha = float(result.x)
+    north_flux, south_flux = fluxes(alpha)
+    return alpha, float(result.fun), north_flux, south_flux
 
 
 def merge_intervals(intervals: np.ndarray, max_gap_seconds: float = 0.1) -> np.ndarray:
@@ -495,8 +569,9 @@ def add_exposure_contours(
 def plot_all_radiants(
     rows: np.ndarray,
     raw_hist: np.ndarray,
-    zenith_flux_hist: np.ndarray,
-    flux_hist: np.ndarray,
+    healpix_zenith_flux: np.ndarray,
+    healpix_flux: np.ndarray,
+    healpix_nside: int,
     exposure_hours: np.ndarray,
     xedges: np.ndarray,
     yedges: np.ndarray,
@@ -504,29 +579,31 @@ def plot_all_radiants(
     out: Path,
 ) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
-    positive_zenith = zenith_flux_hist[np.isfinite(zenith_flux_hist) & (zenith_flux_hist > 0.0)]
+    positive_zenith = healpix_zenith_flux[np.isfinite(healpix_zenith_flux) & (healpix_zenith_flux > 0.0)]
     zenith_norm = LogNorm(vmin=np.nanpercentile(positive_zenith, 5.0), vmax=np.nanpercentile(positive_zenith, 99.5))
-    positive_flux = flux_hist[np.isfinite(flux_hist) & (flux_hist > 0.0)]
+    positive_flux = healpix_flux[np.isfinite(healpix_flux) & (healpix_flux > 0.0)]
     flux_norm = LogNorm(vmin=np.nanpercentile(positive_flux, 5.0), vmax=np.nanpercentile(positive_flux, 99.5))
     fig = plt.figure(figsize=(10.8, 5.4), constrained_layout=True)
     ax0 = fig.add_subplot(121, projection="hammer")
     ax1 = fig.add_subplot(122, projection="hammer")
-    mesh0 = plot_grid_panel(
+    mesh0 = render_healpix_hammer(
         ax0,
-        zenith_flux_hist,
-        xedges,
-        yedges,
-        rf"Exposure + zenith corrected rate ($\alpha={alpha:.2f}$)",
-        zenith_norm,
+        healpix_zenith_flux,
+        healpix_nside,
+        cmap="magma",
+        norm=zenith_norm,
     )
-    mesh1 = plot_grid_panel(
+    mesh1 = render_healpix_hammer(
         ax1,
-        flux_hist,
-        xedges,
-        yedges,
-        rf"With additional $1/v_g^3$ speed weight",
-        flux_norm,
+        healpix_flux,
+        healpix_nside,
+        cmap="magma",
+        norm=flux_norm,
     )
+    style_hammer(ax0)
+    style_hammer(ax1)
+    ax0.set_title(rf"Exposure + zenith corrected rate ($\alpha={alpha:.2f}$)", fontsize=10)
+    ax1.set_title(r"With additional $1/v_g^3$ speed weight", fontsize=10)
     add_exposure_contours(ax0, exposure_hours, raw_hist, xedges, yedges, contour_levels=FIGURE7_EXPOSURE_CONTOUR_HOURS)
     for ax in (ax0, ax1):
         ax.set_xticklabels([])
@@ -534,9 +611,9 @@ def plot_all_radiants(
         ax.set_xlabel(r"Sun-centered ecliptic longitude, $\lambda-\lambda_\odot$")
         ax.set_ylabel(r"Ecliptic latitude, $\beta$")
     cb0 = fig.colorbar(mesh0, ax=ax0, orientation="horizontal", pad=0.10, fraction=0.045)
-    cb0.set_label(r"Radiant rate (h$^{-1}$ per bin)")
+    cb0.set_label(r"Radiant rate (h$^{-1}$ per HEALPix pixel)")
     cb1 = fig.colorbar(mesh1, ax=ax1, orientation="horizontal", pad=0.10, fraction=0.045)
-    cb1.set_label(r"Speed-weighted radiant rate (h$^{-1}$ per bin)")
+    cb1.set_label(r"Speed-weighted radiant rate (h$^{-1}$ per HEALPix pixel)")
     fig.savefig(out, dpi=240)
     plt.close(fig)
 
@@ -576,16 +653,17 @@ def plot_snapshots(
             plot_longitude_deg=xcenters,
             beta_deg=ycenters,
         )
-        hist, *_ = radiant_histogram(sub)
-        norm = LogNorm(vmin=1.0, vmax=max(2.0, np.nanpercentile(hist[hist > 0], 99.4))) if np.any(hist > 0) else None
-        plot_hist_panel(
-            ax,
-            sub,
-            None,
-            rf"{window.label}$\pm{window_half_width:g}^\circ$",
-            norm,
+        contour_hist, *_ = radiant_histogram(sub)
+        healpix_hist = radiant_healpix_histogram(sub, nside=SNAPSHOT_HEALPIX_NSIDE)
+        norm = (
+            LogNorm(vmin=1.0, vmax=max(2.0, np.nanpercentile(healpix_hist[healpix_hist > 0], 99.4)))
+            if np.any(healpix_hist > 0)
+            else None
         )
-        add_exposure_contours(ax, exposure_hours, hist, xedges, yedges)
+        render_healpix_hammer(ax, healpix_hist, SNAPSHOT_HEALPIX_NSIDE, cmap="magma", norm=norm)
+        style_hammer(ax)
+        ax.set_title(rf"{window.label}$\pm{window_half_width:g}^\circ$", fontsize=10)
+        add_exposure_contours(ax, exposure_hours, contour_hist, xedges, yedges)
         add_source_markers(ax)
         if window.marker_sc_lon_deg is not None and window.marker_beta_deg is not None:
             ax.scatter(
@@ -652,6 +730,12 @@ def write_sidecar(
     weighted_hist: np.ndarray,
     flux_hist: np.ndarray,
     exposure_hours: np.ndarray,
+    healpix_raw_count: np.ndarray,
+    healpix_zenith_weighted_count: np.ndarray,
+    healpix_zenith_rate: np.ndarray,
+    healpix_weighted_count: np.ndarray,
+    healpix_rate: np.ndarray,
+    healpix_exposure_hours: np.ndarray,
     xedges: np.ndarray,
     yedges: np.ndarray,
     observation_epoch: np.ndarray,
@@ -683,6 +767,13 @@ def write_sidecar(
         h5.attrs["apex_absolute_beta_range_deg"] = np.asarray([APEX_BETA_MIN_DEG, APEX_BETA_MAX_DEG], dtype=np.float32)
         h5.attrs["min_cos_z"] = float(min_cos_z)
         h5.attrs["snapshot_half_width_solar_longitude_deg"] = float(half_width_deg)
+        h5.attrs["longitude_bins"] = np.int32(LONGITUDE_BINS)
+        h5.attrs["latitude_bins"] = np.int32(LATITUDE_BINS)
+        h5.attrs["longitude_bin_width_deg"] = np.float32(360.0 / LONGITUDE_BINS)
+        h5.attrs["latitude_bin_width_deg"] = np.float32(180.0 / LATITUDE_BINS)
+        h5.attrs["healpix_nside"] = np.int32(HEALPIX_NSIDE)
+        h5.attrs["healpix_ordering"] = "RING"
+        h5.attrs["healpix_pixel_area_sr"] = float(hp.nside2pixarea(HEALPIX_NSIDE))
         h5.create_dataset("radiants", data=rows, compression="gzip", compression_opts=3)
         h5.create_dataset("correction_weight", data=weights.astype(np.float32), compression="gzip", compression_opts=3)
         h5.create_dataset("zenith_only_correction_weight", data=zenith_weights.astype(np.float32), compression="gzip", compression_opts=3)
@@ -693,6 +784,17 @@ def write_sidecar(
         h5.create_dataset("weighted_count", data=weighted_hist.astype(np.float32), compression="gzip", compression_opts=3)
         h5.create_dataset("debiased_rate_h_inv", data=flux_hist.astype(np.float32), compression="gzip", compression_opts=3)
         h5.create_dataset("radiant_exposure_hours", data=exposure_hours.astype(np.float32), compression="gzip", compression_opts=3)
+        h5.create_dataset("healpix_raw_count", data=healpix_raw_count.astype(np.float32), compression="gzip", compression_opts=3)
+        h5.create_dataset(
+            "healpix_zenith_only_weighted_count",
+            data=healpix_zenith_weighted_count.astype(np.float32),
+            compression="gzip",
+            compression_opts=3,
+        )
+        h5.create_dataset("healpix_zenith_only_rate_h_inv", data=healpix_zenith_rate.astype(np.float32), compression="gzip", compression_opts=3)
+        h5.create_dataset("healpix_weighted_count", data=healpix_weighted_count.astype(np.float32), compression="gzip", compression_opts=3)
+        h5.create_dataset("healpix_debiased_rate_h_inv", data=healpix_rate.astype(np.float32), compression="gzip", compression_opts=3)
+        h5.create_dataset("healpix_radiant_exposure_hours", data=healpix_exposure_hours.astype(np.float32), compression="gzip", compression_opts=3)
         h5.create_dataset("plot_longitude_edges_deg", data=xedges.astype(np.float32))
         h5.create_dataset("ecliptic_latitude_edges_deg", data=yedges.astype(np.float32))
         h5.create_dataset("observation_sample_idx", data=np.rint(observation_epoch * 1e6).astype(np.int64), compression="gzip", compression_opts=3)
@@ -702,8 +804,13 @@ def write_sidecar(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--radiants-h5", type=Path, required=True)
-    parser.add_argument("--statistics-h5", type=Path, required=True)
+    parser.add_argument("--radiants-h5", type=Path)
+    parser.add_argument("--statistics-h5", type=Path)
+    parser.add_argument(
+        "--input-sidecar",
+        type=Path,
+        help="Reuse the filtered radiants and observing-time samples stored by an earlier run",
+    )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--min-cos-z", type=float, default=0.15)
     parser.add_argument("--mesomode-metadata-dir", type=Path)
@@ -712,20 +819,38 @@ def main() -> None:
     parser.add_argument("--alpha-max", type=float, default=4.0)
     parser.add_argument("--snapshot-half-width-deg", type=float, default=4.0)
     parser.add_argument("--shower-radius-deg", type=float, default=4.0)
+    parser.add_argument(
+        "--skip-secondary-plots",
+        action="store_true",
+        help="Generate the full radiant map and sidecar without the snapshot and candidate-shower figures",
+    )
     args = parser.parse_args()
 
-    rows = load_filtered_radiants(args.radiants_h5, args.statistics_h5)
-    cos_z = zenith_cosine(rows)
     cadence_seconds = float(args.exposure_cadence_minutes) * 60.0
-    start_epoch = float(np.nanmin(rows["epoch_unix"]))
-    stop_epoch = float(np.nanmax(rows["epoch_unix"]))
-    if args.mesomode_metadata_dir is not None:
-        intervals = load_mesomode_intervals(args.mesomode_metadata_dir, start_epoch, stop_epoch)
-        exposure_source = f"mesomode metadata: {args.mesomode_metadata_dir}"
+    if args.input_sidecar is not None:
+        with h5py.File(args.input_sidecar, "r") as h5:
+            rows = h5["radiants"][()]
+            cos_z = np.asarray(h5["cos_zenith_angle"], dtype=np.float64)
+            observation_epoch = np.asarray(h5["observation_sample_idx"], dtype=np.float64) / float(
+                h5.attrs["observation_sample_rate_hz"]
+            )
+            observation_hours = np.asarray(h5["observation_hours"], dtype=np.float64)
+            original_exposure_source = str(h5.attrs["exposure_source"])
+        exposure_source = f"reused samples from {args.input_sidecar}; original source: {original_exposure_source}"
     else:
-        intervals = event_occupied_intervals(load_radiant_epochs(args.radiants_h5), cadence_seconds)
-        exposure_source = "15-minute bins containing at least one meteor in the input radiant table"
-    observation_epoch, observation_hours = observing_time_samples(intervals, cadence_seconds)
+        if args.radiants_h5 is None or args.statistics_h5 is None:
+            parser.error("provide --input-sidecar or both --radiants-h5 and --statistics-h5")
+        rows = load_filtered_radiants(args.radiants_h5, args.statistics_h5)
+        cos_z = zenith_cosine(rows)
+        start_epoch = float(np.nanmin(rows["epoch_unix"]))
+        stop_epoch = float(np.nanmax(rows["epoch_unix"]))
+        if args.mesomode_metadata_dir is not None:
+            intervals = load_mesomode_intervals(args.mesomode_metadata_dir, start_epoch, stop_epoch)
+            exposure_source = f"mesomode metadata: {args.mesomode_metadata_dir}"
+        else:
+            intervals = event_occupied_intervals(load_radiant_epochs(args.radiants_h5), cadence_seconds)
+            exposure_source = "15-minute bins containing at least one meteor in the input radiant table"
+        observation_epoch, observation_hours = observing_time_samples(intervals, cadence_seconds)
     if len(observation_epoch) == 0:
         raise RuntimeError("No observing-time samples were found for the radiant exposure calculation")
     observation_sun = interpolate_solar_longitude(rows, observation_epoch)
@@ -738,12 +863,21 @@ def main() -> None:
         plot_longitude_deg=xcenters,
         beta_deg=ycenters,
     )
-    alpha, alpha_objective, apex_north_flux, apex_south_flux = fit_zenith_exponent(
+    _, _, healpix_beta, healpix_plot_lon = healpix_centers(HEALPIX_NSIDE, center_longitude_deg=PLOT_CENTER_LONGITUDE_DEG)
+    healpix_exposure_hours = radiant_exposure_hours_points(
+        observation_epoch,
+        observation_sun,
+        observation_hours,
+        healpix_plot_lon,
+        healpix_beta,
+    )
+    alpha, alpha_objective, apex_north_flux, apex_south_flux = fit_zenith_exponent_healpix(
         rows,
         cos_z,
-        exposure_hours,
+        healpix_exposure_hours,
         min_cos_z=args.min_cos_z,
         alpha_bounds=(args.alpha_min, args.alpha_max),
+        nside=HEALPIX_NSIDE,
     )
     zenith_weights, zenith_weighted_hist, zenith_flux_hist = corrected_flux_histogram(
         rows, cos_z, exposure_hours, args.min_cos_z, alpha, speed_power=0.0
@@ -752,31 +886,58 @@ def main() -> None:
         rows, cos_z, exposure_hours, args.min_cos_z, alpha, speed_power=3.0
     )
     raw_hist, _, _ = radiant_histogram(rows)
-    zero_exposure_count = int(np.sum(raw_hist[exposure_hours <= 0.0]))
+    healpix_raw_count = radiant_healpix_histogram(rows)
+    _, healpix_zenith_weighted_count, healpix_zenith_rate = corrected_flux_healpix(
+        rows,
+        cos_z,
+        healpix_exposure_hours,
+        args.min_cos_z,
+        alpha,
+        speed_power=0.0,
+        nside=HEALPIX_NSIDE,
+    )
+    _, healpix_weighted_count, healpix_rate = corrected_flux_healpix(
+        rows,
+        cos_z,
+        healpix_exposure_hours,
+        args.min_cos_z,
+        alpha,
+        speed_power=3.0,
+        nside=HEALPIX_NSIDE,
+    )
+    zero_exposure_count = int(np.sum(healpix_raw_count[healpix_exposure_hours <= 0.0]))
+    healpix_raw_count = np.where(healpix_exposure_hours > 0.0, healpix_raw_count, 0.0)
     raw_hist = np.where(exposure_hours > 0.0, raw_hist, 0.0)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     plot_all_radiants(
         rows,
         raw_hist,
-        zenith_flux_hist,
-        flux_hist,
+        healpix_zenith_rate,
+        healpix_rate,
+        HEALPIX_NSIDE,
         exposure_hours,
         xedges,
         yedges,
         alpha,
         args.output_dir / "paper_radiant_distribution_corrected.png",
     )
-    plot_snapshots(
-        rows,
-        observation_epoch,
-        observation_sun,
-        observation_hours,
-        xedges,
-        yedges,
-        args.output_dir / "paper_radiant_snapshots.png",
-        half_width_deg=args.snapshot_half_width_deg,
-    )
-    plot_candidate_showers(rows, args.output_dir / "paper_candidate_showers.png", half_width_deg=args.snapshot_half_width_deg, radius_deg=args.shower_radius_deg)
+    if not args.skip_secondary_plots:
+        plot_snapshots(
+            rows,
+            observation_epoch,
+            observation_sun,
+            observation_hours,
+            xedges,
+            yedges,
+            args.output_dir / "paper_radiant_snapshots.png",
+            half_width_deg=args.snapshot_half_width_deg,
+        )
+        plot_candidate_showers(
+            rows,
+            args.output_dir / "paper_candidate_showers.png",
+            half_width_deg=args.snapshot_half_width_deg,
+            radius_deg=args.shower_radius_deg,
+        )
     write_sidecar(
         args.output_dir / "paper_radiant_results.h5",
         rows,
@@ -789,6 +950,12 @@ def main() -> None:
         weighted_hist,
         flux_hist,
         exposure_hours,
+        healpix_raw_count,
+        healpix_zenith_weighted_count,
+        healpix_zenith_rate,
+        healpix_weighted_count,
+        healpix_rate,
+        healpix_exposure_hours,
         xedges,
         yedges,
         observation_epoch,
@@ -805,6 +972,7 @@ def main() -> None:
     print(f"paper_radiants {len(rows)}")
     print(f"exposure_samples {len(observation_epoch)} total_mesomode_hours {np.sum(observation_hours):.3f}")
     print(f"detections_in_zero_exposure_bins {zero_exposure_count}")
+    print(f"healpix_nside {HEALPIX_NSIDE} npix {hp.nside2npix(HEALPIX_NSIDE)}")
     print(f"alpha {alpha:.4f} apex_north_flux {apex_north_flux:.6g} apex_south_flux {apex_south_flux:.6g}")
     print(args.output_dir)
 

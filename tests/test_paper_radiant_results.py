@@ -3,15 +3,19 @@ from types import SimpleNamespace
 import numpy as np
 
 from plot_paper_radiant_results import (
+    LATITUDE_BINS,
+    LONGITUDE_BINS,
     corrected_flux_histogram,
     fit_zenith_exponent,
     observing_time_samples,
+    radiant_healpix_histogram,
     right_side_contour_label_positions,
 )
 from radiant_visibility import (
     altitude_from_radec_deg,
     ecliptic_lonlat_to_radec_deg,
     radiant_exposure_hours_grid,
+    radiant_exposure_hours_points,
     wrap360,
 )
 
@@ -39,6 +43,28 @@ def test_exposure_grid_matches_direct_altitude_calculation():
             assert exposure[iy, ix] == expected
 
 
+def test_exposure_points_matches_paired_grid_samples():
+    epoch = np.asarray([1_750_000_000.0])
+    sun = np.asarray([123.0])
+    plot_lon = np.asarray([-120.0, 15.0])
+    beta = np.asarray([-25.0, 20.0])
+    _, _, grid = radiant_exposure_hours_grid(epoch, sun, [0.25], plot_lon, beta)
+    points = radiant_exposure_hours_points(epoch, sun, [0.25], plot_lon, beta)
+    np.testing.assert_allclose(points, [grid[0, 0], grid[1, 1]])
+
+
+def test_healpix_histogram_preserves_total_count():
+    rows = np.zeros(
+        4,
+        dtype=[("lambda_minus_sun_deg", "f8"), ("radiant_beta_ecliptic_deg", "f8")],
+    )
+    rows["lambda_minus_sun_deg"] = [0.0, 0.0, 180.0, 270.0]
+    rows["radiant_beta_ecliptic_deg"] = [0.0, 0.0, 30.0, -45.0]
+    count = radiant_healpix_histogram(rows, nside=8)
+    assert count.shape == (12 * 8**2,)
+    assert np.sum(count) == len(rows)
+
+
 def test_apex_symmetry_fit_recovers_known_exponent():
     dtype = np.dtype(
         [
@@ -52,7 +78,7 @@ def test_apex_symmetry_fit_recovers_known_exponent():
     rows["radiant_beta_ecliptic_deg"] = [20.0, 20.0, -20.0]
     rows["speed_km_s"] = 73.0
     cos_z = np.asarray([1.0, 1.0, 0.5])
-    exposure = np.ones((72, 144), dtype=np.float64)
+    exposure = np.ones((LATITUDE_BINS, LONGITUDE_BINS), dtype=np.float64)
 
     alpha, objective, north_flux, south_flux = fit_zenith_exponent(
         rows,

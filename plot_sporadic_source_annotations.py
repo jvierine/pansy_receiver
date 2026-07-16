@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 
@@ -11,6 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import LogNorm
 
+from healpix_hammer import render_healpix_hammer
 
 SIDECAR = Path("figs/paper_radiant_results_current/paper_radiant_results.h5")
 REGION_JSON = Path("figs/sporadic_source_regions_manual.json")
@@ -41,9 +43,9 @@ def centered_plot_longitude_deg(lambda_minus_sun_deg):
     return -wrap180(signed - PLOT_CENTER_LONGITUDE_DEG)
 
 
-def load_regions():
-    if REGION_JSON.exists():
-        with REGION_JSON.open("r", encoding="utf-8") as fh:
+def load_regions(path: Path = REGION_JSON):
+    if path.exists():
+        with path.open("r", encoding="utf-8") as fh:
             return json.load(fh)["regions"]
     return {
         "helion": {"center_lon_deg": 0.0, "half_lon_deg": 30.0, "beta_min_deg": -20.0, "beta_max_deg": 20.0},
@@ -64,10 +66,8 @@ def style_hammer(ax):
     ax.grid(True, alpha=0.25, lw=0.45)
 
 
-def plot_grid(ax, hist, xedges, yedges, title, norm):
-    plot_hist = np.asarray(hist, dtype=np.float64).copy()
-    plot_hist[~np.isfinite(plot_hist) | (plot_hist <= 0.0)] = float(norm.vmin)
-    mesh = ax.pcolormesh(np.deg2rad(xedges), np.deg2rad(yedges), plot_hist, shading="auto", cmap="magma", norm=norm)
+def plot_healpix(ax, values, nside, title, norm):
+    mesh = render_healpix_hammer(ax, values, nside, cmap="magma", norm=norm)
     style_hammer(ax)
     ax.set_title(title, fontsize=10)
     return mesh
@@ -117,14 +117,17 @@ def add_region_box(ax, label, region, color):
         label_y = beta_max + 4.0 if beta_max <= 25.0 else beta_max - 4.0
     if beta_max < 0.0:
         label_y = beta_min - 4.0
-    ax.text(
-        np.deg2rad(label_x),
-        np.deg2rad(label_y),
+    font_size = 7.5
+    y_offset_points = -0.5 * font_size if label == "Narrow apex" else 0.0
+    ax.annotate(
         label,
+        xy=(np.deg2rad(label_x), np.deg2rad(label_y)),
+        xytext=(0.0, y_offset_points),
+        textcoords="offset points",
         color=color,
         ha="center",
         va="center",
-        fontsize=7.5,
+        fontsize=font_size,
         weight="bold",
         bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.72, "pad": 1.8},
         zorder=20,
@@ -132,19 +135,24 @@ def add_region_box(ax, label, region, color):
 
 
 def main() -> None:
-    with h5py.File(SIDECAR, "r") as h5:
-        raw = np.asarray(h5["raw_count"], dtype=np.float64)
-        xedges = np.asarray(h5["plot_longitude_edges_deg"], dtype=np.float64)
-        yedges = np.asarray(h5["ecliptic_latitude_edges_deg"], dtype=np.float64)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--sidecar", type=Path, default=SIDECAR)
+    parser.add_argument("--regions", type=Path, default=REGION_JSON)
+    parser.add_argument("--output", type=Path, default=OUTPUT)
+    args = parser.parse_args()
+
+    with h5py.File(args.sidecar, "r") as h5:
+        raw = np.asarray(h5["healpix_raw_count"], dtype=np.float64)
+        nside = int(h5.attrs["healpix_nside"])
         n_rows = len(h5["radiants"])
-    regions = load_regions()
+    regions = load_regions(args.regions)
 
     raw_positive = raw[np.isfinite(raw) & (raw > 0.0)]
     raw_norm = LogNorm(vmin=1.0, vmax=max(2.0, float(np.nanmax(raw_positive))))
 
     fig = plt.figure(figsize=(7.2, 4.8), constrained_layout=True)
     ax0 = fig.add_subplot(111, projection="hammer")
-    mesh0 = plot_grid(ax0, raw, xedges, yedges, f"Observed high-quality radiants (N={n_rows:,})", raw_norm)
+    mesh0 = plot_healpix(ax0, raw, nside, f"Observed high-quality radiants (N={n_rows:,})", raw_norm)
     ax0.set_xticklabels([])
     add_source_markers(ax0)
     ax0.set_xlabel(r"Sun-centered ecliptic longitude, $\lambda-\lambda_\odot$")
@@ -153,11 +161,11 @@ def main() -> None:
         label, color = REGION_COLORS.get(name, (name, "white"))
         add_region_box(ax0, label, region, color)
     cb0 = fig.colorbar(mesh0, ax=ax0, orientation="horizontal", pad=0.10, fraction=0.045)
-    cb0.set_label("Count per bin")
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(OUTPUT, dpi=240)
+    cb0.set_label("Count per HEALPix pixel")
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(args.output, dpi=240)
     plt.close(fig)
-    print(OUTPUT)
+    print(args.output)
 
 
 if __name__ == "__main__":

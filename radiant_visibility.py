@@ -277,6 +277,78 @@ def radiant_exposure_hours_grid(
     return plot_longitude_deg, beta_deg, exposure
 
 
+def radiant_exposure_hours_points(
+    epoch_unix,
+    solar_longitude_deg,
+    observing_hours,
+    plot_longitude_deg,
+    beta_deg,
+    min_altitude_deg: float = 0.0,
+    chunk_size: int = 512,
+):
+    """Accumulate observing hours at paired Sun-centered radiant directions."""
+    epoch = np.asarray(epoch_unix, dtype=np.float64)
+    sun = np.asarray(solar_longitude_deg, dtype=np.float64)
+    hours = np.asarray(observing_hours, dtype=np.float64)
+    epoch, sun, hours = np.broadcast_arrays(epoch, sun, hours)
+    good = np.isfinite(epoch) & np.isfinite(sun) & np.isfinite(hours) & (hours > 0.0)
+    epoch = epoch[good]
+    sun = sun[good]
+    hours = hours[good]
+
+    plot_longitude_deg, beta_deg = np.broadcast_arrays(
+        np.asarray(plot_longitude_deg, dtype=np.float64),
+        np.asarray(beta_deg, dtype=np.float64),
+    )
+    relative_lon = np.deg2rad(wrap180(PLOT_CENTER_LONGITUDE_DEG - plot_longitude_deg.ravel()))
+    beta_rad = np.deg2rad(beta_deg.ravel())
+    cos_beta = np.cos(beta_rad)
+    radiant_vectors = np.column_stack(
+        (
+            cos_beta * np.cos(relative_lon),
+            cos_beta * np.sin(relative_lon),
+            np.sin(beta_rad),
+        )
+    )
+    exposure = np.zeros(len(radiant_vectors), dtype=np.float64)
+    if len(epoch) == 0:
+        return exposure.reshape(plot_longitude_deg.shape)
+
+    site_lat = np.deg2rad(PANSY_SITE_LATITUDE_DEG)
+    lst = np.deg2rad(wrap360(gmst_deg_from_unix(epoch) + PANSY_SITE_LONGITUDE_DEG))
+    zenith_equatorial = np.column_stack(
+        (
+            np.cos(site_lat) * np.cos(lst),
+            np.cos(site_lat) * np.sin(lst),
+            np.full(len(epoch), np.sin(site_lat)),
+        )
+    )
+    eps = np.deg2rad(MEAN_OBLIQUITY_DEG)
+    zenith_ecliptic = np.column_stack(
+        (
+            zenith_equatorial[:, 0],
+            np.cos(eps) * zenith_equatorial[:, 1] + np.sin(eps) * zenith_equatorial[:, 2],
+            -np.sin(eps) * zenith_equatorial[:, 1] + np.cos(eps) * zenith_equatorial[:, 2],
+        )
+    )
+    sun_rad = np.deg2rad(sun)
+    zenith_sun_centered = np.column_stack(
+        (
+            np.cos(sun_rad) * zenith_ecliptic[:, 0] + np.sin(sun_rad) * zenith_ecliptic[:, 1],
+            -np.sin(sun_rad) * zenith_ecliptic[:, 0] + np.cos(sun_rad) * zenith_ecliptic[:, 1],
+            zenith_ecliptic[:, 2],
+        )
+    )
+
+    threshold = np.sin(np.deg2rad(float(min_altitude_deg)))
+    chunk_size = max(1, int(chunk_size))
+    for start in range(0, len(epoch), chunk_size):
+        stop = min(start + chunk_size, len(epoch))
+        sin_altitude = zenith_sun_centered[start:stop] @ radiant_vectors.T
+        exposure += (sin_altitude > threshold).T @ hours[start:stop]
+    return exposure.reshape(plot_longitude_deg.shape)
+
+
 def composite_radiant_visibility_points(
     lambda_minus_sun_deg,
     beta_deg,
