@@ -173,9 +173,9 @@ def zenith_cosine(rows: np.ndarray) -> np.ndarray:
     return np.asarray(cos_z, dtype=np.float64)
 
 
-def corrected_weight(rows: np.ndarray, cos_z: np.ndarray, min_cos_z: float, alpha: float) -> np.ndarray:
+def corrected_weight(rows: np.ndarray, cos_z: np.ndarray, min_cos_z: float, alpha: float, speed_power: float = 3.0) -> np.ndarray:
     speed = np.asarray(rows["speed_km_s"], dtype=np.float64)
-    wv = (73.0 / np.maximum(speed, 1.0)) ** 3
+    wv = (73.0 / np.maximum(speed, 1.0)) ** float(speed_power)
     weight = wv / np.maximum(cos_z, float(min_cos_z)) ** float(alpha)
     weight[~np.isfinite(weight) | (cos_z <= 0.0)] = 0.0
     return weight
@@ -283,8 +283,9 @@ def corrected_flux_histogram(
     exposure_hours: np.ndarray,
     min_cos_z: float,
     alpha: float,
+    speed_power: float = 3.0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    weights = corrected_weight(rows, cos_z, min_cos_z=min_cos_z, alpha=alpha)
+    weights = corrected_weight(rows, cos_z, min_cos_z=min_cos_z, alpha=alpha, speed_power=speed_power)
     weighted_hist, _, _ = radiant_histogram(rows, weights=weights)
     flux = np.zeros_like(weighted_hist, dtype=np.float64)
     np.divide(weighted_hist, exposure_hours, out=flux, where=exposure_hours > 0.0)
@@ -494,6 +495,7 @@ def add_exposure_contours(
 def plot_all_radiants(
     rows: np.ndarray,
     raw_hist: np.ndarray,
+    zenith_flux_hist: np.ndarray,
     flux_hist: np.ndarray,
     exposure_hours: np.ndarray,
     xedges: np.ndarray,
@@ -502,20 +504,27 @@ def plot_all_radiants(
     out: Path,
 ) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
-    positive_raw = raw_hist[np.isfinite(raw_hist) & (raw_hist > 0.0)]
-    raw_norm = LogNorm(vmin=1.0, vmax=max(2.0, np.nanmax(positive_raw)))
+    positive_zenith = zenith_flux_hist[np.isfinite(zenith_flux_hist) & (zenith_flux_hist > 0.0)]
+    zenith_norm = LogNorm(vmin=np.nanpercentile(positive_zenith, 5.0), vmax=np.nanpercentile(positive_zenith, 99.5))
     positive_flux = flux_hist[np.isfinite(flux_hist) & (flux_hist > 0.0)]
     flux_norm = LogNorm(vmin=np.nanpercentile(positive_flux, 5.0), vmax=np.nanpercentile(positive_flux, 99.5))
     fig = plt.figure(figsize=(10.8, 5.4), constrained_layout=True)
     ax0 = fig.add_subplot(121, projection="hammer")
     ax1 = fig.add_subplot(122, projection="hammer")
-    mesh0 = plot_grid_panel(ax0, raw_hist, xedges, yedges, f"Observed high-quality radiants (N={len(rows):,})", raw_norm)
+    mesh0 = plot_grid_panel(
+        ax0,
+        zenith_flux_hist,
+        xedges,
+        yedges,
+        rf"Exposure + zenith corrected rate ($\alpha={alpha:.2f}$)",
+        zenith_norm,
+    )
     mesh1 = plot_grid_panel(
         ax1,
         flux_hist,
         xedges,
         yedges,
-        rf"Exposure-corrected radiant rate ($\alpha={alpha:.2f}$)",
+        rf"With additional $1/v_g^3$ speed weight",
         flux_norm,
     )
     add_exposure_contours(ax0, exposure_hours, raw_hist, xedges, yedges, contour_levels=FIGURE7_EXPOSURE_CONTOUR_HOURS)
@@ -525,9 +534,9 @@ def plot_all_radiants(
         ax.set_xlabel(r"Sun-centered ecliptic longitude, $\lambda-\lambda_\odot$")
         ax.set_ylabel(r"Ecliptic latitude, $\beta$")
     cb0 = fig.colorbar(mesh0, ax=ax0, orientation="horizontal", pad=0.10, fraction=0.045)
-    cb0.set_label("Count per bin")
+    cb0.set_label(r"Radiant rate (h$^{-1}$ per bin)")
     cb1 = fig.colorbar(mesh1, ax=ax1, orientation="horizontal", pad=0.10, fraction=0.045)
-    cb1.set_label(r"Debiased radiant rate (h$^{-1}$ per bin)")
+    cb1.set_label(r"Speed-weighted radiant rate (h$^{-1}$ per bin)")
     fig.savefig(out, dpi=240)
     plt.close(fig)
 
@@ -635,8 +644,11 @@ def write_sidecar(
     path: Path,
     rows: np.ndarray,
     weights: np.ndarray,
+    zenith_weights: np.ndarray,
     cos_z: np.ndarray,
     raw_hist: np.ndarray,
+    zenith_weighted_hist: np.ndarray,
+    zenith_flux_hist: np.ndarray,
     weighted_hist: np.ndarray,
     flux_hist: np.ndarray,
     exposure_hours: np.ndarray,
@@ -658,6 +670,7 @@ def write_sidecar(
         h5.attrs["selection"] = "intersection of high-quality radiant table with height-velocity fit_sample_idx gate"
         h5.attrs["zenith_weight"] = "1 / max(cos(zenith_angle), min_cos_z)^alpha"
         h5.attrs["velocity_weight"] = "(73 km/s / v_g)^3"
+        h5.attrs["zenith_only_rate"] = "raw counts corrected by radiant exposure and zenith-angle weight only; no speed correction"
         h5.attrs["exposure_weight"] = "1 / radiant_visibility_hours"
         h5.attrs["exposure_source"] = exposure_source
         h5.attrs["exposure_sampling_minutes"] = np.float32(exposure_cadence_minutes)
@@ -672,8 +685,11 @@ def write_sidecar(
         h5.attrs["snapshot_half_width_solar_longitude_deg"] = float(half_width_deg)
         h5.create_dataset("radiants", data=rows, compression="gzip", compression_opts=3)
         h5.create_dataset("correction_weight", data=weights.astype(np.float32), compression="gzip", compression_opts=3)
+        h5.create_dataset("zenith_only_correction_weight", data=zenith_weights.astype(np.float32), compression="gzip", compression_opts=3)
         h5.create_dataset("cos_zenith_angle", data=cos_z.astype(np.float32), compression="gzip", compression_opts=3)
         h5.create_dataset("raw_count", data=raw_hist.astype(np.float32), compression="gzip", compression_opts=3)
+        h5.create_dataset("zenith_only_weighted_count", data=zenith_weighted_hist.astype(np.float32), compression="gzip", compression_opts=3)
+        h5.create_dataset("zenith_only_rate_h_inv", data=zenith_flux_hist.astype(np.float32), compression="gzip", compression_opts=3)
         h5.create_dataset("weighted_count", data=weighted_hist.astype(np.float32), compression="gzip", compression_opts=3)
         h5.create_dataset("debiased_rate_h_inv", data=flux_hist.astype(np.float32), compression="gzip", compression_opts=3)
         h5.create_dataset("radiant_exposure_hours", data=exposure_hours.astype(np.float32), compression="gzip", compression_opts=3)
@@ -729,7 +745,12 @@ def main() -> None:
         min_cos_z=args.min_cos_z,
         alpha_bounds=(args.alpha_min, args.alpha_max),
     )
-    weights, weighted_hist, flux_hist = corrected_flux_histogram(rows, cos_z, exposure_hours, args.min_cos_z, alpha)
+    zenith_weights, zenith_weighted_hist, zenith_flux_hist = corrected_flux_histogram(
+        rows, cos_z, exposure_hours, args.min_cos_z, alpha, speed_power=0.0
+    )
+    weights, weighted_hist, flux_hist = corrected_flux_histogram(
+        rows, cos_z, exposure_hours, args.min_cos_z, alpha, speed_power=3.0
+    )
     raw_hist, _, _ = radiant_histogram(rows)
     zero_exposure_count = int(np.sum(raw_hist[exposure_hours <= 0.0]))
     raw_hist = np.where(exposure_hours > 0.0, raw_hist, 0.0)
@@ -737,6 +758,7 @@ def main() -> None:
     plot_all_radiants(
         rows,
         raw_hist,
+        zenith_flux_hist,
         flux_hist,
         exposure_hours,
         xedges,
@@ -759,8 +781,11 @@ def main() -> None:
         args.output_dir / "paper_radiant_results.h5",
         rows,
         weights,
+        zenith_weights,
         cos_z,
         raw_hist,
+        zenith_weighted_hist,
+        zenith_flux_hist,
         weighted_hist,
         flux_hist,
         exposure_hours,

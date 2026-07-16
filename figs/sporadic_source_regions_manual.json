@@ -1,0 +1,58 @@
+{
+  "description": "Symmetric manual sporadic-source selection regions from interactive_sporadic_source_regions.py",
+  "sidecar": "figs/paper_radiant_results_current/paper_radiant_results.h5",
+  "parameters": {
+    "ha_half_lon_deg": 45.0,
+    "ha_beta_abs_deg": 39.5,
+    "apex_center_lon_deg": 270.0,
+    "apex_half_lon_deg": 44.5,
+    "apex_beta_abs_deg": 39.5,
+    "narrow_apex_center_lon_deg": 270.0,
+    "narrow_apex_half_lon_deg": 5.0,
+    "narrow_apex_beta_abs_deg": 36.5,
+    "toroidal_center_lon_deg": 270.0,
+    "toroidal_half_lon_deg": 69.5,
+    "toroidal_beta_center_abs_deg": 64.0,
+    "toroidal_beta_half_width_deg": 21.5
+  },
+  "regions": {
+    "helion": {
+      "center_lon_deg": 0.0,
+      "half_lon_deg": 45.0,
+      "beta_min_deg": -39.5,
+      "beta_max_deg": 39.5
+    },
+    "antihelion": {
+      "center_lon_deg": 180.0,
+      "half_lon_deg": 45.0,
+      "beta_min_deg": -39.5,
+      "beta_max_deg": 39.5
+    },
+    "apex": {
+      "center_lon_deg": 270.0,
+      "half_lon_deg": 44.5,
+      "beta_min_deg": -39.5,
+      "beta_max_deg": 39.5
+    },
+    "narrow_apex": {
+      "center_lon_deg": 270.0,
+      "half_lon_deg": 5.0,
+      "beta_min_deg": -36.5,
+      "beta_max_deg": 36.5
+    },
+    "northern_toroidal": {
+      "center_lon_deg": 270.0,
+      "half_lon_deg": 69.5,
+      "beta_min_deg": 42.5,
+      "beta_max_deg": 80.0
+    },
+    "southern_toroidal": {
+      "center_lon_deg": 270.0,
+      "half_lon_deg": 69.5,
+      "beta_min_deg": -80.0,
+      "beta_max_deg": -42.5
+    }
+  },
+  "apex_region_note": "Flux estimator should use apex minus narrow_apex for non-overlapping diagnostic regions.",
+  "toroidal_region_note": "Toroidal is mirrored north/south and reported as total unless separated explicitly."
+}
