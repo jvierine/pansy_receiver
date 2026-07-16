@@ -753,6 +753,8 @@ def mesomode_exposure_by_solar_longitude(
     sidecar_path: Path | None,
     edges: np.ndarray,
     years: np.ndarray,
+    start_unix_s: float | None = None,
+    stop_unix_s: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Histogram mesosphere-mode observing hours by solar longitude and UTC year."""
     n_year = len(years)
@@ -764,7 +766,11 @@ def mesomode_exposure_by_solar_longitude(
     with h5py.File(sidecar_path, "r") as h:
         t0 = np.asarray(h["intervals/t0_unix"], dtype=np.float64)
         t1 = np.asarray(h["intervals/t1_unix"], dtype=np.float64)
-        duration_h = np.asarray(h["intervals/duration_s"], dtype=np.float64) / 3600.0
+    if start_unix_s is not None:
+        t0 = np.maximum(t0, float(start_unix_s))
+    if stop_unix_s is not None:
+        t1 = np.minimum(t1, float(stop_unix_s))
+    duration_h = (t1 - t0) / 3600.0
     mid_unix = 0.5 * (t0 + t1)
     good = np.isfinite(mid_unix) & np.isfinite(duration_h) & (duration_h > 0.0)
     mid_unix = mid_unix[good]
@@ -1127,10 +1133,15 @@ def main() -> None:
         args.solar_bin_width_deg,
     )
     solar_year_count_density, solar_all_count_density = count_density_from_counts(solar_year_counts, solar_edges)
+    event_epoch_s = np.asarray(arrays["sample_idx"], dtype=np.float64) / 1_000_000.0
+    exposure_start_unix_s = float(np.min(event_epoch_s)) if len(event_epoch_s) else None
+    exposure_stop_unix_s = float(np.max(event_epoch_s)) if len(event_epoch_s) else None
     solar_mesomode_hours_by_year, solar_mesomode_hours = mesomode_exposure_by_solar_longitude(
         args.mesomode_interval_sidecar,
         solar_edges,
         solar_years,
+        start_unix_s=exposure_start_unix_s,
+        stop_unix_s=exposure_stop_unix_s,
     )
     hv_counts, height_edges, speed_edges = histogram_height_velocity(
         fit_arrays["fit_initial_detection_height_km"],

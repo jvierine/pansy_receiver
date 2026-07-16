@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 
+import h5py
 import numpy as np
 
 
@@ -40,6 +41,28 @@ def test_solar_longitude_count_rate_uses_measurement_hours():
     assert np.isnan(rate_by_year[0, 1])
     np.testing.assert_allclose(rate_by_year[1], [2.0, 1.0])
     np.testing.assert_allclose(all_rate, [3.2, 3.0])
+
+
+def test_solar_longitude_exposure_is_clipped_to_catalogue_time_span(tmp_path):
+    from plot_orbit_catalogue_statistics import mesomode_exposure_by_solar_longitude
+
+    base = 1_750_000_000.0
+    sidecar = tmp_path / "mesomode_intervals.h5"
+    with h5py.File(sidecar, "w") as h:
+        intervals = h.create_group("intervals")
+        intervals.create_dataset("t0_unix", data=[base, base + 200.0])
+        intervals.create_dataset("t1_unix", data=[base + 100.0, base + 400.0])
+
+    by_year, total = mesomode_exposure_by_solar_longitude(
+        sidecar,
+        edges=np.asarray([0.0, 360.0]),
+        years=np.asarray([2025]),
+        start_unix_s=base + 50.0,
+        stop_unix_s=base + 300.0,
+    )
+
+    np.testing.assert_allclose(by_year, [[150.0 / 3600.0]], rtol=1e-6)
+    np.testing.assert_allclose(total, [150.0 / 3600.0], rtol=1e-6)
 
 
 def test_height_velocity_histogram_spans_60_to_160_km():
