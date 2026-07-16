@@ -27,6 +27,8 @@ LONGITUDE_BINS = 144
 LATITUDE_BINS = 72
 HEALPIX_NSIDE = 64
 SNAPSHOT_HEALPIX_NSIDE = 32
+FIGURE7_ZENITH_VMAX = 4.016
+FIGURE7_SPEED_VMAX = 14.74
 APEX_LONGITUDE_DEG = 270.0
 APEX_LONGITUDE_HALF_WIDTH_DEG = 30.0
 APEX_BETA_MIN_DEG = 5.0
@@ -420,6 +422,14 @@ def style_hammer(ax):
     ax.grid(True, alpha=0.35, lw=0.45)
 
 
+def hide_apex_meridian(ax) -> None:
+    """Hide the central graticule through the apex without changing other guides."""
+    ticks = np.asarray(ax.get_xticks(), dtype=np.float64)
+    labels = [label.get_text() for label in ax.get_xticklabels()]
+    keep = ~np.isclose(ticks, 0.0)
+    ax.set_xticks(ticks[keep], [label for label, retain in zip(labels, keep, strict=True) if retain])
+
+
 def plot_hist_panel(ax, rows, weights, title, norm, cmap="magma"):
     hist, xedges, yedges = radiant_histogram(rows, weights=weights)
     x = np.deg2rad(xedges)
@@ -577,12 +587,20 @@ def plot_all_radiants(
     yedges: np.ndarray,
     alpha: float,
     out: Path,
+    zenith_vmax: float | None = None,
+    speed_vmax: float | None = None,
 ) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     positive_zenith = healpix_zenith_flux[np.isfinite(healpix_zenith_flux) & (healpix_zenith_flux > 0.0)]
-    zenith_norm = LogNorm(vmin=np.nanpercentile(positive_zenith, 5.0), vmax=np.nanpercentile(positive_zenith, 99.5))
+    zenith_norm = LogNorm(
+        vmin=np.nanpercentile(positive_zenith, 5.0),
+        vmax=float(zenith_vmax) if zenith_vmax is not None else np.nanpercentile(positive_zenith, 99.5),
+    )
     positive_flux = healpix_flux[np.isfinite(healpix_flux) & (healpix_flux > 0.0)]
-    flux_norm = LogNorm(vmin=np.nanpercentile(positive_flux, 5.0), vmax=np.nanpercentile(positive_flux, 99.5))
+    flux_norm = LogNorm(
+        vmin=np.nanpercentile(positive_flux, 5.0),
+        vmax=float(speed_vmax) if speed_vmax is not None else np.nanpercentile(positive_flux, 99.5),
+    )
     fig = plt.figure(figsize=(10.8, 5.4), constrained_layout=True)
     ax0 = fig.add_subplot(121, projection="hammer")
     ax1 = fig.add_subplot(122, projection="hammer")
@@ -602,6 +620,8 @@ def plot_all_radiants(
     )
     style_hammer(ax0)
     style_hammer(ax1)
+    hide_apex_meridian(ax0)
+    hide_apex_meridian(ax1)
     ax0.set_title(rf"Exposure + zenith corrected rate ($\alpha={alpha:.2f}$)", fontsize=10)
     ax1.set_title(r"With additional $1/v_g^3$ speed weight", fontsize=10)
     add_exposure_contours(ax0, exposure_hours, raw_hist, xedges, yedges, contour_levels=FIGURE7_EXPOSURE_CONTOUR_HOURS)
@@ -820,6 +840,18 @@ def main() -> None:
     parser.add_argument("--snapshot-half-width-deg", type=float, default=4.0)
     parser.add_argument("--shower-radius-deg", type=float, default=4.0)
     parser.add_argument(
+        "--figure7-zenith-vmax",
+        type=float,
+        default=FIGURE7_ZENITH_VMAX,
+        help="Figure 7 left-panel color maximum",
+    )
+    parser.add_argument(
+        "--figure7-speed-vmax",
+        type=float,
+        default=FIGURE7_SPEED_VMAX,
+        help="Figure 7 right-panel color maximum",
+    )
+    parser.add_argument(
         "--skip-secondary-plots",
         action="store_true",
         help="Generate the full radiant map and sidecar without the snapshot and candidate-shower figures",
@@ -920,6 +952,8 @@ def main() -> None:
         yedges,
         alpha,
         args.output_dir / "paper_radiant_distribution_corrected.png",
+        zenith_vmax=args.figure7_zenith_vmax,
+        speed_vmax=args.figure7_speed_vmax,
     )
     if not args.skip_secondary_plots:
         plot_snapshots(
