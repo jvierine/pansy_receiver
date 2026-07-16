@@ -109,7 +109,12 @@ def add_region_box(ax, label, region, color):
     ax.plot(np.deg2rad(x_left), np.deg2rad(beta_edge), color=color, lw=1.2, alpha=0.95)
     ax.plot(np.deg2rad(x_right), np.deg2rad(beta_edge), color=color, lw=1.2, alpha=0.95)
     label_x = centered_plot_longitude_deg(center_lon)
-    label_y = beta_max + 4.0 if beta_max <= 25.0 else beta_max - 4.0
+    if label == "Apex":
+        label_y = beta_min - 5.0
+    elif label == "Narrow apex":
+        label_y = beta_max + 5.0
+    else:
+        label_y = beta_max + 4.0 if beta_max <= 25.0 else beta_max - 4.0
     if beta_max < 0.0:
         label_y = beta_min - 4.0
     ax.text(
