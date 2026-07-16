@@ -910,7 +910,7 @@ def plot_solar_counts(
             mesomode_hours_by_year,
             mesomode_hours,
         )
-        count_ylabel = r"Meteor count rate (deg$^{-1}$ h$^{-1}$)"
+        count_ylabel = "Count-rate\n" + r"$(\mathrm{deg\,hr})^{-1}$"
     else:
         fig, ax = plt.subplots(figsize=(8.4, 4.2), constrained_layout=True)
         ax_exp = None
@@ -943,7 +943,7 @@ def plot_solar_counts(
         ax_exp.set_ylim(0, max(0.1, float(np.max(finite_hours)) if len(finite_hours) else 0.1) * 1.10)
         ax_exp.set_xlim(0, 360)
         ax_exp.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)", fontsize=20)
-        ax_exp.set_ylabel("Measurement time (h)", fontsize=20)
+        ax_exp.set_ylabel("Obs. time\n(h)", fontsize=20)
         ax_exp.tick_params(axis="both", labelsize=16)
         ax_exp.grid(True, alpha=0.25)
     fig.savefig(path, dpi=220)
