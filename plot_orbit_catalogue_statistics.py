@@ -727,26 +727,26 @@ def count_density_from_counts(
     return density_by_year, all_density
 
 
-def count_rate_from_density_and_exposure(
-    count_density_by_year: np.ndarray,
-    all_count_density: np.ndarray,
+def count_rate_from_counts_and_exposure(
+    counts_by_year: np.ndarray,
+    all_counts: np.ndarray,
     mesomode_hours_by_year: np.ndarray,
     mesomode_hours: np.ndarray,
     min_measurement_hours: float = 5.0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return rates only where a solar-longitude bin has sufficient measurement time."""
 
-    def divide(density: np.ndarray, hours: np.ndarray) -> np.ndarray:
-        density = np.asarray(density, dtype=np.float64)
+    def divide(counts: np.ndarray, hours: np.ndarray) -> np.ndarray:
+        counts = np.asarray(counts, dtype=np.float64)
         hours = np.asarray(hours, dtype=np.float64)
-        rate = np.full(density.shape, np.nan, dtype=np.float64)
-        valid = np.isfinite(density) & np.isfinite(hours) & (hours >= float(min_measurement_hours))
-        np.divide(density, hours, out=rate, where=valid)
+        rate = np.full(counts.shape, np.nan, dtype=np.float64)
+        valid = np.isfinite(counts) & np.isfinite(hours) & (hours >= float(min_measurement_hours))
+        np.divide(counts, hours, out=rate, where=valid)
         return rate.astype(np.float32)
 
     return (
-        divide(count_density_by_year, mesomode_hours_by_year),
-        divide(all_count_density, mesomode_hours),
+        divide(counts_by_year, mesomode_hours_by_year),
+        divide(all_counts, mesomode_hours),
     )
 
 
@@ -855,7 +855,7 @@ def write_statistics_h5(
         )
         h.attrs["initial_tx_beam_angle_event_count"] = int(initial_tx_event_count)
         h.attrs["solar_longitude_count_density_unit"] = "count per degree"
-        h.attrs["solar_longitude_count_rate_unit"] = "count per degree per mesosphere-mode measurement hour"
+        h.attrs["solar_longitude_count_rate_unit"] = "count per mesosphere-mode measurement hour in each solar-longitude bin"
         h.attrs["solar_longitude_count_rate_min_measurement_hours"] = 5.0
         h.attrs["solar_longitude_mesomode_exposure_unit"] = "mesosphere-mode measurement hours per solar-longitude bin"
         h.attrs["height_velocity_quality_filter"] = (
@@ -874,14 +874,14 @@ def write_statistics_h5(
         h.create_dataset("solar_longitude_count_per_degree", data=solar_all_count_density, compression="gzip", shuffle=True)
         h.create_dataset("solar_longitude_mesomode_hours_by_year", data=solar_mesomode_hours_by_year, compression="gzip", shuffle=True)
         h.create_dataset("solar_longitude_mesomode_hours", data=solar_mesomode_hours, compression="gzip", shuffle=True)
-        solar_rate_by_year, solar_rate = count_rate_from_density_and_exposure(
-            solar_year_count_density,
-            solar_all_count_density,
+        solar_rate_by_year, solar_rate = count_rate_from_counts_and_exposure(
+            solar_year_counts,
+            solar_counts,
             solar_mesomode_hours_by_year,
             solar_mesomode_hours,
         )
-        h.create_dataset("solar_longitude_count_per_degree_hour_by_year", data=solar_rate_by_year, compression="gzip", shuffle=True)
-        h.create_dataset("solar_longitude_count_per_degree_hour", data=solar_rate, compression="gzip", shuffle=True)
+        h.create_dataset("solar_longitude_count_per_hour_by_year", data=solar_rate_by_year, compression="gzip", shuffle=True)
+        h.create_dataset("solar_longitude_count_per_hour", data=solar_rate, compression="gzip", shuffle=True)
         h.create_dataset("solar_longitude_edges_deg", data=solar_edges)
         h.create_dataset("height_velocity_count", data=hv_counts, compression="gzip", shuffle=True)
         h.create_dataset("measurement_height_velocity_count", data=measurement_hv_counts, compression="gzip", shuffle=True)
@@ -893,8 +893,8 @@ def write_statistics_h5(
 def plot_solar_counts(
     path: Path,
     years: np.ndarray,
-    count_density_by_year: np.ndarray,
-    all_count_density: np.ndarray,
+    counts_by_year: np.ndarray,
+    all_counts: np.ndarray,
     edges: np.ndarray,
     mesomode_hours_by_year: np.ndarray | None = None,
     mesomode_hours: np.ndarray | None = None,
@@ -906,19 +906,19 @@ def plot_solar_counts(
         fig, axes = plt.subplots(2, 1, figsize=(8.4, 6.5), sharex=True, constrained_layout=True)
         ax = axes[0]
         ax_exp = axes[1]
-        plotted_by_year, plotted_all = count_rate_from_density_and_exposure(
-            count_density_by_year,
-            all_count_density,
+        plotted_by_year, plotted_all = count_rate_from_counts_and_exposure(
+            counts_by_year,
+            all_counts,
             mesomode_hours_by_year,
             mesomode_hours,
         )
-        count_ylabel = "Count-rate\n" + r"$(\mathrm{deg\,hr})^{-1}$"
+        count_ylabel = "Count-rate\n" + r"$(\mathrm{hr}^{-1})$"
     else:
         fig, ax = plt.subplots(figsize=(8.4, 4.2), constrained_layout=True)
         ax_exp = None
-        plotted_by_year = count_density_by_year
-        plotted_all = all_count_density
-        count_ylabel = r"Catalogue count (deg$^{-1}$)"
+        plotted_by_year = counts_by_year
+        plotted_all = all_counts
+        count_ylabel = "Catalogue count"
     ax.step(centers, plotted_all, where="mid", color="black", linewidth=1.8, label="All")
     colors = ("#2f5f8f", "#c04b37", "#4f7f3f")
     for year, values, color in zip(years, plotted_by_year, colors):
@@ -1190,8 +1190,8 @@ def main() -> None:
     plot_solar_counts(
         args.solar_output,
         solar_years,
-        solar_year_count_density,
-        solar_all_count_density,
+        solar_year_counts,
+        solar_counts,
         solar_edges,
         solar_mesomode_hours_by_year if args.mesomode_interval_sidecar is not None else None,
         solar_mesomode_hours if args.mesomode_interval_sidecar is not None else None,

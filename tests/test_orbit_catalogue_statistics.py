@@ -23,16 +23,16 @@ def test_solar_longitude_count_density_uses_bin_width():
 
 
 def test_solar_longitude_count_rate_uses_measurement_hours():
-    from plot_orbit_catalogue_statistics import count_rate_from_density_and_exposure
+    from plot_orbit_catalogue_statistics import count_rate_from_counts_and_exposure
 
-    density_by_year = np.asarray([[10.0, 8.0], [6.0, 4.0]], dtype=np.float32)
-    all_density = np.asarray([16.0, 12.0], dtype=np.float32)
+    counts_by_year = np.asarray([[10.0, 8.0], [6.0, 4.0]], dtype=np.float32)
+    all_counts = np.asarray([16.0, 12.0], dtype=np.float32)
     hours_by_year = np.asarray([[5.0, 4.0], [10.0, 8.0]], dtype=np.float32)
     all_hours = np.asarray([15.0, 12.0], dtype=np.float32)
 
-    rate_by_year, all_rate = count_rate_from_density_and_exposure(
-        density_by_year,
-        all_density,
+    rate_by_year, all_rate = count_rate_from_counts_and_exposure(
+        counts_by_year,
+        all_counts,
         hours_by_year,
         all_hours,
     )
