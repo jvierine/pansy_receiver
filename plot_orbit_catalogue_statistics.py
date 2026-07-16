@@ -95,7 +95,7 @@ def month_tick_positions_deg(year: int) -> tuple[np.ndarray, list[str]]:
     return sun_ecliptic_longitude_deg(unix), labels
 
 
-def add_month_axis(ax, year: int, fontsize: float = 10.0) -> None:
+def add_month_axis(ax, year: int, fontsize: float = 16.0) -> None:
     positions, labels = month_tick_positions_deg(year)
     top = ax.twiny()
     top.set_xlim(ax.get_xlim())
@@ -901,7 +901,7 @@ def plot_solar_counts(
     centers = 0.5 * (edges[:-1] + edges[1:])
     has_exposure = mesomode_hours_by_year is not None and mesomode_hours is not None
     if has_exposure:
-        fig, axes = plt.subplots(2, 1, figsize=(8.4, 6.2), sharex=True, constrained_layout=True)
+        fig, axes = plt.subplots(2, 1, figsize=(8.4, 6.5), sharex=True, constrained_layout=True)
         ax = axes[0]
         ax_exp = axes[1]
         plotted_by_year, plotted_all = count_rate_from_density_and_exposure(
@@ -925,15 +925,16 @@ def plot_solar_counts(
     finite_density = np.concatenate((np.ravel(plotted_all), np.ravel(plotted_by_year)))
     finite_density = finite_density[np.isfinite(finite_density)]
     ax.set_ylim(0, max(1.0, float(np.max(finite_density)) if len(finite_density) else 1.0) * 1.08)
-    ax.set_ylabel(count_ylabel, fontsize=13)
-    ax.tick_params(axis="both", labelsize=11)
+    ax.set_ylabel(count_ylabel, fontsize=20)
+    ax.tick_params(axis="both", labelsize=16)
     ax.grid(True, alpha=0.25)
-    ax.legend(frameon=False, loc="upper center", ncol=3, fontsize=11)
+    ax.legend(frameon=False, loc="upper center", ncol=3, fontsize=16)
     if ax_exp is None:
-        ax.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)", fontsize=13)
-        add_month_axis(ax, 2025, fontsize=10)
+        ax.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)", fontsize=20)
+        add_month_axis(ax, 2025, fontsize=16)
     else:
         ax.tick_params(labelbottom=False)
+        add_month_axis(ax, 2025, fontsize=16)
         ax_exp.step(centers, mesomode_hours, where="mid", color="black", linewidth=1.8, label="All")
         for year, hours, color in zip(years, mesomode_hours_by_year, colors):
             ax_exp.step(centers, hours, where="mid", color=color, linewidth=1.4, label=str(int(year)))
@@ -941,11 +942,10 @@ def plot_solar_counts(
         finite_hours = finite_hours[np.isfinite(finite_hours)]
         ax_exp.set_ylim(0, max(0.1, float(np.max(finite_hours)) if len(finite_hours) else 0.1) * 1.10)
         ax_exp.set_xlim(0, 360)
-        ax_exp.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)", fontsize=13)
-        ax_exp.set_ylabel("Measurement time (h)", fontsize=13)
-        ax_exp.tick_params(axis="both", labelsize=11)
+        ax_exp.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)", fontsize=20)
+        ax_exp.set_ylabel("Measurement time (h)", fontsize=20)
+        ax_exp.tick_params(axis="both", labelsize=16)
         ax_exp.grid(True, alpha=0.25)
-        add_month_axis(ax_exp, 2025, fontsize=10)
     fig.savefig(path, dpi=220)
     plt.close(fig)
 
