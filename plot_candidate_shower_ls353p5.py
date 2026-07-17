@@ -11,11 +11,10 @@ import h5py
 import healpy as hp
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.collections import PolyCollection
 from matplotlib.colors import Normalize
 from scipy.stats import norm, poisson
 
-from healpix_hammer import centered_plot_longitude_deg, render_healpix_hammer
+from healpix_hammer import render_healpix_hammer
 from plot_paper_radiant_results import PLOT_CENTER_LONGITUDE_DEG, add_source_markers, style_hammer
 from radiant_visibility import ecliptic_lonlat_to_radec_deg
 
@@ -152,21 +151,6 @@ def spherical_mean(lon_deg: np.ndarray, lat_deg: np.ndarray) -> tuple[float, flo
     return float(np.rad2deg(np.arctan2(vector[1], vector[0])) % 360.0), float(np.rad2deg(np.arcsin(vector[2])))
 
 
-def selected_pixel_polygons(nside: int, selected_pixels: np.ndarray) -> list[np.ndarray]:
-    boundaries = hp.boundaries(nside, selected_pixels, step=1, nest=False)
-    lon_deg = np.rad2deg(np.arctan2(boundaries[:, 1, :], boundaries[:, 0, :])) % 360.0
-    lat_deg = np.rad2deg(np.arcsin(np.clip(boundaries[:, 2, :], -1.0, 1.0)))
-    center_lon_deg, _ = hp.pix2ang(nside, selected_pixels, lonlat=True, nest=False)
-    center_plot_deg = centered_plot_longitude_deg(center_lon_deg, PLOT_CENTER_LONGITUDE_DEG)
-    plot_lon_deg = centered_plot_longitude_deg(lon_deg, PLOT_CENTER_LONGITUDE_DEG)
-
-    polygons: list[np.ndarray] = []
-    for x_deg, y_deg, center_deg in zip(plot_lon_deg, lat_deg, center_plot_deg, strict=True):
-        x_deg = x_deg + 360.0 * np.round((center_deg - x_deg) / 360.0)
-        polygons.append(np.column_stack((np.deg2rad(x_deg), np.deg2rad(y_deg))))
-    return polygons
-
-
 def main() -> None:
     args = parse_args()
     export = (
@@ -215,15 +199,6 @@ def main() -> None:
         norm=Normalize(vmin=0.0, vmax=vmax),
         center_longitude_deg=PLOT_CENTER_LONGITUDE_DEG,
     )
-    outline = PolyCollection(
-        selected_pixel_polygons(nside, selected_pixels),
-        facecolors="none",
-        edgecolors="#18c4c7",
-        linewidths=1.15,
-        zorder=10,
-    )
-    outline.set_clip_path(ax.patch)
-    ax.add_collection(outline)
     style_hammer(ax)
     add_source_markers(ax)
     ax.text(
