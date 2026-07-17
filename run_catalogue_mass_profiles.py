@@ -296,12 +296,26 @@ def process_profile(
     finite_profile = np.isfinite(profile_chi2)
     if np.count_nonzero(finite_profile) < max(5, grid_n // 2):
         raise RuntimeError(f"only {np.count_nonzero(finite_profile)} of {grid_n} profile points completed")
+    profile_best_index = int(np.nanargmin(profile_chi2))
+    profile_best_radius_um = float(radius_um[profile_best_index])
+    grid_seed = np.r_[profile_parameters6[profile_best_index], log_radius_m[profile_best_index]]
+    refined_free_result = opt.least_squares(
+        residual7,
+        grid_seed,
+        bounds=(np.r_[lower6, log_radius_m[0]], np.r_[upper6, log_radius_m[-1]]),
+        x_scale=np.r_[scale6, 1.0],
+        loss="linear",
+        max_nfev=max(2 * int(max_nfev), 80),
+    )
+    refined_free_parameters = np.asarray(refined_free_result.x, dtype=np.float64)
+    refined_free_chi2 = float(np.sum(residual7(refined_free_parameters) ** 2))
+    if refined_free_chi2 < free_chi2:
+        free_parameters = refined_free_parameters
+        free_chi2 = refined_free_chi2
     minimum_chi2 = float(min(free_chi2, np.nanmin(profile_chi2)))
     delta_chi2 = profile_chi2 - minimum_chi2
     probability_density, probability_weights = log_grid_probability(radius_um, delta_chi2)
     marginal_radius_quantiles_um = weighted_quantile(radius_um, probability_weights, [0.025, 0.5, 0.975])
-    profile_best_index = int(np.nanargmin(profile_chi2))
-    profile_best_radius_um = float(radius_um[profile_best_index])
     free_best_radius_um = float(10.0 ** free_parameters[6] * 1e6)
     confidence_threshold = float(chi2_distribution.ppf(0.95, 1))
     profile_lower_um, profile_upper_um, lower_bounded, upper_bounded, lower_status, upper_status = profile_interval(
