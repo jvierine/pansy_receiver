@@ -121,10 +121,21 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
     phase_data = load_nonoverlapping_phase_acceleration(beat_h5)
     stored_phase_prediction = predicted_delta_phase(stored_prediction * 1e3, t_s, phase_data)
     phase_residual = circular_residual(phase_data["samples"]["observed_delta_phase_rad"], stored_phase_prediction)
-    sigma_phase = float(np.sqrt(np.mean(phase_residual**2)))
+    phase_samples = phase_data["samples"]
+    absolute_zero = phase_data["measurement_tx_s"][0] - t_s[0]
+    phase_midpoint_t = 0.5 * (phase_samples["first_time_s"] + phase_samples["second_time_s"]) - absolute_zero
+    phase_snr = np.interp(phase_midpoint_t, t_s, observations["snr"])
+    phase_weight = np.clip(phase_snr, 0.0, 100.0)
+    finite_positive_weight = np.isfinite(phase_weight) & (phase_weight > 0.0)
+    if not np.any(finite_positive_weight):
+        phase_weight = np.ones_like(phase_residual)
+    else:
+        floor = float(np.nanmin(phase_weight[finite_positive_weight]))
+        phase_weight = np.where(finite_positive_weight, phase_weight, floor)
+    phase_weight /= np.mean(phase_weight)
+    sigma_phase = float(np.sqrt(np.sum(phase_weight * phase_residual**2) / np.sum(phase_weight)))
     if not np.isfinite(sigma_phase) or sigma_phase <= 0.0:
         raise RuntimeError("invalid beat-phase residual RMS")
-    phase_samples = phase_data["samples"]
     mean_dt = 0.5 * (phase_samples["first_dt_s"] + phase_samples["second_dt_s"])
     measured_acceleration_principal = (
         pc.wavelength
@@ -166,7 +177,7 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         return np.r_[
             ((points[keep] - position[keep]) / sigma_position).ravel(),
             (doppler[keep] - prediction[keep]) / sigma_doppler,
-            phase_fit_residual / sigma_phase,
+            np.sqrt(phase_weight) * phase_fit_residual / sigma_phase,
         ]
 
     chi2 = np.full(len(radius_um), np.nan)
@@ -219,6 +230,7 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
     with h5py.File(output_h5, "w") as handle:
         handle.attrs["sample_idx"] = int(observations["sample_idx"])
         handle.attrs["sigma_phase_rad"] = sigma_phase
+        handle.attrs["phase_weighting"] = "linear SNR interpolated to each phase sample, capped at 100 and normalized to unit mean"
         handle.attrs["sigma_radial_acceleration_mps2"] = sigma_acceleration
         handle.attrs["n_nonoverlapping_phase_acceleration"] = len(phase_data["samples"])
         handle.attrs["phase_likelihood"] = "beat-phase residual wrapped to [-pi, pi) independently for each model"
@@ -241,6 +253,8 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         result["marginal_radius_quantiles_um"] = quantiles
         phase = handle.create_group("phase_acceleration")
         phase["samples"] = phase_data["samples"]
+        phase["snr_linear"] = phase_snr
+        phase["normalized_snr_weight"] = phase_weight
         phase["stored_model_prediction_rad"] = stored_phase_prediction
         phase["stored_model_residual_rad"] = phase_residual
         phase["best_model_prediction_rad"] = best_phase_prediction
