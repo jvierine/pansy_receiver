@@ -182,7 +182,7 @@ def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
             Line2D([0], [0], color="C0", lw=1.3, label="95% lower bound"),
             Line2D([0], [0], color="C1", lw=1.3, label="Finite 95% upper bound"),
         ),
-        loc="lower right",
+        loc="lower left",
         frameon=False,
         fontsize=8,
     )
