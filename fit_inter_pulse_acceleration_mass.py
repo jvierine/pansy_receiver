@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 from pathlib import Path
 
 import h5py
@@ -283,13 +284,32 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--diagnostics", type=Path, required=True)
-    parser.add_argument("--baseline-profile", type=Path, required=True)
-    parser.add_argument("--beat-h5", type=Path, required=True)
-    parser.add_argument("--output-h5", type=Path, required=True)
-    parser.add_argument("--output-png", type=Path, required=True)
+    parser.add_argument("--diagnostics", type=Path)
+    parser.add_argument("--baseline-profile", type=Path)
+    parser.add_argument("--beat-h5", type=Path)
+    parser.add_argument("--output-h5", type=Path)
+    parser.add_argument("--output-png", type=Path)
+    parser.add_argument("--sample-idx", type=int)
+    parser.add_argument("--base", type=Path, default=Path("/mnt/data/juha/pansy"))
+    parser.add_argument("--baseline-profile-dir", type=Path)
+    parser.add_argument("--beat-h5-dir", type=Path)
+    parser.add_argument("--output-dir", type=Path)
     args = parser.parse_args()
-    summary = fit_profile(args.diagnostics, args.baseline_profile, args.beat_h5, args.output_h5, args.output_png)
+    if args.sample_idx is not None:
+        if args.baseline_profile_dir is None or args.beat_h5_dir is None or args.output_dir is None:
+            parser.error("--sample-idx requires --baseline-profile-dir, --beat-h5-dir, and --output-dir")
+        day = dt.datetime.fromtimestamp(args.sample_idx / 1e6, tz=dt.timezone.utc).strftime("%Y-%m-%d")
+        diagnostics = args.base / "events" / day / f"pansy_disambiguation_diagnostics_{args.sample_idx}.h5"
+        baseline_profile = args.baseline_profile_dir / f"mass_profile_{args.sample_idx}.h5"
+        beat_h5 = args.beat_h5_dir / f"inter_pulse_phase_{args.sample_idx}.h5"
+        output_h5 = args.output_dir / f"mass_profile_with_acceleration_{args.sample_idx}.h5"
+        output_png = args.output_dir / f"mass_profile_with_acceleration_{args.sample_idx}.png"
+    else:
+        required = (args.diagnostics, args.baseline_profile, args.beat_h5, args.output_h5, args.output_png)
+        if any(value is None for value in required):
+            parser.error("provide explicit input/output paths or use --sample-idx batch mode")
+        diagnostics, baseline_profile, beat_h5, output_h5, output_png = required
+    summary = fit_profile(diagnostics, baseline_profile, beat_h5, output_h5, output_png)
     print(summary, flush=True)
     return 0
 

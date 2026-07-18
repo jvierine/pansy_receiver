@@ -450,8 +450,9 @@ def robust_line(time_s: np.ndarray, velocity_mps: np.ndarray, weight: np.ndarray
     }
 
 
-def analyze_event(cut: dict, hyp: dict, snr_threshold: float) -> dict:
-    precise = precise_matched_filter_estimates(cut, hyp, snr_threshold)
+def analyze_event(cut: dict, hyp: dict, snr_threshold: float, precise: dict | None = None) -> dict:
+    if precise is None:
+        precise = precise_matched_filter_estimates(cut, hyp, snr_threshold)
     decoded = decoded_pulse_responses(
         cut,
         hyp,
@@ -838,12 +839,23 @@ def main() -> int:
     parser.add_argument("--base", type=Path, default=Path("/mnt/data/juha/pansy"))
     parser.add_argument("--output-dir", type=Path, default=Path("test_plots/inter_pulse_phase"))
     parser.add_argument("--snr-threshold", type=float, default=7.0)
+    parser.add_argument("--precise-cache-dir", type=Path)
     args = parser.parse_args()
     for sample_idx in args.sample_idx:
         diag = diagnostic_path(args.base, sample_idx)
         hyp = load_selected(diag)
         cut = load_cut(args.base / "metadata/cut", sample_idx)
-        result = analyze_event(cut, hyp, args.snr_threshold)
+        precise = None
+        if args.precise_cache_dir is not None:
+            cache_path = args.precise_cache_dir / f"highres_fft_i2_p16_{sample_idx}.h5"
+            if cache_path.exists():
+                with h5py.File(cache_path, "r") as cache:
+                    precise = {
+                        "raw_idx": np.asarray(cache["raw_idx"], dtype=int),
+                        "range_km": np.asarray(cache["range_km"], dtype=float),
+                        "doppler_mps": np.asarray(cache["doppler_mps"], dtype=float),
+                    }
+        result = analyze_event(cut, hyp, args.snr_threshold, precise=precise)
         stem = f"inter_pulse_phase_{sample_idx}"
         plot_event(sample_idx, result, args.output_dir / f"{stem}.png")
         plot_decoded_waveforms(sample_idx, result, args.output_dir / f"{stem}_waveforms.png")
