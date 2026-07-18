@@ -723,8 +723,12 @@ def render(row, grid_n=41):
             / (4.0 * np.pi * phase_dt**2)
         )
         with h5py.File(profile_path, "r") as profile_handle:
-            acceleration_key = "phase_acceleration/measured_radial_acceleration_mps2"
-            if acceleration_key in profile_handle:
+            acceleration_keys = (
+                "phase_acceleration/measured_radial_acceleration_display_mps2",
+                "phase_acceleration/measured_radial_acceleration_mps2",
+            )
+            acceleration_key = next((key for key in acceleration_keys if key in profile_handle), None)
+            if acceleration_key is not None:
                 fitted_acceleration = np.asarray(profile_handle[acceleration_key], dtype=float)
                 if fitted_acceleration.shape == phase_acceleration.shape:
                     phase_acceleration = fitted_acceleration
@@ -746,25 +750,6 @@ def render(row, grid_n=41):
             & np.isfinite(phase_acceleration)
             & np.isfinite(phase_acceleration_std)
         )
-        fit_center = float(np.nanmedian(phase_time[fit_good]))
-        fit_x = phase_time - fit_center
-        fit_keep_phase = fit_good.copy()
-        phase_line = np.asarray([0.0, np.nanmedian(phase_acceleration[fit_good])])
-        for _ in range(5):
-            phase_line = np.polyfit(
-                fit_x[fit_keep_phase],
-                phase_acceleration[fit_keep_phase],
-                1,
-                w=1.0 / np.maximum(phase_acceleration_std[fit_keep_phase], 1.0),
-            )
-            phase_residual = phase_acceleration - np.polyval(phase_line, fit_x)
-            phase_median = np.nanmedian(phase_residual[fit_keep_phase])
-            phase_sigma = 1.4826 * np.nanmedian(
-                np.abs(phase_residual[fit_keep_phase] - phase_median)
-            )
-            if not np.isfinite(phase_sigma) or phase_sigma <= 0.0:
-                break
-            fit_keep_phase = fit_good & (np.abs(phase_residual - phase_median) < 4.0 * phase_sigma)
         phase_order = np.argsort(phase_time)
         ax.errorbar(
             phase_time,
@@ -784,22 +769,28 @@ def render(row, grid_n=41):
             lw=1.0,
             label="shrinking-radius model",
         )
-        ax.plot(
-            phase_time[phase_order],
-            np.polyval(phase_line, fit_x[phase_order]) / 1e3,
-            color="tab:red",
-            lw=1.1,
-            label="weighted measurement fit",
-        )
-        ambiguity = pc.wavelength / (4.0 * np.nanmedian(phase_dt) ** 2) / 1e3
-        ax.axhline(ambiguity, color="0.5", ls="--", lw=0.7)
-        ax.axhline(-ambiguity, color="0.5", ls="--", lw=0.7)
+        for target_um, fixed_pred in fixed_r0_dopplers.items():
+            first_velocity = np.interp(phase_samples["first_time_s"], obs_abs_s, fixed_pred * 1e3)
+            second_velocity = np.interp(phase_samples["second_time_s"], obs_abs_s, fixed_pred * 1e3)
+            fixed_acceleration = (
+                (second_velocity - first_velocity)
+                / (phase_samples["second_time_s"] - phase_samples["first_time_s"])
+            )
+            ax.plot(
+                phase_time[phase_order],
+                fixed_acceleration[phase_order] / 1e3,
+                color=fixed_colors.get(target_um, "0.35"),
+                lw=0.9,
+                ls="--",
+                label=rf"$r_0={target_um:g}\,\mu$m",
+            )
+        ambiguity_period = pc.wavelength / (2.0 * np.nanmedian(phase_dt) ** 2) / 1e3
         ax.text(
             0.03,
             0.97,
             f"N {np.count_nonzero(fit_good)}\n"
-            + f"fit {np.polyval(phase_line, 0.0) / 1e3:.2f} km s$^{{-2}}$\n"
-            + f"model {np.nanmedian(model_acceleration) / 1e3:.2f} km s$^{{-2}}$",
+            + f"model {np.nanmedian(model_acceleration) / 1e3:.2f} km s$^{{-2}}$\n"
+            + f"alias period {ambiguity_period:.1f} km s$^{{-2}}$",
             transform=ax.transAxes,
             ha="left",
             va="top",

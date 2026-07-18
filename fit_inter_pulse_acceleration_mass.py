@@ -126,17 +126,15 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         raise RuntimeError("invalid beat-phase residual RMS")
     phase_samples = phase_data["samples"]
     mean_dt = 0.5 * (phase_samples["first_dt_s"] + phase_samples["second_dt_s"])
-    measured_acceleration = (
+    measured_acceleration_principal = (
         pc.wavelength
         * phase_samples["observed_delta_phase_rad"]
         / (4.0 * np.pi * mean_dt**2)
     )
     stored_acceleration = predicted_radial_acceleration(stored_prediction * 1e3, t_s, phase_data)
     acceleration_ambiguity = pc.wavelength / (2.0 * mean_dt**2)
-    measured_acceleration += np.rint(
-        (stored_acceleration - measured_acceleration) / acceleration_ambiguity
-    ) * acceleration_ambiguity
-    acceleration_residual = measured_acceleration - stored_acceleration
+    acceleration_residual = measured_acceleration_principal - stored_acceleration
+    acceleration_residual -= np.rint(acceleration_residual / acceleration_ambiguity) * acceleration_ambiguity
     sigma_acceleration = float(np.sqrt(np.mean(acceleration_residual**2)))
     if not np.isfinite(sigma_acceleration) or sigma_acceleration <= 0.0:
         raise RuntimeError("invalid radial-acceleration residual RMS")
@@ -162,10 +160,14 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         )
         prediction = physics.predicted_doppler(position, velocity)
         acceleration_prediction = predicted_radial_acceleration(prediction * 1e3, t_s, phase_data)
+        acceleration_fit_residual = measured_acceleration_principal - acceleration_prediction
+        acceleration_fit_residual -= (
+            np.rint(acceleration_fit_residual / acceleration_ambiguity) * acceleration_ambiguity
+        )
         return np.r_[
             ((points[keep] - position[keep]) / sigma_position).ravel(),
             (doppler[keep] - prediction[keep]) / sigma_doppler,
-            (measured_acceleration - acceleration_prediction) / sigma_acceleration,
+            acceleration_fit_residual / sigma_acceleration,
         ]
 
     chi2 = np.full(len(radius_um), np.nan)
@@ -203,6 +205,15 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
     threshold = 3.841458820694124
     lower, upper, lower_bounded, upper_bounded, lower_status, upper_status = profile_interval(radius_um, delta, threshold)
     best_radius = float(radius_um[np.nanargmin(chi2)])
+    best_index = int(np.nanargmin(chi2))
+    best_position, best_velocity, *_ = physics.propagate_shrinking_radius_model(
+        np.r_[parameters6[best_index], log_radius_m[best_index]], t_s, density
+    )
+    best_prediction = physics.predicted_doppler(best_position, best_velocity)
+    best_acceleration = predicted_radial_acceleration(best_prediction * 1e3, t_s, phase_data)
+    display_acceleration = measured_acceleration_principal + np.rint(
+        (best_acceleration - measured_acceleration_principal) / acceleration_ambiguity
+    ) * acceleration_ambiguity
 
     output_h5.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(output_h5, "w") as handle:
@@ -210,7 +221,7 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         handle.attrs["sigma_phase_rad"] = sigma_phase
         handle.attrs["sigma_radial_acceleration_mps2"] = sigma_acceleration
         handle.attrs["n_nonoverlapping_phase_acceleration"] = len(phase_data["samples"])
-        handle.attrs["phase_likelihood"] = "radial acceleration residual derived from consecutive SNR-weighted decoded beat phasors"
+        handle.attrs["phase_likelihood"] = "radial acceleration residual wrapped independently for each model at the beat-phase ambiguity period"
         profile = handle.create_group("profile")
         profile["radius_um"] = radius_um
         profile["mass_kg"] = radius_um_to_mass_kg(radius_um)
@@ -232,7 +243,10 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         phase["samples"] = phase_data["samples"]
         phase["stored_model_prediction_rad"] = stored_phase_prediction
         phase["stored_model_residual_rad"] = phase_residual
-        phase["measured_radial_acceleration_mps2"] = measured_acceleration
+        phase["measured_radial_acceleration_principal_mps2"] = measured_acceleration_principal
+        phase["measured_radial_acceleration_display_mps2"] = display_acceleration
+        phase["acceleration_ambiguity_period_mps2"] = acceleration_ambiguity
+        phase["best_model_radial_acceleration_mps2"] = best_acceleration
         phase["stored_model_radial_acceleration_mps2"] = stored_acceleration
         phase["stored_model_radial_acceleration_residual_mps2"] = acceleration_residual
 
