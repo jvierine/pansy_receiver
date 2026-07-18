@@ -874,13 +874,14 @@ def render(row, grid_n=41):
     return out, profile_path
 
 def main():
-    global OUT_BATCH, PLOTS, PROFILES, HIGHRES, PROFILE_INPUT_DIR, BEAT_H5_DIR
+    global BASE, SRC_BATCH, OUT_BATCH, PLOTS, PROFILES, HIGHRES, PROFILE_INPUT_DIR, BEAT_H5_DIR
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=10)
     ap.add_argument("--start-rank", type=int, default=1)
     ap.add_argument("--grid-n", type=int, default=41)
     ap.add_argument("--sample-index-h5", type=Path)
+    ap.add_argument("--base", type=Path)
     ap.add_argument("--output-dir", type=Path)
     ap.add_argument("--profile-input-dir", type=Path)
     ap.add_argument("--beat-h5-dir", type=Path)
@@ -889,6 +890,9 @@ def main():
     args = ap.parse_args()
     if args.worker_count < 1 or not 0 <= args.worker_index < args.worker_count:
         ap.error("worker-index must satisfy 0 <= worker-index < worker-count")
+    if args.base is not None:
+        BASE = args.base
+        SRC_BATCH = BASE / "events/current_distribution_plots/example_event_batch_200"
     if args.output_dir is not None:
         OUT_BATCH = args.output_dir
         PLOTS = OUT_BATCH / "plots"
