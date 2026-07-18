@@ -35,6 +35,7 @@ PLOTS = OUT_BATCH / "plots"
 PROFILES = OUT_BATCH / "profiles"
 HIGHRES = OUT_BATCH / "highres_fft_i2_p16"
 PROFILE_INPUT_DIR = None
+BEAT_H5_DIR = None
 DEFAULT_SIGMA_POS = 0.5
 DEFAULT_SIGMA_DOP = 1.0
 RHO_METEOROID = 3000.0
@@ -628,7 +629,7 @@ def render(row, grid_n=41):
     snr_vmin = 0.0
     snr_vmax = max(18.0, float(np.nanpercentile(both, 99.7)))
     prob_rel = profile_prob / np.nanmax(profile_prob) if np.nanmax(profile_prob) > 0 else profile_prob
-    fig, axs = plt.subplots(2, 3, figsize=(12, 8), dpi=120)
+    fig, axs = plt.subplots(2, 4, figsize=(16, 8), dpi=120)
     ax = axs[0, 0]
     ax.pcolormesh(EWM, NSM, BMAP, cmap="gist_yarg", vmax=5, shading="auto")
     dropped_mask = (~fit_keep) & np.isfinite(t_plot)
@@ -687,6 +688,102 @@ def render(row, grid_n=41):
     ax.set_xlabel("Time (s)"); ax.set_ylabel("Doppler (km/s)"); ax.grid(alpha=0.2, lw=0.4)
     if fixed_r0_dopplers:
         ax.legend(loc="lower right", fontsize=7, frameon=False)
+    ax = axs[0, 3]
+    if BEAT_H5_DIR is not None:
+        from fit_inter_pulse_acceleration_mass import load_nonoverlapping_phase_acceleration
+
+        beat_path = BEAT_H5_DIR / f"inter_pulse_phase_{sample}.h5"
+        phase_data = load_nonoverlapping_phase_acceleration(beat_path)
+        phase_samples = phase_data["samples"]
+        phase_dt = 0.5 * (phase_samples["first_dt_s"] + phase_samples["second_dt_s"])
+        phase_acceleration = (
+            pc.wavelength
+            * phase_samples["observed_delta_phase_rad"]
+            / (4.0 * np.pi * phase_dt**2)
+        )
+        phase_acceleration_std = (
+            pc.wavelength
+            * phase_samples["formal_phase_std_rad"]
+            / (4.0 * np.pi * phase_dt**2)
+        )
+        phase_time_abs = 0.5 * (phase_samples["first_time_s"] + phase_samples["second_time_s"])
+        phase_time = phase_time_abs - fit_origin_abs_s
+        first_model_velocity = np.interp(phase_samples["first_time_s"], obs_abs_s, pred * 1e3)
+        second_model_velocity = np.interp(phase_samples["second_time_s"], obs_abs_s, pred * 1e3)
+        model_acceleration = (
+            (second_model_velocity - first_model_velocity)
+            / (phase_samples["second_time_s"] - phase_samples["first_time_s"])
+        )
+        fit_good = (
+            np.isfinite(phase_time)
+            & np.isfinite(phase_acceleration)
+            & np.isfinite(phase_acceleration_std)
+        )
+        fit_center = float(np.nanmedian(phase_time[fit_good]))
+        fit_x = phase_time - fit_center
+        fit_keep_phase = fit_good.copy()
+        phase_line = np.asarray([0.0, np.nanmedian(phase_acceleration[fit_good])])
+        for _ in range(5):
+            phase_line = np.polyfit(
+                fit_x[fit_keep_phase],
+                phase_acceleration[fit_keep_phase],
+                1,
+                w=1.0 / np.maximum(phase_acceleration_std[fit_keep_phase], 1.0),
+            )
+            phase_residual = phase_acceleration - np.polyval(phase_line, fit_x)
+            phase_median = np.nanmedian(phase_residual[fit_keep_phase])
+            phase_sigma = 1.4826 * np.nanmedian(
+                np.abs(phase_residual[fit_keep_phase] - phase_median)
+            )
+            if not np.isfinite(phase_sigma) or phase_sigma <= 0.0:
+                break
+            fit_keep_phase = fit_good & (np.abs(phase_residual - phase_median) < 4.0 * phase_sigma)
+        phase_order = np.argsort(phase_time)
+        ax.errorbar(
+            phase_time,
+            phase_acceleration / 1e3,
+            yerr=phase_acceleration_std / 1e3,
+            fmt=".",
+            ms=3,
+            color="black",
+            ecolor="0.78",
+            elinewidth=0.5,
+            label="decoded beat phase",
+        )
+        ax.plot(
+            phase_time[phase_order],
+            model_acceleration[phase_order] / 1e3,
+            color="tab:blue",
+            lw=1.0,
+            label="shrinking-radius model",
+        )
+        ax.plot(
+            phase_time[phase_order],
+            np.polyval(phase_line, fit_x[phase_order]) / 1e3,
+            color="tab:red",
+            lw=1.1,
+            label="weighted measurement fit",
+        )
+        ambiguity = pc.wavelength / (4.0 * np.nanmedian(phase_dt) ** 2) / 1e3
+        ax.axhline(ambiguity, color="0.5", ls="--", lw=0.7)
+        ax.axhline(-ambiguity, color="0.5", ls="--", lw=0.7)
+        ax.text(
+            0.03,
+            0.97,
+            f"N {np.count_nonzero(fit_good)}\n"
+            + f"fit {np.polyval(phase_line, 0.0) / 1e3:.2f} km s$^{{-2}}$\n"
+            + f"model {np.nanmedian(model_acceleration) / 1e3:.2f} km s$^{{-2}}$",
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=8,
+        )
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel(r"Radial acceleration (km s$^{-2}$)")
+        ax.grid(alpha=0.2, lw=0.4)
+        ax.legend(frameon=False, fontsize=6.5, loc="lower left")
+    else:
+        ax.axis("off")
     ax = axs[1, 0]
     ax.pcolormesh(rti_t, rvec, RTI.T, cmap="plasma", shading="auto", vmin=snr_vmin, vmax=snr_vmax)
     if range_interval is not None:
@@ -760,14 +857,15 @@ def render(row, grid_n=41):
     ax.set_xlabel("Time (s)"); ax.set_ylabel("Speed (km/s)"); ax.grid(alpha=0.2, lw=0.4)
     if fixed_r0_speeds:
         ax.legend(loc="lower left", fontsize=7, frameon=False)
-    fig.subplots_adjust(left=0.07, right=0.965, bottom=0.08, top=0.90, wspace=0.32, hspace=0.40)
+    axs[1, 3].axis("off")
+    fig.subplots_adjust(left=0.05, right=0.98, bottom=0.08, top=0.90, wspace=0.32, hspace=0.40)
     PLOTS.mkdir(parents=True, exist_ok=True)
     fig.savefig(out)
     plt.close(fig)
     return out, profile_path
 
 def main():
-    global OUT_BATCH, PLOTS, PROFILES, HIGHRES, PROFILE_INPUT_DIR
+    global OUT_BATCH, PLOTS, PROFILES, HIGHRES, PROFILE_INPUT_DIR, BEAT_H5_DIR
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=10)
@@ -776,6 +874,7 @@ def main():
     ap.add_argument("--sample-index-h5", type=Path)
     ap.add_argument("--output-dir", type=Path)
     ap.add_argument("--profile-input-dir", type=Path)
+    ap.add_argument("--beat-h5-dir", type=Path)
     ap.add_argument("--worker-index", type=int, default=0)
     ap.add_argument("--worker-count", type=int, default=1)
     args = ap.parse_args()
@@ -788,6 +887,8 @@ def main():
         HIGHRES = OUT_BATCH / "highres_fft_i2_p16"
     if args.profile_input_dir is not None:
         PROFILE_INPUT_DIR = args.profile_input_dir
+    if args.beat_h5_dir is not None:
+        BEAT_H5_DIR = args.beat_h5_dir
     OUT_BATCH.mkdir(parents=True, exist_ok=True); PLOTS.mkdir(parents=True, exist_ok=True); PROFILES.mkdir(parents=True, exist_ok=True)
     rows = [
         row for row in load_rows(limit=args.limit, sample_index_h5=args.sample_index_h5)

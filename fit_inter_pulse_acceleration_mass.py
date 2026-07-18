@@ -95,6 +95,16 @@ def predicted_delta_phase(predicted_doppler_mps: np.ndarray, t_s: np.ndarray, ph
     return np.angle(np.exp(1j * (second_phase - first_phase)))
 
 
+def predicted_radial_acceleration(predicted_doppler_mps: np.ndarray, t_s: np.ndarray, phase_data: dict) -> np.ndarray:
+    samples = phase_data["samples"]
+    absolute_zero = phase_data["measurement_tx_s"][0] - t_s[0]
+    first_t = samples["first_time_s"] - absolute_zero
+    second_t = samples["second_time_s"] - absolute_zero
+    first_velocity = np.interp(first_t, t_s, predicted_doppler_mps)
+    second_velocity = np.interp(second_t, t_s, predicted_doppler_mps)
+    return (second_velocity - first_velocity) / (second_t - first_t)
+
+
 def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h5: Path, output_png: Path) -> dict:
     observations, stored = load_selected_fit(diagnostics_h5)
     t_s = observations["t_s"]
@@ -113,6 +123,22 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
     sigma_phase = float(np.sqrt(np.mean(phase_residual**2)))
     if not np.isfinite(sigma_phase) or sigma_phase <= 0.0:
         raise RuntimeError("invalid beat-phase residual RMS")
+    phase_samples = phase_data["samples"]
+    mean_dt = 0.5 * (phase_samples["first_dt_s"] + phase_samples["second_dt_s"])
+    measured_acceleration = (
+        pc.wavelength
+        * phase_samples["observed_delta_phase_rad"]
+        / (4.0 * np.pi * mean_dt**2)
+    )
+    stored_acceleration = predicted_radial_acceleration(stored_prediction * 1e3, t_s, phase_data)
+    acceleration_ambiguity = pc.wavelength / (2.0 * mean_dt**2)
+    measured_acceleration += np.rint(
+        (stored_acceleration - measured_acceleration) / acceleration_ambiguity
+    ) * acceleration_ambiguity
+    acceleration_residual = measured_acceleration - stored_acceleration
+    sigma_acceleration = float(np.sqrt(np.mean(acceleration_residual**2)))
+    if not np.isfinite(sigma_acceleration) or sigma_acceleration <= 0.0:
+        raise RuntimeError("invalid radial-acceleration residual RMS")
     density, _metadata = physics.pbal.density_interpolator(observations["sample_epoch_unix"])
 
     with h5py.File(baseline_h5, "r") as baseline:
@@ -134,11 +160,11 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
             np.r_[parameters6, fixed_log_radius], t_s, density
         )
         prediction = physics.predicted_doppler(position, velocity)
-        phase_prediction = predicted_delta_phase(prediction * 1e3, t_s, phase_data)
+        acceleration_prediction = predicted_radial_acceleration(prediction * 1e3, t_s, phase_data)
         return np.r_[
             ((points[keep] - position[keep]) / sigma_position).ravel(),
             (doppler[keep] - prediction[keep]) / sigma_doppler,
-            circular_residual(phase_data["samples"]["observed_delta_phase_rad"], phase_prediction) / sigma_phase,
+            (measured_acceleration - acceleration_prediction) / sigma_acceleration,
         ]
 
     chi2 = np.full(len(radius_um), np.nan)
@@ -181,8 +207,9 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
     with h5py.File(output_h5, "w") as handle:
         handle.attrs["sample_idx"] = int(observations["sample_idx"])
         handle.attrs["sigma_phase_rad"] = sigma_phase
+        handle.attrs["sigma_radial_acceleration_mps2"] = sigma_acceleration
         handle.attrs["n_nonoverlapping_phase_acceleration"] = len(phase_data["samples"])
-        handle.attrs["phase_likelihood"] = "wrapped circular residual of consecutive SNR-weighted decoded beat phasors"
+        handle.attrs["phase_likelihood"] = "radial acceleration residual derived from consecutive SNR-weighted decoded beat phasors"
         profile = handle.create_group("profile")
         profile["radius_um"] = radius_um
         profile["mass_kg"] = radius_um_to_mass_kg(radius_um)
@@ -204,11 +231,14 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         phase["samples"] = phase_data["samples"]
         phase["stored_model_prediction_rad"] = stored_phase_prediction
         phase["stored_model_residual_rad"] = phase_residual
+        phase["measured_radial_acceleration_mps2"] = measured_acceleration
+        phase["stored_model_radial_acceleration_mps2"] = stored_acceleration
+        phase["stored_model_radial_acceleration_residual_mps2"] = acceleration_residual
 
     fig, axes = plt.subplots(1, 2, figsize=(11.0, 4.3), constrained_layout=True)
     ax = axes[0]
     ax.plot(radius_um, baseline_delta, color="0.5", lw=1.2, label="position + Doppler")
-    ax.plot(radius_um, delta, color="C0", lw=1.4, label="+ decoded beat phase")
+    ax.plot(radius_um, delta, color="C0", lw=1.4, label="+ radial deceleration")
     ax.axhline(threshold, color="0.2", ls="--", lw=0.8, label="95% profile threshold")
     ax.set_xscale("log")
     ax.set_ylim(0, min(30.0, max(8.0, np.nanpercentile(delta, 90))))
@@ -226,7 +256,16 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
     ax.grid(alpha=0.2, which="both")
     baseline_text = f"old 95%: {baseline_interval[0]:.0f}--{baseline_interval[1]:.0f} $\\mu$m"
     new_text = f"new 95%: {lower:.0f}--{upper:.0f} $\\mu$m"
-    ax.text(0.03, 0.96, baseline_text + "\n" + new_text + f"\nN phase={len(phase_data['samples'])}, RMS={sigma_phase:.2f} rad", transform=ax.transAxes, va="top")
+    ax.text(
+        0.03,
+        0.96,
+        baseline_text
+        + "\n"
+        + new_text
+        + f"\nN accel={len(phase_data['samples'])}, RMS={sigma_acceleration / 1e3:.2f} km s$^{{-2}}$",
+        transform=ax.transAxes,
+        va="top",
+    )
     fig.savefig(output_png, dpi=190)
     plt.close(fig)
     return {
@@ -237,6 +276,7 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         "new_interval_um": (lower, upper),
         "new_quantiles_um": quantiles,
         "sigma_phase_rad": sigma_phase,
+        "sigma_acceleration_mps2": sigma_acceleration,
         "n_phase": len(phase_data["samples"]),
     }
 
