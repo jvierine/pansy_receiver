@@ -1,0 +1,509 @@
+#!/usr/bin/env python3
+"""Estimate meteor deceleration from phase-coherent decoded pulse pairs."""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+from pathlib import Path
+
+import h5py
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import numpy as np
+
+import fit_best_alias_physics_models as physics
+import pansy_config as pc
+from highres_fft_event_plot import highres_estimates, load_selected
+from interferometer_alias_diagnostics import amp_scale, load_cut
+from lag_doppler_estimate_test import diagnostic_measurement_clock, diagnostic_to_raw_pulses
+from range_interpolation_study import DRG_KM
+
+
+FS_HZ = 1e6
+
+
+def fractional_segment(values: np.ndarray, start: float, length: int) -> np.ndarray:
+    """Linearly interpolate a complex fast-time segment at a fractional delay."""
+    sample = float(start) + np.arange(length, dtype=np.float64)
+    grid = np.arange(values.shape[-1], dtype=np.float64)
+    if sample[0] < 0.0 or sample[-1] > grid[-1]:
+        return np.full(length, np.nan + 1j * np.nan, dtype=np.complex128)
+    return np.interp(sample, grid, values.real) + 1j * np.interp(sample, grid, values.imag)
+
+
+def decoded_pulse_responses(
+    cut: dict,
+    hyp: dict,
+    snr_threshold: float,
+    precise_range_km: np.ndarray,
+    precise_doppler_mps: np.ndarray,
+) -> dict:
+    """Range-align and decode retained meteor pulses while preserving phase."""
+    _all_obs, clock = diagnostic_measurement_clock(cut, hyp, snr_threshold=snr_threshold)
+    raw_idx = diagnostic_to_raw_pulses(cut, clock, hyp["t_rel_s"])
+    z_rx = np.asarray(cut["zrx_echoes_re"], np.float32) + 1j * np.asarray(
+        cut["zrx_echoes_im"], np.float32
+    )
+    z_tx = np.asarray(cut["ztx_pulses_re"], np.float32) + 1j * np.asarray(
+        cut["ztx_pulses_im"], np.float32
+    )
+    z_rx *= amp_scale()[None, :, None]
+    delays = np.asarray(cut["delays"], dtype=np.float64)
+    tx_idx = np.asarray(cut["tx_idx"], dtype=np.float64)
+    beam_id = np.asarray(cut["beam_id"], dtype=np.int64)
+    range_km = np.asarray(precise_range_km, dtype=np.float64)
+    coarse = np.asarray(precise_doppler_mps, dtype=np.float64)
+    n_obs = len(raw_idx)
+    n_ch = z_rx.shape[1]
+    n_fast = z_tx.shape[1]
+    fast_time_s = np.arange(n_fast, dtype=np.float64) / FS_HZ
+    response = np.full((n_obs, n_ch), np.nan + 1j * np.nan, dtype=np.complex128)
+    range_gate = range_km / DRG_KM - delays[raw_idx]
+    decoded = np.full((n_obs, n_ch, n_fast), np.nan + 1j * np.nan, dtype=np.complex64)
+    derotated = np.full_like(decoded, np.nan + 1j * np.nan)
+
+    for obs_i, pulse in enumerate(raw_idx):
+        tx = z_tx[pulse].astype(np.complex128)
+        envelope = np.abs(tx) ** 2
+        use = envelope > 0.05 * np.nanmax(envelope)
+        if not np.any(use):
+            continue
+        doppler_hz = 2.0 * coarse[obs_i] / pc.wavelength
+        derotation = np.exp(-1j * 2.0 * np.pi * doppler_hz * fast_time_s)
+        for channel in range(n_ch):
+            echo = fractional_segment(z_rx[pulse, channel], range_gate[obs_i], n_fast)
+            dec = echo * np.conj(tx)
+            derot = dec * derotation
+            decoded[obs_i, channel] = dec
+            derotated[obs_i, channel] = derot
+            response[obs_i, channel] = np.sum(derot[use]) / np.sum(use)
+
+    return {
+        "raw_idx": raw_idx,
+        "tx_idx": tx_idx[raw_idx],
+        "beam_id": beam_id[raw_idx],
+        "range_gate": range_gate,
+        "range_km": range_km,
+        "coarse_doppler_mps": coarse,
+        "response": response,
+        "decoded": decoded,
+        "derotated": derotated,
+        "z_rx": z_rx,
+        "z_tx": z_tx,
+        "fast_time_s": fast_time_s,
+    }
+
+
+def decoded_waveform_pairs(decoded: dict, same_beam: bool, search_hz: float = 2000.0) -> dict:
+    """Fit the residual fast-time sinusoid in d[n+1] conj(d[n])."""
+    tx_s = decoded["tx_idx"] / FS_HZ
+    beam = decoded["beam_id"]
+    wave = decoded["decoded"].astype(np.complex128)
+    previous_by_beam: dict[int, int] = {}
+    frequencies = np.linspace(-float(search_hz), float(search_hz), 4001)
+    fast_time = decoded["fast_time_s"]
+    basis = np.exp(-1j * 2.0 * np.pi * frequencies[:, None] * fast_time[None, :])
+    rows = []
+    for cur in range(len(tx_s)):
+        if same_beam:
+            prev = previous_by_beam.get(int(beam[cur]))
+            previous_by_beam[int(beam[cur])] = cur
+        else:
+            prev = cur - 1 if cur else None
+        if prev is None:
+            continue
+        delta_t = tx_s[cur] - tx_s[prev]
+        if not np.isfinite(delta_t) or delta_t <= 0.0 or delta_t > 0.025:
+            continue
+        channel_product = wave[cur] * np.conj(wave[prev])
+        amplitude = np.abs(channel_product)
+        finite = np.isfinite(channel_product.real) & np.isfinite(channel_product.imag)
+        channel_product = np.where(finite, channel_product, 0.0j)
+        amplitude = np.where(finite, amplitude, 0.0)
+        product = np.sum(channel_product, axis=0)
+        weight = np.sum(amplitude, axis=0)
+        if not np.any(weight > 0.0):
+            continue
+        threshold = 0.10 * np.nanmax(weight)
+        use = np.isfinite(product.real) & np.isfinite(product.imag) & (weight > threshold)
+        if np.count_nonzero(use) < 12:
+            continue
+        phasor = product[use] / np.maximum(np.abs(product[use]), 1e-30)
+        sample_weight = weight[use] / np.nanmax(weight[use])
+        spectrum = basis[:, use] @ (sample_weight * phasor)
+        power = np.abs(spectrum) ** 2
+        peak = int(np.nanargmax(power))
+        frequency_hz = float(frequencies[peak])
+        if 0 < peak < len(frequencies) - 1:
+            ym, y0, yp = np.log(np.maximum(power[peak - 1 : peak + 2], 1e-300))
+            denom = ym - 2.0 * y0 + yp
+            if np.isfinite(denom) and abs(denom) > 1e-15:
+                frequency_hz += float(0.5 * (ym - yp) / denom) * (frequencies[1] - frequencies[0])
+        model_rotation = np.exp(-1j * 2.0 * np.pi * frequency_hz * fast_time[use])
+        coefficient = np.sum(sample_weight * phasor * model_rotation) / np.sum(sample_weight)
+        residual_phase = np.angle(phasor * model_rotation * np.exp(-1j * np.angle(coefficient)))
+        phase_rms = float(np.sqrt(np.sum(sample_weight * residual_phase**2) / np.sum(sample_weight)))
+        centered_time = fast_time[use] - np.sum(sample_weight * fast_time[use]) / np.sum(sample_weight)
+        information = np.sum(sample_weight * centered_time**2)
+        frequency_std_hz = phase_rms / (2.0 * np.pi * np.sqrt(max(information, 1e-30)))
+        delta_velocity = frequency_hz * pc.wavelength / 2.0
+        delta_velocity_std = frequency_std_hz * pc.wavelength / 2.0
+        rows.append(
+            (
+                prev,
+                cur,
+                0.5 * (tx_s[prev] + tx_s[cur]),
+                delta_t,
+                int(beam[prev]),
+                int(beam[cur]),
+                frequency_hz,
+                frequency_std_hz,
+                delta_velocity,
+                delta_velocity_std,
+                delta_velocity / delta_t,
+                delta_velocity_std / delta_t,
+                phase_rms,
+                float(abs(coefficient)),
+            )
+        )
+    names = (
+        "previous_index",
+        "current_index",
+        "time_s",
+        "delta_t_s",
+        "previous_beam_id",
+        "current_beam_id",
+        "delta_frequency_hz",
+        "delta_frequency_std_hz",
+        "delta_velocity_mps",
+        "delta_velocity_std_mps",
+        "acceleration_mps2",
+        "acceleration_std_mps2",
+        "phase_residual_rms_rad",
+        "coherence",
+    )
+    if not rows:
+        return {name: np.asarray([]) for name in names}
+    return {name: np.asarray(values) for name, values in zip(names, zip(*rows))}
+
+
+def pair_responses(decoded: dict, same_beam: bool) -> dict:
+    """Cross-multiply consecutive decoded responses and recover Doppler branch."""
+    tx_s = decoded["tx_idx"] / FS_HZ
+    beam = decoded["beam_id"]
+    response = decoded["response"]
+    coarse = decoded["coarse_doppler_mps"]
+    prev_for_beam: dict[int, int] = {}
+    rows = []
+    for cur in range(len(tx_s)):
+        if same_beam:
+            prev = prev_for_beam.get(int(beam[cur]))
+            prev_for_beam[int(beam[cur])] = cur
+        else:
+            prev = cur - 1 if cur else None
+        if prev is None:
+            continue
+        delta_t = tx_s[cur] - tx_s[prev]
+        if not np.isfinite(delta_t) or delta_t <= 0.0 or delta_t > 0.025:
+            continue
+        channel_cross = response[cur] * np.conj(response[prev])
+        finite = np.isfinite(channel_cross.real) & np.isfinite(channel_cross.imag)
+        if not np.any(finite):
+            continue
+        cross = np.sum(channel_cross[finite])
+        norm = np.sum(np.abs(channel_cross[finite]))
+        if norm <= 0.0 or abs(cross) <= 0.0:
+            continue
+        phase = float(np.angle(cross))
+        wrapped_velocity = phase * pc.wavelength / (4.0 * np.pi * delta_t)
+        ambiguity = pc.wavelength / (2.0 * delta_t)
+        coarse_pair = float(0.5 * (coarse[prev] + coarse[cur]))
+        velocity = wrapped_velocity + np.rint((coarse_pair - wrapped_velocity) / ambiguity) * ambiguity
+        coarse_phase = 4.0 * np.pi * coarse_pair * delta_t / pc.wavelength
+        residual_phase = float(np.angle(np.exp(1j * (phase - coarse_phase))))
+        rows.append(
+            (
+                prev,
+                cur,
+                0.5 * (tx_s[prev] + tx_s[cur]),
+                delta_t,
+                int(beam[cur]),
+                phase,
+                residual_phase,
+                abs(cross),
+                abs(cross) / norm,
+                ambiguity,
+                coarse_pair,
+                velocity,
+            )
+        )
+    names = (
+        "previous_index",
+        "current_index",
+        "time_s",
+        "delta_t_s",
+        "beam_id",
+        "phase_rad",
+        "residual_phase_rad",
+        "pair_amplitude",
+        "channel_coherence",
+        "ambiguity_mps",
+        "coarse_doppler_mps",
+        "phase_doppler_mps",
+    )
+    if not rows:
+        return {name: np.asarray([]) for name in names}
+    columns = zip(*rows)
+    return {name: np.asarray(values) for name, values in zip(names, columns)}
+
+
+def robust_line(time_s: np.ndarray, velocity_mps: np.ndarray, weight: np.ndarray) -> dict:
+    """Fit velocity intercept and acceleration with simple robust clipping."""
+    time_s = np.asarray(time_s, dtype=float)
+    velocity_mps = np.asarray(velocity_mps, dtype=float)
+    weight = np.asarray(weight, dtype=float)
+    good = np.isfinite(time_s) & np.isfinite(velocity_mps) & np.isfinite(weight) & (weight > 0)
+    center = float(np.nanmedian(time_s[good]))
+    x = time_s - center
+    keep = good.copy()
+    coef = np.asarray([np.nan, np.nan])
+    for _ in range(5):
+        if np.count_nonzero(keep) < 5:
+            break
+        coef = np.polyfit(x[keep], velocity_mps[keep], 1, w=np.sqrt(weight[keep]))
+        residual = velocity_mps - np.polyval(coef, x)
+        median = np.nanmedian(residual[keep])
+        sigma = 1.4826 * np.nanmedian(np.abs(residual[keep] - median))
+        if not np.isfinite(sigma) or sigma <= 0.0:
+            break
+        keep = good & (np.abs(residual - median) < 4.0 * sigma)
+    model = np.polyval(coef, x)
+    rms = float(np.sqrt(np.nanmean((velocity_mps[keep] - model[keep]) ** 2)))
+    return {
+        "center_time_s": center,
+        "intercept_mps": float(coef[1]),
+        "acceleration_mps2": float(coef[0]),
+        "model_mps": model,
+        "keep": keep,
+        "rms_mps": rms,
+    }
+
+
+def analyze_event(cut: dict, hyp: dict, snr_threshold: float) -> dict:
+    precise = highres_estimates(cut, hyp, interp=2, fft_pad=16)
+    decoded = decoded_pulse_responses(
+        cut,
+        hyp,
+        snr_threshold,
+        precise_range_km=precise["range_km"],
+        precise_doppler_mps=precise["doppler_mps"],
+    )
+    same = pair_responses(decoded, same_beam=True)
+    adjacent = pair_responses(decoded, same_beam=False)
+    waveform_same = decoded_waveform_pairs(decoded, same_beam=True)
+    waveform_adjacent = decoded_waveform_pairs(decoded, same_beam=False)
+    if len(same["time_s"]) < 5:
+        raise RuntimeError("too few same-beam decoded pulse pairs")
+    weight = same["pair_amplitude"] * np.maximum(same["channel_coherence"], 1e-3) ** 2
+    fit = robust_line(same["time_s"], same["phase_doppler_mps"], weight)
+    t_obs_s = decoded["tx_idx"] / FS_HZ
+    model_doppler = physics.predicted_doppler(hyp["physics_model"], hyp["physics_velocity"]) * 1e3
+    model_at_pair = np.interp(same["time_s"], t_obs_s, model_doppler)
+    model_fit = robust_line(same["time_s"], model_at_pair, np.ones(len(model_at_pair)))
+    return {
+        "decoded": decoded,
+        "same_beam_pairs": same,
+        "adjacent_pairs": adjacent,
+        "waveform_same_beam_pairs": waveform_same,
+        "waveform_adjacent_pairs": waveform_adjacent,
+        "fit": fit,
+        "model_doppler_mps": model_doppler,
+        "model_at_pair_mps": model_at_pair,
+        "model_fit": model_fit,
+    }
+
+
+def best_stage_pair(result: dict) -> tuple[int, int]:
+    pairs = result["waveform_same_beam_pairs"]
+    score = pairs["coherence"] / np.maximum(pairs["delta_frequency_std_hz"], 1e-12)
+    index = int(np.nanargmax(score))
+    return int(pairs["previous_index"][index]), int(pairs["current_index"][index])
+
+
+def normalized(values: np.ndarray) -> np.ndarray:
+    scale = np.nanmax(np.abs(values))
+    return values / scale if np.isfinite(scale) and scale > 0 else values
+
+
+def plot_event(sample_idx: int, result: dict, output: Path) -> None:
+    decoded = result["decoded"]
+    pairs = result["same_beam_pairs"]
+    prev, cur = best_stage_pair(result)
+    channel_cross = decoded["response"][cur] * np.conj(decoded["response"][prev])
+    channel = int(np.nanargmax(np.abs(channel_cross)))
+    raw_prev = int(decoded["raw_idx"][prev])
+    raw_cur = int(decoded["raw_idx"][cur])
+    gate_prev = decoded["range_gate"][prev]
+    gate_cur = decoded["range_gate"][cur]
+    n_fast = decoded["z_tx"].shape[1]
+    echo_prev = fractional_segment(decoded["z_rx"][raw_prev, channel], gate_prev, n_fast)
+    echo_cur = fractional_segment(decoded["z_rx"][raw_cur, channel], gate_cur, n_fast)
+    tx_prev = decoded["z_tx"][raw_prev]
+    tx_cur = decoded["z_tx"][raw_cur]
+    dec_prev = decoded["decoded"][prev, channel]
+    dec_cur = decoded["decoded"][cur, channel]
+    der_prev = decoded["derotated"][prev, channel]
+    der_cur = decoded["derotated"][cur, channel]
+    product = dec_cur * np.conj(dec_prev)
+    sample = np.arange(n_fast)
+    time_zero = decoded["tx_idx"][0] / FS_HZ
+    waveform_pairs = result["waveform_same_beam_pairs"]
+    adjacent_waveform_pairs = result["waveform_adjacent_pairs"]
+    t_pair = pairs["time_s"] - time_zero
+    t_wave = waveform_pairs["time_s"] - time_zero
+    t_adjacent = adjacent_waveform_pairs["time_s"] - time_zero
+    t_obs = decoded["tx_idx"] / FS_HZ - time_zero
+
+    fig, axes = plt.subplots(3, 2, figsize=(12.0, 10.0), constrained_layout=True)
+    ax = axes[0, 0]
+    ax.plot(sample, normalized(echo_prev).real, color="C0", lw=0.9, label="pulse n")
+    ax.plot(sample, normalized(echo_cur).real, color="C1", lw=0.9, label="pulse n+1, same beam")
+    ax.set_title(f"Range-aligned raw voltage, channel {channel}")
+    ax.set_ylabel("Normalized real voltage")
+    ax.legend(frameon=False)
+
+    ax = axes[0, 1]
+    ax.plot(sample, np.angle(tx_prev), color="C0", lw=0.8, label="TX reference n")
+    ax.plot(sample, np.angle(tx_cur), color="C1", lw=0.8, label="TX reference n+1")
+    ax.set_title("Measured transmit-reference phase")
+    ax.set_ylabel("Phase (rad)")
+    ax.legend(frameon=False)
+
+    ax = axes[1, 0]
+    ax.plot(sample, normalized(dec_prev).real, color="C0", lw=0.9, label="decoded n")
+    ax.plot(sample, normalized(dec_cur).real, color="C1", lw=0.9, label="decoded n+1")
+    ax.set_title(r"Code decoding: $e_n[k]x_n^*[k]$")
+    ax.set_ylabel("Normalized real voltage")
+    ax.legend(frameon=False)
+
+    ax = axes[1, 1]
+    ax.plot(sample, normalized(der_prev).real, color="C0", lw=0.9, label="Doppler-removed n")
+    ax.plot(sample, normalized(der_cur).real, color="C1", lw=0.9, label="Doppler-removed n+1")
+    ax.set_title("After within-pulse coarse-Doppler removal")
+    ax.set_ylabel("Normalized real voltage")
+    ax.legend(frameon=False)
+
+    ax = axes[2, 0]
+    product_good = np.isfinite(product.real) & (np.abs(product) > 0.05 * np.nanmax(np.abs(product)))
+    product_phase = np.unwrap(np.angle(product[product_good]))
+    stage_row = np.flatnonzero(
+        (waveform_pairs["previous_index"] == prev) & (waveform_pairs["current_index"] == cur)
+    )[0]
+    delta_frequency_hz = waveform_pairs["delta_frequency_hz"][stage_row]
+    stage_time = decoded["fast_time_s"][product_good]
+    phase_model = 2.0 * np.pi * delta_frequency_hz * stage_time
+    phase_model += np.nanmedian(product_phase - phase_model)
+    ax.scatter(sample[product_good], product_phase, c=np.abs(product[product_good]), s=12, cmap="plasma")
+    ax.plot(sample[product_good], phase_model, color="black", lw=1.2, label=rf"fit: $\Delta f={delta_frequency_hz:.1f}$ Hz")
+    ax.set_title(r"Decoded product; its fast-time slope measures $f_{n+1}-f_n$")
+    ax.set_ylabel("Product phase (rad)")
+    ax.legend(frameon=False)
+
+    ax = axes[2, 1]
+    ax.errorbar(
+        t_adjacent,
+        adjacent_waveform_pairs["acceleration_mps2"],
+        yerr=adjacent_waveform_pairs["acceleration_std_mps2"],
+        fmt=".",
+        ms=3,
+        color="0.65",
+        ecolor="0.85",
+        label="literal adjacent echoes",
+    )
+    ax.errorbar(
+        t_wave,
+        waveform_pairs["acceleration_mps2"],
+        yerr=waveform_pairs["acceleration_std_mps2"],
+        fmt=".",
+        ms=4,
+        color="black",
+        ecolor="0.75",
+        label="next echo in same beam",
+    )
+    ax.axhline(result["model_fit"]["acceleration_mps2"], color="C0", lw=1.2, label="trajectory-model radial acceleration")
+    ax.set_title("Acceleration from residual fast-time sinusoid")
+    ax.set_ylabel(r"Radial acceleration (m s$^{-2}$)")
+    ax.legend(frameon=False, fontsize=8)
+
+    for ax in axes.ravel():
+        ax.set_xlabel("Fast-time sample" if ax is not axes[2, 1] else "Time (s)")
+        ax.grid(alpha=0.2, lw=0.5)
+    timestamp = dt.datetime.fromtimestamp(sample_idx / 1e6, tz=dt.timezone.utc).isoformat(timespec="milliseconds")
+    fig.suptitle(f"Inter-pulse decoded-phase deceleration test: {timestamp}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output, dpi=180)
+    plt.close(fig)
+
+
+def write_h5(sample_idx: int, result: dict, output: Path) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with h5py.File(output, "w") as handle:
+        handle.attrs["sample_idx"] = sample_idx
+        handle.attrs["phase_acceleration_mps2"] = result["fit"]["acceleration_mps2"]
+        handle.attrs["trajectory_model_radial_acceleration_mps2"] = result["model_fit"]["acceleration_mps2"]
+        handle.attrs["phase_velocity_rms_mps"] = result["fit"]["rms_mps"]
+        handle.attrs["phase_convention"] = "current decoded response times conjugate previous decoded response"
+        for group_name in (
+            "same_beam_pairs",
+            "adjacent_pairs",
+            "waveform_same_beam_pairs",
+            "waveform_adjacent_pairs",
+        ):
+            group = handle.create_group(group_name)
+            for name, values in result[group_name].items():
+                group.create_dataset(name, data=values)
+        measurement = handle.create_group("measurement")
+        for name in ("raw_idx", "tx_idx", "beam_id", "range_gate", "range_km", "coarse_doppler_mps", "response"):
+            measurement.create_dataset(name, data=result["decoded"][name])
+        measurement.create_dataset("trajectory_model_doppler_mps", data=result["model_doppler_mps"])
+
+
+def diagnostic_path(base: Path, sample_idx: int) -> Path:
+    day = dt.datetime.fromtimestamp(sample_idx / 1e6, tz=dt.timezone.utc).strftime("%Y-%m-%d")
+    return base / "events" / day / f"pansy_disambiguation_diagnostics_{sample_idx}.h5"
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--sample-idx", type=int, action="append", required=True)
+    parser.add_argument("--base", type=Path, default=Path("/mnt/data/juha/pansy"))
+    parser.add_argument("--output-dir", type=Path, default=Path("test_plots/inter_pulse_phase"))
+    parser.add_argument("--snr-threshold", type=float, default=7.0)
+    args = parser.parse_args()
+    for sample_idx in args.sample_idx:
+        diag = diagnostic_path(args.base, sample_idx)
+        hyp = load_selected(diag)
+        cut = load_cut(args.base / "metadata/cut", sample_idx)
+        result = analyze_event(cut, hyp, args.snr_threshold)
+        stem = f"inter_pulse_phase_{sample_idx}"
+        plot_event(sample_idx, result, args.output_dir / f"{stem}.png")
+        write_h5(sample_idx, result, args.output_dir / f"{stem}.h5")
+        print(
+            sample_idx,
+            f"n_pairs={len(result['same_beam_pairs']['time_s'])}",
+            f"phase_acceleration_mps2={result['fit']['acceleration_mps2']:.6g}",
+            f"model_acceleration_mps2={result['model_fit']['acceleration_mps2']:.6g}",
+            f"phase_velocity_rms_mps={result['fit']['rms_mps']:.6g}",
+            f"waveform_pairs={len(result['waveform_same_beam_pairs']['time_s'])}",
+            f"median_waveform_acceleration_mps2={np.nanmedian(result['waveform_same_beam_pairs']['acceleration_mps2']):.6g}",
+            f"median_waveform_acceleration_std_mps2={np.nanmedian(result['waveform_same_beam_pairs']['acceleration_std_mps2']):.6g}",
+            flush=True,
+        )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
