@@ -318,20 +318,29 @@ def true_radius_profile(sample_idx, day, grid_n=41, timeout_s=5):
     if PROFILE_INPUT_DIR is not None:
         profile_path = PROFILE_INPUT_DIR / f"mass_profile_{sample_idx}.h5"
         if not profile_path.exists():
+            profile_path = PROFILE_INPUT_DIR / f"mass_profile_with_acceleration_{sample_idx}.h5"
+        if not profile_path.exists():
             raise FileNotFoundError(f"missing completed mass profile: {profile_path}")
         with h5py.File(profile_path, "r") as h:
             radius_um = np.asarray(h["profile/radius_um"], dtype=float)
             params6 = np.asarray(h["profile/parameters6"], dtype=float)
             success = np.asarray(h["profile/success"], dtype=bool)
+            probability_key = (
+                "profile/relative_probability_density_log_radius"
+                if "profile/relative_probability_density_log_radius" in h
+                else "profile/probability_density_log_radius"
+            )
+            best_radius_key = (
+                "result/free_best_radius_um"
+                if "result/free_best_radius_um" in h
+                else "result/best_radius_um"
+            )
             return {
                 "radius_um": radius_um,
-                "prob": np.asarray(
-                    h["profile/relative_probability_density_log_radius"],
-                    dtype=float,
-                ),
+                "prob": np.asarray(h[probability_key], dtype=float),
                 "params6": params6,
                 "success": success,
-                "free_radius_um": float(h["result/free_best_radius_um"][()]),
+                "free_radius_um": float(h[best_radius_key][()]),
                 "path": str(profile_path),
             }
 
