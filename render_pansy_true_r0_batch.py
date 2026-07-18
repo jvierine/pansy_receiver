@@ -540,6 +540,7 @@ def render(row, grid_n=41):
     up_interval = dop_interval = speed_interval = range_interval = None
     fixed_r0_dopplers = {}
     fixed_r0_speeds = {}
+    best_profile_doppler = pred
     if np.count_nonzero(valid_profile) >= 2:
         rho, _ = phys.pbal.density_interpolator(sample_epoch_unix)
         pos_samples = []
@@ -587,6 +588,17 @@ def render(row, grid_n=41):
             if np.all(np.isfinite(ppred)) and np.all(np.isfinite(pspeed)):
                 fixed_r0_dopplers[target_um] = ppred
                 fixed_r0_speeds[target_um] = pspeed
+        valid_idx = np.flatnonzero(valid_profile)
+        if len(valid_idx):
+            idx = valid_idx[np.argmin(np.abs(np.log(profile_radius_um[valid_idx]) - np.log(free_radius_um)))]
+            try:
+                p = np.r_[profile_params6[idx], np.log10(profile_radius_um[idx] * 1e-6)]
+                ppos, pvel, _rad, _mass, _success, _msg = phys.propagate_shrinking_radius_model(p, t, rho)
+                candidate_doppler = phys.predicted_doppler(ppos, pvel)
+                if np.all(np.isfinite(candidate_doppler)):
+                    best_profile_doppler = candidate_doppler
+            except Exception:
+                pass
     r0_q = weighted_quantile(profile_radius_um, profile_weights, [0.025, 0.975])
     m0_q = r_um_to_mass_kg(r0_q)
     cut = drf.DigitalMetadataReader(str(BASE / "metadata/cut")).read(sample - 1, sample + 1)
@@ -710,6 +722,12 @@ def render(row, grid_n=41):
             * phase_samples["observed_delta_phase_rad"]
             / (4.0 * np.pi * phase_dt**2)
         )
+        with h5py.File(profile_path, "r") as profile_handle:
+            acceleration_key = "phase_acceleration/measured_radial_acceleration_mps2"
+            if acceleration_key in profile_handle:
+                fitted_acceleration = np.asarray(profile_handle[acceleration_key], dtype=float)
+                if fitted_acceleration.shape == phase_acceleration.shape:
+                    phase_acceleration = fitted_acceleration
         phase_acceleration_std = (
             pc.wavelength
             * phase_samples["formal_phase_std_rad"]
@@ -717,8 +735,8 @@ def render(row, grid_n=41):
         )
         phase_time_abs = 0.5 * (phase_samples["first_time_s"] + phase_samples["second_time_s"])
         phase_time = phase_time_abs - fit_origin_abs_s
-        first_model_velocity = np.interp(phase_samples["first_time_s"], obs_abs_s, pred * 1e3)
-        second_model_velocity = np.interp(phase_samples["second_time_s"], obs_abs_s, pred * 1e3)
+        first_model_velocity = np.interp(phase_samples["first_time_s"], obs_abs_s, best_profile_doppler * 1e3)
+        second_model_velocity = np.interp(phase_samples["second_time_s"], obs_abs_s, best_profile_doppler * 1e3)
         model_acceleration = (
             (second_model_velocity - first_model_velocity)
             / (phase_samples["second_time_s"] - phase_samples["first_time_s"])
