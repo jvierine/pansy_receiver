@@ -115,14 +115,17 @@ def density_contours(ax, speed, mass_kg, color):
         return
     ordered = np.sort(positive)[::-1]
     cumulative = np.cumsum(ordered) / np.sum(ordered)
-    levels = []
+    level_fractions = []
     for enclosed_fraction in (0.95, 0.80, 0.50):
         index = min(int(np.searchsorted(cumulative, enclosed_fraction)), len(ordered) - 1)
-        levels.append(ordered[index])
-    levels = np.unique(np.sort(levels))
+        level_fractions.append((float(ordered[index]), enclosed_fraction))
+    unique_levels = {}
+    for level, fraction in level_fractions:
+        unique_levels[level] = min(fraction, unique_levels.get(level, 1.0))
+    levels = np.asarray(sorted(unique_levels), dtype=np.float64)
     speed_centers = 0.5 * (speed_edges[:-1] + speed_edges[1:])
     mass_centers = 10.0 ** (0.5 * (mass_edges[:-1] + mass_edges[1:]))
-    ax.contour(
+    contours = ax.contour(
         speed_centers,
         mass_centers,
         density,
@@ -131,6 +134,8 @@ def density_contours(ax, speed, mass_kg, color):
         linewidths=np.linspace(0.8, 1.4, len(levels)),
         alpha=0.95,
     )
+    labels = {level: f"{100.0 * unique_levels[level]:.0f}%" for level in levels}
+    ax.clabel(contours, contours.levels, fmt=labels, inline=True, inline_spacing=2, fontsize=7, colors=[color])
 
 
 def fit_survival_slope(mass_grid, survival, minimum_fraction=0.10, maximum_fraction=0.50):
@@ -147,23 +152,12 @@ def fit_survival_slope(mass_grid, survival, minimum_fraction=0.10, maximum_fract
     return float(coefficients[0]), float(coefficients[1]), np.flatnonzero(keep)
 
 
-def add_slope_marker(ax, slope, intercept, fit_mass):
-    if not np.isfinite(slope) or len(fit_mass) < 2:
-        return
-    x0 = float(np.quantile(fit_mass, 0.58))
-    x1 = min(float(np.max(fit_mass)), x0 * 4.0)
-    y0 = float(10.0 ** (slope * np.log10(x0) + intercept))
-    y1 = float(y0 * (x1 / x0) ** slope)
-    ax.plot([x0, x1, x1, x0], [y0, y0, y1, y0], color="C0", lw=0.9)
-    ax.text(
-        x1 * 1.08,
-        np.sqrt(y0 * y1),
-        rf"$s={slope:.2f}$",
-        color="C0",
-        fontsize=8,
-        ha="left",
-        va="center",
-    )
+def mass_at_survival_fraction(mass_grid, survival, target_fraction):
+    good = np.isfinite(mass_grid) & (mass_grid > 0.0) & np.isfinite(survival) & (survival > 0.0)
+    x = np.log10(np.asarray(mass_grid[good], dtype=np.float64))
+    y = np.log10(np.asarray(survival[good], dtype=np.float64))
+    order = np.argsort(y)
+    return float(10.0 ** np.interp(np.log10(target_fraction), y[order], x[order]))
 
 
 def save_summary(path: Path, data, analysis_mask, args):
@@ -231,15 +225,22 @@ def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
     ax.plot(mass_grid, lower_survival, color="C0", lw=1.3, label="95% lower bound")
     ax.plot(mass_grid, upper_survival, color="C1", lw=1.3, label="95% upper bound")
     if len(fit_indices) > 0:
-        fit_mass = mass_grid[fit_indices]
-        ax.plot(
-            fit_mass,
-            10.0 ** (slope * np.log10(fit_mass) + intercept),
+        anchor_fraction = 0.1
+        anchor_mass = mass_at_survival_fraction(mass_grid, lower_survival, anchor_fraction)
+        slope_y = np.geomspace(1e-3, 1.0, 200)
+        slope_x = anchor_mass * (slope_y / anchor_fraction) ** (1.0 / slope)
+        ax.plot(slope_x, slope_y, color="C0", lw=1.0, ls=":")
+        label_y = 0.025
+        label_x = anchor_mass * (label_y / anchor_fraction) ** (1.0 / slope)
+        ax.text(
+            label_x * 1.12,
+            label_y,
+            rf"$s={slope:.2f}$",
             color="C0",
-            lw=0.9,
-            ls=":",
+            fontsize=8,
+            ha="left",
+            va="center",
         )
-        add_slope_marker(ax, slope, intercept, fit_mass)
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_ylim(1e-3, 1.0)
