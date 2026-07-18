@@ -16,13 +16,81 @@ import numpy as np
 
 import fit_best_alias_physics_models as physics
 import pansy_config as pc
-from highres_fft_event_plot import highres_estimates, load_selected
-from interferometer_alias_diagnostics import amp_scale, load_cut
-from lag_doppler_estimate_test import diagnostic_measurement_clock, diagnostic_to_raw_pulses
-from range_interpolation_study import DRG_KM
+from interferometer_alias_diagnostics import amp_scale, load_cut, recompute_cut_observables
+from plot_interferometric_disambiguation import split_observations_by_range_time, subset_pulse_observations
+from range_interpolation_study import DRG_KM, PowerOnlyRangeDopplerSearch, quadratic_peak_2d
 
 
 FS_HZ = 1e6
+
+
+def load_selected(path: Path) -> dict:
+    with h5py.File(path, "r") as handle:
+        label = handle.attrs["selected_hypothesis"]
+        label = label.decode() if isinstance(label, bytes) else str(label)
+        group = handle["hypotheses"][label]
+        out = {
+            "label": label,
+            "selected_range_time_component": int(handle.attrs.get("selected_range_time_component", -1)),
+            "t_rel_s": np.asarray(group["t_rel_s"], dtype=float),
+            "range_km": np.asarray(group["range_km"], dtype=float),
+            "doppler_mps": np.asarray(group["doppler_mps"], dtype=float),
+            "physics_model": np.asarray(group["physics_ceplecha_model"], dtype=float),
+            "physics_velocity": np.asarray(group["physics_ceplecha_velocity_km_s"], dtype=float),
+        }
+    order = np.argsort(out["t_rel_s"])
+    for name, values in list(out.items()):
+        if isinstance(values, np.ndarray) and len(values) == len(order):
+            out[name] = values[order]
+    return out
+
+
+def diagnostic_measurement_clock(cut: dict, hyp: dict, snr_threshold: float) -> dict:
+    observations = recompute_cut_observables(cut, interp=1)
+    good = np.asarray(observations["snr"], dtype=float) > snr_threshold
+    clock = {
+        name: values[good] if isinstance(values, np.ndarray) and len(values) == len(good) else values
+        for name, values in observations.items()
+    }
+    component = hyp["selected_range_time_component"]
+    if component >= 0:
+        segments = split_observations_by_range_time(clock, min_points=3)
+        if component < len(segments):
+            clock = subset_pulse_observations(clock, segments[component])
+    return clock
+
+
+def diagnostic_to_raw_pulses(cut: dict, clock: dict, t_rel_s: np.ndarray) -> np.ndarray:
+    raw_tx = np.asarray(cut["tx_idx"], dtype=float)
+    absolute_tx = float(np.asarray(clock["tx_idx"])[0]) + np.asarray(t_rel_s) * FS_HZ
+    raw_index = np.asarray([np.argmin(np.abs(raw_tx - value)) for value in absolute_tx], dtype=int)
+    error_s = (raw_tx[raw_index] - absolute_tx) / FS_HZ
+    if np.nanmax(np.abs(error_s)) > 0.002:
+        raise RuntimeError(f"diagnostic/raw pulse clock mismatch: {np.nanmax(np.abs(error_s)):.6f} s")
+    return raw_index
+
+
+def precise_matched_filter_estimates(cut: dict, hyp: dict, snr_threshold: float) -> dict:
+    clock = diagnostic_measurement_clock(cut, hyp, snr_threshold)
+    raw_idx = diagnostic_to_raw_pulses(cut, clock, hyp["t_rel_s"])
+    z_rx = np.asarray(cut["zrx_echoes_re"], np.float32) + 1j * np.asarray(cut["zrx_echoes_im"], np.float32)
+    z_tx = np.asarray(cut["ztx_pulses_re"], np.float32) + 1j * np.asarray(cut["ztx_pulses_im"], np.float32)
+    z_rx *= amp_scale()[None, :, None]
+    delays = np.asarray(cut["delays"], dtype=float)
+    search = PowerOnlyRangeDopplerSearch(
+        txlen=z_tx.shape[1], echolen=z_rx.shape[2], n_channels=z_rx.shape[1], interp=2, fft_pad=16
+    )
+    ranges = np.full(len(raw_idx), np.nan)
+    dopplers = np.full(len(raw_idx), np.nan)
+    for obs_i, pulse in enumerate(raw_idx):
+        power = search.mf(z_tx[pulse], z_rx[pulse])
+        range_profile = np.nanmax(power, axis=1)
+        range_index = int(np.nanargmax(range_profile))
+        doppler_index = int(np.nanargmax(power[range_index]))
+        dr, dd = quadratic_peak_2d(np.log(np.maximum(power, np.nanmedian(power))), range_index, doppler_index)
+        ranges[obs_i] = (delays[pulse] + (range_index + dr) / 2.0) * DRG_KM
+        dopplers[obs_i] = search.dopv[doppler_index] + dd * (search.dopv[1] - search.dopv[0])
+    return {"raw_idx": raw_idx, "range_km": ranges, "doppler_mps": dopplers}
 
 
 def fractional_segment(values: np.ndarray, start: float, length: int) -> np.ndarray:
@@ -42,7 +110,7 @@ def decoded_pulse_responses(
     precise_doppler_mps: np.ndarray,
 ) -> dict:
     """Range-align and decode retained meteor pulses while preserving phase."""
-    _all_obs, clock = diagnostic_measurement_clock(cut, hyp, snr_threshold=snr_threshold)
+    clock = diagnostic_measurement_clock(cut, hyp, snr_threshold)
     raw_idx = diagnostic_to_raw_pulses(cut, clock, hyp["t_rel_s"])
     z_rx = np.asarray(cut["zrx_echoes_re"], np.float32) + 1j * np.asarray(
         cut["zrx_echoes_im"], np.float32
@@ -293,7 +361,7 @@ def robust_line(time_s: np.ndarray, velocity_mps: np.ndarray, weight: np.ndarray
 
 
 def analyze_event(cut: dict, hyp: dict, snr_threshold: float) -> dict:
-    precise = highres_estimates(cut, hyp, interp=2, fft_pad=16)
+    precise = precise_matched_filter_estimates(cut, hyp, snr_threshold)
     decoded = decoded_pulse_responses(
         cut,
         hyp,
@@ -336,6 +404,58 @@ def best_stage_pair(result: dict) -> tuple[int, int]:
 def normalized(values: np.ndarray) -> np.ndarray:
     scale = np.nanmax(np.abs(values))
     return values / scale if np.isfinite(scale) and scale > 0 else values
+
+
+def plot_decoded_waveforms(sample_idx: int, result: dict, output: Path) -> None:
+    """Plot the two decoded echoes and their direct sample-wise product."""
+    decoded = result["decoded"]
+    pairs = result["waveform_same_beam_pairs"]
+    prev, cur = best_stage_pair(result)
+    channel_cross = decoded["response"][cur] * np.conj(decoded["response"][prev])
+    channel = int(np.nanargmax(np.abs(channel_cross)))
+    first = decoded["decoded"][prev, channel].astype(np.complex128)
+    second = decoded["decoded"][cur, channel].astype(np.complex128)
+    product = second * np.conj(first)
+    sample = np.arange(len(first))
+    row = np.flatnonzero((pairs["previous_index"] == prev) & (pairs["current_index"] == cur))[0]
+    delta_frequency = float(pairs["delta_frequency_hz"][row])
+    first_n = normalized(first)
+    second_n = normalized(second)
+    product_n = normalized(product)
+
+    fig, axes = plt.subplots(3, 1, figsize=(9.0, 8.2), sharex=True, constrained_layout=True)
+    for ax, values, label in (
+        (axes[0], first_n, r"$d_n[k]$"),
+        (axes[1], second_n, r"$d_{n+1}[k]$"),
+        (axes[2], product_n, r"$q_n[k]=d_{n+1}[k]d_n^*[k]$"),
+    ):
+        ax.plot(sample, values.real, color="C0", lw=1.0, label="real")
+        ax.plot(sample, values.imag, color="C1", lw=1.0, label="imaginary")
+        ax.plot(sample, np.abs(values), color="0.25", lw=0.8, alpha=0.7, label="magnitude")
+        ax.set_ylabel(label + "\nnormalized voltage")
+        ax.grid(alpha=0.2, lw=0.5)
+        ax.legend(frameon=False, ncol=3, loc="upper right")
+    good = np.isfinite(product.real) & (np.abs(product) > 0.10 * np.nanmax(np.abs(product)))
+    phase_ax = axes[2].twinx()
+    phase = np.unwrap(np.angle(product[good]))
+    fast_time = decoded["fast_time_s"][good]
+    phase_model = 2.0 * np.pi * delta_frequency * fast_time
+    phase_model += np.nanmedian(phase - phase_model)
+    phase_ax.scatter(sample[good], phase, s=9, color="C3", alpha=0.55, label="unwrapped phase")
+    phase_ax.plot(sample[good], phase_model, color="C3", lw=1.3, label=rf"fit $\Delta f={delta_frequency:.1f}$ Hz")
+    phase_ax.set_ylabel("Product phase (rad)", color="C3")
+    phase_ax.legend(frameon=False, loc="lower right")
+    axes[2].set_xlabel("Fast-time sample at 1 MHz")
+    beam = int(decoded["beam_id"][cur])
+    delta_t_ms = (decoded["tx_idx"][cur] - decoded["tx_idx"][prev]) / 1e3
+    timestamp = dt.datetime.fromtimestamp(sample_idx / 1e6, tz=dt.timezone.utc).isoformat(timespec="milliseconds")
+    fig.suptitle(
+        f"Decoded echo cancellation, {timestamp}; channel {channel}, beam {beam}, "
+        f"pulse separation {delta_t_ms:.1f} ms"
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output, dpi=190)
+    plt.close(fig)
 
 
 def plot_event(sample_idx: int, result: dict, output: Path) -> None:
@@ -490,6 +610,7 @@ def main() -> int:
         result = analyze_event(cut, hyp, args.snr_threshold)
         stem = f"inter_pulse_phase_{sample_idx}"
         plot_event(sample_idx, result, args.output_dir / f"{stem}.png")
+        plot_decoded_waveforms(sample_idx, result, args.output_dir / f"{stem}_waveforms.png")
         write_h5(sample_idx, result, args.output_dir / f"{stem}.h5")
         print(
             sample_idx,
