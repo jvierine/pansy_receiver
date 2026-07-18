@@ -14,6 +14,9 @@ from matplotlib.lines import Line2D
 from scipy.ndimage import gaussian_filter
 
 
+METEOROID_DENSITY_KG_M3 = 3000.0
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profiles-dir", type=Path, required=True)
@@ -93,13 +96,14 @@ def load_profiles(profiles_dir: Path):
     return data
 
 
-def survival_curve(values, mass_grid):
-    values = np.asarray(values, dtype=np.float64)
-    values = values[np.isfinite(values) | np.isposinf(values)]
-    if len(values) == 0:
-        return np.full(len(mass_grid), np.nan)
-    sorted_values = np.sort(values)
-    return (len(sorted_values) - np.searchsorted(sorted_values, mass_grid, side="right")) / len(sorted_values)
+def mass_kg_to_radius_um(mass_kg):
+    mass_kg = np.maximum(np.asarray(mass_kg, dtype=np.float64), 1e-300)
+    return (3.0 * mass_kg / (4.0 * np.pi * METEOROID_DENSITY_KG_M3)) ** (1.0 / 3.0) * 1e6
+
+
+def radius_um_to_mass_kg(radius_um):
+    radius_m = np.maximum(np.asarray(radius_um, dtype=np.float64), 1e-300) * 1e-6
+    return (4.0 / 3.0) * np.pi * METEOROID_DENSITY_KG_M3 * radius_m**3
 
 
 def density_contours(ax, speed, mass_kg, color):
@@ -138,28 +142,6 @@ def density_contours(ax, speed, mass_kg, color):
     ax.clabel(contours, contours.levels, fmt=labels, inline=True, inline_spacing=2, fontsize=7, colors=[color])
 
 
-def fit_survival_slope(mass_grid, survival, minimum_fraction=0.10, maximum_fraction=0.50):
-    keep = (
-        np.isfinite(mass_grid)
-        & (mass_grid > 0.0)
-        & np.isfinite(survival)
-        & (survival >= minimum_fraction)
-        & (survival <= maximum_fraction)
-    )
-    if np.count_nonzero(keep) < 5:
-        return np.nan, np.nan, np.asarray([], dtype=np.float64)
-    coefficients = np.polyfit(np.log10(mass_grid[keep]), np.log10(survival[keep]), 1)
-    return float(coefficients[0]), float(coefficients[1]), np.flatnonzero(keep)
-
-
-def mass_at_survival_fraction(mass_grid, survival, target_fraction):
-    good = np.isfinite(mass_grid) & (mass_grid > 0.0) & np.isfinite(survival) & (survival > 0.0)
-    x = np.log10(np.asarray(mass_grid[good], dtype=np.float64))
-    y = np.log10(np.asarray(survival[good], dtype=np.float64))
-    order = np.argsort(y)
-    return float(10.0 ** np.interp(np.log10(target_fraction), y[order], x[order]))
-
-
 def save_summary(path: Path, data, analysis_mask, args):
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
@@ -183,8 +165,7 @@ def save_summary(path: Path, data, analysis_mask, args):
 def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
     speed = data["initial_speed_km_s"]
 
-    fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.2), dpi=150)
-    ax = axes[0]
+    fig, ax = plt.subplots(figsize=(6.4, 4.8), dpi=150)
     finite_upper = analysis_mask & np.isfinite(data["upper_mass_kg"])
     density_contours(ax, speed[analysis_mask], data["lower_mass_kg"][analysis_mask], "C0")
     density_contours(ax, speed[finite_upper], data["upper_mass_kg"][finite_upper], "C1")
@@ -193,6 +174,9 @@ def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
     ax.set_xlabel(r"Initial fitted speed (km s$^{-1}$)")
     ax.set_ylabel(r"Initial mass $m_0$ (kg)")
     ax.grid(alpha=0.2, which="both", linewidth=0.5)
+    radius_axis = ax.secondary_yaxis("right", functions=(mass_kg_to_radius_um, radius_um_to_mass_kg))
+    radius_axis.set_yscale("log")
+    radius_axis.set_ylabel(r"Initial radius $r_0$ ($\mu$m)")
     ax.legend(
         handles=(
             Line2D([0], [0], color="C0", lw=1.3, label="95% lower bound"),
@@ -211,48 +195,10 @@ def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
         va="top",
         fontsize=8,
     )
-
-    ax = axes[1]
-    valid_lower = data["lower_mass_kg"][analysis_mask]
-    valid_upper = data["upper_mass_kg"][analysis_mask]
-    positive = valid_lower[np.isfinite(valid_lower) & (valid_lower > 0.0)]
-    finite_upper = valid_upper[np.isfinite(valid_upper) & (valid_upper > 0.0)]
-    limits = np.r_[positive, finite_upper]
-    mass_grid = np.geomspace(np.nanpercentile(limits, 0.2), np.nanpercentile(limits, 99.8), 300)
-    lower_survival = survival_curve(valid_lower, mass_grid)
-    upper_survival = survival_curve(valid_upper, mass_grid)
-    slope, intercept, fit_indices = fit_survival_slope(mass_grid, lower_survival)
-    ax.plot(mass_grid, lower_survival, color="C0", lw=1.3, label="95% lower bound")
-    ax.plot(mass_grid, upper_survival, color="C1", lw=1.3, label="95% upper bound")
-    if len(fit_indices) > 0:
-        anchor_fraction = 0.1
-        anchor_mass = mass_at_survival_fraction(mass_grid, lower_survival, anchor_fraction)
-        slope_y = np.geomspace(1e-3, 1.0, 200)
-        slope_x = anchor_mass * (slope_y / anchor_fraction) ** (1.0 / slope)
-        ax.plot(slope_x, slope_y, color="C0", lw=1.0, ls=":")
-        label_y = 0.025
-        label_x = anchor_mass * (label_y / anchor_fraction) ** (1.0 / slope)
-        ax.text(
-            label_x * 1.12,
-            label_y,
-            rf"$s={slope:.2f}$",
-            color="C0",
-            fontsize=8,
-            ha="left",
-            va="center",
-        )
-    ax.set_xscale("log")
-    ax.set_yscale("log")
-    ax.set_ylim(1e-3, 1.0)
-    ax.set_xlabel(r"Initial mass threshold $m_0$ (kg)")
-    ax.set_ylabel("Cumulative fraction above threshold")
-    ax.grid(alpha=0.2, which="both", linewidth=0.5)
-    ax.legend(loc="lower left", frameon=False, fontsize=8)
-    fig.subplots_adjust(left=0.08, right=0.985, bottom=0.14, top=0.98, wspace=0.28)
+    fig.subplots_adjust(left=0.14, right=0.86, bottom=0.14, top=0.98)
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, bbox_inches="tight", pad_inches=0.03)
     plt.close(fig)
-    return slope
 
 
 def main():
@@ -269,16 +215,11 @@ def main():
         & (data["lower_mass_kg"] > 0.0)
     )
     save_summary(args.output_h5, data, analysis_mask, args)
-    slope = plot_summary(args.output_plot, data, analysis_mask, args.minimum_path_km)
-    with h5py.File(args.output_h5, "r+") as handle:
-        handle.attrs["lower_bound_survival_slope"] = slope
-        handle.attrs["slope_fit_survival_fraction_min"] = 0.10
-        handle.attrs["slope_fit_survival_fraction_max"] = 0.50
+    plot_summary(args.output_plot, data, analysis_mask, args.minimum_path_km)
     print(f"total profiles: {len(analysis_mask)}")
     print(f"analysis profiles: {np.count_nonzero(analysis_mask)}")
     print(f"lower status: {Counter(data['lower_status'])}")
     print(f"upper status: {Counter(data['upper_status'])}")
-    print(f"lower-bound cumulative slope: {slope:.4f}")
     print(f"wrote {args.output_h5}")
     print(f"wrote {args.output_plot}")
 
