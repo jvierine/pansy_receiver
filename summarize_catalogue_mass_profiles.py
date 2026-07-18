@@ -10,6 +10,8 @@ from pathlib import Path
 import h5py
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.lines import Line2D
+from scipy.ndimage import gaussian_filter
 
 
 def parse_args():
@@ -100,6 +102,70 @@ def survival_curve(values, mass_grid):
     return (len(sorted_values) - np.searchsorted(sorted_values, mass_grid, side="right")) / len(sorted_values)
 
 
+def density_contours(ax, speed, mass_kg, color):
+    good = np.isfinite(speed) & np.isfinite(mass_kg) & (mass_kg > 0.0)
+    speed = np.asarray(speed[good], dtype=np.float64)
+    log_mass = np.log10(np.asarray(mass_kg[good], dtype=np.float64))
+    speed_edges = np.linspace(10.0, 80.0, 71)
+    mass_edges = np.linspace(-14.0, -2.0, 97)
+    histogram, _, _ = np.histogram2d(speed, log_mass, bins=(speed_edges, mass_edges))
+    density = gaussian_filter(histogram.T, sigma=(1.4, 1.4), mode="nearest")
+    positive = density[density > 0.0]
+    if len(positive) == 0:
+        return
+    ordered = np.sort(positive)[::-1]
+    cumulative = np.cumsum(ordered) / np.sum(ordered)
+    levels = []
+    for enclosed_fraction in (0.95, 0.80, 0.50):
+        index = min(int(np.searchsorted(cumulative, enclosed_fraction)), len(ordered) - 1)
+        levels.append(ordered[index])
+    levels = np.unique(np.sort(levels))
+    speed_centers = 0.5 * (speed_edges[:-1] + speed_edges[1:])
+    mass_centers = 10.0 ** (0.5 * (mass_edges[:-1] + mass_edges[1:]))
+    ax.contour(
+        speed_centers,
+        mass_centers,
+        density,
+        levels=levels,
+        colors=[color],
+        linewidths=np.linspace(0.8, 1.4, len(levels)),
+        alpha=0.95,
+    )
+
+
+def fit_survival_slope(mass_grid, survival, minimum_fraction=0.10, maximum_fraction=0.50):
+    keep = (
+        np.isfinite(mass_grid)
+        & (mass_grid > 0.0)
+        & np.isfinite(survival)
+        & (survival >= minimum_fraction)
+        & (survival <= maximum_fraction)
+    )
+    if np.count_nonzero(keep) < 5:
+        return np.nan, np.nan, np.asarray([], dtype=np.float64)
+    coefficients = np.polyfit(np.log10(mass_grid[keep]), np.log10(survival[keep]), 1)
+    return float(coefficients[0]), float(coefficients[1]), np.flatnonzero(keep)
+
+
+def add_slope_marker(ax, slope, intercept, fit_mass):
+    if not np.isfinite(slope) or len(fit_mass) < 2:
+        return
+    x0 = float(np.quantile(fit_mass, 0.58))
+    x1 = min(float(np.max(fit_mass)), x0 * 4.0)
+    y0 = float(10.0 ** (slope * np.log10(x0) + intercept))
+    y1 = float(y0 * (x1 / x0) ** slope)
+    ax.plot([x0, x1, x1, x0], [y0, y0, y1, y0], color="C0", lw=0.9)
+    ax.text(
+        x1 * 1.08,
+        np.sqrt(y0 * y1),
+        rf"$s={slope:.2f}$",
+        color="C0",
+        fontsize=8,
+        ha="left",
+        va="center",
+    )
+
+
 def save_summary(path: Path, data, analysis_mask, args):
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
@@ -121,38 +187,27 @@ def save_summary(path: Path, data, analysis_mask, args):
 
 
 def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
-    lower_only = analysis_mask & (data["upper_status"] == "open_grid")
-    two_sided = analysis_mask & (data["upper_status"] == "bounded")
     speed = data["initial_speed_km_s"]
 
     fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.2), dpi=150)
     ax = axes[0]
-    ax.scatter(
-        speed[lower_only],
-        data["lower_mass_kg"][lower_only],
-        s=5,
-        color="black",
-        alpha=0.14,
-        edgecolors="none",
-        rasterized=True,
-        label="Lower limit; upper interval open",
-    )
-    ax.scatter(
-        speed[two_sided],
-        data["best_mass_kg"][two_sided],
-        s=6,
-        color="C1",
-        alpha=0.22,
-        edgecolors="none",
-        rasterized=True,
-        label="Best fit; two-sided interval",
-    )
+    finite_upper = analysis_mask & np.isfinite(data["upper_mass_kg"])
+    density_contours(ax, speed[analysis_mask], data["lower_mass_kg"][analysis_mask], "C0")
+    density_contours(ax, speed[finite_upper], data["upper_mass_kg"][finite_upper], "C1")
     ax.set_yscale("log")
     ax.set_xlim(10.0, 80.0)
     ax.set_xlabel(r"Initial fitted speed (km s$^{-1}$)")
     ax.set_ylabel(r"Initial mass $m_0$ (kg)")
     ax.grid(alpha=0.2, which="both", linewidth=0.5)
-    ax.legend(loc="lower right", frameon=False, fontsize=8)
+    ax.legend(
+        handles=(
+            Line2D([0], [0], color="C0", lw=1.3, label="95% lower bound"),
+            Line2D([0], [0], color="C1", lw=1.3, label="Finite 95% upper bound"),
+        ),
+        loc="lower right",
+        frameon=False,
+        fontsize=8,
+    )
     ax.text(
         0.03,
         0.97,
@@ -165,22 +220,29 @@ def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
 
     ax = axes[1]
     valid_lower = data["lower_mass_kg"][analysis_mask]
-    valid_best = data["best_mass_kg"][analysis_mask]
     valid_upper = data["upper_mass_kg"][analysis_mask]
     positive = valid_lower[np.isfinite(valid_lower) & (valid_lower > 0.0)]
-    finite_best = valid_best[np.isfinite(valid_best) & (valid_best > 0.0)]
     finite_upper = valid_upper[np.isfinite(valid_upper) & (valid_upper > 0.0)]
-    limits = np.r_[positive, finite_best, finite_upper]
+    limits = np.r_[positive, finite_upper]
     mass_grid = np.geomspace(np.nanpercentile(limits, 0.2), np.nanpercentile(limits, 99.8), 300)
     lower_survival = survival_curve(valid_lower, mass_grid)
-    best_survival = survival_curve(valid_best, mass_grid)
     upper_survival = survival_curve(valid_upper, mass_grid)
-    ax.fill_between(mass_grid, lower_survival, upper_survival, color="0.75", alpha=0.55, label="95% interval envelope")
-    ax.plot(mass_grid, lower_survival, color="black", lw=1.2, label="Guaranteed above mass")
-    ax.plot(mass_grid, best_survival, color="C1", lw=1.2, label="Best fit")
-    ax.plot(mass_grid, upper_survival, color="0.35", lw=1.0, ls="--", label="Allowed above mass")
+    slope, intercept, fit_indices = fit_survival_slope(mass_grid, lower_survival)
+    ax.plot(mass_grid, lower_survival, color="C0", lw=1.3, label="95% lower bound")
+    ax.plot(mass_grid, upper_survival, color="C1", lw=1.3, label="95% upper bound")
+    if len(fit_indices) > 0:
+        fit_mass = mass_grid[fit_indices]
+        ax.plot(
+            fit_mass,
+            10.0 ** (slope * np.log10(fit_mass) + intercept),
+            color="C0",
+            lw=0.9,
+            ls=":",
+        )
+        add_slope_marker(ax, slope, intercept, fit_mass)
     ax.set_xscale("log")
-    ax.set_ylim(0.0, 1.0)
+    ax.set_yscale("log")
+    ax.set_ylim(1e-3, 1.0)
     ax.set_xlabel(r"Initial mass threshold $m_0$ (kg)")
     ax.set_ylabel("Cumulative fraction above threshold")
     ax.grid(alpha=0.2, which="both", linewidth=0.5)
@@ -189,6 +251,7 @@ def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, bbox_inches="tight", pad_inches=0.03)
     plt.close(fig)
+    return slope
 
 
 def main():
@@ -205,11 +268,16 @@ def main():
         & (data["lower_mass_kg"] > 0.0)
     )
     save_summary(args.output_h5, data, analysis_mask, args)
-    plot_summary(args.output_plot, data, analysis_mask, args.minimum_path_km)
+    slope = plot_summary(args.output_plot, data, analysis_mask, args.minimum_path_km)
+    with h5py.File(args.output_h5, "r+") as handle:
+        handle.attrs["lower_bound_survival_slope"] = slope
+        handle.attrs["slope_fit_survival_fraction_min"] = 0.10
+        handle.attrs["slope_fit_survival_fraction_max"] = 0.50
     print(f"total profiles: {len(analysis_mask)}")
     print(f"analysis profiles: {np.count_nonzero(analysis_mask)}")
     print(f"lower status: {Counter(data['lower_status'])}")
     print(f"upper status: {Counter(data['upper_status'])}")
+    print(f"lower-bound cumulative slope: {slope:.4f}")
     print(f"wrote {args.output_h5}")
     print(f"wrote {args.output_plot}")
 
