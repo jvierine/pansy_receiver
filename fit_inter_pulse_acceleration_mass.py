@@ -159,15 +159,14 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
             np.r_[parameters6, fixed_log_radius], t_s, density
         )
         prediction = physics.predicted_doppler(position, velocity)
-        acceleration_prediction = predicted_radial_acceleration(prediction * 1e3, t_s, phase_data)
-        acceleration_fit_residual = measured_acceleration_principal - acceleration_prediction
-        acceleration_fit_residual -= (
-            np.rint(acceleration_fit_residual / acceleration_ambiguity) * acceleration_ambiguity
+        phase_prediction = predicted_delta_phase(prediction * 1e3, t_s, phase_data)
+        phase_fit_residual = circular_residual(
+            phase_samples["observed_delta_phase_rad"], phase_prediction
         )
         return np.r_[
             ((points[keep] - position[keep]) / sigma_position).ravel(),
             (doppler[keep] - prediction[keep]) / sigma_doppler,
-            acceleration_fit_residual / sigma_acceleration,
+            phase_fit_residual / sigma_phase,
         ]
 
     chi2 = np.full(len(radius_um), np.nan)
@@ -210,6 +209,7 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         np.r_[parameters6[best_index], log_radius_m[best_index]], t_s, density
     )
     best_prediction = physics.predicted_doppler(best_position, best_velocity)
+    best_phase_prediction = predicted_delta_phase(best_prediction * 1e3, t_s, phase_data)
     best_acceleration = predicted_radial_acceleration(best_prediction * 1e3, t_s, phase_data)
     display_acceleration = measured_acceleration_principal + np.rint(
         (best_acceleration - measured_acceleration_principal) / acceleration_ambiguity
@@ -221,7 +221,7 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         handle.attrs["sigma_phase_rad"] = sigma_phase
         handle.attrs["sigma_radial_acceleration_mps2"] = sigma_acceleration
         handle.attrs["n_nonoverlapping_phase_acceleration"] = len(phase_data["samples"])
-        handle.attrs["phase_likelihood"] = "radial acceleration residual wrapped independently for each model at the beat-phase ambiguity period"
+        handle.attrs["phase_likelihood"] = "beat-phase residual wrapped to [-pi, pi) independently for each model"
         profile = handle.create_group("profile")
         profile["radius_um"] = radius_um
         profile["mass_kg"] = radius_um_to_mass_kg(radius_um)
@@ -243,6 +243,7 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         phase["samples"] = phase_data["samples"]
         phase["stored_model_prediction_rad"] = stored_phase_prediction
         phase["stored_model_residual_rad"] = phase_residual
+        phase["best_model_prediction_rad"] = best_phase_prediction
         phase["measured_radial_acceleration_principal_mps2"] = measured_acceleration_principal
         phase["measured_radial_acceleration_display_mps2"] = display_acceleration
         phase["acceleration_ambiguity_period_mps2"] = acceleration_ambiguity
