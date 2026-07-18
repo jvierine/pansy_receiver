@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import itertools
 from pathlib import Path
 
 import h5py
@@ -14,9 +15,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.optimize as opt
+from scipy.sparse.csgraph import minimum_spanning_tree
 
 import fit_best_alias_physics_models as physics
 import pansy_config as pc
+import pansy_interferometry as interferometry
 from run_catalogue_mass_profiles import (
     load_selected_fit,
     log_grid_probability,
@@ -106,6 +109,72 @@ def predicted_radial_acceleration(predicted_doppler_mps: np.ndarray, t_s: np.nda
     return (second_velocity - first_velocity) / (second_t - first_t)
 
 
+def load_nonoverlapping_cross_phase(path: Path) -> dict:
+    with h5py.File(path, "r") as handle:
+        measurement = handle["measurement"]
+        xc = np.asarray(measurement["xc"], dtype=np.complex128)
+        tx_s = np.asarray(measurement["tx_idx"], dtype=float) / 1e6
+        snr = np.asarray(measurement["snr"], dtype=float)
+        range_km = np.asarray(measurement["range_km"], dtype=float)
+    xc /= np.maximum(np.abs(xc), 1e-300)
+    previous = []
+    current = []
+    for prev in range(0, len(tx_s) - 1, 2):
+        cur = prev + 1
+        delta_t = tx_s[cur] - tx_s[prev]
+        if np.isfinite(delta_t) and 0.0 < delta_t <= 0.025:
+            previous.append(prev)
+            current.append(cur)
+    previous = np.asarray(previous, dtype=int)
+    current = np.asarray(current, dtype=int)
+    observed = np.angle(xc[current] * np.conj(xc[previous]))
+    pair_snr = np.minimum(snr[previous], snr[current])
+    weight = np.clip(pair_snr, 0.0, 100.0)
+    good_weight = np.isfinite(weight) & (weight > 0.0)
+    if not np.any(good_weight):
+        weight = np.ones_like(pair_snr)
+    else:
+        weight = np.where(good_weight, weight, np.nanmin(weight[good_weight]))
+    weight /= np.mean(weight)
+    n_channels = int((1.0 + np.sqrt(1.0 + 8.0 * xc.shape[1])) / 2.0)
+    channel_pairs = np.asarray(list(itertools.combinations(range(n_channels), 2)), dtype=int)
+    if len(channel_pairs) != xc.shape[1]:
+        raise RuntimeError(f"cannot infer receiver channels from {xc.shape[1]} cross-products")
+    antenna_position_m = np.asarray(interferometry.get_antpos(), dtype=float)
+    baseline_m = antenna_position_m[channel_pairs[:, 1]] - antenna_position_m[channel_pairs[:, 0]]
+    return {
+        "previous": previous,
+        "current": current,
+        "time_s": 0.5 * (tx_s[previous] + tx_s[current]),
+        "delta_t_s": tx_s[current] - tx_s[previous],
+        "range_km": 0.5 * (range_km[previous] + range_km[current]),
+        "observed_phase_rad": observed,
+        "snr_linear": pair_snr,
+        "weight": weight,
+        "channel_pairs": channel_pairs,
+        "baseline_m": baseline_m,
+    }
+
+
+def predicted_cross_phase(position_km: np.ndarray, cross_data: dict) -> np.ndarray:
+    direction = position_km / np.linalg.norm(position_km, axis=1)[:, None]
+    delta_direction = direction[cross_data["current"]] - direction[cross_data["previous"]]
+    return (2.0 * np.pi / pc.wavelength) * (delta_direction @ cross_data["baseline_m"].T)
+
+
+def independent_baselines(channel_pairs: np.ndarray, sigma_rad: np.ndarray) -> np.ndarray:
+    n_channels = int(np.max(channel_pairs)) + 1
+    graph = np.zeros((n_channels, n_channels), dtype=float)
+    for (left, right), sigma in zip(channel_pairs, sigma_rad):
+        graph[left, right] = graph[right, left] = max(float(sigma), 1e-6)
+    tree = minimum_spanning_tree(graph).toarray()
+    selected = []
+    for index, (left, right) in enumerate(channel_pairs):
+        if tree[left, right] != 0.0 or tree[right, left] != 0.0:
+            selected.append(index)
+    return np.asarray(selected, dtype=int)
+
+
 def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h5: Path, output_png: Path) -> dict:
     observations, stored = load_selected_fit(diagnostics_h5)
     t_s = observations["t_s"]
@@ -149,6 +218,19 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
     sigma_acceleration = float(np.sqrt(np.mean(acceleration_residual**2)))
     if not np.isfinite(sigma_acceleration) or sigma_acceleration <= 0.0:
         raise RuntimeError("invalid radial-acceleration residual RMS")
+    cross_data = load_nonoverlapping_cross_phase(beat_h5)
+    stored_cross_prediction = predicted_cross_phase(stored["model_km"], cross_data)
+    stored_cross_residual = circular_residual(
+        cross_data["observed_phase_rad"], stored_cross_prediction
+    )
+    cross_sigma = np.sqrt(
+        np.sum(cross_data["weight"][:, None] * stored_cross_residual**2, axis=0)
+        / np.sum(cross_data["weight"])
+    )
+    cross_sigma = np.maximum(cross_sigma, 0.10)
+    selected_baselines = independent_baselines(cross_data["channel_pairs"], cross_sigma)
+    if len(selected_baselines) != len(np.asarray(interferometry.get_antpos())) - 1:
+        raise RuntimeError("cross-phase baseline selection did not produce a spanning tree")
     density, _metadata = physics.pbal.density_interpolator(observations["sample_epoch_unix"])
 
     with h5py.File(baseline_h5, "r") as baseline:
@@ -174,10 +256,19 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         phase_fit_residual = circular_residual(
             phase_samples["observed_delta_phase_rad"], phase_prediction
         )
+        cross_prediction = predicted_cross_phase(position, cross_data)
+        cross_fit_residual = circular_residual(
+            cross_data["observed_phase_rad"], cross_prediction
+        )[:, selected_baselines]
         return np.r_[
             ((points[keep] - position[keep]) / sigma_position).ravel(),
             (doppler[keep] - prediction[keep]) / sigma_doppler,
             np.sqrt(phase_weight) * phase_fit_residual / sigma_phase,
+            (
+                np.sqrt(cross_data["weight"][:, None])
+                * cross_fit_residual
+                / cross_sigma[selected_baselines][None, :]
+            ).ravel(),
         ]
 
     chi2 = np.full(len(radius_um), np.nan)
@@ -222,6 +313,31 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
     best_prediction = physics.predicted_doppler(best_position, best_velocity)
     best_phase_prediction = predicted_delta_phase(best_prediction * 1e3, t_s, phase_data)
     best_acceleration = predicted_radial_acceleration(best_prediction * 1e3, t_s, phase_data)
+    best_cross_prediction = predicted_cross_phase(best_position, cross_data)
+    display_cross_phase = cross_data["observed_phase_rad"] + 2.0 * np.pi * np.rint(
+        (best_cross_prediction - cross_data["observed_phase_rad"]) / (2.0 * np.pi)
+    )
+    selected_baseline_m = cross_data["baseline_m"][selected_baselines, :2]
+    cross_design = (2.0 * np.pi / pc.wavelength) * selected_baseline_m
+    cross_design_weighted = cross_design / cross_sigma[selected_baselines, None]
+    measured_horizontal_velocity_km_s = np.full((len(display_cross_phase), 2), np.nan)
+    for row in range(len(display_cross_phase)):
+        delta_direction, *_ = np.linalg.lstsq(
+            cross_design_weighted,
+            display_cross_phase[row, selected_baselines] / cross_sigma[selected_baselines],
+            rcond=None,
+        )
+        measured_horizontal_velocity_km_s[row] = (
+            cross_data["range_km"][row]
+            * delta_direction
+            / cross_data["delta_t_s"][row]
+        )
+    best_direction = best_position / np.linalg.norm(best_position, axis=1)[:, None]
+    best_horizontal_velocity_km_s = (
+        cross_data["range_km"][:, None]
+        * (best_direction[cross_data["current"], :2] - best_direction[cross_data["previous"], :2])
+        / cross_data["delta_t_s"][:, None]
+    )
     display_acceleration = measured_acceleration_principal + np.rint(
         (best_acceleration - measured_acceleration_principal) / acceleration_ambiguity
     ) * acceleration_ambiguity
@@ -231,6 +347,7 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         handle.attrs["sample_idx"] = int(observations["sample_idx"])
         handle.attrs["sigma_phase_rad"] = sigma_phase
         handle.attrs["phase_weighting"] = "linear SNR interpolated to each phase sample, capped at 100 and normalized to unit mean"
+        handle.attrs["cross_phase_likelihood"] = "six independent spanning-tree receiver baselines; modulo-2pi residual with fixed per-baseline RMS and SNR weights"
         handle.attrs["sigma_radial_acceleration_mps2"] = sigma_acceleration
         handle.attrs["n_nonoverlapping_phase_acceleration"] = len(phase_data["samples"])
         handle.attrs["phase_likelihood"] = "beat-phase residual wrapped to [-pi, pi) independently for each model"
@@ -264,6 +381,18 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         phase["best_model_radial_acceleration_mps2"] = best_acceleration
         phase["stored_model_radial_acceleration_mps2"] = stored_acceleration
         phase["stored_model_radial_acceleration_residual_mps2"] = acceleration_residual
+        cross = handle.create_group("cross_phase_velocity")
+        for name in ("previous", "current", "time_s", "delta_t_s", "range_km", "snr_linear", "weight", "channel_pairs", "baseline_m"):
+            cross[name] = cross_data[name]
+        cross["observed_phase_rad"] = cross_data["observed_phase_rad"]
+        cross["stored_model_prediction_rad"] = stored_cross_prediction
+        cross["stored_model_residual_rad"] = stored_cross_residual
+        cross["phase_sigma_rad"] = cross_sigma
+        cross["selected_baseline_indices"] = selected_baselines
+        cross["best_model_prediction_rad"] = best_cross_prediction
+        cross["display_phase_rad"] = display_cross_phase
+        cross["measured_horizontal_velocity_km_s"] = measured_horizontal_velocity_km_s
+        cross["best_model_horizontal_velocity_km_s"] = best_horizontal_velocity_km_s
 
     fig, axes = plt.subplots(1, 2, figsize=(11.0, 4.3), constrained_layout=True)
     ax = axes[0]

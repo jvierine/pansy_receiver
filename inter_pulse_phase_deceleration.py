@@ -73,6 +73,9 @@ def diagnostic_to_raw_pulses(cut: dict, clock: dict, t_rel_s: np.ndarray) -> np.
 def precise_matched_filter_estimates(cut: dict, hyp: dict, snr_threshold: float) -> dict:
     clock = diagnostic_measurement_clock(cut, hyp, snr_threshold)
     raw_idx = diagnostic_to_raw_pulses(cut, clock, hyp["t_rel_s"])
+    absolute_tx = float(np.asarray(clock["tx_idx"])[0]) + np.asarray(hyp["t_rel_s"]) * FS_HZ
+    clock_tx = np.asarray(clock["tx_idx"], dtype=float)
+    clock_idx = np.asarray([np.argmin(np.abs(clock_tx - value)) for value in absolute_tx], dtype=int)
     z_rx = np.asarray(cut["zrx_echoes_re"], np.float32) + 1j * np.asarray(cut["zrx_echoes_im"], np.float32)
     z_tx = np.asarray(cut["ztx_pulses_re"], np.float32) + 1j * np.asarray(cut["ztx_pulses_im"], np.float32)
     z_rx *= amp_scale()[None, :, None]
@@ -156,6 +159,8 @@ def decoded_pulse_responses(
         "range_gate": range_gate,
         "range_km": range_km,
         "coarse_doppler_mps": coarse,
+        "snr": np.asarray(clock["snr"], dtype=float)[clock_idx],
+        "xc": np.asarray(clock["xc"])[clock_idx],
         "response": response,
         "decoded": decoded,
         "derotated": derotated,
@@ -823,7 +828,7 @@ def write_h5(sample_idx: int, result: dict, output: Path) -> None:
             for name, values in result[group_name].items():
                 group.create_dataset(name, data=values)
         measurement = handle.create_group("measurement")
-        for name in ("raw_idx", "tx_idx", "beam_id", "range_gate", "range_km", "coarse_doppler_mps", "response"):
+        for name in ("raw_idx", "tx_idx", "beam_id", "range_gate", "range_km", "coarse_doppler_mps", "snr", "xc", "response"):
             measurement.create_dataset(name, data=result["decoded"][name])
         measurement.create_dataset("trajectory_model_doppler_mps", data=result["model_doppler_mps"])
 

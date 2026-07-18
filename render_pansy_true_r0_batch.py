@@ -540,7 +540,9 @@ def render(row, grid_n=41):
     up_interval = dop_interval = speed_interval = range_interval = None
     fixed_r0_dopplers = {}
     fixed_r0_speeds = {}
+    fixed_r0_positions = {}
     best_profile_doppler = pred
+    best_profile_position = model
     if np.count_nonzero(valid_profile) >= 2:
         rho, _ = phys.pbal.density_interpolator(sample_epoch_unix)
         pos_samples = []
@@ -588,6 +590,7 @@ def render(row, grid_n=41):
             if np.all(np.isfinite(ppred)) and np.all(np.isfinite(pspeed)):
                 fixed_r0_dopplers[target_um] = ppred
                 fixed_r0_speeds[target_um] = pspeed
+                fixed_r0_positions[target_um] = ppos
         valid_idx = np.flatnonzero(valid_profile)
         if len(valid_idx):
             idx = valid_idx[np.argmin(np.abs(np.log(profile_radius_um[valid_idx]) - np.log(free_radius_um)))]
@@ -597,6 +600,7 @@ def render(row, grid_n=41):
                 candidate_doppler = phys.predicted_doppler(ppos, pvel)
                 if np.all(np.isfinite(candidate_doppler)):
                     best_profile_doppler = candidate_doppler
+                    best_profile_position = ppos
             except Exception:
                 pass
     r0_q = weighted_quantile(profile_radius_um, profile_weights, [0.025, 0.975])
@@ -875,7 +879,47 @@ def render(row, grid_n=41):
     ax.set_xlabel("Time (s)"); ax.set_ylabel("Speed (km/s)"); ax.grid(alpha=0.2, lw=0.4)
     if fixed_r0_speeds:
         ax.legend(loc="lower left", fontsize=7, frameon=False)
-    axs[1, 3].axis("off")
+    ax = axs[1, 3]
+    with h5py.File(profile_path, "r") as profile_handle:
+        if "cross_phase_velocity" not in profile_handle:
+            ax.axis("off")
+        else:
+            cross = profile_handle["cross_phase_velocity"]
+            cross_time = np.asarray(cross["time_s"], dtype=float) - fit_origin_abs_s
+            measured_velocity = np.asarray(cross["measured_horizontal_velocity_km_s"], dtype=float)
+            best_velocity = np.asarray(cross["best_model_horizontal_velocity_km_s"], dtype=float)
+            previous = np.asarray(cross["previous"], dtype=int)
+            current = np.asarray(cross["current"], dtype=int)
+            delta_t = np.asarray(cross["delta_t_s"], dtype=float)
+            cross_range = np.asarray(cross["range_km"], dtype=float)
+            order = np.argsort(cross_time)
+            ax.scatter(cross_time, measured_velocity[:, 0], s=6, color="black", marker="o", label="EW measurement")
+            ax.scatter(cross_time, measured_velocity[:, 1], s=7, color="0.45", marker="x", label="NS measurement")
+            ax.plot(cross_time[order], best_velocity[order, 0], color="tab:blue", lw=1.0, label="best fit")
+            ax.plot(cross_time[order], best_velocity[order, 1], color="tab:blue", lw=1.0, ls=":")
+            for target_um, fixed_position in fixed_r0_positions.items():
+                direction = fixed_position / np.linalg.norm(fixed_position, axis=1)[:, None]
+                horizontal_velocity = (
+                    cross_range[:, None]
+                    * (direction[current, :2] - direction[previous, :2])
+                    / delta_t[:, None]
+                )
+                color = fixed_colors.get(target_um, "0.35")
+                ax.plot(
+                    cross_time[order], horizontal_velocity[order, 0], color=color,
+                    lw=0.9, ls="--", label=rf"$r_0={target_um:g}\,\mu$m",
+                )
+                ax.plot(cross_time[order], horizontal_velocity[order, 1], color=color, lw=0.9, ls=":")
+            finite_velocity = measured_velocity[np.isfinite(measured_velocity)]
+            if len(finite_velocity):
+                low, high = np.nanpercentile(finite_velocity, [2, 98])
+                span = max(high - low, 2.0)
+                ax.set_ylim(low - 0.15 * span, high + 0.15 * span)
+            ax.text(0.03, 0.97, "solid/dashed: EW\ndotted: NS", transform=ax.transAxes, ha="left", va="top", fontsize=8)
+            ax.set_xlabel("Time (s)")
+            ax.set_ylabel(r"Cross-phase velocity (km s$^{-1}$)")
+            ax.grid(alpha=0.2, lw=0.4)
+            ax.legend(frameon=False, fontsize=6.0, loc="lower left", ncol=2)
     fig.subplots_adjust(left=0.05, right=0.98, bottom=0.08, top=0.90, wspace=0.32, hspace=0.40)
     PLOTS.mkdir(parents=True, exist_ok=True)
     fig.savefig(out)
