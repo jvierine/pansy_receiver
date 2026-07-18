@@ -50,6 +50,10 @@ def load_nonoverlapping_phase_acceleration(path: Path) -> dict:
         for first, second in zip(indices[:-1], indices[1:]):
             if previous[second] != current[first]:
                 continue
+            if abs(pair["delta_t_s"][first] - 0.008) > 5e-6:
+                continue
+            if abs(pair["delta_t_s"][second] - 0.008) > 5e-6:
+                continue
             if abs(pair["delta_t_s"][second] - pair["delta_t_s"][first]) > 5e-6:
                 continue
             observed_delta_phase = float(np.angle(beat[second] * np.conj(beat[first])))
@@ -115,16 +119,20 @@ def load_nonoverlapping_cross_phase(path: Path) -> dict:
         xc_name = "xc_calibrated" if "xc_calibrated" in measurement else "xc"
         xc = np.asarray(measurement[xc_name], dtype=np.complex128)
         tx_s = np.asarray(measurement["tx_idx"], dtype=float) / 1e6
+        beam_id = np.asarray(measurement["beam_id"], dtype=int)
         snr = np.asarray(measurement["snr"], dtype=float)
         range_km = np.asarray(measurement["range_km"], dtype=float)
     xc /= np.maximum(np.abs(xc), 1e-300)
-    pulse_lag = 10
     previous = []
     current = []
-    for prev in range(0, len(tx_s) - pulse_lag, pulse_lag + 1):
-        cur = prev + pulse_lag
-        delta_t = tx_s[cur] - tx_s[prev]
-        if np.isfinite(delta_t) and 0.0 < delta_t <= 0.10:
+    for beam in np.unique(beam_id):
+        indices = np.flatnonzero(beam_id == beam)
+        candidates = []
+        for prev, cur in zip(indices[:-1], indices[1:]):
+            delta_t = tx_s[cur] - tx_s[prev]
+            if np.isfinite(delta_t) and abs(delta_t - 0.008) <= 5e-6:
+                candidates.append((prev, cur))
+        for prev, cur in candidates[::2]:
             previous.append(prev)
             current.append(cur)
     previous = np.asarray(previous, dtype=int)
@@ -155,7 +163,7 @@ def load_nonoverlapping_cross_phase(path: Path) -> dict:
         "weight": weight,
         "channel_pairs": channel_pairs,
         "baseline_m": baseline_m,
-        "pulse_lag": pulse_lag,
+        "beam_id": beam_id[current],
     }
 
 
@@ -350,7 +358,7 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         handle.attrs["sample_idx"] = int(observations["sample_idx"])
         handle.attrs["sigma_phase_rad"] = sigma_phase
         handle.attrs["phase_weighting"] = "linear SNR interpolated to each phase sample, capped at 100 and normalized to unit mean"
-        handle.attrs["cross_phase_likelihood"] = "six independent spanning-tree receiver baselines; non-overlapping 10-measurement lag; modulo-2pi residual with fixed per-baseline RMS and SNR weights"
+        handle.attrs["cross_phase_likelihood"] = "same-transmit-beam 8-ms non-overlapping echo pairs; six independent spanning-tree receiver baselines; modulo-2pi residual with fixed per-baseline RMS and SNR weights"
         handle.attrs["sigma_radial_acceleration_mps2"] = sigma_acceleration
         handle.attrs["n_nonoverlapping_phase_acceleration"] = len(phase_data["samples"])
         handle.attrs["phase_likelihood"] = "beat-phase residual wrapped to [-pi, pi) independently for each model"
@@ -385,7 +393,7 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         phase["stored_model_radial_acceleration_mps2"] = stored_acceleration
         phase["stored_model_radial_acceleration_residual_mps2"] = acceleration_residual
         cross = handle.create_group("cross_phase_velocity")
-        for name in ("previous", "current", "time_s", "delta_t_s", "range_km", "snr_linear", "weight", "channel_pairs", "baseline_m"):
+        for name in ("previous", "current", "time_s", "delta_t_s", "range_km", "snr_linear", "weight", "channel_pairs", "baseline_m", "beam_id"):
             cross[name] = cross_data[name]
         cross["observed_phase_rad"] = cross_data["observed_phase_rad"]
         cross["stored_model_prediction_rad"] = stored_cross_prediction
@@ -396,7 +404,7 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         cross["display_phase_rad"] = display_cross_phase
         cross["measured_horizontal_velocity_km_s"] = measured_horizontal_velocity_km_s
         cross["best_model_horizontal_velocity_km_s"] = best_horizontal_velocity_km_s
-        cross.attrs["pulse_lag"] = int(cross_data["pulse_lag"])
+        cross.attrs["pairing"] = "same transmit beam, 8 ms, non-overlapping"
 
     fig, axes = plt.subplots(1, 2, figsize=(11.0, 4.3), constrained_layout=True)
     ax = axes[0]
