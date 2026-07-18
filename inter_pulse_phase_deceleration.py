@@ -406,6 +406,79 @@ def normalized(values: np.ndarray) -> np.ndarray:
     return values / scale if np.isfinite(scale) and scale > 0 else values
 
 
+def envelope_segments(weight: np.ndarray, threshold: float = 0.05) -> list[np.ndarray]:
+    normalized_weight = np.asarray(weight, dtype=float) / max(float(np.nanmax(weight)), 1e-30)
+    indices = np.flatnonzero(normalized_weight > threshold)
+    if len(indices) == 0:
+        return []
+    breaks = np.flatnonzero(np.diff(indices) > 1) + 1
+    return [segment for segment in np.split(indices, breaks) if len(segment) >= 2]
+
+
+def weighted_baud_values(values: np.ndarray, weight: np.ndarray, segments: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+    centers = []
+    averages = []
+    for segment in segments:
+        baud_weight = np.asarray(weight[segment], dtype=float)
+        denominator = np.sum(baud_weight)
+        if not np.isfinite(denominator) or denominator <= 0.0:
+            continue
+        centers.append(float(np.sum(segment * baud_weight) / denominator))
+        averages.append(np.sum(baud_weight * values[segment]) / denominator)
+    return np.asarray(centers), np.asarray(averages)
+
+
+def plot_baud_averages(sample_idx: int, result: dict, output: Path) -> None:
+    """Show one SNR-weighted complex value and phase for each transmit baud."""
+    decoded = result["decoded"]
+    prev, cur = best_stage_pair(result)
+    channel_cross = decoded["response"][cur] * np.conj(decoded["response"][prev])
+    channel = int(np.nanargmax(np.abs(channel_cross)))
+    raw_prev = int(decoded["raw_idx"][prev])
+    raw_cur = int(decoded["raw_idx"][cur])
+    first = decoded["decoded"][prev, channel].astype(np.complex128)
+    second = decoded["decoded"][cur, channel].astype(np.complex128)
+    product = second * np.conj(first)
+    weight_first = np.abs(decoded["z_tx"][raw_prev]) ** 2
+    weight_second = np.abs(decoded["z_tx"][raw_cur]) ** 2
+    joint_weight = weight_first * weight_second
+    segments = envelope_segments(joint_weight)
+    rows = []
+    for values, weight, label in (
+        (first, weight_first, r"$d_n$"),
+        (second, weight_second, r"$d_{n+1}$"),
+        (product, joint_weight, r"$q_n=d_{n+1}d_n^*$"),
+    ):
+        center, average = weighted_baud_values(values, weight, segments)
+        rows.append((center, average, label))
+
+    fig, axes = plt.subplots(3, 1, figsize=(9.0, 8.4), sharex=True, constrained_layout=True)
+    for ax, (center, average, label) in zip(axes, rows):
+        scaled = normalized(average)
+        ax.plot(center, scaled.real, "o-", ms=5, lw=1.0, color="C0", label="real")
+        ax.plot(center, scaled.imag, "o-", ms=5, lw=1.0, color="C1", label="imaginary")
+        ax.set_ylabel(label + "\nnormalized complex value")
+        ax.grid(alpha=0.2, lw=0.5)
+        ax.legend(frameon=False, loc="upper left", ncol=2)
+        phase_ax = ax.twinx()
+        phase = np.unwrap(np.angle(average))
+        phase_ax.plot(center, phase, "o-", ms=4, lw=1.0, color="C3", label="phase")
+        phase_ax.set_ylabel("Phase (rad)", color="C3")
+        phase_ax.tick_params(axis="y", colors="C3")
+        phase_ax.legend(frameon=False, loc="upper right")
+    axes[-1].set_xlabel("SNR-weighted baud center (fast-time sample)")
+    beam = int(decoded["beam_id"][cur])
+    delta_t_ms = (decoded["tx_idx"][cur] - decoded["tx_idx"][prev]) / 1e3
+    timestamp = dt.datetime.fromtimestamp(sample_idx / 1e6, tz=dt.timezone.utc).isoformat(timespec="milliseconds")
+    fig.suptitle(
+        f"SNR-weighted decoded baud values, {timestamp}; channel {channel}, beam {beam}, "
+        f"pulse separation {delta_t_ms:.1f} ms"
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output, dpi=190)
+    plt.close(fig)
+
+
 def plot_decoded_waveforms(sample_idx: int, result: dict, output: Path) -> None:
     """Plot the two decoded echoes and their direct sample-wise product."""
     decoded = result["decoded"]
@@ -611,6 +684,7 @@ def main() -> int:
         stem = f"inter_pulse_phase_{sample_idx}"
         plot_event(sample_idx, result, args.output_dir / f"{stem}.png")
         plot_decoded_waveforms(sample_idx, result, args.output_dir / f"{stem}_waveforms.png")
+        plot_baud_averages(sample_idx, result, args.output_dir / f"{stem}_baud_averages.png")
         write_h5(sample_idx, result, args.output_dir / f"{stem}.h5")
         print(
             sample_idx,
