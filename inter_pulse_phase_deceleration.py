@@ -258,6 +258,96 @@ def decoded_waveform_pairs(decoded: dict, same_beam: bool, search_hz: float = 20
     return {name: np.asarray(values) for name, values in zip(names, zip(*rows))}
 
 
+def baud_averaged_beat_pairs(decoded: dict, same_beam: bool = True) -> dict:
+    """Average the nearly constant decoded beat phasor and recover pair Doppler."""
+    tx_s = decoded["tx_idx"] / FS_HZ
+    beam = decoded["beam_id"]
+    wave = decoded["decoded"].astype(np.complex128)
+    raw_idx = decoded["raw_idx"]
+    coarse = decoded["coarse_doppler_mps"]
+    previous_by_beam: dict[int, int] = {}
+    rows = []
+    for cur in range(len(tx_s)):
+        if same_beam:
+            prev = previous_by_beam.get(int(beam[cur]))
+            previous_by_beam[int(beam[cur])] = cur
+        else:
+            prev = cur - 1 if cur else None
+        if prev is None:
+            continue
+        delta_t = tx_s[cur] - tx_s[prev]
+        if not np.isfinite(delta_t) or delta_t <= 0.0 or delta_t > 0.025:
+            continue
+        channel_product = wave[cur] * np.conj(wave[prev])
+        finite = np.isfinite(channel_product.real) & np.isfinite(channel_product.imag)
+        product = np.sum(np.where(finite, channel_product, 0.0j), axis=0)
+        tx_prev = decoded["z_tx"][int(raw_idx[prev])]
+        tx_cur = decoded["z_tx"][int(raw_idx[cur])]
+        joint_weight = np.abs(tx_prev) ** 2 * np.abs(tx_cur) ** 2
+        segments = envelope_segments(joint_weight)
+        _centers, baud_values = weighted_baud_values(product, joint_weight, segments)
+        baud_weight = np.asarray([np.sum(joint_weight[segment]) for segment in segments], dtype=float)
+        good = np.isfinite(baud_values.real) & np.isfinite(baud_values.imag) & (baud_weight > 0.0)
+        if np.count_nonzero(good) < 4:
+            continue
+        baud_values = baud_values[good]
+        baud_weight = baud_weight[good]
+        baud_weight /= np.nanmax(baud_weight)
+        beat = np.sum(baud_weight * baud_values) / np.sum(baud_weight)
+        if not np.isfinite(beat.real) or not np.isfinite(beat.imag) or abs(beat) == 0.0:
+            continue
+        phase = float(np.angle(beat))
+        phase_residual = np.angle(baud_values * np.exp(-1j * phase))
+        phase_rms = float(np.sqrt(np.sum(baud_weight * phase_residual**2) / np.sum(baud_weight)))
+        effective_n = float(np.sum(baud_weight) ** 2 / np.sum(baud_weight**2))
+        phase_std = phase_rms / np.sqrt(max(effective_n, 1.0))
+        coherence = float(abs(np.sum(baud_weight * baud_values)) / np.sum(baud_weight * np.abs(baud_values)))
+        wrapped_velocity = phase * pc.wavelength / (4.0 * np.pi * delta_t)
+        ambiguity = pc.wavelength / (2.0 * delta_t)
+        coarse_pair = float(0.5 * (coarse[prev] + coarse[cur]))
+        velocity = wrapped_velocity + np.rint((coarse_pair - wrapped_velocity) / ambiguity) * ambiguity
+        velocity_std = phase_std * pc.wavelength / (4.0 * np.pi * delta_t)
+        rows.append(
+            (
+                prev,
+                cur,
+                0.5 * (tx_s[prev] + tx_s[cur]),
+                delta_t,
+                int(beam[cur]),
+                beat.real,
+                beat.imag,
+                phase,
+                phase_std,
+                coherence,
+                effective_n,
+                ambiguity,
+                coarse_pair,
+                velocity,
+                velocity_std,
+            )
+        )
+    names = (
+        "previous_index",
+        "current_index",
+        "time_s",
+        "delta_t_s",
+        "beam_id",
+        "beat_real",
+        "beat_imag",
+        "beat_phase_rad",
+        "beat_phase_std_rad",
+        "coherence",
+        "effective_bauds",
+        "ambiguity_mps",
+        "coarse_doppler_mps",
+        "phase_doppler_mps",
+        "phase_doppler_std_mps",
+    )
+    if not rows:
+        return {name: np.asarray([]) for name in names}
+    return {name: np.asarray(values) for name, values in zip(names, zip(*rows))}
+
+
 def pair_responses(decoded: dict, same_beam: bool) -> dict:
     """Cross-multiply consecutive decoded responses and recover Doppler branch."""
     tx_s = decoded["tx_idx"] / FS_HZ
@@ -373,6 +463,7 @@ def analyze_event(cut: dict, hyp: dict, snr_threshold: float) -> dict:
     adjacent = pair_responses(decoded, same_beam=False)
     waveform_same = decoded_waveform_pairs(decoded, same_beam=True)
     waveform_adjacent = decoded_waveform_pairs(decoded, same_beam=False)
+    beat_pairs = baud_averaged_beat_pairs(decoded, same_beam=True)
     if len(same["time_s"]) < 5:
         raise RuntimeError("too few same-beam decoded pulse pairs")
     weight = same["pair_amplitude"] * np.maximum(same["channel_coherence"], 1e-3) ** 2
@@ -381,12 +472,18 @@ def analyze_event(cut: dict, hyp: dict, snr_threshold: float) -> dict:
     model_doppler = physics.predicted_doppler(hyp["physics_model"], hyp["physics_velocity"]) * 1e3
     model_at_pair = np.interp(same["time_s"], t_obs_s, model_doppler)
     model_fit = robust_line(same["time_s"], model_at_pair, np.ones(len(model_at_pair)))
+    beat_weight = beat_pairs["coherence"] / np.maximum(beat_pairs["phase_doppler_std_mps"], 1.0) ** 2
+    beat_fit = robust_line(beat_pairs["time_s"], beat_pairs["phase_doppler_mps"], beat_weight)
+    beat_model = np.interp(beat_pairs["time_s"], t_obs_s, model_doppler)
     return {
         "decoded": decoded,
         "same_beam_pairs": same,
         "adjacent_pairs": adjacent,
         "waveform_same_beam_pairs": waveform_same,
         "waveform_adjacent_pairs": waveform_adjacent,
+        "baud_averaged_beat_pairs": beat_pairs,
+        "baud_beat_fit": beat_fit,
+        "baud_beat_model_doppler_mps": beat_model,
         "fit": fit,
         "model_doppler_mps": model_doppler,
         "model_at_pair_mps": model_at_pair,
@@ -475,6 +572,70 @@ def plot_baud_averages(sample_idx: int, result: dict, output: Path) -> None:
         f"SNR-weighted decoded baud values, {timestamp}; channel {channel}, beam {beam}, "
         f"pulse separation {delta_t_ms:.1f} ms"
     )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output, dpi=190)
+    plt.close(fig)
+
+
+def plot_baud_beat_deceleration(sample_idx: int, result: dict, output: Path) -> None:
+    pairs = result["baud_averaged_beat_pairs"]
+    fit = result["baud_beat_fit"]
+    zero = float(result["decoded"]["tx_idx"][0]) / FS_HZ
+    time_s = pairs["time_s"] - zero
+    keep = np.asarray(fit["keep"], dtype=bool)
+    fig, axes = plt.subplots(3, 1, figsize=(9.0, 8.5), sharex=True, constrained_layout=True)
+    ax = axes[0]
+    scatter = ax.scatter(time_s, pairs["beat_phase_rad"], c=pairs["coherence"], s=14, cmap="viridis")
+    ax.errorbar(time_s, pairs["beat_phase_rad"], yerr=pairs["beat_phase_std_rad"], fmt="none", ecolor="0.75", lw=0.5)
+    ax.set_ylabel(r"$\arg Q_n$ (rad)")
+    ax.set_ylim(-np.pi, np.pi)
+    fig.colorbar(scatter, ax=ax, label="Baud coherence")
+
+    ax = axes[1]
+    ax.errorbar(
+        time_s,
+        pairs["phase_doppler_mps"] / 1e3,
+        yerr=pairs["phase_doppler_std_mps"] / 1e3,
+        fmt=".",
+        ms=3,
+        color="black",
+        ecolor="0.8",
+        label="SNR-weighted beat phase",
+    )
+    ax.plot(time_s, result["baud_beat_model_doppler_mps"] / 1e3, color="C0", lw=1.1, label="trajectory model")
+    ax.plot(time_s[keep], fit["model_mps"][keep] / 1e3, color="C3", lw=1.2, label="robust linear fit")
+    ax.set_ylabel("Radial velocity (km/s)")
+    ax.legend(frameon=False)
+
+    ax = axes[2]
+    residual = pairs["phase_doppler_mps"] - result["baud_beat_model_doppler_mps"]
+    ax.errorbar(
+        time_s,
+        residual,
+        yerr=pairs["phase_doppler_std_mps"],
+        fmt=".",
+        ms=3,
+        color="black",
+        ecolor="0.8",
+    )
+    ax.axhline(0.0, color="C0", lw=1.0)
+    ax.set_ylabel("Velocity residual (m/s)")
+    ax.set_xlabel("Time (s)")
+    ax.text(
+        0.02,
+        0.96,
+        rf"phase acceleration {fit['acceleration_mps2']:.0f} m s$^{{-2}}$"
+        + "\n"
+        + rf"model {result['model_fit']['acceleration_mps2']:.0f} m s$^{{-2}}$"
+        + "\n"
+        + rf"velocity RMS {fit['rms_mps']:.0f} m s$^{{-1}}$",
+        transform=ax.transAxes,
+        va="top",
+    )
+    for ax in axes:
+        ax.grid(alpha=0.2, lw=0.5)
+    timestamp = dt.datetime.fromtimestamp(sample_idx / 1e6, tz=dt.timezone.utc).isoformat(timespec="milliseconds")
+    fig.suptitle(f"Deceleration from SNR-weighted mean decoded beat phasor: {timestamp}")
     output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output, dpi=190)
     plt.close(fig)
@@ -655,6 +816,7 @@ def write_h5(sample_idx: int, result: dict, output: Path) -> None:
             "adjacent_pairs",
             "waveform_same_beam_pairs",
             "waveform_adjacent_pairs",
+            "baud_averaged_beat_pairs",
         ):
             group = handle.create_group(group_name)
             for name, values in result[group_name].items():
@@ -686,6 +848,7 @@ def main() -> int:
         plot_event(sample_idx, result, args.output_dir / f"{stem}.png")
         plot_decoded_waveforms(sample_idx, result, args.output_dir / f"{stem}_waveforms.png")
         plot_baud_averages(sample_idx, result, args.output_dir / f"{stem}_baud_averages.png")
+        plot_baud_beat_deceleration(sample_idx, result, args.output_dir / f"{stem}_baud_beat_deceleration.png")
         write_h5(sample_idx, result, args.output_dir / f"{stem}.h5")
         print(
             sample_idx,
@@ -696,6 +859,8 @@ def main() -> int:
             f"waveform_pairs={len(result['waveform_same_beam_pairs']['time_s'])}",
             f"median_waveform_acceleration_mps2={np.nanmedian(result['waveform_same_beam_pairs']['acceleration_mps2']):.6g}",
             f"median_waveform_acceleration_std_mps2={np.nanmedian(result['waveform_same_beam_pairs']['acceleration_std_mps2']):.6g}",
+            f"baud_beat_acceleration_mps2={result['baud_beat_fit']['acceleration_mps2']:.6g}",
+            f"baud_beat_velocity_rms_mps={result['baud_beat_fit']['rms_mps']:.6g}",
             flush=True,
         )
     return 0
