@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import itertools
 from pathlib import Path
 
 import h5py
@@ -16,6 +17,7 @@ import numpy as np
 
 import fit_best_alias_physics_models as physics
 import pansy_config as pc
+import pansy_interferometry as interferometry
 from interferometer_alias_diagnostics import amp_scale, load_cut, recompute_cut_observables
 from plot_interferometric_disambiguation import split_observations_by_range_time, subset_pulse_observations
 from range_interpolation_study import DRG_KM, PowerOnlyRangeDopplerSearch, quadratic_peak_2d
@@ -115,12 +117,24 @@ def decoded_pulse_responses(
     absolute_tx = float(np.asarray(clock["tx_idx"])[0]) + np.asarray(hyp["t_rel_s"]) * FS_HZ
     clock_tx = np.asarray(clock["tx_idx"], dtype=float)
     clock_idx = np.asarray([np.argmin(np.abs(clock_tx - value)) for value in absolute_tx], dtype=int)
+    xc = np.asarray(clock["xc"])[clock_idx]
+    clock_beam = np.asarray(clock["beam_id"], dtype=int)[clock_idx]
     z_rx = np.asarray(cut["zrx_echoes_re"], np.float32) + 1j * np.asarray(
         cut["zrx_echoes_im"], np.float32
     )
     z_tx = np.asarray(cut["ztx_pulses_re"], np.float32) + 1j * np.asarray(
         cut["ztx_pulses_im"], np.float32
     )
+    channel_pairs = np.asarray(list(itertools.combinations(range(z_rx.shape[1]), 2)), dtype=int)
+    phasecal = np.asarray(interferometry.get_phasecal(), dtype=float)
+    calibration = np.exp(
+        1j
+        * (
+            phasecal[clock_beam[:, None], channel_pairs[None, :, 0]]
+            - phasecal[clock_beam[:, None], channel_pairs[None, :, 1]]
+        )
+    )
+    xc_calibrated = xc * calibration
     z_rx *= amp_scale()[None, :, None]
     delays = np.asarray(cut["delays"], dtype=np.float64)
     tx_idx = np.asarray(cut["tx_idx"], dtype=np.float64)
@@ -160,7 +174,8 @@ def decoded_pulse_responses(
         "range_km": range_km,
         "coarse_doppler_mps": coarse,
         "snr": np.asarray(clock["snr"], dtype=float)[clock_idx],
-        "xc": np.asarray(clock["xc"])[clock_idx],
+        "xc": xc,
+        "xc_calibrated": xc_calibrated,
         "response": response,
         "decoded": decoded,
         "derotated": derotated,
@@ -828,7 +843,7 @@ def write_h5(sample_idx: int, result: dict, output: Path) -> None:
             for name, values in result[group_name].items():
                 group.create_dataset(name, data=values)
         measurement = handle.create_group("measurement")
-        for name in ("raw_idx", "tx_idx", "beam_id", "range_gate", "range_km", "coarse_doppler_mps", "snr", "xc", "response"):
+        for name in ("raw_idx", "tx_idx", "beam_id", "range_gate", "range_km", "coarse_doppler_mps", "snr", "xc", "xc_calibrated", "response"):
             measurement.create_dataset(name, data=result["decoded"][name])
         measurement.create_dataset("trajectory_model_doppler_mps", data=result["model_doppler_mps"])
 

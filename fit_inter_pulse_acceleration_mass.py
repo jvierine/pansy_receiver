@@ -112,7 +112,8 @@ def predicted_radial_acceleration(predicted_doppler_mps: np.ndarray, t_s: np.nda
 def load_nonoverlapping_cross_phase(path: Path) -> dict:
     with h5py.File(path, "r") as handle:
         measurement = handle["measurement"]
-        xc = np.asarray(measurement["xc"], dtype=np.complex128)
+        xc_name = "xc_calibrated" if "xc_calibrated" in measurement else "xc"
+        xc = np.asarray(measurement[xc_name], dtype=np.complex128)
         tx_s = np.asarray(measurement["tx_idx"], dtype=float) / 1e6
         snr = np.asarray(measurement["snr"], dtype=float)
         range_km = np.asarray(measurement["range_km"], dtype=float)
