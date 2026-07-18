@@ -117,12 +117,13 @@ def load_nonoverlapping_cross_phase(path: Path) -> dict:
         snr = np.asarray(measurement["snr"], dtype=float)
         range_km = np.asarray(measurement["range_km"], dtype=float)
     xc /= np.maximum(np.abs(xc), 1e-300)
+    pulse_lag = 10
     previous = []
     current = []
-    for prev in range(0, len(tx_s) - 1, 2):
-        cur = prev + 1
+    for prev in range(0, len(tx_s) - pulse_lag, pulse_lag + 1):
+        cur = prev + pulse_lag
         delta_t = tx_s[cur] - tx_s[prev]
-        if np.isfinite(delta_t) and 0.0 < delta_t <= 0.025:
+        if np.isfinite(delta_t) and 0.0 < delta_t <= 0.10:
             previous.append(prev)
             current.append(cur)
     previous = np.asarray(previous, dtype=int)
@@ -153,6 +154,7 @@ def load_nonoverlapping_cross_phase(path: Path) -> dict:
         "weight": weight,
         "channel_pairs": channel_pairs,
         "baseline_m": baseline_m,
+        "pulse_lag": pulse_lag,
     }
 
 
@@ -347,7 +349,7 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         handle.attrs["sample_idx"] = int(observations["sample_idx"])
         handle.attrs["sigma_phase_rad"] = sigma_phase
         handle.attrs["phase_weighting"] = "linear SNR interpolated to each phase sample, capped at 100 and normalized to unit mean"
-        handle.attrs["cross_phase_likelihood"] = "six independent spanning-tree receiver baselines; modulo-2pi residual with fixed per-baseline RMS and SNR weights"
+        handle.attrs["cross_phase_likelihood"] = "six independent spanning-tree receiver baselines; non-overlapping 10-measurement lag; modulo-2pi residual with fixed per-baseline RMS and SNR weights"
         handle.attrs["sigma_radial_acceleration_mps2"] = sigma_acceleration
         handle.attrs["n_nonoverlapping_phase_acceleration"] = len(phase_data["samples"])
         handle.attrs["phase_likelihood"] = "beat-phase residual wrapped to [-pi, pi) independently for each model"
@@ -393,6 +395,7 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         cross["display_phase_rad"] = display_cross_phase
         cross["measured_horizontal_velocity_km_s"] = measured_horizontal_velocity_km_s
         cross["best_model_horizontal_velocity_km_s"] = best_horizontal_velocity_km_s
+        cross.attrs["pulse_lag"] = int(cross_data["pulse_lag"])
 
     fig, axes = plt.subplots(1, 2, figsize=(11.0, 4.3), constrained_layout=True)
     ax = axes[0]
