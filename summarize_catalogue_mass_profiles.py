@@ -11,6 +11,7 @@ import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.lines import Line2D
+from matplotlib.ticker import MaxNLocator
 from scipy.ndimage import gaussian_filter
 
 
@@ -207,17 +208,49 @@ def save_summary(path: Path, data, analysis_mask, args):
 
 def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
     speed = data["initial_speed_km_s"]
+    mass_limits = (1e-12, 1e-5)
 
-    fig, ax = plt.subplots(figsize=(6.4, 4.8), dpi=150)
+    fig = plt.figure(figsize=(7.4, 4.8), dpi=150)
+    grid = fig.add_gridspec(1, 2, width_ratios=(4.6, 1.25), wspace=0.04)
+    ax = fig.add_subplot(grid[0, 0])
+    ax_mass = fig.add_subplot(grid[0, 1], sharey=ax)
     finite_upper = analysis_mask & np.isfinite(data["upper_mass_kg"])
     density_contours(ax, speed[analysis_mask], data["lower_mass_kg"][analysis_mask], "C0")
     density_contours(ax, speed[finite_upper], data["upper_mass_kg"][finite_upper], "C1")
     ax.set_yscale("log")
+    ax.set_ylim(*mass_limits)
     ax.set_xlim(10.0, 80.0)
     ax.set_xlabel(r"Initial fitted speed (km s$^{-1}$)")
     ax.set_ylabel(r"Initial mass $m_0$ (kg)")
     ax.grid(alpha=0.2, which="both", linewidth=0.5)
-    radius_axis = ax.secondary_yaxis("right", functions=(mass_kg_to_radius_um, radius_um_to_mass_kg))
+
+    mass_bins = np.logspace(np.log10(mass_limits[0]), np.log10(mass_limits[1]), 43)
+    ax_mass.hist(
+        data["lower_mass_kg"][analysis_mask],
+        bins=mass_bins,
+        orientation="horizontal",
+        histtype="step",
+        color="C0",
+        linewidth=1.3,
+    )
+    ax_mass.hist(
+        data["upper_mass_kg"][finite_upper],
+        bins=mass_bins,
+        orientation="horizontal",
+        histtype="step",
+        color="C1",
+        linewidth=1.3,
+    )
+    ax_mass.set_yscale("log")
+    ax_mass.set_ylim(*mass_limits)
+    ax_mass.set_xlim(left=0.0)
+    ax_mass.xaxis.set_major_locator(MaxNLocator(nbins=3, integer=True, prune="lower"))
+    ax_mass.set_xlabel("Count")
+    ax_mass.tick_params(axis="y", which="both", left=False, labelleft=False)
+    ax_mass.grid(alpha=0.2, which="both", linewidth=0.5)
+    radius_axis = ax_mass.secondary_yaxis(
+        "right", functions=(mass_kg_to_radius_um, radius_um_to_mass_kg)
+    )
     radius_axis.set_yscale("log")
     radius_axis.set_ylabel(r"Initial radius $r_0$ ($\mu$m)")
     ax.legend(
@@ -238,7 +271,7 @@ def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
         va="top",
         fontsize=8,
     )
-    fig.subplots_adjust(left=0.14, right=0.86, bottom=0.14, top=0.98)
+    fig.subplots_adjust(left=0.12, right=0.89, bottom=0.14, top=0.98)
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, bbox_inches="tight", pad_inches=0.03)
     plt.close(fig)
