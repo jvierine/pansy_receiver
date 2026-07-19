@@ -186,7 +186,7 @@ def independent_baselines(channel_pairs: np.ndarray, sigma_rad: np.ndarray) -> n
     return np.asarray(selected, dtype=int)
 
 
-def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h5: Path, output_png: Path) -> dict:
+def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h5: Path, output_png: Path | None) -> dict:
     observations, stored = load_selected_fit(diagnostics_h5)
     t_s = observations["t_s"]
     points = observations["points_km"]
@@ -406,6 +406,20 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         cross["best_model_horizontal_velocity_km_s"] = best_horizontal_velocity_km_s
         cross.attrs["pairing"] = "same transmit beam, 16 ms, non-overlapping"
 
+    summary = {
+        "sample_idx": int(observations["sample_idx"]),
+        "baseline_best_radius_um": baseline_best,
+        "baseline_interval_um": baseline_interval,
+        "new_best_radius_um": best_radius,
+        "new_interval_um": (lower, upper),
+        "new_quantiles_um": quantiles,
+        "sigma_phase_rad": sigma_phase,
+        "sigma_acceleration_mps2": sigma_acceleration,
+        "n_phase": len(phase_data["samples"]),
+    }
+    if output_png is None:
+        return summary
+
     fig, axes = plt.subplots(1, 2, figsize=(11.0, 4.3), constrained_layout=True)
     ax = axes[0]
     ax.plot(radius_um, baseline_delta, color="0.5", lw=1.2, label="position + Doppler")
@@ -439,17 +453,7 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
     )
     fig.savefig(output_png, dpi=190)
     plt.close(fig)
-    return {
-        "sample_idx": int(observations["sample_idx"]),
-        "baseline_best_radius_um": baseline_best,
-        "baseline_interval_um": baseline_interval,
-        "new_best_radius_um": best_radius,
-        "new_interval_um": (lower, upper),
-        "new_quantiles_um": quantiles,
-        "sigma_phase_rad": sigma_phase,
-        "sigma_acceleration_mps2": sigma_acceleration,
-        "n_phase": len(phase_data["samples"]),
-    }
+    return summary
 
 
 def main() -> int:

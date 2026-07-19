@@ -512,6 +512,37 @@ def analyze_event(cut: dict, hyp: dict, snr_threshold: float, precise: dict | No
     }
 
 
+def analyze_fit_observables(cut: dict, hyp: dict, snr_threshold: float) -> dict:
+    """Compute only the decoded observables consumed by the profile likelihood."""
+    precise = precise_matched_filter_estimates(cut, hyp, snr_threshold)
+    decoded = decoded_pulse_responses(
+        cut,
+        hyp,
+        snr_threshold,
+        precise_range_km=precise["range_km"],
+        precise_doppler_mps=precise["doppler_mps"],
+    )
+    beat_pairs = baud_averaged_beat_pairs(decoded, same_beam=True)
+    if len(beat_pairs["time_s"]) < 5:
+        raise RuntimeError("too few same-beam decoded beat-phase pairs")
+    return {"decoded": decoded, "baud_averaged_beat_pairs": beat_pairs}
+
+
+def write_fit_observables_h5(sample_idx: int, result: dict, output: Path) -> None:
+    """Store the compact intermediate needed by the phase-aware mass fit."""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with h5py.File(output, "w") as handle:
+        handle.attrs["sample_idx"] = int(sample_idx)
+        handle.attrs["schema"] = "pansy.inter_pulse_fit_observables.v1"
+        beat_group = handle.create_group("baud_averaged_beat_pairs")
+        for name, values in result["baud_averaged_beat_pairs"].items():
+            beat_group.create_dataset(name, data=values)
+        measurement = handle.create_group("measurement")
+        decoded = result["decoded"]
+        for name in ("tx_idx", "beam_id", "range_km", "snr", "xc_calibrated"):
+            measurement.create_dataset(name, data=decoded[name])
+
+
 def best_stage_pair(result: dict) -> tuple[int, int]:
     pairs = result["waveform_same_beam_pairs"]
     score = pairs["coherence"] / np.maximum(pairs["delta_frequency_std_hz"], 1e-12)
