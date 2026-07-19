@@ -14,6 +14,15 @@ workers=$5
 repo=$(cd "$(dirname "$0")" && pwd)
 python_bin=${PANSY_PROFILE_PYTHON:-python3}
 
+# Each event is already parallelized across independent worker processes.
+# Prevent FFT/BLAS libraries from multiplying every worker into many threads.
+numerical_threads=${PANSY_NUMERICAL_THREADS:-1}
+export OMP_NUM_THREADS=$numerical_threads
+export OPENBLAS_NUM_THREADS=$numerical_threads
+export MKL_NUM_THREADS=$numerical_threads
+export NUMEXPR_NUM_THREADS=$numerical_threads
+export VECLIB_MAXIMUM_THREADS=$numerical_threads
+
 mkdir -p "$output_dir/process_logs" "$output_dir/worker_logs" "$output_dir/profiles" "$output_dir/scratch"
 
 export repo python_bin manifest base baseline_profile_dir output_dir workers
