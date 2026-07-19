@@ -10,6 +10,7 @@ import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.constants as c
+import scipy.signal as signal
 
 import pansy_config as pc
 from interferometer_alias_diagnostics import amp_scale, load_cut
@@ -102,6 +103,49 @@ class PowerOnlyRangeDopplerSearch:
             zd = self.decim(z)
             zf = np.fft.fftshift(np.fft.fft(zd, self.fftlen, axis=1), axes=1)
             power += zf.real**2 + zf.imag**2
+        return power
+
+
+class FFTFractionalRangeDopplerSearch:
+    """FFT-bandlimited fractional range sampling of the complex ambiguity function."""
+
+    def __init__(self, txlen, echolen, n_channels, range_oversample=4, fft_pad=1):
+        self.txlen = int(txlen)
+        self.echolen = int(echolen)
+        self.n_channels = int(n_channels)
+        self.range_oversample = int(range_oversample)
+        if self.range_oversample < 1:
+            raise ValueError("range_oversample must be positive")
+        self.fdec = 8
+        self.fftlen = 512 * int(fft_pad)
+        self.n_rg_native = self.echolen - self.txlen
+        self.n_rg = self.n_rg_native * self.range_oversample
+        self.rg = np.arange(self.n_rg_native, dtype=np.int64)
+        self.idx = np.arange(self.txlen, dtype=np.int64)
+        self.idx_mat = self.rg[:, None] + self.idx[None, :]
+        self.fvec = np.fft.fftshift(
+            np.fft.fftfreq(self.fftlen, d=self.fdec / 1e6)
+        )
+        self.dopv = self.fvec * c.c / 2.0 / pc.freq
+
+    def decim(self, values):
+        width = self.txlen // self.fdec
+        trimmed = values[:, : width * self.fdec]
+        return trimmed.reshape(self.n_rg_native, width, self.fdec).sum(axis=2)
+
+    def mf(self, tx, echo):
+        power = np.zeros((self.n_rg, self.fftlen), dtype=np.float32)
+        for channel in range(self.n_channels):
+            product = echo[channel, self.idx_mat] * tx[None, :]
+            doppler_spectrum = np.fft.fftshift(
+                np.fft.fft(self.decim(product), self.fftlen, axis=1), axes=1
+            )
+            fractional_ambiguity = signal.resample(
+                doppler_spectrum, self.n_rg, axis=0
+            )
+            power += (
+                fractional_ambiguity.real**2 + fractional_ambiguity.imag**2
+            ).astype(np.float32)
         return power
 
 
