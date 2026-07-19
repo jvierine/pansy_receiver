@@ -476,6 +476,7 @@ def fit_profile(
     coarse_radius_um = radius_um.copy()
     coarse_delta = delta.copy()
     adaptive_points_added = 0
+    continuation_points_improved = 0
     if adaptive_profile:
         extra_radius_um = adaptive_profile_radii(
             radius_um,
@@ -554,6 +555,48 @@ def fit_profile(
             minimum = float(np.nanmin(chi2))
             delta = chi2 - minimum
             adaptive_points_added = int(len(extra_radius_um))
+
+            # A newly discovered optimizer branch must continue smoothly in
+            # radius. Walk its solution toward both sides of the low-chi-square
+            # basin so an isolated numerical dip cannot define the interval.
+            continuation_limit = 50.0
+            best_index = int(np.nanargmin(chi2))
+            selected = np.isfinite(delta) & (delta <= continuation_limit)
+            selected_indices = np.flatnonzero(selected)
+            if len(selected_indices):
+                continuation_left = max(0, int(selected_indices[0]) - 1)
+                continuation_right = min(len(radius_um) - 1, int(selected_indices[-1]) + 1)
+                for indices in (
+                    range(best_index - 1, continuation_left - 1, -1),
+                    range(best_index + 1, continuation_right + 1),
+                ):
+                    previous = best_index
+                    for index in indices:
+                        start = parameters6[previous]
+                        if not np.all(np.isfinite(start)):
+                            break
+                        try:
+                            result = opt.least_squares(
+                                lambda values: residual6(values, log_radius_m[index], echo_keep),
+                                start,
+                                bounds=(lower6, upper6),
+                                x_scale=scale6,
+                                loss="linear",
+                                max_nfev=adaptive_max_nfev,
+                            )
+                        except Exception:
+                            break
+                        candidate_chi2 = float(2.0 * result.cost)
+                        if not np.isfinite(candidate_chi2):
+                            break
+                        if not np.isfinite(chi2[index]) or candidate_chi2 < chi2[index]:
+                            parameters6[index] = result.x
+                            chi2[index] = candidate_chi2
+                            success[index] = bool(result.success)
+                            continuation_points_improved += 1
+                        previous = index
+                minimum = float(np.nanmin(chi2))
+                delta = chi2 - minimum
     probability, weights = log_grid_probability(radius_um, delta)
     quantiles = weighted_quantile(radius_um, weights, [0.025, 0.5, 0.975])
     threshold = 3.841458820694124
@@ -643,6 +686,7 @@ def fit_profile(
         profile["coarse_radius_um"] = coarse_radius_um
         profile["coarse_delta_chi2"] = coarse_delta
         profile.attrs["adaptive_points_added"] = adaptive_points_added
+        profile.attrs["continuation_points_improved"] = continuation_points_improved
         profile.attrs["adaptive_spacing_dex"] = adaptive_spacing_dex
         profile.attrs["adaptive_max_nfev"] = adaptive_max_nfev
         result = handle.create_group("result")
@@ -671,6 +715,7 @@ def fit_profile(
         "n_phase_8ms": len(phase8["samples"]),
         "n_phase_16ms": len(phase16["samples"]),
         "adaptive_points_added": adaptive_points_added,
+        "continuation_points_improved": continuation_points_improved,
     }
     if output_png is None:
         return summary
