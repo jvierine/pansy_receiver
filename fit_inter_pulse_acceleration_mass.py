@@ -132,6 +132,8 @@ def load_nonoverlapping_phase_acceleration(path: Path, acceleration_lag_s: float
         "pair_current_index": current,
         "acceleration_lag_s": float(acceleration_lag_s),
         "phase_difference_covariance_rad2": covariance,
+        "phase_incidence": incidence,
+        "beat_phase_variance_rad2": beat_variance,
     }
 
 
@@ -179,7 +181,14 @@ def fit_profile(
     if np.count_nonzero(keep) < 10:
         keep = finite
     stored_prediction = physics.predicted_doppler(stored["model_km"], stored["velocity_km_s"])
-    sigma_position = float(np.sqrt(np.mean((points[keep] - stored["model_km"][keep]) ** 2)))
+    stored_position_residual = points[keep] - stored["model_km"][keep]
+    sigma_position = float(np.sqrt(np.mean(stored_position_residual**2)))
+    position_covariance = np.cov(stored_position_residual, rowvar=False)
+    position_variance_floor = max(
+        1e-10, 1e-6 * float(np.trace(position_covariance)) / 3.0
+    )
+    position_covariance += np.eye(3) * position_variance_floor
+    position_cholesky = np.linalg.cholesky(position_covariance)
     sigma_doppler = float(np.sqrt(np.mean((doppler[keep] - stored_prediction[keep]) ** 2)))
     def prepare_phase_modality(acceleration_lag_s):
         data = load_nonoverlapping_phase_acceleration(
@@ -289,6 +298,43 @@ def fit_profile(
 
     phase8 = prepare_phase_modality(0.008)
     phase16 = prepare_phase_modality(0.016)
+    cross_phase_covariance = (
+        phase8["data"]["phase_incidence"]
+        * phase8["data"]["beat_phase_variance_rad2"][None, :]
+    ) @ phase16["data"]["phase_incidence"].T
+    combined_phase_covariance = np.block(
+        [
+            [phase8["covariance"], cross_phase_covariance],
+            [cross_phase_covariance.T, phase16["covariance"]],
+        ]
+    )
+    combined_phase_covariance += np.eye(len(combined_phase_covariance)) * max(
+        1e-12, 1e-9 * float(np.nanmax(np.diag(combined_phase_covariance)))
+    )
+    combined_stored_phase_residual = np.r_[
+        phase8["stored_residual"], phase16["stored_residual"]
+    ]
+    combined_phase_covariance_scale = float(
+        np.sqrt(
+            np.mean(
+                covariance_weighted_residual(
+                    combined_phase_covariance, combined_stored_phase_residual
+                )
+                ** 2
+            )
+        )
+    )
+    if not np.isfinite(combined_phase_covariance_scale) or combined_phase_covariance_scale <= 0.0:
+        raise RuntimeError("invalid combined beat-phase covariance scale")
+    phase_offset = 0
+    for modality in (phase8, phase16):
+        count = len(modality["samples"])
+        modality["combined_covariance_slice"] = slice(phase_offset, phase_offset + count)
+        modality["covariance_scale"] = combined_phase_covariance_scale
+        modality["marginal_outlier_sigma_rad"] = np.sqrt(
+            np.diag(combined_phase_covariance)[phase_offset : phase_offset + count]
+        ) * combined_phase_covariance_scale
+        phase_offset += count
     density, _metadata = physics.pbal.density_interpolator(observations["sample_epoch_unix"])
 
     with h5py.File(baseline_h5, "r") as baseline:
@@ -336,7 +382,12 @@ def fit_profile(
                 raw_residual / modality["marginal_outlier_sigma_rad"]
             )
         return (
-            (points - position) / sigma_position,
+            la.solve_triangular(
+                position_cholesky,
+                (points - position).T,
+                lower=True,
+                check_finite=False,
+            ).T,
             (doppler - prediction) / sigma_doppler,
             phase_residuals[0],
             phase_residuals[1],
@@ -362,19 +413,26 @@ def fit_profile(
             phase8_keep = np.all(echo_keep[phase8["support"]], axis=1)
             phase16_keep = np.all(echo_keep[phase16["support"]], axis=1)
 
-        def covariance_weight_phase(modality, residual, selected):
-            selected_indices = np.flatnonzero(selected)
-            covariance = modality["covariance"][np.ix_(selected_indices, selected_indices)]
-            return (
-                covariance_weighted_residual(covariance, residual[selected])
-                / modality["covariance_scale"]
+        phase8_indices = np.flatnonzero(phase8_keep)
+        phase16_indices = np.flatnonzero(phase16_keep) + len(phase8_residual)
+        combined_phase_indices = np.r_[phase8_indices, phase16_indices]
+        combined_phase_residual = np.r_[
+            phase8_residual[phase8_keep], phase16_residual[phase16_keep]
+        ]
+        selected_phase_covariance = combined_phase_covariance[
+            np.ix_(combined_phase_indices, combined_phase_indices)
+        ]
+        weighted_phase_residual = (
+            covariance_weighted_residual(
+                selected_phase_covariance, combined_phase_residual
             )
+            / combined_phase_covariance_scale
+        )
 
         return np.r_[
             position_residual[point_keep].ravel(),
             doppler_residual[point_keep],
-            covariance_weight_phase(phase8, phase8_residual, phase8_keep),
-            covariance_weight_phase(phase16, phase16_residual, phase16_keep),
+            weighted_phase_residual,
         ]
 
     robust_objective = np.full(len(radius_um), np.nan)
@@ -675,6 +733,10 @@ def fit_profile(
         handle.attrs["phase_likelihood"] = "beat-phase residual wrapped to [-pi, pi) independently for each model"
         handle.attrs["profile_strategy"] = "adaptive_log_radius" if adaptive_profile else "baseline_grid"
         handle.attrs["outlier_mask_strategy"] = "locked once from robust coarse-grid best fit before all fixed-radius profile fits"
+        handle.attrs["position_likelihood"] = "fixed full 3x3 ENU residual covariance estimated from the stored best fit"
+        handle.attrs["phase_cross_likelihood"] = "single covariance over 8-ms and 16-ms phase differences, including covariance from reused decoded beat phases"
+        handle["position_residual_covariance_km2"] = position_covariance
+        handle["phase_acceleration_cross_covariance_8ms_16ms_rad2"] = cross_phase_covariance
         profile = handle.create_group("profile")
         profile["radius_um"] = radius_um
         profile["mass_kg"] = radius_um_to_mass_kg(radius_um)
