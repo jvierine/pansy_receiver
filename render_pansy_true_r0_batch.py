@@ -891,6 +891,21 @@ def render(row, grid_n=41):
                 label=rf"$r_0={target_um:g}\,\mu$m",
             )
     ax.set_xlabel("Time (s)"); ax.set_ylabel("Speed (km/s)"); ax.grid(alpha=0.2, lw=0.4)
+    speed_limits = []
+    if cepl_vel is not None:
+        best_speed = np.linalg.norm(cepl_vel, axis=1)
+        speed_limits.append(best_speed[line_mask])
+    if speed_interval is not None:
+        speed_limits.extend(
+            (speed_interval[0, line_mask], speed_interval[1, line_mask])
+        )
+    finite_speed_limits = np.concatenate(speed_limits) if speed_limits else np.empty(0)
+    finite_speed_limits = finite_speed_limits[np.isfinite(finite_speed_limits)]
+    if len(finite_speed_limits):
+        speed_min = float(np.min(finite_speed_limits))
+        speed_max = float(np.max(finite_speed_limits))
+        speed_margin = max(0.2, 0.05 * (speed_max - speed_min))
+        ax.set_ylim(speed_min - speed_margin, speed_max + speed_margin)
     if fixed_r0_speeds:
         ax.legend(loc="lower left", fontsize=7, frameon=False)
     ax = axs[1, 3]
