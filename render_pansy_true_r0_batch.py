@@ -336,6 +336,8 @@ def true_radius_profile(sample_idx, day, grid_n=41, timeout_s=5):
         if not profile_path.exists():
             profile_path = PROFILE_INPUT_DIR / f"mass_profile_with_acceleration_{sample_idx}.h5"
         if not profile_path.exists():
+            profile_path = PROFILE_INPUT_DIR / f"mass_profile_phase_aware_{sample_idx}.h5"
+        if not profile_path.exists():
             raise FileNotFoundError(f"missing completed mass profile: {profile_path}")
         with h5py.File(profile_path, "r") as h:
             radius_um = np.asarray(h["profile/radius_um"], dtype=float)
@@ -564,6 +566,7 @@ def render(row, grid_n=41):
     fixed_r0_positions = {}
     best_profile_doppler = pred
     best_profile_position = model
+    best_profile_velocity = cepl_vel
     if np.count_nonzero(valid_profile) >= 2:
         rho, _ = phys.pbal.density_interpolator(sample_epoch_unix)
         pos_samples = []
@@ -622,8 +625,28 @@ def render(row, grid_n=41):
                 if np.all(np.isfinite(candidate_doppler)):
                     best_profile_doppler = candidate_doppler
                     best_profile_position = ppos
+                    best_profile_velocity = pvel
             except Exception:
                 pass
+    model = best_profile_position
+    pred = best_profile_doppler
+    cepl_vel = best_profile_velocity
+    range_model = np.linalg.norm(model, axis=1)
+    pos_residual = pos - model
+    residual_mask = fit_keep & np.all(np.isfinite(pos_residual), axis=1)
+    if not np.any(residual_mask):
+        residual_mask = np.all(np.isfinite(pos_residual), axis=1)
+    pos_rms = float(np.sqrt(np.nanmean(np.sum(pos_residual[residual_mask] ** 2, axis=1))))
+    ew_rms = float(np.sqrt(np.nanmean(pos_residual[residual_mask, 0] ** 2)))
+    ns_rms = float(np.sqrt(np.nanmean(pos_residual[residual_mask, 1] ** 2)))
+    up_rms = float(np.sqrt(np.nanmean(pos_residual[residual_mask, 2] ** 2)))
+    dop_rms = float(np.sqrt(np.nanmean((dop[fit_keep] - pred[fit_keep]) ** 2)))
+    range_rms = (
+        float(np.sqrt(np.nanmean((observed_range[fit_keep] - range_model[fit_keep]) ** 2)))
+        if observed_range is not None
+        else np.nan
+    )
+    path_length_km = float(np.nansum(np.linalg.norm(np.diff(model, axis=0), axis=1)))
     r0_q = weighted_quantile(profile_radius_um, profile_weights, [0.025, 0.975])
     m0_q = r_um_to_mass_kg(r0_q)
     cut = drf.DigitalMetadataReader(str(BASE / "metadata/cut")).read(sample - 1, sample + 1)
