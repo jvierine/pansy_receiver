@@ -824,7 +824,7 @@ def render(row, grid_n=41):
                 label=rf"$r_0={target_um:g}\,\mu$m",
             )
         ax.set_xlabel("Time (s)")
-        ax.set_ylabel(r"Radial acceleration (km s$^{-2}$)")
+        ax.set_ylabel(r"Radial acceleration, 8 ms (km s$^{-2}$)")
         ax.grid(alpha=0.2, lw=0.4)
     else:
         ax.axis("off")
