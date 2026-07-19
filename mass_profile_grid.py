@@ -74,6 +74,9 @@ def adaptive_profile_radii(
         count = max(2, int(np.ceil((upper - lower) / spacing_dex)) + 1)
         new_log_radius.extend(np.linspace(lower, upper, count))
     candidates = np.unique(np.power(10.0, np.asarray(new_log_radius, dtype=float)))
+    if len(candidates) > 1:
+        distinct = np.r_[True, np.diff(np.log10(candidates)) > 1e-8]
+        candidates = candidates[distinct]
     duplicate = np.any(
         np.isclose(candidates[:, None], radius_um[None, :], rtol=1e-10, atol=0.0),
         axis=1,
