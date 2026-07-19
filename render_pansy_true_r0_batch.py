@@ -889,12 +889,18 @@ def render(row, grid_n=41):
             observed_phase = np.asarray(cross["observed_phase_rad"], dtype=float)
             best_phase = np.asarray(cross["best_model_prediction_rad"], dtype=float)
             selected_baselines = np.asarray(cross["selected_baseline_indices"], dtype=int)
+            baseline_m = np.asarray(cross["baseline_m"], dtype=float)
             delta_t = np.asarray(cross["delta_t_s"], dtype=float)
             order = np.argsort(cross_time)
+            angle_scale_mrad = (
+                1e3
+                * pc.wavelength
+                / (2.0 * np.pi * np.linalg.norm(baseline_m, axis=1))
+            )
             for baseline_index in selected_baselines:
                 ax.scatter(
                     cross_time,
-                    observed_phase[:, baseline_index],
+                    observed_phase[:, baseline_index] * angle_scale_mrad[baseline_index],
                     s=5,
                     color="black",
                     alpha=0.55,
@@ -902,15 +908,13 @@ def render(row, grid_n=41):
                 )
                 ax.plot(
                     cross_time[order],
-                    np.angle(np.exp(1j * best_phase[order, baseline_index])),
+                    np.angle(np.exp(1j * best_phase[order, baseline_index]))
+                    * angle_scale_mrad[baseline_index],
                     color="tab:blue",
                     lw=0.8,
                     alpha=0.7,
                     label="best fit" if baseline_index == selected_baselines[0] else None,
                 )
-            ax.set_ylim(-np.pi, np.pi)
-            ax.set_yticks([-np.pi, -0.5 * np.pi, 0.0, 0.5 * np.pi, np.pi])
-            ax.set_yticklabels([r"$-\pi$", r"$-\pi/2$", "0", r"$\pi/2$", r"$\pi$"])
             ax.text(
                 0.03,
                 0.97,
@@ -921,7 +925,7 @@ def render(row, grid_n=41):
                 fontsize=8,
             )
             ax.set_xlabel("Time (s)")
-            ax.set_ylabel("Cross-module phase change (rad)")
+            ax.set_ylabel("Baseline-projected angle change (mrad)")
             ax.grid(alpha=0.2, lw=0.4)
             ax.legend(frameon=False, fontsize=6.0, loc="lower left")
     fig.subplots_adjust(left=0.05, right=0.98, bottom=0.08, top=0.90, wspace=0.32, hspace=0.40)
