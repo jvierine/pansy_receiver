@@ -277,8 +277,8 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
             cross_data["observed_phase_rad"], cross_prediction
         )[:, selected_baselines]
         return np.r_[
-            ((points[keep] - position[keep]) / sigma_position).ravel(),
-            (doppler[keep] - prediction[keep]) / sigma_doppler,
+            ((points[finite] - position[finite]) / sigma_position).ravel(),
+            (doppler[finite] - prediction[finite]) / sigma_doppler,
             np.sqrt(phase_weight) * phase_fit_residual / sigma_phase,
             (
                 np.sqrt(cross_data["weight"][:, None])
@@ -304,7 +304,8 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
                     start,
                     bounds=(lower6, upper6),
                     x_scale=scale6,
-                    loss="linear",
+                    loss="soft_l1",
+                    f_scale=1.0,
                     max_nfev=60,
                 )
                 candidates.append(result)
@@ -313,7 +314,7 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         if candidates:
             best = min(candidates, key=lambda candidate: candidate.cost)
             parameters6[index] = best.x
-            chi2[index] = float(np.sum(residual6(best.x, log_radius_m[index]) ** 2))
+            chi2[index] = float(2.0 * best.cost)
             success[index] = bool(best.success)
     minimum = float(np.nanmin(chi2))
     delta = chi2 - minimum
@@ -363,6 +364,7 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         handle.attrs["sample_idx"] = int(observations["sample_idx"])
         handle.attrs["sigma_phase_rad"] = sigma_phase
         handle.attrs["phase_weighting"] = "linear SNR interpolated to each phase sample, capped at 100 and normalized to unit mean"
+        handle.attrs["joint_likelihood"] = "all finite position, Doppler, radial beat-phase, and cross-module phase measurements; one soft-L1 objective with fixed per-family residual scales"
         handle.attrs["cross_phase_likelihood"] = "same-transmit-beam 32-ms non-overlapping echo pairs; six independent spanning-tree receiver baselines; modulo-2pi residual with fixed per-baseline RMS and SNR weights"
         handle.attrs["sigma_radial_acceleration_mps2"] = sigma_acceleration
         handle.attrs["n_nonoverlapping_phase_acceleration"] = len(phase_data["samples"])
@@ -386,6 +388,10 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         result["marginal_radius_quantiles_um"] = quantiles
         phase = handle.create_group("phase_acceleration")
         phase["samples"] = phase_data["samples"]
+        phase["time_s"] = 0.5 * (
+            phase_data["samples"]["first_time_s"]
+            + phase_data["samples"]["second_time_s"]
+        )
         phase["snr_linear"] = phase_snr
         phase["normalized_snr_weight"] = phase_weight
         phase["stored_model_prediction_rad"] = stored_phase_prediction
@@ -410,6 +416,7 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         cross["measured_horizontal_velocity_km_s"] = measured_horizontal_velocity_km_s
         cross["best_model_horizontal_velocity_km_s"] = best_horizontal_velocity_km_s
         cross.attrs["pairing"] = "same transmit beam, 32 ms, non-overlapping"
+        cross.attrs["time_reference"] = "midpoint of the two lagged transmit pulses"
 
     summary = {
         "sample_idx": int(observations["sample_idx"]),
