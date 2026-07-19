@@ -29,14 +29,100 @@ ESTABLISHED_AOD_SIGN_EVIDENCE = (
 )
 
 
-def beamform_echo(echo_ch: np.ndarray, uvw: np.ndarray, beam: int, signs: tuple[int, int]) -> np.ndarray:
-    """AoD-coherently sum receiver channels for one sign convention."""
+def receiver_noise_variance(z_rx: np.ndarray) -> np.ndarray:
+    """Robust complex-noise variance per pulse and receiver module."""
+    differences = np.diff(np.asarray(z_rx, dtype=np.complex128), axis=-1) / np.sqrt(2.0)
+    center = np.median(differences.real, axis=-1) + 1j * np.median(
+        differences.imag, axis=-1
+    )
+    variance = np.median(np.abs(differences - center[..., None]) ** 2, axis=-1) / np.log(2.0)
+    fallback = np.nanmedian(variance, axis=0)
+    bad = ~np.isfinite(variance) | (variance <= 0.0)
+    variance[bad] = np.broadcast_to(fallback, variance.shape)[bad]
+    return variance
+
+
+def event_receiver_noise_variance(
+    z_rx: np.ndarray,
+    raw_indices: np.ndarray,
+    range_gates: np.ndarray,
+    decoded_length: int,
+) -> np.ndarray:
+    """Estimate module noise while excluding every decoded echo interval."""
+    z_rx = np.asarray(z_rx, dtype=np.complex128)
+    variance = np.full(z_rx.shape[:2], np.nan)
+    by_raw: dict[int, list[int]] = {}
+    for observation, raw_index in enumerate(raw_indices):
+        by_raw.setdefault(int(raw_index), []).append(observation)
+    for raw_index in range(z_rx.shape[0]):
+        exclude = np.zeros(z_rx.shape[2], dtype=bool)
+        for observation in by_raw.get(raw_index, []):
+            start = int(np.floor(range_gates[observation])) - 6
+            stop = int(np.ceil(range_gates[observation])) + decoded_length + 6
+            exclude[max(start, 0) : min(stop, len(exclude))] = True
+        for channel in range(z_rx.shape[1]):
+            values = z_rx[raw_index, channel, ~exclude]
+            center = np.median(values.real) + 1j * np.median(values.imag)
+            estimate = np.median(np.abs(values - center) ** 2) / np.log(2.0)
+            if not np.isfinite(estimate) or estimate <= 0.0:
+                differences = np.diff(z_rx[raw_index, channel]) / np.sqrt(2.0)
+                center = np.median(differences.real) + 1j * np.median(differences.imag)
+                estimate = np.median(np.abs(differences - center) ** 2) / np.log(2.0)
+            variance[raw_index, channel] = estimate
+    fallback = np.nanmedian(variance, axis=0)
+    bad = ~np.isfinite(variance) | (variance <= 0.0)
+    variance[bad] = np.broadcast_to(fallback, variance.shape)[bad]
+    return variance
+
+
+def event_module_voltage_gain(response: np.ndarray) -> np.ndarray:
+    """Estimate residual per-module voltage gain from one event.
+
+    The input voltages have already received the static mesocal correction.  A
+    robust two-way log-amplitude decomposition removes the common meteor
+    amplitude at each pulse and leaves one constant residual gain per module.
+    """
+    amplitude = np.abs(np.asarray(response, dtype=np.complex128))
+    valid = np.isfinite(amplitude) & (amplitude > 0.0)
+    log_amplitude = np.full(amplitude.shape, np.nan, dtype=float)
+    log_amplitude[valid] = np.log(amplitude[valid])
+    pulse_level = np.nanmedian(log_amplitude, axis=1, keepdims=True)
+    log_gain = np.nanmedian(log_amplitude - pulse_level, axis=0)
+    finite = np.isfinite(log_gain)
+    if not np.any(finite):
+        return np.ones(amplitude.shape[1], dtype=float)
+    log_gain[~finite] = np.nanmedian(log_gain[finite])
+    log_gain -= np.mean(log_gain)
+    return np.exp(log_gain)
+
+
+def beamform_echo(
+    echo_ch: np.ndarray,
+    uvw: np.ndarray,
+    beam: int,
+    signs: tuple[int, int],
+    noise_variance: np.ndarray | None = None,
+    module_voltage_gain: np.ndarray | None = None,
+) -> np.ndarray:
+    """Gain-calibrate, AoA-steer, and coherently combine receiver modules."""
     antpos = pint.get_antpos()
     phasecal = pint.get_phasecal()[beam]
     geom_phase = (2.0 * np.pi / pc.wavelength) * (antpos @ uvw)
     s_cal, s_geom = signs
-    weights = np.exp(1j * (s_cal * phasecal + s_geom * geom_phase))
-    return np.sum(echo_ch * weights[:, None], axis=0) / len(weights)
+    steering = np.exp(1j * (s_cal * phasecal + s_geom * geom_phase))
+    if module_voltage_gain is None:
+        gain = np.ones(len(steering), dtype=float)
+    else:
+        gain = np.asarray(module_voltage_gain, dtype=float)
+        gain = np.maximum(gain, np.nanmedian(gain) * 1e-6)
+    calibrated_echo = echo_ch / gain[:, None]
+    if noise_variance is None:
+        precision = np.ones(len(steering), dtype=float)
+    else:
+        variance = np.asarray(noise_variance, dtype=float) / gain**2
+        precision = 1.0 / np.maximum(variance, np.nanmedian(variance) * 1e-6)
+    weights = precision * steering
+    return np.sum(calibrated_echo * weights[:, None], axis=0) / np.sum(precision)
 
 
 def fractional_delay_fft(x: np.ndarray, delay_samples: float) -> np.ndarray:
