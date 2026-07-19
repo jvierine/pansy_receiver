@@ -50,6 +50,21 @@ def phase_chi2(group, prediction):
     return float(residual @ np.linalg.solve(covariance, residual) / scale**2)
 
 
+def residual_correlation_summary(residual):
+    residual = np.asarray(residual, dtype=float)
+    correlations = []
+    for lag in range(1, min(31, len(residual) // 3)):
+        correlations.append(float(np.corrcoef(residual[:-lag], residual[lag:])[0, 1]))
+    positive = []
+    for value in correlations:
+        if not np.isfinite(value) or value <= 0.0:
+            break
+        positive.append(value)
+    correlation_time = 1.0 + 2.0 * float(np.sum(positive))
+    effective_samples = len(residual) / correlation_time
+    return np.asarray(correlations), correlation_time, effective_samples
+
+
 def main():
     args = parse_args()
     observations, stored = load_selected_fit(args.diagnostics)
@@ -152,6 +167,31 @@ def main():
         index = int(np.argmin(np.abs(np.log(radius_um) - np.log(target))))
         pieces = " ".join(f"{name}={delta[name][index]:.3f}" for name in names)
         print(f"r0={radius_um[index]:g} total={total_delta[index]:.3f} {pieces}")
+
+    target_indices = {
+        target: int(np.argmin(np.abs(np.log(radius_um) - np.log(target))))
+        for target in (100.0, 1000.0)
+    }
+    target_models = {}
+    for target, index in target_indices.items():
+        target_models[target], *_ = physics.propagate_shrinking_radius_model(
+            np.r_[parameters6[index], np.log10(radius_um[index] * 1e-6)], t_s, density
+        )
+    best_residual = points[echo_keep] - target_models[100.0][echo_keep]
+    for component, label in enumerate(("east", "north", "up")):
+        correlations, correlation_time, effective_samples = residual_correlation_summary(
+            best_residual[:, component]
+        )
+        print(
+            f"{label} residual_rms={np.sqrt(np.mean(best_residual[:, component]**2)):.4f} km "
+            f"lag1={correlations[0]:.3f} correlation_time={correlation_time:.2f} "
+            f"effective_samples={effective_samples:.1f}/{len(best_residual)}"
+        )
+    model_difference = target_models[1000.0][echo_keep] - target_models[100.0][echo_keep]
+    print(
+        f"100-to-1000 model separation rms={np.sqrt(np.mean(model_difference**2)):.4f} km "
+        f"maximum_3d={np.max(np.linalg.norm(model_difference, axis=1)):.4f} km"
+    )
     print(f"wrote {args.output_plot}")
     print(f"wrote {args.output_h5}")
 
