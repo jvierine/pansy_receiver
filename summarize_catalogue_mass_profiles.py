@@ -20,6 +20,11 @@ METEOROID_DENSITY_KG_M3 = 3000.0
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profiles-dir", type=Path, required=True)
+    parser.add_argument(
+        "--baseline-profiles-dir",
+        type=Path,
+        help="Baseline catalogue profiles supplying trajectory quality metadata",
+    )
     parser.add_argument("--output-h5", type=Path, required=True)
     parser.add_argument("--output-plot", type=Path, required=True)
     parser.add_argument("--minimum-path-km", type=float, default=15.0)
@@ -32,7 +37,7 @@ def scalar(group, name):
     return float(group[name][()])
 
 
-def load_profiles(profiles_dir: Path):
+def load_profiles(profiles_dir: Path, baseline_profiles_dir: Path | None = None):
     rows = []
     lower_statuses = []
     upper_statuses = []
@@ -40,19 +45,55 @@ def load_profiles(profiles_dir: Path):
     for index, path in enumerate(paths, start=1):
         with h5py.File(path, "r") as handle:
             result = handle["result"]
-            quality = handle["quality"]
+            sample_idx = int(handle.attrs["sample_idx"])
+            baseline = None
+            if "quality" in handle:
+                quality = handle["quality"]
+                metadata = handle
+            else:
+                if baseline_profiles_dir is None:
+                    raise RuntimeError(
+                        f"{path} has no quality group; --baseline-profiles-dir is required"
+                    )
+                baseline_path = baseline_profiles_dir / f"mass_profile_{sample_idx}.h5"
+                baseline = h5py.File(baseline_path, "r")
+                quality = baseline["quality"]
+                metadata = baseline
+
+            if "free_best_radius_um" in result:
+                best_radius_um = scalar(result, "free_best_radius_um")
+                lower_radius_um = scalar(result, "profile_ci95_lower_radius_um")
+                upper_radius_um = scalar(result, "profile_ci95_upper_radius_um")
+                best_mass_kg = scalar(result, "free_best_mass_kg")
+                lower_mass_kg = scalar(result, "profile_ci95_lower_mass_kg")
+                upper_mass_kg = scalar(result, "profile_ci95_upper_mass_kg")
+                marginal_radius = np.asarray(result["marginal_radius_quantiles_um"], dtype=np.float64)
+                marginal_mass = np.asarray(result["marginal_mass_quantiles_kg"], dtype=np.float64)
+                lower_status = str(result.attrs["profile_ci95_lower_status"])
+                upper_status = str(result.attrs["profile_ci95_upper_status"])
+            else:
+                best_radius_um = scalar(result, "best_radius_um")
+                lower_radius_um = scalar(result, "ci95_lower_radius_um")
+                upper_radius_um = scalar(result, "ci95_upper_radius_um")
+                best_mass_kg = float(radius_um_to_mass_kg(best_radius_um))
+                lower_mass_kg = float(radius_um_to_mass_kg(lower_radius_um))
+                upper_mass_kg = float(radius_um_to_mass_kg(upper_radius_um))
+                marginal_radius = np.asarray(result["marginal_radius_quantiles_um"], dtype=np.float64)
+                marginal_mass = radius_um_to_mass_kg(marginal_radius)
+                lower_status = str(result.attrs["ci95_lower_status"])
+                upper_status = str(result.attrs["ci95_upper_status"])
             rows.append(
                 (
-                    int(handle.attrs["sample_idx"]),
-                    float(handle.attrs["sample_epoch_unix"]),
-                    scalar(result, "free_best_radius_um"),
-                    scalar(result, "free_best_mass_kg"),
-                    scalar(result, "profile_ci95_lower_radius_um"),
-                    scalar(result, "profile_ci95_upper_radius_um"),
-                    scalar(result, "profile_ci95_lower_mass_kg"),
-                    scalar(result, "profile_ci95_upper_mass_kg"),
-                    *np.asarray(result["marginal_radius_quantiles_um"], dtype=np.float64),
-                    *np.asarray(result["marginal_mass_quantiles_kg"], dtype=np.float64),
+                    sample_idx,
+                    float(metadata.attrs["sample_epoch_unix"]),
+                    best_radius_um,
+                    best_mass_kg,
+                    lower_radius_um,
+                    upper_radius_um,
+                    lower_mass_kg,
+                    upper_mass_kg,
+                    *marginal_radius,
+                    *marginal_mass,
                     scalar(quality, "initial_speed_km_s"),
                     scalar(quality, "fitted_speed_mean_km_s"),
                     scalar(quality, "path_length_km"),
@@ -61,8 +102,10 @@ def load_profiles(profiles_dir: Path):
                     int(quality["n_measurements"][()]),
                 )
             )
-            lower_statuses.append(str(result.attrs["profile_ci95_lower_status"]))
-            upper_statuses.append(str(result.attrs["profile_ci95_upper_status"]))
+            lower_statuses.append(lower_status)
+            upper_statuses.append(upper_status)
+            if baseline is not None:
+                baseline.close()
         if index % 10000 == 0:
             print(f"read {index} profiles", flush=True)
     names = (
@@ -203,7 +246,7 @@ def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
 
 def main():
     args = parse_args()
-    data = load_profiles(args.profiles_dir)
+    data = load_profiles(args.profiles_dir, args.baseline_profiles_dir)
     analysis_mask = (
         (data["path_length_km"] >= args.minimum_path_km)
         & (data["initial_speed_km_s"] >= args.minimum_speed_km_s)
