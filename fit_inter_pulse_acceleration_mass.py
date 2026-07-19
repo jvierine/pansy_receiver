@@ -164,6 +164,7 @@ def fit_profile(
     output_png: Path | None,
     max_nfev: int = 60,
     global_starts: bool = False,
+    seed_profile_h5: Path | None = None,
 ) -> dict:
     observations, stored = load_selected_fit(diagnostics_h5)
     t_s = observations["t_s"]
@@ -296,6 +297,17 @@ def fit_profile(
             float(baseline["result/profile_ci95_upper_radius_um"][()]),
         )
     log_radius_m = np.log10(radius_um * 1e-6)
+    seed_parameters6 = None
+    if seed_profile_h5 is not None:
+        with h5py.File(seed_profile_h5, "r") as seed_profile:
+            seed_radius_um = np.asarray(seed_profile["profile/radius_um"], dtype=float)
+            source_parameters6 = np.asarray(seed_profile["profile/parameters6"], dtype=float)
+        seed_parameters6 = np.column_stack(
+            [
+                np.interp(np.log(radius_um), np.log(seed_radius_um), source_parameters6[:, column])
+                for column in range(source_parameters6.shape[1])
+            ]
+        )
     lower6 = np.asarray([-np.inf, -np.inf, 20e3, -90e3, -90e3, -90e3])
     upper6 = np.asarray([np.inf, np.inf, 220e3, 90e3, 90e3, 90e3])
     scale6 = np.asarray([1e5, 1e5, 1e5, 7e4, 7e4, 7e4])
@@ -365,6 +377,8 @@ def fit_profile(
     robust_parameters6 = np.full((len(radius_um), 6), np.nan)
     for index in np.argsort(np.abs(np.log(radius_um) - np.log(baseline_best))):
         starts = [baseline_params6[index]]
+        if seed_parameters6 is not None:
+            starts.append(seed_parameters6[index])
         if index > 0 and np.all(np.isfinite(robust_parameters6[index - 1])):
             starts.append(robust_parameters6[index - 1])
         candidates = []
@@ -426,6 +440,8 @@ def fit_profile(
     success = np.zeros(len(radius_um), dtype=bool)
     for index in np.argsort(np.abs(np.log(radius_um) - np.log(radius_um[robust_best_index]))):
         starts = [robust_parameters6[index]]
+        if seed_parameters6 is not None:
+            starts.append(seed_parameters6[index])
         if index > 0 and np.all(np.isfinite(parameters6[index - 1])):
             starts.append(parameters6[index - 1])
         if global_starts and np.all(np.isfinite(robust_parameters6[robust_best_index])):
@@ -611,6 +627,7 @@ def main() -> int:
     parser.add_argument("--output-png", type=Path)
     parser.add_argument("--max-nfev", type=int, default=60)
     parser.add_argument("--global-starts", action="store_true")
+    parser.add_argument("--seed-profile", type=Path)
     parser.add_argument("--sample-idx", type=int)
     parser.add_argument("--base", type=Path, default=Path("/mnt/data/juha/pansy"))
     parser.add_argument("--baseline-profile-dir", type=Path)
@@ -639,6 +656,7 @@ def main() -> int:
         output_png,
         max_nfev=args.max_nfev,
         global_starts=args.global_starts,
+        seed_profile_h5=args.seed_profile,
     )
     print(summary, flush=True)
     return 0
