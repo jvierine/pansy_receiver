@@ -156,7 +156,15 @@ def predicted_radial_acceleration(predicted_doppler_mps: np.ndarray, t_s: np.nda
     return (second_velocity - first_velocity) / (second_t - first_t)
 
 
-def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h5: Path, output_png: Path | None) -> dict:
+def fit_profile(
+    diagnostics_h5: Path,
+    baseline_h5: Path,
+    beat_h5: Path,
+    output_h5: Path,
+    output_png: Path | None,
+    max_nfev: int = 60,
+    global_starts: bool = False,
+) -> dict:
     observations, stored = load_selected_fit(diagnostics_h5)
     t_s = observations["t_s"]
     points = observations["points_km"]
@@ -371,7 +379,7 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
                     x_scale=scale6,
                     loss="soft_l1",
                     f_scale=1.0,
-                    max_nfev=60,
+                    max_nfev=max_nfev,
                 )
                 candidates.append(result)
             except Exception:
@@ -420,6 +428,8 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         starts = [robust_parameters6[index]]
         if index > 0 and np.all(np.isfinite(parameters6[index - 1])):
             starts.append(parameters6[index - 1])
+        if global_starts and np.all(np.isfinite(robust_parameters6[robust_best_index])):
+            starts.append(robust_parameters6[robust_best_index])
         candidates = []
         for start in starts:
             if not np.all(np.isfinite(start)):
@@ -431,7 +441,7 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
                     bounds=(lower6, upper6),
                     x_scale=scale6,
                     loss="linear",
-                    max_nfev=60,
+                    max_nfev=max_nfev,
                 )
                 candidates.append(result)
             except Exception:
@@ -599,6 +609,8 @@ def main() -> int:
     parser.add_argument("--beat-h5", type=Path)
     parser.add_argument("--output-h5", type=Path)
     parser.add_argument("--output-png", type=Path)
+    parser.add_argument("--max-nfev", type=int, default=60)
+    parser.add_argument("--global-starts", action="store_true")
     parser.add_argument("--sample-idx", type=int)
     parser.add_argument("--base", type=Path, default=Path("/mnt/data/juha/pansy"))
     parser.add_argument("--baseline-profile-dir", type=Path)
@@ -619,7 +631,15 @@ def main() -> int:
         if any(value is None for value in required):
             parser.error("provide explicit input/output paths or use --sample-idx batch mode")
         diagnostics, baseline_profile, beat_h5, output_h5, output_png = required
-    summary = fit_profile(diagnostics, baseline_profile, beat_h5, output_h5, output_png)
+    summary = fit_profile(
+        diagnostics,
+        baseline_profile,
+        beat_h5,
+        output_h5,
+        output_png,
+        max_nfev=args.max_nfev,
+        global_starts=args.global_starts,
+    )
     print(summary, flush=True)
     return 0
 
