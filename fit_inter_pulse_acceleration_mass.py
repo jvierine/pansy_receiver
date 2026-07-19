@@ -13,6 +13,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+import scipy.linalg as la
 import scipy.optimize as opt
 
 import fit_best_alias_physics_models as physics
@@ -27,6 +28,24 @@ from run_catalogue_mass_profiles import (
 
 def circular_residual(observed: np.ndarray, predicted: np.ndarray) -> np.ndarray:
     return np.angle(np.exp(1j * (observed - predicted)))
+
+
+def lower_banded(matrix: np.ndarray, tolerance: float = 0.0) -> tuple[np.ndarray, int]:
+    rows, columns = np.nonzero(np.abs(matrix) > tolerance)
+    bandwidth = int(np.max(rows - columns, initial=0))
+    banded = np.zeros((bandwidth + 1, len(matrix)), dtype=float)
+    for offset in range(bandwidth + 1):
+        diagonal = np.diag(matrix, k=-offset)
+        banded[offset, : len(diagonal)] = diagonal
+    return banded, bandwidth
+
+
+def covariance_weighted_residual(covariance: np.ndarray, residual: np.ndarray) -> np.ndarray:
+    banded, bandwidth = lower_banded(covariance)
+    cholesky = la.cholesky_banded(banded, lower=True, check_finite=False)
+    return la.solve_banded(
+        (bandwidth, 0), cholesky, residual, check_finite=False
+    )
 
 
 def map_measurements_to_observations(measurement_tx_s: np.ndarray, t_s: np.ndarray) -> np.ndarray:
@@ -52,8 +71,6 @@ def load_nonoverlapping_phase_acceleration(path: Path, acceleration_lag_s: float
     for beam_id in np.unique(beam):
         indices = np.flatnonzero(beam == beam_id)
         indices = indices[np.argsort(pair["time_s"][indices])]
-        beam_rows = []
-        candidates = []
         for first_index, first in enumerate(indices[:-1]):
             later = indices[first_index + 1 :]
             separation = pair["time_s"][later] - pair["time_s"][first]
@@ -69,7 +86,7 @@ def load_nonoverlapping_phase_acceleration(path: Path, acceleration_lag_s: float
                 continue
             observed_delta_phase = float(np.angle(beat[second] * np.conj(beat[first])))
             phase_std = float(np.hypot(pair["beat_phase_std_rad"][first], pair["beat_phase_std_rad"][second]))
-            beam_rows.append(
+            rows.append(
                 (
                     beam_id,
                     first,
@@ -82,24 +99,6 @@ def load_nonoverlapping_phase_acceleration(path: Path, acceleration_lag_s: float
                     phase_std,
                 )
             )
-            candidates.append(
-                (
-                    len(beam_rows) - 1,
-                    {
-                        int(previous[first]),
-                        int(current[first]),
-                        int(previous[second]),
-                        int(current[second]),
-                    },
-                )
-            )
-        used_measurements = set()
-        keep_candidates = set()
-        for row_index, support in candidates:
-            if used_measurements.isdisjoint(support):
-                keep_candidates.add(row_index)
-                used_measurements.update(support)
-        rows.extend(row for index, row in enumerate(beam_rows) if index in keep_candidates)
     dtype = [
         ("beam_id", "i4"),
         ("first_pair", "i4"),
@@ -111,12 +110,27 @@ def load_nonoverlapping_phase_acceleration(path: Path, acceleration_lag_s: float
         ("observed_delta_phase_rad", "f8"),
         ("formal_phase_std_rad", "f8"),
     ]
+    samples = np.asarray(rows, dtype=dtype)
+    incidence = np.zeros((len(samples), len(beat)), dtype=float)
+    row_index = np.arange(len(samples))
+    incidence[row_index, samples["first_pair"]] = -1.0
+    incidence[row_index, samples["second_pair"]] = 1.0
+    beat_variance = np.asarray(pair["beat_phase_std_rad"], dtype=float) ** 2
+    finite_variance = beat_variance[np.isfinite(beat_variance) & (beat_variance > 0.0)]
+    variance_floor = float(np.nanmin(finite_variance)) if len(finite_variance) else 1.0
+    beat_variance = np.where(
+        np.isfinite(beat_variance) & (beat_variance > 0.0),
+        beat_variance,
+        variance_floor,
+    )
+    covariance = (incidence * beat_variance[None, :]) @ incidence.T
     return {
-        "samples": np.asarray(rows, dtype=dtype),
+        "samples": samples,
         "measurement_tx_s": measurement_tx_s,
         "pair_previous_index": previous,
         "pair_current_index": current,
         "acceleration_lag_s": float(acceleration_lag_s),
+        "phase_difference_covariance_rad2": covariance,
     }
 
 
@@ -169,6 +183,23 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         stored_phase_residual = circular_residual(
             samples["observed_delta_phase_rad"], stored_phase_prediction
         )
+        covariance = np.asarray(
+            data["phase_difference_covariance_rad2"], dtype=float
+        )
+        covariance += np.eye(len(covariance)) * max(
+            1e-12, 1e-9 * float(np.nanmax(np.diag(covariance)))
+        )
+        covariance_banded, covariance_bandwidth = lower_banded(covariance)
+        stored_covariance_weighted_residual = covariance_weighted_residual(
+            covariance, stored_phase_residual
+        )
+        covariance_scale = float(
+            np.sqrt(np.mean(stored_covariance_weighted_residual**2))
+        )
+        if not np.isfinite(covariance_scale) or covariance_scale <= 0.0:
+            raise RuntimeError(
+                f"invalid {1e3 * acceleration_lag_s:.0f}-ms covariance scale"
+            )
         absolute_zero = data["measurement_tx_s"][0] - t_s[0]
         midpoint_t = (
             0.5 * (samples["first_time_s"] + samples["second_time_s"])
@@ -228,6 +259,12 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
             "snr": snr,
             "weight": weight,
             "sigma_phase": sigma_phase,
+            "covariance": covariance,
+            "covariance_banded": covariance_banded,
+            "covariance_bandwidth": covariance_bandwidth,
+            "covariance_scale": covariance_scale,
+            "marginal_outlier_sigma_rad": np.sqrt(np.diag(covariance))
+            * covariance_scale,
             "mean_dt": mean_dt,
             "measured_principal": measured_principal,
             "stored_acceleration": stored_acceleration,
@@ -261,29 +298,37 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         )
         prediction = physics.predicted_doppler(position, velocity)
         phase_residuals = []
+        phase_outlier_residuals = []
         for modality in (phase8, phase16):
             phase_prediction = predicted_delta_phase(
                 prediction * 1e3, t_s, modality["data"]
             )
-            phase_residuals.append(
-                np.sqrt(modality["weight"])
-                * circular_residual(
-                    modality["samples"]["observed_delta_phase_rad"],
-                    phase_prediction,
-                )
-                / modality["sigma_phase"]
+            raw_residual = circular_residual(
+                modality["samples"]["observed_delta_phase_rad"],
+                phase_prediction,
+            )
+            phase_residuals.append(raw_residual)
+            phase_outlier_residuals.append(
+                raw_residual / modality["marginal_outlier_sigma_rad"]
             )
         return (
             (points - position) / sigma_position,
             (doppler - prediction) / sigma_doppler,
             phase_residuals[0],
             phase_residuals[1],
+            phase_outlier_residuals[0],
+            phase_outlier_residuals[1],
         )
 
     def residual6(parameters6, fixed_log_radius, echo_keep=None):
-        position_residual, doppler_residual, phase8_residual, phase16_residual = normalized_residuals(
-            parameters6, fixed_log_radius
-        )
+        (
+            position_residual,
+            doppler_residual,
+            phase8_residual,
+            phase16_residual,
+            _phase8_outlier_residual,
+            _phase16_outlier_residual,
+        ) = normalized_residuals(parameters6, fixed_log_radius)
         if echo_keep is None:
             point_keep = finite
             phase8_keep = np.ones(len(phase8["support"]), dtype=bool)
@@ -292,11 +337,20 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
             point_keep = finite & echo_keep
             phase8_keep = np.all(echo_keep[phase8["support"]], axis=1)
             phase16_keep = np.all(echo_keep[phase16["support"]], axis=1)
+
+        def covariance_weight_phase(modality, residual, selected):
+            selected_indices = np.flatnonzero(selected)
+            covariance = modality["covariance"][np.ix_(selected_indices, selected_indices)]
+            return (
+                covariance_weighted_residual(covariance, residual[selected])
+                / modality["covariance_scale"]
+            )
+
         return np.r_[
             position_residual[point_keep].ravel(),
             doppler_residual[point_keep],
-            phase8_residual[phase8_keep],
-            phase16_residual[phase16_keep],
+            covariance_weight_phase(phase8, phase8_residual, phase8_keep),
+            covariance_weight_phase(phase16, phase16_residual, phase16_keep),
         ]
 
     robust_objective = np.full(len(radius_um), np.nan)
@@ -332,13 +386,20 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         robust_parameters6[robust_best_index], log_radius_m[robust_best_index]
     )
     echo_residual_score = np.full(len(t_s), np.nan)
-    position_residual, doppler_residual, phase8_residual, phase16_residual = robust_residuals
+    (
+        position_residual,
+        doppler_residual,
+        _phase8_residual,
+        _phase16_residual,
+        phase8_outlier_residual,
+        phase16_outlier_residual,
+    ) = robust_residuals
     echo_residual_score[finite] = np.sqrt(
         np.sum(position_residual[finite] ** 2, axis=1) + doppler_residual[finite] ** 2
     )
     for modality, residuals in (
-        (phase8, phase8_residual),
-        (phase16, phase16_residual),
+        (phase8, phase8_outlier_residual),
+        (phase16, phase16_outlier_residual),
     ):
         for support, residual in zip(modality["support"], residuals):
             unique_support = np.unique(support)
@@ -415,6 +476,10 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         group["normalized_snr_weight"] = modality["weight"]
         group["shared_inlier_mask"] = shared_keep
         group["support_observation_indices"] = modality["support"]
+        group["phase_difference_covariance_rad2"] = modality["covariance"]
+        group["phase_difference_covariance_lower_banded_rad2"] = modality[
+            "covariance_banded"
+        ]
         group["stored_model_prediction_rad"] = modality["stored_prediction"]
         group["stored_model_residual_rad"] = modality["stored_residual"]
         group["best_model_prediction_rad"] = modality["best_prediction"]
@@ -439,6 +504,10 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         group.attrs["acceleration_lag_s"] = modality["data"]["acceleration_lag_s"]
         group.attrs["time_reference"] = "midpoint of the two beat-phase measurements"
         group.attrs["sigma_phase_rad"] = modality["sigma_phase"]
+        group.attrs["covariance_scale"] = modality["covariance_scale"]
+        group.attrs["covariance_lower_bandwidth"] = modality[
+            "covariance_bandwidth"
+        ]
         group.attrs["sigma_radial_acceleration_mps2"] = modality[
             "sigma_acceleration"
         ]
