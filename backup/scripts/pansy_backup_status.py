@@ -171,7 +171,7 @@ def main():
     web_dir = Path(config.get("WEB_BUILD_DIR", "/mnt/data/juha/pansy/web"))
     channels = config.get(
         "METADATA_CHANNELS",
-        "clock cut detections mesomode phase simple_meteor_fit tx",
+        "clock cut detections mesomode orbit phase simple_meteor_fit tx",
     ).split()
 
     web_dir.mkdir(parents=True, exist_ok=True)
