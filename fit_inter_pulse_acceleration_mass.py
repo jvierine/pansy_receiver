@@ -38,6 +38,16 @@ def circular_residual(observed: np.ndarray, predicted: np.ndarray) -> np.ndarray
     return np.angle(np.exp(1j * (observed - predicted)))
 
 
+def map_measurements_to_observations(measurement_tx_s: np.ndarray, t_s: np.ndarray) -> np.ndarray:
+    absolute_zero = measurement_tx_s[0] - t_s[0]
+    measurement_t_s = measurement_tx_s - absolute_zero
+    nearest = np.abs(measurement_t_s[:, None] - t_s[None, :]).argmin(axis=1)
+    error_s = np.abs(measurement_t_s - t_s[nearest])
+    if np.any(error_s > 5e-6):
+        raise RuntimeError(f"measurement/trajectory time alignment error is {np.max(error_s):.3g} s")
+    return nearest
+
+
 def load_nonoverlapping_phase_acceleration(path: Path) -> dict:
     with h5py.File(path, "r") as handle:
         group = handle["baud_averaged_beat_pairs"]
@@ -93,7 +103,12 @@ def load_nonoverlapping_phase_acceleration(path: Path) -> dict:
         ("observed_delta_phase_rad", "f8"),
         ("formal_phase_std_rad", "f8"),
     ]
-    return {"samples": np.asarray(rows, dtype=dtype), "measurement_tx_s": measurement_tx_s}
+    return {
+        "samples": np.asarray(rows, dtype=dtype),
+        "measurement_tx_s": measurement_tx_s,
+        "pair_previous_index": previous,
+        "pair_current_index": current,
+    }
 
 
 def predicted_delta_phase(predicted_doppler_mps: np.ndarray, t_s: np.ndarray, phase_data: dict) -> np.ndarray:
@@ -247,6 +262,23 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
     selected_baselines = independent_baselines(cross_data["channel_pairs"], cross_sigma)
     if len(selected_baselines) != len(np.asarray(interferometry.get_antpos())) - 1:
         raise RuntimeError("cross-phase baseline selection did not produce a spanning tree")
+    measurement_observation = map_measurements_to_observations(
+        phase_data["measurement_tx_s"], t_s
+    )
+    first_pair = phase_samples["first_pair"]
+    second_pair = phase_samples["second_pair"]
+    phase_support = measurement_observation[
+        np.column_stack(
+            (
+                phase_data["pair_previous_index"][first_pair],
+                phase_data["pair_current_index"][first_pair],
+                phase_data["pair_current_index"][second_pair],
+            )
+        )
+    ]
+    cross_support = measurement_observation[
+        np.column_stack((cross_data["previous"], cross_data["current"]))
+    ]
     density, _metadata = physics.pbal.density_interpolator(observations["sample_epoch_unix"])
 
     with h5py.File(baseline_h5, "r") as baseline:
@@ -263,7 +295,7 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
     upper6 = np.asarray([np.inf, np.inf, 220e3, 90e3, 90e3, 90e3])
     scale6 = np.asarray([1e5, 1e5, 1e5, 7e4, 7e4, 7e4])
 
-    def residual6(parameters6, fixed_log_radius):
+    def normalized_residuals(parameters6, fixed_log_radius):
         position, velocity, _radius, _mass, _success, _message = physics.propagate_shrinking_radius_model(
             np.r_[parameters6, fixed_log_radius], t_s, density
         )
@@ -276,24 +308,40 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         cross_fit_residual = circular_residual(
             cross_data["observed_phase_rad"], cross_prediction
         )[:, selected_baselines]
-        return np.r_[
-            ((points[finite] - position[finite]) / sigma_position).ravel(),
-            (doppler[finite] - prediction[finite]) / sigma_doppler,
+        return (
+            (points - position) / sigma_position,
+            (doppler - prediction) / sigma_doppler,
             np.sqrt(phase_weight) * phase_fit_residual / sigma_phase,
-            (
-                np.sqrt(cross_data["weight"][:, None])
-                * cross_fit_residual
-                / cross_sigma[selected_baselines][None, :]
-            ).ravel(),
+            np.sqrt(cross_data["weight"][:, None])
+            * cross_fit_residual
+            / cross_sigma[selected_baselines][None, :],
+        )
+
+    def residual6(parameters6, fixed_log_radius, echo_keep=None):
+        position_residual, doppler_residual, phase_fit_residual, cross_fit_residual = normalized_residuals(
+            parameters6, fixed_log_radius
+        )
+        if echo_keep is None:
+            point_keep = finite
+            phase_keep = np.ones(len(phase_support), dtype=bool)
+            cross_keep = np.ones(len(cross_support), dtype=bool)
+        else:
+            point_keep = finite & echo_keep
+            phase_keep = np.all(echo_keep[phase_support], axis=1)
+            cross_keep = np.all(echo_keep[cross_support], axis=1)
+        return np.r_[
+            position_residual[point_keep].ravel(),
+            doppler_residual[point_keep],
+            phase_fit_residual[phase_keep],
+            cross_fit_residual[cross_keep].ravel(),
         ]
 
-    chi2 = np.full(len(radius_um), np.nan)
-    parameters6 = np.full((len(radius_um), 6), np.nan)
-    success = np.zeros(len(radius_um), dtype=bool)
+    robust_objective = np.full(len(radius_um), np.nan)
+    robust_parameters6 = np.full((len(radius_um), 6), np.nan)
     for index in np.argsort(np.abs(np.log(radius_um) - np.log(baseline_best))):
         starts = [baseline_params6[index]]
-        if index > 0 and np.all(np.isfinite(parameters6[index - 1])):
-            starts.append(parameters6[index - 1])
+        if index > 0 and np.all(np.isfinite(robust_parameters6[index - 1])):
+            starts.append(robust_parameters6[index - 1])
         candidates = []
         for start in starts:
             if not np.all(np.isfinite(start)):
@@ -306,6 +354,64 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
                     x_scale=scale6,
                     loss="soft_l1",
                     f_scale=1.0,
+                    max_nfev=60,
+                )
+                candidates.append(result)
+            except Exception:
+                pass
+        if candidates:
+            best = min(candidates, key=lambda candidate: candidate.cost)
+            robust_parameters6[index] = best.x
+            robust_objective[index] = float(2.0 * best.cost)
+
+    robust_best_index = int(np.nanargmin(robust_objective))
+    robust_residuals = normalized_residuals(
+        robust_parameters6[robust_best_index], log_radius_m[robust_best_index]
+    )
+    echo_residual_sum = np.zeros(len(t_s), dtype=float)
+    echo_residual_count = np.zeros(len(t_s), dtype=int)
+    position_residual, doppler_residual, phase_fit_residual, cross_fit_residual = robust_residuals
+    echo_residual_sum[finite] += np.sum(position_residual[finite] ** 2, axis=1) + doppler_residual[finite] ** 2
+    echo_residual_count[finite] += position_residual.shape[1] + 1
+    for support, residual in zip(phase_support, phase_fit_residual):
+        unique_support = np.unique(support)
+        echo_residual_sum[unique_support] += residual**2
+        echo_residual_count[unique_support] += 1
+    cross_row_sum = np.sum(cross_fit_residual**2, axis=1)
+    cross_row_count = cross_fit_residual.shape[1]
+    for support, residual_sum in zip(cross_support, cross_row_sum):
+        unique_support = np.unique(support)
+        echo_residual_sum[unique_support] += residual_sum
+        echo_residual_count[unique_support] += cross_row_count
+    echo_residual_rms = np.full(len(t_s), np.nan)
+    scored = finite & (echo_residual_count > 0)
+    echo_residual_rms[scored] = np.sqrt(
+        echo_residual_sum[scored] / echo_residual_count[scored]
+    )
+    echo_keep = scored & (echo_residual_rms < 3.5)
+    if np.count_nonzero(echo_keep) < 10:
+        raise RuntimeError("joint outlier rejection retained fewer than ten echoes")
+    phase_keep = np.all(echo_keep[phase_support], axis=1)
+    cross_keep = np.all(echo_keep[cross_support], axis=1)
+
+    chi2 = np.full(len(radius_um), np.nan)
+    parameters6 = np.full((len(radius_um), 6), np.nan)
+    success = np.zeros(len(radius_um), dtype=bool)
+    for index in np.argsort(np.abs(np.log(radius_um) - np.log(radius_um[robust_best_index]))):
+        starts = [robust_parameters6[index]]
+        if index > 0 and np.all(np.isfinite(parameters6[index - 1])):
+            starts.append(parameters6[index - 1])
+        candidates = []
+        for start in starts:
+            if not np.all(np.isfinite(start)):
+                continue
+            try:
+                result = opt.least_squares(
+                    lambda values: residual6(values, log_radius_m[index], echo_keep),
+                    start,
+                    bounds=(lower6, upper6),
+                    x_scale=scale6,
+                    loss="linear",
                     max_nfev=60,
                 )
                 candidates.append(result)
@@ -364,7 +470,8 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         handle.attrs["sample_idx"] = int(observations["sample_idx"])
         handle.attrs["sigma_phase_rad"] = sigma_phase
         handle.attrs["phase_weighting"] = "linear SNR interpolated to each phase sample, capped at 100 and normalized to unit mean"
-        handle.attrs["joint_likelihood"] = "all finite position, Doppler, radial beat-phase, and cross-module phase measurements; one soft-L1 objective with fixed per-family residual scales"
+        handle.attrs["joint_likelihood"] = "initial soft-L1 fit to all finite position, Doppler, radial beat-phase, and cross-module phase measurements; one shared echo mask at normalized joint RMS < 3.5; final linear profile fit uses that mask in every modality"
+        handle.attrs["joint_echo_outlier_threshold"] = 3.5
         handle.attrs["cross_phase_likelihood"] = "same-transmit-beam 32-ms non-overlapping echo pairs; six independent spanning-tree receiver baselines; modulo-2pi residual with fixed per-baseline RMS and SNR weights"
         handle.attrs["sigma_radial_acceleration_mps2"] = sigma_acceleration
         handle.attrs["n_nonoverlapping_phase_acceleration"] = len(phase_data["samples"])
@@ -386,6 +493,8 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         result.attrs["ci95_lower_status"] = lower_status
         result.attrs["ci95_upper_status"] = upper_status
         result["marginal_radius_quantiles_um"] = quantiles
+        result["echo_normalized_joint_residual_rms"] = echo_residual_rms
+        result["echo_shared_inlier_mask"] = echo_keep
         phase = handle.create_group("phase_acceleration")
         phase["samples"] = phase_data["samples"]
         phase["time_s"] = 0.5 * (
@@ -394,6 +503,8 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         )
         phase["snr_linear"] = phase_snr
         phase["normalized_snr_weight"] = phase_weight
+        phase["shared_inlier_mask"] = phase_keep
+        phase["support_observation_indices"] = phase_support
         phase["stored_model_prediction_rad"] = stored_phase_prediction
         phase["stored_model_residual_rad"] = phase_residual
         phase["best_model_prediction_rad"] = best_phase_prediction
@@ -411,6 +522,8 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         cross["stored_model_residual_rad"] = stored_cross_residual
         cross["phase_sigma_rad"] = cross_sigma
         cross["selected_baseline_indices"] = selected_baselines
+        cross["shared_inlier_mask"] = cross_keep
+        cross["support_observation_indices"] = cross_support
         cross["best_model_prediction_rad"] = best_cross_prediction
         cross["display_phase_rad"] = display_cross_phase
         cross["measured_horizontal_velocity_km_s"] = measured_horizontal_velocity_km_s

@@ -497,6 +497,11 @@ def render(row, grid_n=41):
         stored_pos_rms = group_attr_float(g, "physics_ceplecha_pos_rms_km")
         stored_dop_rms = group_attr_float(g, "physics_ceplecha_dop_rms_km_s")
         fit_n = group_attr_float(g, "physics_ceplecha_n")
+    with h5py.File(profile_path, "r") as profile_handle:
+        if "result/echo_shared_inlier_mask" in profile_handle:
+            shared_keep = np.asarray(profile_handle["result/echo_shared_inlier_mask"], dtype=bool)
+            if shared_keep.shape == np.asarray(t).shape:
+                fit_keep = shared_keep
     o = np.argsort(t)
     t = t[o]; pos = pos[o]; model = model[o]; snr = snr[o]; dop = dop[o]; pred = pred[o]
     if observed_range is not None:
@@ -727,6 +732,7 @@ def render(row, grid_n=41):
             / (4.0 * np.pi * phase_dt**2)
         )
         with h5py.File(profile_path, "r") as profile_handle:
+            phase_shared_keep = np.ones(len(phase_samples), dtype=bool)
             acceleration_keys = (
                 "phase_acceleration/measured_radial_acceleration_display_mps2",
                 "phase_acceleration/measured_radial_acceleration_mps2",
@@ -736,6 +742,12 @@ def render(row, grid_n=41):
                 fitted_acceleration = np.asarray(profile_handle[acceleration_key], dtype=float)
                 if fitted_acceleration.shape == phase_acceleration.shape:
                     phase_acceleration = fitted_acceleration
+            if "phase_acceleration/shared_inlier_mask" in profile_handle:
+                stored_phase_keep = np.asarray(
+                    profile_handle["phase_acceleration/shared_inlier_mask"], dtype=bool
+                )
+                if stored_phase_keep.shape == phase_acceleration.shape:
+                    phase_shared_keep = stored_phase_keep
         phase_acceleration_std = (
             pc.wavelength
             * phase_samples["formal_phase_std_rad"]
@@ -749,16 +761,29 @@ def render(row, grid_n=41):
             (second_model_velocity - first_model_velocity)
             / (phase_samples["second_time_s"] - phase_samples["first_time_s"])
         )
-        fit_good = (
+        finite_phase = (
             np.isfinite(phase_time)
             & np.isfinite(phase_acceleration)
             & np.isfinite(phase_acceleration_std)
         )
+        fit_good = finite_phase & phase_shared_keep
+        fit_dropped = finite_phase & ~phase_shared_keep
         phase_order = np.argsort(phase_time)
+        if np.any(fit_dropped):
+            ax.errorbar(
+                phase_time[fit_dropped],
+                phase_acceleration[fit_dropped] / 1e3,
+                yerr=phase_acceleration_std[fit_dropped] / 1e3,
+                fmt=".",
+                ms=3,
+                color="0.72",
+                ecolor="0.85",
+                elinewidth=0.5,
+            )
         ax.errorbar(
-            phase_time,
-            phase_acceleration / 1e3,
-            yerr=phase_acceleration_std / 1e3,
+            phase_time[fit_good],
+            phase_acceleration[fit_good] / 1e3,
+            yerr=phase_acceleration_std[fit_good] / 1e3,
             fmt=".",
             ms=3,
             color="black",
@@ -892,6 +917,11 @@ def render(row, grid_n=41):
             baseline_m = np.asarray(cross["baseline_m"], dtype=float)
             channel_pairs = np.asarray(cross["channel_pairs"], dtype=int)
             delta_t = np.asarray(cross["delta_t_s"], dtype=float)
+            cross_shared_keep = (
+                np.asarray(cross["shared_inlier_mask"], dtype=bool)
+                if "shared_inlier_mask" in cross
+                else np.ones(len(cross_time), dtype=bool)
+            )
             order = np.argsort(cross_time)
             angle_scale_mrad = (
                 1e3
@@ -902,9 +932,20 @@ def render(row, grid_n=41):
             for color_index, baseline_index in enumerate(selected_baselines):
                 color = baseline_colors[color_index]
                 left, right = channel_pairs[baseline_index]
+                if np.any(~cross_shared_keep):
+                    ax.scatter(
+                        cross_time[~cross_shared_keep],
+                        observed_phase[~cross_shared_keep, baseline_index]
+                        * angle_scale_mrad[baseline_index],
+                        s=5,
+                        color="0.78",
+                        alpha=0.55,
+                        edgecolors="none",
+                    )
                 ax.scatter(
-                    cross_time,
-                    observed_phase[:, baseline_index] * angle_scale_mrad[baseline_index],
+                    cross_time[cross_shared_keep],
+                    observed_phase[cross_shared_keep, baseline_index]
+                    * angle_scale_mrad[baseline_index],
                     s=5,
                     color=color,
                     alpha=0.65,
