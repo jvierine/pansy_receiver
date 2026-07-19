@@ -93,6 +93,7 @@ def main():
 
         names = ("position_radial", "position_transverse", "doppler", "phase_8ms", "phase_16ms")
         contribution = {name: np.full(len(radius_um), np.nan) for name in names}
+        coordinate_position_chi2 = np.full((3, len(radius_um)), np.nan)
         for index, (radius, parameters) in enumerate(zip(radius_um, parameters6)):
             if not np.all(np.isfinite(parameters)):
                 continue
@@ -109,6 +110,9 @@ def main():
             )
             contribution["position_transverse"][index] = np.sum(
                 np.maximum(transverse_squared[echo_keep], 0.0) / sigma_position**2
+            )
+            coordinate_position_chi2[:, index] = np.sum(
+                (position_residual[echo_keep] / sigma_position) ** 2, axis=0
             )
             contribution["doppler"][index] = np.sum(
                 ((doppler[echo_keep] - prediction[echo_keep]) / sigma_doppler) ** 2
@@ -159,6 +163,10 @@ def main():
         for name in names:
             output[f"chi2/{name}"] = contribution[name]
             output[f"delta_chi2/{name}"] = delta[name]
+        output["chi2/position_enu"] = coordinate_position_chi2
+        output["delta_chi2/position_enu"] = (
+            coordinate_position_chi2 - coordinate_position_chi2[:, minimum_index, None]
+        )
 
     print(f"sigma position: {sigma_position:.6g} km")
     print(f"sigma Doppler: {sigma_doppler:.6g} km/s")
@@ -166,7 +174,11 @@ def main():
     for target in (10.0, 100.0, 1000.0, 10000.0):
         index = int(np.argmin(np.abs(np.log(radius_um) - np.log(target))))
         pieces = " ".join(f"{name}={delta[name][index]:.3f}" for name in names)
-        print(f"r0={radius_um[index]:g} total={total_delta[index]:.3f} {pieces}")
+        enu_delta = coordinate_position_chi2[:, index] - coordinate_position_chi2[:, minimum_index]
+        print(
+            f"r0={radius_um[index]:g} total={total_delta[index]:.3f} {pieces} "
+            f"east={enu_delta[0]:.3f} north={enu_delta[1]:.3f} up={enu_delta[2]:.3f}"
+        )
 
     target_indices = {
         target: int(np.argmin(np.abs(np.log(radius_um) - np.log(target))))
