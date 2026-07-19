@@ -691,7 +691,7 @@ def render(row, grid_n=41):
     if np.any(dropped_mask):
         ax.scatter(t_plot[dropped_mask], pos[dropped_mask, 2], color="0.75", s=5, edgecolors="none")
     ax.scatter(t_plot[kept_mask], pos[kept_mask, 2], color="black", s=5, edgecolors="none"); ax.plot(t_plot[line_mask], model[line_mask, 2], color="tab:blue", lw=1.0)
-    ax.text(0.03, 0.97, f"Up RMS {fmt_metric(up_rms)} km", transform=ax.transAxes, ha="left", va="top", fontsize=8)
+    ax.text(0.97, 0.97, f"Up RMS {fmt_metric(up_rms)} km", transform=ax.transAxes, ha="right", va="top", fontsize=8)
     ax.set_xlabel("Time (s)"); ax.set_ylabel("Up (km)"); ax.set_title(f"#{rank:03d} {ts}", fontsize=10); ax.grid(alpha=0.2, lw=0.4)
     ax = axs[0, 2]
     if dop_interval is not None:
@@ -714,7 +714,7 @@ def render(row, grid_n=41):
                 ls="--",
                 label=rf"$r_0={target_um:g}\,\mu$m",
             )
-    ax.text(0.03, 0.97, f"Dop RMS {fmt_metric(plot_dop_rms)} km/s\nI2 P16", transform=ax.transAxes, ha="left", va="top", fontsize=8)
+    ax.text(0.03, 0.97, f"Dop RMS {fmt_metric(plot_dop_rms)} km/s", transform=ax.transAxes, ha="left", va="top", fontsize=8)
     ax.set_xlabel("Time (s)"); ax.set_ylabel("Doppler (km/s)"); ax.grid(alpha=0.2, lw=0.4)
     if fixed_r0_dopplers:
         ax.legend(loc="lower right", fontsize=7, frameon=False)
@@ -823,22 +823,9 @@ def render(row, grid_n=41):
                 ls="--",
                 label=rf"$r_0={target_um:g}\,\mu$m",
             )
-        ambiguity_period = pc.wavelength / (2.0 * np.nanmedian(phase_dt) ** 2) / 1e3
-        ax.text(
-            0.03,
-            0.97,
-            f"N {np.count_nonzero(fit_good)}\n"
-            + f"model {np.nanmedian(model_acceleration) / 1e3:.2f} km s$^{{-2}}$\n"
-            + f"alias period {ambiguity_period:.1f} km s$^{{-2}}$",
-            transform=ax.transAxes,
-            ha="left",
-            va="top",
-            fontsize=8,
-        )
         ax.set_xlabel("Time (s)")
         ax.set_ylabel(r"Radial acceleration (km s$^{-2}$)")
         ax.grid(alpha=0.2, lw=0.4)
-        ax.legend(frameon=False, fontsize=6.5, loc="lower left")
     else:
         ax.axis("off")
     ax = axs[1, 0]
@@ -854,7 +841,6 @@ def render(row, grid_n=41):
         if np.any(range_kept):
             ax.scatter(t_plot[range_kept], plot_range[range_kept], color="black", s=6, edgecolors="white", linewidths=0.15, alpha=0.9, zorder=6)
     ax.plot(t_plot[line_mask], range_model[line_mask], color="tab:blue", lw=1.0)
-    ax.text(0.03, 0.97, f"Range RMS {fmt_metric(plot_range_rms)} km\nI2 P16", transform=ax.transAxes, ha="left", va="top", fontsize=8, color="white")
     x_min = float(np.nanmin(t_plot))
     x_max = float(np.nanmax(t_plot))
     ylim_values = range_model
@@ -900,17 +886,6 @@ def render(row, grid_n=41):
                 ls="--",
                 label=rf"$r_0={target_um:g}\,\mu$m",
             )
-    ax.text(
-        0.03,
-        0.97,
-        r"$\chi^2_\nu$ "
-        + fmt_metric(stored_redchi, 2)
-        + f"\n3D RMS {fmt_metric(stored_pos_rms)} km\nN {int(fit_n) if np.isfinite(fit_n) else len(t)}",
-        transform=ax.transAxes,
-        ha="left",
-        va="top",
-        fontsize=8,
-    )
     ax.set_xlabel("Time (s)"); ax.set_ylabel("Speed (km/s)"); ax.grid(alpha=0.2, lw=0.4)
     if fixed_r0_speeds:
         ax.legend(loc="lower left", fontsize=7, frameon=False)
@@ -970,15 +945,6 @@ def render(row, grid_n=41):
                     lw=0.8,
                     alpha=0.9,
                 )
-            ax.text(
-                0.03,
-                0.97,
-                rf"lines: best fit; $\Delta t$={1e3 * np.nanmedian(delta_t):.0f} ms",
-                transform=ax.transAxes,
-                ha="left",
-                va="top",
-                fontsize=8,
-            )
             ax.set_xlabel("Time (s)")
             ax.set_ylabel("Baseline-projected angle change (mrad)")
             ax.grid(alpha=0.2, lw=0.4)
