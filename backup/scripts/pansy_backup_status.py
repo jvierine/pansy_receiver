@@ -171,7 +171,11 @@ def main():
     web_dir = Path(config.get("WEB_BUILD_DIR", "/mnt/data/juha/pansy/web"))
     channels = config.get(
         "METADATA_CHANNELS",
-        "clock cut detections mesomode orbit phase simple_meteor_fit tx",
+        "clock cut detections mesomode phase simple_meteor_fit tx",
+    ).split()
+    mirror_channel_names = config.get(
+        "LOCAL_MIRROR_METADATA_CHANNELS",
+        " ".join(channels),
     ).split()
 
     web_dir.mkdir(parents=True, exist_ok=True)
@@ -188,8 +192,6 @@ def main():
     mirror_channels = []
     for channel in channels:
         newest, newest_date, count, total_bytes = channel_summary(local_root / channel)
-        mirror_newest, mirror_newest_date, mirror_count, mirror_total_bytes = channel_summary(
-            mirror_root / channel)
         record = {
             "channel": channel,
             "latest_file_date": newest_date,
@@ -202,6 +204,11 @@ def main():
         record.update(rsync_status.get(channel, {}))
         record.update(active_rsync.get(channel, {}))
         channel_status.append(record)
+
+    for channel in mirror_channel_names:
+        newest, newest_date, count, total_bytes = channel_summary(local_root / channel)
+        mirror_newest, mirror_newest_date, mirror_count, mirror_total_bytes = channel_summary(
+            mirror_root / channel)
         mirror_channels.append({
             "channel": channel,
             "source_latest_file_date": newest_date,
