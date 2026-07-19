@@ -133,20 +133,47 @@ class FFTFractionalRangeDopplerSearch:
         trimmed = values[:, : width * self.fdec]
         return trimmed.reshape(self.n_rg_native, width, self.fdec).sum(axis=2)
 
-    def mf(self, tx, echo):
-        power = np.zeros((self.n_rg, self.fftlen), dtype=np.float32)
+    def _doppler_spectrum(self, tx, channel_echo):
+        product = channel_echo[self.idx_mat] * tx[None, :]
+        return np.fft.fftshift(
+            np.fft.fft(self.decim(product), self.fftlen, axis=1), axes=1
+        )
+
+    def peak(self, tx, echo):
+        native_power = np.zeros((self.n_rg_native, self.fftlen), dtype=np.float32)
         for channel in range(self.n_channels):
-            product = echo[channel, self.idx_mat] * tx[None, :]
-            doppler_spectrum = np.fft.fftshift(
-                np.fft.fft(self.decim(product), self.fftlen, axis=1), axes=1
-            )
+            doppler_spectrum = self._doppler_spectrum(tx, echo[channel])
+            native_power += (
+                doppler_spectrum.real**2 + doppler_spectrum.imag**2
+            ).astype(np.float32)
+        native_ri, native_di = np.unravel_index(
+            int(np.nanargmax(native_power)), native_power.shape
+        )
+        doppler_indices = np.arange(native_di - 1, native_di + 2)
+        doppler_indices = np.clip(doppler_indices, 0, self.fftlen - 1)
+        fractional_power = np.zeros((self.n_rg, len(doppler_indices)), dtype=np.float32)
+        for channel in range(self.n_channels):
+            doppler_spectrum = self._doppler_spectrum(tx, echo[channel])
             fractional_ambiguity = signal.resample(
-                doppler_spectrum, self.n_rg, axis=0
+                doppler_spectrum[:, doppler_indices], self.n_rg, axis=0
             )
-            power += (
+            fractional_power += (
                 fractional_ambiguity.real**2 + fractional_ambiguity.imag**2
             ).astype(np.float32)
-        return power
+        search_center = native_ri * self.range_oversample
+        search_half_width = 2 * self.range_oversample
+        lower = max(0, search_center - search_half_width)
+        upper = min(self.n_rg, search_center + search_half_width + 1)
+        local_ri, local_di = np.unravel_index(
+            int(np.nanargmax(fractional_power[lower:upper])),
+            fractional_power[lower:upper].shape,
+        )
+        ri = lower + local_ri
+        noise = float(np.nanmedian(native_power))
+        dr, dd = quadratic_peak_2d(
+            np.log(np.maximum(fractional_power, max(noise, 1e-12))), ri, local_di
+        )
+        return float(ri + dr), float(self.dopv[doppler_indices[local_di]] + dd * (self.dopv[1] - self.dopv[0]))
 
 
 def robust_poly_residual(t, y, degree=2, mask=None, n_iter=5):

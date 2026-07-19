@@ -27,6 +27,11 @@ def estimate(search, z_tx, z_rx, delays, pulses, range_scale):
     ranges = np.full(len(pulses), np.nan)
     dopplers = np.full(len(pulses), np.nan)
     for output_index, pulse in enumerate(pulses):
+        if hasattr(search, "peak"):
+            range_index, doppler = search.peak(z_tx[pulse], z_rx[pulse])
+            ranges[output_index] = (delays[pulse] + range_index / range_scale) * DRG_KM
+            dopplers[output_index] = doppler
+            continue
         power = search.mf(z_tx[pulse], z_rx[pulse])
         noise = float(np.nanmedian(power))
         range_profile = np.nanmax(power, axis=1)
