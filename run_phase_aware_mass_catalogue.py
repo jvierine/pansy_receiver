@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Refit a catalogue subset with beat-phase and interferometric phase-rate data."""
+"""Refit a catalogue subset with 8-ms and 16-ms beat-phase acceleration data."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def completed_profile(path: Path) -> bool:
         return False
     try:
         with h5py.File(path, "r") as handle:
-            return "profile/chi2" in handle and "cross_phase_velocity" in handle
+            return "profile/chi2" in handle and "phase_acceleration_16ms" in handle
     except OSError:
         return False
 

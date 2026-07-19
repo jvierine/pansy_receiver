@@ -891,64 +891,84 @@ def render(row, grid_n=41):
         ax.legend(loc="lower left", fontsize=7, frameon=False)
     ax = axs[1, 3]
     with h5py.File(profile_path, "r") as profile_handle:
-        if "cross_phase_velocity" not in profile_handle:
+        if "phase_acceleration_16ms" not in profile_handle:
             ax.axis("off")
         else:
-            cross = profile_handle["cross_phase_velocity"]
-            cross_time = np.asarray(cross["time_s"], dtype=float) - fit_origin_abs_s
-            observed_phase = np.asarray(cross["observed_phase_rad"], dtype=float)
-            best_phase = np.asarray(cross["best_model_prediction_rad"], dtype=float)
-            selected_baselines = np.asarray(cross["selected_baseline_indices"], dtype=int)
-            baseline_m = np.asarray(cross["baseline_m"], dtype=float)
-            channel_pairs = np.asarray(cross["channel_pairs"], dtype=int)
-            delta_t = np.asarray(cross["delta_t_s"], dtype=float)
-            cross_shared_keep = (
-                np.asarray(cross["shared_inlier_mask"], dtype=bool)
-                if "shared_inlier_mask" in cross
-                else np.ones(len(cross_time), dtype=bool)
+            phase16 = profile_handle["phase_acceleration_16ms"]
+            samples16 = np.asarray(phase16["samples"])
+            phase_time16 = np.asarray(phase16["time_s"], dtype=float) - fit_origin_abs_s
+            acceleration16 = np.asarray(
+                phase16["measured_radial_acceleration_display_mps2"], dtype=float
             )
-            order = np.argsort(cross_time)
-            angle_scale_mrad = (
-                1e3
-                * pc.wavelength
-                / (2.0 * np.pi * np.linalg.norm(baseline_m, axis=1))
+            best_acceleration16 = np.asarray(
+                phase16["best_model_radial_acceleration_mps2"], dtype=float
             )
-            baseline_colors = plt.get_cmap("tab10")(np.arange(len(selected_baselines)))
-            for color_index, baseline_index in enumerate(selected_baselines):
-                color = baseline_colors[color_index]
-                left, right = channel_pairs[baseline_index]
-                if np.any(~cross_shared_keep):
-                    ax.scatter(
-                        cross_time[~cross_shared_keep],
-                        observed_phase[~cross_shared_keep, baseline_index]
-                        * angle_scale_mrad[baseline_index],
-                        s=5,
-                        color="0.78",
-                        alpha=0.55,
-                        edgecolors="none",
-                    )
-                ax.scatter(
-                    cross_time[cross_shared_keep],
-                    observed_phase[cross_shared_keep, baseline_index]
-                    * angle_scale_mrad[baseline_index],
-                    s=5,
-                    color=color,
-                    alpha=0.65,
-                    edgecolors="none",
-                    label=f"{left}-{right}",
+            shared_keep16 = np.asarray(phase16["shared_inlier_mask"], dtype=bool)
+            mean_dt16 = 0.5 * (
+                samples16["first_dt_s"] + samples16["second_dt_s"]
+            )
+            lag16 = float(phase16.attrs["acceleration_lag_s"])
+            acceleration_std16 = (
+                pc.wavelength
+                * samples16["formal_phase_std_rad"]
+                / (4.0 * np.pi * mean_dt16 * lag16)
+            )
+            finite16 = (
+                np.isfinite(phase_time16)
+                & np.isfinite(acceleration16)
+                & np.isfinite(acceleration_std16)
+            )
+            kept16 = finite16 & shared_keep16
+            dropped16 = finite16 & ~shared_keep16
+            if np.any(dropped16):
+                ax.errorbar(
+                    phase_time16[dropped16],
+                    acceleration16[dropped16] / 1e3,
+                    yerr=acceleration_std16[dropped16] / 1e3,
+                    fmt=".",
+                    ms=3,
+                    color="0.72",
+                    ecolor="0.85",
+                    elinewidth=0.5,
+                )
+            ax.errorbar(
+                phase_time16[kept16],
+                acceleration16[kept16] / 1e3,
+                yerr=acceleration_std16[kept16] / 1e3,
+                fmt=".",
+                ms=3,
+                color="black",
+                ecolor="0.78",
+                elinewidth=0.5,
+            )
+            order16 = np.argsort(phase_time16)
+            ax.plot(
+                phase_time16[order16],
+                best_acceleration16[order16] / 1e3,
+                color="tab:blue",
+                lw=1.0,
+            )
+            for target_um, fixed_pred in fixed_r0_dopplers.items():
+                first_velocity = np.interp(
+                    samples16["first_time_s"], obs_abs_s, fixed_pred * 1e3
+                )
+                second_velocity = np.interp(
+                    samples16["second_time_s"], obs_abs_s, fixed_pred * 1e3
+                )
+                fixed_acceleration = (
+                    (second_velocity - first_velocity)
+                    / (samples16["second_time_s"] - samples16["first_time_s"])
                 )
                 ax.plot(
-                    cross_time[order],
-                    np.angle(np.exp(1j * best_phase[order, baseline_index]))
-                    * angle_scale_mrad[baseline_index],
-                    color=color,
-                    lw=0.8,
-                    alpha=0.9,
+                    phase_time16[order16],
+                    fixed_acceleration[order16] / 1e3,
+                    color=fixed_colors.get(target_um, "0.35"),
+                    lw=0.9,
+                    ls="--",
                 )
             ax.set_xlabel("Time (s)")
-            ax.set_ylabel("Baseline-projected angle change (mrad)")
+            ax.set_ylabel(r"Radial acceleration, 16 ms (km s$^{-2}$)")
             ax.grid(alpha=0.2, lw=0.4)
-            ax.legend(frameon=False, fontsize=6.0, loc="lower left", ncol=2, title="Baseline")
     fig.subplots_adjust(left=0.05, right=0.98, bottom=0.08, top=0.90, wspace=0.32, hspace=0.40)
     PLOTS.mkdir(parents=True, exist_ok=True)
     fig.savefig(out)
