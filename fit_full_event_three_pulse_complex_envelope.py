@@ -867,6 +867,15 @@ def main() -> int:
         )
     axis.set_xlabel("Time (s)")
     axis.set_ylabel("Doppler (km/s)")
+    measured_doppler_km_s = result["velocity_mps"][fit_velocity_keep] / 1e3
+    measured_doppler_km_s = measured_doppler_km_s[np.isfinite(measured_doppler_km_s)]
+    if len(measured_doppler_km_s):
+        doppler_span = float(np.ptp(measured_doppler_km_s))
+        doppler_padding = max(0.5, 0.08 * doppler_span)
+        axis.set_ylim(
+            float(np.min(measured_doppler_km_s) - doppler_padding),
+            float(np.max(measured_doppler_km_s) + doppler_padding),
+        )
     axis.text(
         0.03,
         0.97,
