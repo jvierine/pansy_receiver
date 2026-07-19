@@ -27,7 +27,11 @@ def completed_profile(path: Path) -> bool:
         return False
     try:
         with h5py.File(path, "r") as handle:
-            return "profile/chi2" in handle and "phase_acceleration_16ms" in handle
+            return (
+                "profile/chi2" in handle
+                and "phase_acceleration_16ms" in handle
+                and handle.attrs.get("profile_strategy", "") == "adaptive_log_radius"
+            )
     except OSError:
         return False
 
@@ -42,6 +46,9 @@ def main() -> int:
     parser.add_argument("--worker-count", type=int, required=True)
     parser.add_argument("--snr-threshold", type=float, default=7.0)
     parser.add_argument("--max-events", type=int)
+    parser.add_argument("--max-nfev", type=int, default=100)
+    parser.add_argument("--adaptive-max-nfev", type=int, default=120)
+    parser.add_argument("--adaptive-spacing-dex", type=float, default=0.02)
     args = parser.parse_args()
     if args.worker_count < 1 or not 0 <= args.worker_index < args.worker_count:
         parser.error("worker-index must satisfy 0 <= worker-index < worker-count")
@@ -85,7 +92,18 @@ def main() -> int:
                 cut = load_cut(args.base / "metadata/cut", sample_idx)
                 observables = analyze_fit_observables(cut, hypothesis, args.snr_threshold)
                 write_fit_observables_h5(sample_idx, observables, temporary_observables)
-                fit_profile(diagnostics, baseline, temporary_observables, partial_output, None)
+                fit_profile(
+                    diagnostics,
+                    baseline,
+                    temporary_observables,
+                    partial_output,
+                    None,
+                    max_nfev=args.max_nfev,
+                    global_starts=True,
+                    adaptive_profile=True,
+                    adaptive_spacing_dex=args.adaptive_spacing_dex,
+                    adaptive_max_nfev=args.adaptive_max_nfev,
+                )
                 os.replace(partial_output, output)
                 status = "ok"
             except Exception as exc:

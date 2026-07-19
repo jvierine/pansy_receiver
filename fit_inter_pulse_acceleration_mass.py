@@ -17,6 +17,7 @@ import scipy.linalg as la
 import scipy.optimize as opt
 
 import fit_best_alias_physics_models as physics
+from mass_profile_grid import adaptive_profile_radii
 import pansy_config as pc
 from run_catalogue_mass_profiles import (
     load_selected_fit,
@@ -165,6 +166,9 @@ def fit_profile(
     max_nfev: int = 60,
     global_starts: bool = False,
     seed_profile_h5: Path | None = None,
+    adaptive_profile: bool = False,
+    adaptive_spacing_dex: float = 0.02,
+    adaptive_max_nfev: int = 120,
 ) -> dict:
     observations, stored = load_selected_fit(diagnostics_h5)
     t_s = observations["t_s"]
@@ -469,6 +473,87 @@ def fit_profile(
             success[index] = bool(best.success)
     minimum = float(np.nanmin(chi2))
     delta = chi2 - minimum
+    coarse_radius_um = radius_um.copy()
+    coarse_delta = delta.copy()
+    adaptive_points_added = 0
+    if adaptive_profile:
+        extra_radius_um = adaptive_profile_radii(
+            radius_um,
+            delta,
+            spacing_dex=adaptive_spacing_dex,
+        )
+        if len(extra_radius_um):
+            existing_radius_um = radius_um.copy()
+            existing_parameters6 = parameters6.copy()
+            existing_chi2 = chi2.copy()
+            existing_success = success.copy()
+            best_existing = int(np.nanargmin(existing_chi2))
+            extra_parameters6 = np.full((len(extra_radius_um), 6), np.nan)
+            extra_chi2 = np.full(len(extra_radius_um), np.nan)
+            extra_success = np.zeros(len(extra_radius_um), dtype=bool)
+            finite_parameter_rows = np.all(np.isfinite(existing_parameters6), axis=1)
+            for extra_index in np.argsort(
+                np.abs(np.log(extra_radius_um) - np.log(existing_radius_um[best_existing]))
+            ):
+                target_radius = extra_radius_um[extra_index]
+                target_log_radius_m = np.log10(target_radius * 1e-6)
+                starts = []
+                if np.count_nonzero(finite_parameter_rows) >= 2:
+                    starts.append(
+                        np.asarray(
+                            [
+                                np.interp(
+                                    np.log(target_radius),
+                                    np.log(existing_radius_um[finite_parameter_rows]),
+                                    existing_parameters6[finite_parameter_rows, column],
+                                )
+                                for column in range(6)
+                            ]
+                        )
+                    )
+                nearest = int(np.nanargmin(np.abs(np.log(existing_radius_um) - np.log(target_radius))))
+                starts.append(existing_parameters6[nearest])
+                starts.append(existing_parameters6[best_existing])
+                if np.any(np.all(np.isfinite(extra_parameters6), axis=1)):
+                    fitted_extra = np.flatnonzero(np.all(np.isfinite(extra_parameters6), axis=1))
+                    nearest_extra = fitted_extra[
+                        np.argmin(np.abs(np.log(extra_radius_um[fitted_extra]) - np.log(target_radius)))
+                    ]
+                    starts.append(extra_parameters6[nearest_extra])
+                candidates = []
+                for start in starts:
+                    if not np.all(np.isfinite(start)):
+                        continue
+                    try:
+                        result = opt.least_squares(
+                            lambda values: residual6(values, target_log_radius_m, echo_keep),
+                            start,
+                            bounds=(lower6, upper6),
+                            x_scale=scale6,
+                            loss="linear",
+                            max_nfev=adaptive_max_nfev,
+                        )
+                        candidates.append(result)
+                    except Exception:
+                        pass
+                if candidates:
+                    best = min(candidates, key=lambda candidate: candidate.cost)
+                    extra_parameters6[extra_index] = best.x
+                    extra_chi2[extra_index] = float(2.0 * best.cost)
+                    extra_success[extra_index] = bool(best.success)
+            radius_um = np.r_[existing_radius_um, extra_radius_um]
+            parameters6 = np.vstack((existing_parameters6, extra_parameters6))
+            chi2 = np.r_[existing_chi2, extra_chi2]
+            success = np.r_[existing_success, extra_success]
+            sort_order = np.argsort(radius_um)
+            radius_um = radius_um[sort_order]
+            parameters6 = parameters6[sort_order]
+            chi2 = chi2[sort_order]
+            success = success[sort_order]
+            log_radius_m = np.log10(radius_um * 1e-6)
+            minimum = float(np.nanmin(chi2))
+            delta = chi2 - minimum
+            adaptive_points_added = int(len(extra_radius_um))
     probability, weights = log_grid_probability(radius_um, delta)
     quantiles = weighted_quantile(radius_um, weights, [0.025, 0.5, 0.975])
     threshold = 3.841458820694124
@@ -545,6 +630,8 @@ def fit_profile(
         handle.attrs["joint_likelihood"] = "initial soft-L1 fit to all finite position, Doppler, 8-ms radial beat-phase, and 16-ms radial beat-phase measurements; shared echo rejection is the union of modality scores above 3.5; final linear profile fit uses that mask in every modality"
         handle.attrs["joint_echo_outlier_threshold"] = 3.5
         handle.attrs["phase_likelihood"] = "beat-phase residual wrapped to [-pi, pi) independently for each model"
+        handle.attrs["profile_strategy"] = "adaptive_log_radius" if adaptive_profile else "baseline_grid"
+        handle.attrs["outlier_mask_strategy"] = "locked once from robust coarse-grid best fit before all fixed-radius profile fits"
         profile = handle.create_group("profile")
         profile["radius_um"] = radius_um
         profile["mass_kg"] = radius_um_to_mass_kg(radius_um)
@@ -553,6 +640,11 @@ def fit_profile(
         profile["probability_density_log_radius"] = probability
         profile["parameters6"] = parameters6
         profile["success"] = success
+        profile["coarse_radius_um"] = coarse_radius_um
+        profile["coarse_delta_chi2"] = coarse_delta
+        profile.attrs["adaptive_points_added"] = adaptive_points_added
+        profile.attrs["adaptive_spacing_dex"] = adaptive_spacing_dex
+        profile.attrs["adaptive_max_nfev"] = adaptive_max_nfev
         result = handle.create_group("result")
         result["best_radius_um"] = best_radius
         result["ci95_lower_radius_um"] = lower
@@ -578,13 +670,17 @@ def fit_profile(
         "sigma_phase_16ms_rad": phase16["sigma_phase"],
         "n_phase_8ms": len(phase8["samples"]),
         "n_phase_16ms": len(phase16["samples"]),
+        "adaptive_points_added": adaptive_points_added,
     }
     if output_png is None:
         return summary
 
     fig, axes = plt.subplots(1, 2, figsize=(11.0, 4.3), constrained_layout=True)
     ax = axes[0]
-    ax.plot(radius_um, baseline_delta, color="0.5", lw=1.2, label="position + Doppler")
+    baseline_plot_delta = np.interp(
+        np.log(radius_um), np.log(coarse_radius_um), baseline_delta
+    )
+    ax.plot(radius_um, baseline_plot_delta, color="0.5", lw=1.2, label="position + Doppler")
     ax.plot(radius_um, delta, color="C0", lw=1.4, label="+ radial deceleration")
     ax.axhline(threshold, color="0.2", ls="--", lw=0.8, label="95% profile threshold")
     ax.set_xscale("log")
@@ -628,6 +724,9 @@ def main() -> int:
     parser.add_argument("--max-nfev", type=int, default=60)
     parser.add_argument("--global-starts", action="store_true")
     parser.add_argument("--seed-profile", type=Path)
+    parser.add_argument("--adaptive-profile", action="store_true")
+    parser.add_argument("--adaptive-spacing-dex", type=float, default=0.02)
+    parser.add_argument("--adaptive-max-nfev", type=int, default=120)
     parser.add_argument("--sample-idx", type=int)
     parser.add_argument("--base", type=Path, default=Path("/mnt/data/juha/pansy"))
     parser.add_argument("--baseline-profile-dir", type=Path)
@@ -657,6 +756,9 @@ def main() -> int:
         max_nfev=args.max_nfev,
         global_starts=args.global_starts,
         seed_profile_h5=args.seed_profile,
+        adaptive_profile=args.adaptive_profile,
+        adaptive_spacing_dex=args.adaptive_spacing_dex,
+        adaptive_max_nfev=args.adaptive_max_nfev,
     )
     print(summary, flush=True)
     return 0
