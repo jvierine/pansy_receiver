@@ -357,7 +357,7 @@ def main() -> int:
     samples = np.asarray(rows, dtype=float)
     finite = np.all(np.isfinite(samples), axis=1)
     samples = samples[finite]
-    if len(samples) < max(32, samples.shape[1] // 2):
+    if len(samples) < 32:
         raise RuntimeError(f"only {len(samples)} complete bootstrap replicates")
     covariance = np.cov(samples, rowvar=False, ddof=1)
     correlation, shrinkage = oas_correlation(samples)
