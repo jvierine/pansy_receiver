@@ -368,27 +368,24 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
     robust_residuals = normalized_residuals(
         robust_parameters6[robust_best_index], log_radius_m[robust_best_index]
     )
-    echo_residual_sum = np.zeros(len(t_s), dtype=float)
-    echo_residual_count = np.zeros(len(t_s), dtype=int)
+    echo_residual_score = np.full(len(t_s), np.nan)
     position_residual, doppler_residual, phase_fit_residual, cross_fit_residual = robust_residuals
-    echo_residual_sum[finite] += np.sum(position_residual[finite] ** 2, axis=1) + doppler_residual[finite] ** 2
-    echo_residual_count[finite] += position_residual.shape[1] + 1
+    echo_residual_score[finite] = np.sqrt(
+        np.sum(position_residual[finite] ** 2, axis=1) + doppler_residual[finite] ** 2
+    )
     for support, residual in zip(phase_support, phase_fit_residual):
         unique_support = np.unique(support)
-        echo_residual_sum[unique_support] += residual**2
-        echo_residual_count[unique_support] += 1
-    cross_row_sum = np.sum(cross_fit_residual**2, axis=1)
-    cross_row_count = cross_fit_residual.shape[1]
-    for support, residual_sum in zip(cross_support, cross_row_sum):
+        echo_residual_score[unique_support] = np.fmax(
+            echo_residual_score[unique_support], abs(residual)
+        )
+    cross_row_rms = np.sqrt(np.mean(cross_fit_residual**2, axis=1))
+    for support, residual_rms in zip(cross_support, cross_row_rms):
         unique_support = np.unique(support)
-        echo_residual_sum[unique_support] += residual_sum
-        echo_residual_count[unique_support] += cross_row_count
-    echo_residual_rms = np.full(len(t_s), np.nan)
-    scored = finite & (echo_residual_count > 0)
-    echo_residual_rms[scored] = np.sqrt(
-        echo_residual_sum[scored] / echo_residual_count[scored]
-    )
-    echo_keep = scored & (echo_residual_rms < 3.5)
+        echo_residual_score[unique_support] = np.fmax(
+            echo_residual_score[unique_support], residual_rms
+        )
+    scored = finite & np.isfinite(echo_residual_score)
+    echo_keep = scored & (echo_residual_score < 3.5)
     if np.count_nonzero(echo_keep) < 10:
         raise RuntimeError("joint outlier rejection retained fewer than ten echoes")
     phase_keep = np.all(echo_keep[phase_support], axis=1)
@@ -470,7 +467,7 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         handle.attrs["sample_idx"] = int(observations["sample_idx"])
         handle.attrs["sigma_phase_rad"] = sigma_phase
         handle.attrs["phase_weighting"] = "linear SNR interpolated to each phase sample, capped at 100 and normalized to unit mean"
-        handle.attrs["joint_likelihood"] = "initial soft-L1 fit to all finite position, Doppler, radial beat-phase, and cross-module phase measurements; one shared echo mask at normalized joint RMS < 3.5; final linear profile fit uses that mask in every modality"
+        handle.attrs["joint_likelihood"] = "initial soft-L1 fit to all finite position, Doppler, radial beat-phase, and cross-module phase measurements; shared echo rejection is the union of modality scores above 3.5; final linear profile fit uses that mask in every modality"
         handle.attrs["joint_echo_outlier_threshold"] = 3.5
         handle.attrs["cross_phase_likelihood"] = "same-transmit-beam 32-ms non-overlapping echo pairs; six independent spanning-tree receiver baselines; modulo-2pi residual with fixed per-baseline RMS and SNR weights"
         handle.attrs["sigma_radial_acceleration_mps2"] = sigma_acceleration
@@ -493,7 +490,7 @@ def fit_profile(diagnostics_h5: Path, baseline_h5: Path, beat_h5: Path, output_h
         result.attrs["ci95_lower_status"] = lower_status
         result.attrs["ci95_upper_status"] = upper_status
         result["marginal_radius_quantiles_um"] = quantiles
-        result["echo_normalized_joint_residual_rms"] = echo_residual_rms
+        result["echo_normalized_joint_residual_score"] = echo_residual_score
         result["echo_shared_inlier_mask"] = echo_keep
         phase = handle.create_group("phase_acceleration")
         phase["samples"] = phase_data["samples"]

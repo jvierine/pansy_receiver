@@ -733,6 +733,7 @@ def render(row, grid_n=41):
         )
         with h5py.File(profile_path, "r") as profile_handle:
             phase_shared_keep = np.ones(len(phase_samples), dtype=bool)
+            stored_best_acceleration = None
             acceleration_keys = (
                 "phase_acceleration/measured_radial_acceleration_display_mps2",
                 "phase_acceleration/measured_radial_acceleration_mps2",
@@ -748,6 +749,13 @@ def render(row, grid_n=41):
                 )
                 if stored_phase_keep.shape == phase_acceleration.shape:
                     phase_shared_keep = stored_phase_keep
+            if "phase_acceleration/best_model_radial_acceleration_mps2" in profile_handle:
+                candidate_acceleration = np.asarray(
+                    profile_handle["phase_acceleration/best_model_radial_acceleration_mps2"],
+                    dtype=float,
+                )
+                if candidate_acceleration.shape == phase_acceleration.shape:
+                    stored_best_acceleration = candidate_acceleration
         phase_acceleration_std = (
             pc.wavelength
             * phase_samples["formal_phase_std_rad"]
@@ -761,6 +769,8 @@ def render(row, grid_n=41):
             (second_model_velocity - first_model_velocity)
             / (phase_samples["second_time_s"] - phase_samples["first_time_s"])
         )
+        if stored_best_acceleration is not None:
+            model_acceleration = stored_best_acceleration
         finite_phase = (
             np.isfinite(phase_time)
             & np.isfinite(phase_acceleration)
