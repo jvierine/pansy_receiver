@@ -47,6 +47,22 @@ class Timeout(Exception):
 def _timeout(signum, frame):
     raise Timeout()
 
+
+def plot_wrapped_phase_line(ax, time_s, phase_rad, **kwargs):
+    order = np.argsort(time_s)
+    time_s = np.asarray(time_s, dtype=float)[order]
+    phase_rad = np.asarray(phase_rad, dtype=float)[order]
+    plot_time = []
+    plot_phase = []
+    for index, (time_value, phase_value) in enumerate(zip(time_s, phase_rad)):
+        if index and abs(phase_value - phase_rad[index - 1]) > np.pi:
+            plot_time.append(np.nan)
+            plot_phase.append(np.nan)
+        plot_time.append(time_value)
+        plot_phase.append(phase_value)
+    ax.plot(plot_time, plot_phase, **kwargs)
+
+
 class RDS:
     def __init__(self, txlen, echolen, nch):
         self.txlen = txlen
@@ -718,72 +734,29 @@ def render(row, grid_n=41):
     ax.set_xlabel("Time (s)"); ax.set_ylabel("Doppler (km/s)"); ax.grid(alpha=0.2, lw=0.4)
     if fixed_r0_dopplers:
         ax.legend(loc="lower right", fontsize=7, frameon=False)
-    ax = axs[0, 3]
-    if BEAT_H5_DIR is not None:
-        from fit_inter_pulse_acceleration_mass import load_nonoverlapping_phase_acceleration
 
-        beat_path = BEAT_H5_DIR / f"inter_pulse_phase_{sample}.h5"
-        phase_data = load_nonoverlapping_phase_acceleration(beat_path)
-        phase_samples = phase_data["samples"]
-        phase_dt = 0.5 * (phase_samples["first_dt_s"] + phase_samples["second_dt_s"])
-        phase_acceleration = (
-            pc.wavelength
-            * phase_samples["observed_delta_phase_rad"]
-            / (4.0 * np.pi * phase_dt**2)
-        )
+    def plot_phase_panel(ax, group_name, lag_label):
         with h5py.File(profile_path, "r") as profile_handle:
-            phase_shared_keep = np.ones(len(phase_samples), dtype=bool)
-            stored_best_acceleration = None
-            acceleration_keys = (
-                "phase_acceleration/measured_radial_acceleration_display_mps2",
-                "phase_acceleration/measured_radial_acceleration_mps2",
+            if group_name not in profile_handle:
+                ax.axis("off")
+                return
+            group = profile_handle[group_name]
+            samples = np.asarray(group["samples"])
+            phase_time = np.asarray(group["time_s"], dtype=float) - fit_origin_abs_s
+            observed_phase = np.asarray(
+                samples["observed_delta_phase_rad"], dtype=float
             )
-            acceleration_key = next((key for key in acceleration_keys if key in profile_handle), None)
-            if acceleration_key is not None:
-                fitted_acceleration = np.asarray(profile_handle[acceleration_key], dtype=float)
-                if fitted_acceleration.shape == phase_acceleration.shape:
-                    phase_acceleration = fitted_acceleration
-            if "phase_acceleration/shared_inlier_mask" in profile_handle:
-                stored_phase_keep = np.asarray(
-                    profile_handle["phase_acceleration/shared_inlier_mask"], dtype=bool
-                )
-                if stored_phase_keep.shape == phase_acceleration.shape:
-                    phase_shared_keep = stored_phase_keep
-            if "phase_acceleration/best_model_radial_acceleration_mps2" in profile_handle:
-                candidate_acceleration = np.asarray(
-                    profile_handle["phase_acceleration/best_model_radial_acceleration_mps2"],
-                    dtype=float,
-                )
-                if candidate_acceleration.shape == phase_acceleration.shape:
-                    stored_best_acceleration = candidate_acceleration
-        phase_acceleration_std = (
-            pc.wavelength
-            * phase_samples["formal_phase_std_rad"]
-            / (4.0 * np.pi * phase_dt**2)
-        )
-        phase_time_abs = 0.5 * (phase_samples["first_time_s"] + phase_samples["second_time_s"])
-        phase_time = phase_time_abs - fit_origin_abs_s
-        first_model_velocity = np.interp(phase_samples["first_time_s"], obs_abs_s, best_profile_doppler * 1e3)
-        second_model_velocity = np.interp(phase_samples["second_time_s"], obs_abs_s, best_profile_doppler * 1e3)
-        model_acceleration = (
-            (second_model_velocity - first_model_velocity)
-            / (phase_samples["second_time_s"] - phase_samples["first_time_s"])
-        )
-        if stored_best_acceleration is not None:
-            model_acceleration = stored_best_acceleration
-        finite_phase = (
-            np.isfinite(phase_time)
-            & np.isfinite(phase_acceleration)
-            & np.isfinite(phase_acceleration_std)
-        )
-        fit_good = finite_phase & phase_shared_keep
-        fit_dropped = finite_phase & ~phase_shared_keep
-        phase_order = np.argsort(phase_time)
+            phase_std = np.asarray(samples["formal_phase_std_rad"], dtype=float)
+            model_phase = np.asarray(group["best_model_prediction_rad"], dtype=float)
+            shared_keep = np.asarray(group["shared_inlier_mask"], dtype=bool)
+        finite_phase = np.isfinite(phase_time) & np.isfinite(observed_phase) & np.isfinite(phase_std)
+        fit_good = finite_phase & shared_keep
+        fit_dropped = finite_phase & ~shared_keep
         if np.any(fit_dropped):
             ax.errorbar(
                 phase_time[fit_dropped],
-                phase_acceleration[fit_dropped] / 1e3,
-                yerr=phase_acceleration_std[fit_dropped] / 1e3,
+                observed_phase[fit_dropped],
+                yerr=phase_std[fit_dropped],
                 fmt=".",
                 ms=3,
                 color="0.72",
@@ -792,42 +765,50 @@ def render(row, grid_n=41):
             )
         ax.errorbar(
             phase_time[fit_good],
-            phase_acceleration[fit_good] / 1e3,
-            yerr=phase_acceleration_std[fit_good] / 1e3,
+            observed_phase[fit_good],
+            yerr=phase_std[fit_good],
             fmt=".",
             ms=3,
             color="black",
             ecolor="0.78",
             elinewidth=0.5,
-            label="decoded beat phase",
         )
-        ax.plot(
-            phase_time[phase_order],
-            model_acceleration[phase_order] / 1e3,
+        plot_wrapped_phase_line(
+            ax,
+            phase_time,
+            model_phase,
             color="tab:blue",
             lw=1.0,
-            label="shrinking-radius model",
         )
         for target_um, fixed_pred in fixed_r0_dopplers.items():
-            first_velocity = np.interp(phase_samples["first_time_s"], obs_abs_s, fixed_pred * 1e3)
-            second_velocity = np.interp(phase_samples["second_time_s"], obs_abs_s, fixed_pred * 1e3)
-            fixed_acceleration = (
-                (second_velocity - first_velocity)
-                / (phase_samples["second_time_s"] - phase_samples["first_time_s"])
+            first_velocity = np.interp(
+                samples["first_time_s"], obs_abs_s, fixed_pred * 1e3
             )
-            ax.plot(
-                phase_time[phase_order],
-                fixed_acceleration[phase_order] / 1e3,
+            second_velocity = np.interp(
+                samples["second_time_s"], obs_abs_s, fixed_pred * 1e3
+            )
+            first_phase = 4.0 * np.pi * first_velocity * samples["first_dt_s"] / pc.wavelength
+            second_phase = 4.0 * np.pi * second_velocity * samples["second_dt_s"] / pc.wavelength
+            fixed_phase = np.angle(np.exp(1j * (second_phase - first_phase)))
+            plot_wrapped_phase_line(
+                ax,
+                phase_time,
+                fixed_phase,
                 color=fixed_colors.get(target_um, "0.35"),
                 lw=0.9,
                 ls="--",
-                label=rf"$r_0={target_um:g}\,\mu$m",
             )
         ax.set_xlabel("Time (s)")
-        ax.set_ylabel(r"Radial acceleration, 8 ms (km s$^{-2}$)")
+        ax.set_ylabel(rf"Beat-phase change, {lag_label} (rad)")
+        ax.set_ylim(-np.pi, np.pi)
+        ax.set_yticks(
+            [-np.pi, -0.5 * np.pi, 0.0, 0.5 * np.pi, np.pi],
+            [r"$-\pi$", r"$-\pi/2$", "0", r"$\pi/2$", r"$\pi$"],
+        )
         ax.grid(alpha=0.2, lw=0.4)
-    else:
-        ax.axis("off")
+
+    ax = axs[0, 3]
+    plot_phase_panel(ax, "phase_acceleration", "8 ms")
     ax = axs[1, 0]
     ax.pcolormesh(rti_t, rvec, RTI.T, cmap="plasma", shading="auto", vmin=snr_vmin, vmax=snr_vmax)
     if range_interval is not None:
@@ -890,85 +871,7 @@ def render(row, grid_n=41):
     if fixed_r0_speeds:
         ax.legend(loc="lower left", fontsize=7, frameon=False)
     ax = axs[1, 3]
-    with h5py.File(profile_path, "r") as profile_handle:
-        if "phase_acceleration_16ms" not in profile_handle:
-            ax.axis("off")
-        else:
-            phase16 = profile_handle["phase_acceleration_16ms"]
-            samples16 = np.asarray(phase16["samples"])
-            phase_time16 = np.asarray(phase16["time_s"], dtype=float) - fit_origin_abs_s
-            acceleration16 = np.asarray(
-                phase16["measured_radial_acceleration_display_mps2"], dtype=float
-            )
-            best_acceleration16 = np.asarray(
-                phase16["best_model_radial_acceleration_mps2"], dtype=float
-            )
-            shared_keep16 = np.asarray(phase16["shared_inlier_mask"], dtype=bool)
-            mean_dt16 = 0.5 * (
-                samples16["first_dt_s"] + samples16["second_dt_s"]
-            )
-            lag16 = float(phase16.attrs["acceleration_lag_s"])
-            acceleration_std16 = (
-                pc.wavelength
-                * samples16["formal_phase_std_rad"]
-                / (4.0 * np.pi * mean_dt16 * lag16)
-            )
-            finite16 = (
-                np.isfinite(phase_time16)
-                & np.isfinite(acceleration16)
-                & np.isfinite(acceleration_std16)
-            )
-            kept16 = finite16 & shared_keep16
-            dropped16 = finite16 & ~shared_keep16
-            if np.any(dropped16):
-                ax.errorbar(
-                    phase_time16[dropped16],
-                    acceleration16[dropped16] / 1e3,
-                    yerr=acceleration_std16[dropped16] / 1e3,
-                    fmt=".",
-                    ms=3,
-                    color="0.72",
-                    ecolor="0.85",
-                    elinewidth=0.5,
-                )
-            ax.errorbar(
-                phase_time16[kept16],
-                acceleration16[kept16] / 1e3,
-                yerr=acceleration_std16[kept16] / 1e3,
-                fmt=".",
-                ms=3,
-                color="black",
-                ecolor="0.78",
-                elinewidth=0.5,
-            )
-            order16 = np.argsort(phase_time16)
-            ax.plot(
-                phase_time16[order16],
-                best_acceleration16[order16] / 1e3,
-                color="tab:blue",
-                lw=1.0,
-            )
-            for target_um, fixed_pred in fixed_r0_dopplers.items():
-                first_velocity = np.interp(
-                    samples16["first_time_s"], obs_abs_s, fixed_pred * 1e3
-                )
-                second_velocity = np.interp(
-                    samples16["second_time_s"], obs_abs_s, fixed_pred * 1e3
-                )
-                fixed_acceleration = (
-                    (second_velocity - first_velocity)
-                    / (samples16["second_time_s"] - samples16["first_time_s"])
-                )
-                ax.plot(
-                    phase_time16[order16],
-                    fixed_acceleration[order16] / 1e3,
-                    color=fixed_colors.get(target_um, "0.35"),
-                    lw=0.9,
-                    ls="--",
-                )
-            ax.set_xlabel("Time (s)")
-            ax.set_ylabel(r"Radial acceleration, 16 ms (km s$^{-2}$)")
-            ax.grid(alpha=0.2, lw=0.4)
+    plot_phase_panel(ax, "phase_acceleration_16ms", "16 ms")
     fig.subplots_adjust(left=0.05, right=0.98, bottom=0.08, top=0.90, wspace=0.32, hspace=0.40)
     PLOTS.mkdir(parents=True, exist_ok=True)
     fig.savefig(out)
