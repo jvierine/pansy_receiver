@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from interferometer_alias_diagnostics import amp_scale, load_cut
+import plot_interferometric_disambiguation as pid
 from range_interpolation_study import (
     DRG_KM,
     FFTFractionalRangeDopplerSearch,
@@ -74,16 +75,43 @@ def main() -> int:
         if isinstance(label, bytes):
             label = label.decode()
         group = handle["hypotheses"][label]
-        pulses = np.asarray(group["pulse"], dtype=int)
         time_s = np.asarray(group["t_rel_s"], dtype=float)
         model_range = np.linalg.norm(
             np.asarray(group["physics_ceplecha_model"], dtype=float), axis=1
         )
         keep = np.asarray(
-            group.get("physics_ceplecha_keep", np.ones(len(pulses))), dtype=bool
+            group.get("physics_ceplecha_keep", np.ones(len(time_s))), dtype=bool
+        )
+        selected_range_time_component = int(
+            handle.attrs.get("selected_range_time_component", -1)
         )
 
     cut = load_cut(args.base / "metadata/cut", args.sample_idx)
+    cut_observations = pid.recompute_cut_observables(cut, interp=1)
+    snr_gate = np.asarray(cut_observations["snr"], dtype=float) > 7.0
+    observations_for_clock = {
+        key: value[snr_gate]
+        if isinstance(value, np.ndarray) and len(value) == len(snr_gate)
+        else value
+        for key, value in cut_observations.items()
+    }
+    if selected_range_time_component >= 0:
+        segments = pid.split_observations_by_range_time(
+            observations_for_clock, min_points=3
+        )
+        if selected_range_time_component < len(segments):
+            observations_for_clock = pid.subset_pulse_observations(
+                observations_for_clock, segments[selected_range_time_component]
+            )
+    diagnostic_zero_s = float(
+        np.asarray(observations_for_clock["tx_idx"], dtype=float)[0]
+    ) / 1e6
+    measurement_absolute_s = diagnostic_zero_s + time_s
+    raw_absolute_s = np.asarray(cut["tx_idx"], dtype=float) / 1e6
+    pulses = np.asarray(
+        [int(np.argmin(np.abs(raw_absolute_s - value))) for value in measurement_absolute_s],
+        dtype=int,
+    )
     z_rx = np.asarray(cut["zrx_echoes_re"], dtype=np.complex64) + 1j * np.asarray(
         cut["zrx_echoes_im"], dtype=np.complex64
     )
