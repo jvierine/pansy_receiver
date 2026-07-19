@@ -886,40 +886,71 @@ def render(row, grid_n=41):
         else:
             cross = profile_handle["cross_phase_velocity"]
             cross_time = np.asarray(cross["time_s"], dtype=float) - fit_origin_abs_s
-            measured_velocity = np.asarray(cross["measured_horizontal_velocity_km_s"], dtype=float)
-            best_velocity = np.asarray(cross["best_model_horizontal_velocity_km_s"], dtype=float)
+            observed_phase = np.asarray(cross["observed_phase_rad"], dtype=float)
+            best_phase = np.asarray(cross["best_model_prediction_rad"], dtype=float)
+            selected_baselines = np.asarray(cross["selected_baseline_indices"], dtype=int)
+            baseline_m = np.asarray(cross["baseline_m"], dtype=float)
             previous = np.asarray(cross["previous"], dtype=int)
             current = np.asarray(cross["current"], dtype=int)
             delta_t = np.asarray(cross["delta_t_s"], dtype=float)
-            cross_range = np.asarray(cross["range_km"], dtype=float)
             order = np.argsort(cross_time)
-            ax.scatter(cross_time, measured_velocity[:, 0], s=6, color="black", marker="o", label="EW measurement")
-            ax.scatter(cross_time, measured_velocity[:, 1], s=7, color="0.45", marker="x", label="NS measurement")
-            ax.plot(cross_time[order], best_velocity[order, 0], color="tab:blue", lw=1.0, label="best fit")
-            ax.plot(cross_time[order], best_velocity[order, 1], color="tab:blue", lw=1.0, ls=":")
+            for baseline_index in selected_baselines:
+                ax.scatter(
+                    cross_time,
+                    observed_phase[:, baseline_index],
+                    s=5,
+                    color="black",
+                    alpha=0.55,
+                    edgecolors="none",
+                )
+                ax.plot(
+                    cross_time[order],
+                    np.angle(np.exp(1j * best_phase[order, baseline_index])),
+                    color="tab:blue",
+                    lw=0.8,
+                    alpha=0.7,
+                    label="best fit" if baseline_index == selected_baselines[0] else None,
+                )
             for target_um, fixed_position in fixed_r0_positions.items():
                 direction = fixed_position / np.linalg.norm(fixed_position, axis=1)[:, None]
-                horizontal_velocity = (
-                    cross_range[:, None]
-                    * (direction[current, :2] - direction[previous, :2])
-                    / delta_t[:, None]
+                phase_prediction = (
+                    (2.0 * np.pi / pc.wavelength)
+                    * (
+                        (direction[current] - direction[previous])
+                        @ baseline_m.T
+                    )
                 )
                 color = fixed_colors.get(target_um, "0.35")
-                ax.plot(
-                    cross_time[order], horizontal_velocity[order, 0], color=color,
-                    lw=0.9, ls="--", label=rf"$r_0={target_um:g}\,\mu$m",
-                )
-                ax.plot(cross_time[order], horizontal_velocity[order, 1], color=color, lw=0.9, ls=":")
-            finite_velocity = measured_velocity[np.isfinite(measured_velocity)]
-            if len(finite_velocity):
-                low, high = np.nanpercentile(finite_velocity, [2, 98])
-                span = max(high - low, 2.0)
-                ax.set_ylim(low - 0.15 * span, high + 0.15 * span)
-            ax.text(0.03, 0.97, "solid/dashed: EW\ndotted: NS", transform=ax.transAxes, ha="left", va="top", fontsize=8)
+                for baseline_index in selected_baselines:
+                    ax.plot(
+                        cross_time[order],
+                        np.angle(np.exp(1j * phase_prediction[order, baseline_index])),
+                        color=color,
+                        lw=0.7,
+                        ls="--",
+                        alpha=0.65,
+                        label=(
+                            rf"$r_0={target_um:g}\,\mu$m"
+                            if baseline_index == selected_baselines[0]
+                            else None
+                        ),
+                    )
+            ax.set_ylim(-np.pi, np.pi)
+            ax.set_yticks([-np.pi, -0.5 * np.pi, 0.0, 0.5 * np.pi, np.pi])
+            ax.set_yticklabels([r"$-\pi$", r"$-\pi/2$", "0", r"$\pi/2$", r"$\pi$"])
+            ax.text(
+                0.03,
+                0.97,
+                f"{len(selected_baselines)} baselines, $\Delta t$={1e3 * np.nanmedian(delta_t):.0f} ms",
+                transform=ax.transAxes,
+                ha="left",
+                va="top",
+                fontsize=8,
+            )
             ax.set_xlabel("Time (s)")
-            ax.set_ylabel(r"Cross-phase velocity (km s$^{-1}$)")
+            ax.set_ylabel("Cross-module phase change (rad)")
             ax.grid(alpha=0.2, lw=0.4)
-            ax.legend(frameon=False, fontsize=6.0, loc="lower left", ncol=2)
+            ax.legend(frameon=False, fontsize=6.0, loc="lower left")
     fig.subplots_adjust(left=0.05, right=0.98, bottom=0.08, top=0.90, wspace=0.32, hspace=0.40)
     PLOTS.mkdir(parents=True, exist_ok=True)
     fig.savefig(out)
