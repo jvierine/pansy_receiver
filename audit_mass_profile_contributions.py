@@ -20,6 +20,7 @@ def parse_args():
     parser.add_argument("--diagnostics", type=Path, required=True)
     parser.add_argument("--baseline-profile", type=Path, required=True)
     parser.add_argument("--phase-profile", type=Path, required=True)
+    parser.add_argument("--beat-h5", type=Path, required=True)
     parser.add_argument("--output-h5", type=Path, required=True)
     parser.add_argument("--output-plot", type=Path, required=True)
     return parser.parse_args()
@@ -29,9 +30,9 @@ def circular_residual(observed, predicted):
     return np.angle(np.exp(1j * (observed - predicted)))
 
 
-def predicted_phase(predicted_doppler_mps, t_s, sample_epoch_unix, samples):
-    first_t = samples["first_time_s"] - sample_epoch_unix
-    second_t = samples["second_time_s"] - sample_epoch_unix
+def predicted_phase(predicted_doppler_mps, t_s, absolute_time_zero, samples):
+    first_t = samples["first_time_s"] - absolute_time_zero
+    second_t = samples["second_time_s"] - absolute_time_zero
     first_velocity = np.interp(first_t, t_s, predicted_doppler_mps)
     second_velocity = np.interp(second_t, t_s, predicted_doppler_mps)
     first_phase = 4.0 * np.pi * first_velocity * samples["first_dt_s"] / pc.wavelength
@@ -65,6 +66,9 @@ def main():
     sigma_doppler = float(np.sqrt(np.mean((doppler[stored_keep] - stored_prediction[stored_keep]) ** 2)))
     density, _ = physics.pbal.density_interpolator(sample_epoch)
 
+    with h5py.File(args.beat_h5, "r") as beat:
+        absolute_time_zero = float(np.asarray(beat["measurement/tx_idx"])[0]) / 1e6 - t_s[0]
+
     with h5py.File(args.baseline_profile, "r") as baseline, h5py.File(args.phase_profile, "r") as phase:
         radius_um = np.asarray(phase["profile/radius_um"], dtype=float)
         parameters6 = np.asarray(phase["profile/parameters6"], dtype=float)
@@ -96,7 +100,7 @@ def main():
             )
             for name, group in zip(("phase_8ms", "phase_16ms"), phase_groups):
                 samples = np.asarray(group["samples"])
-                phase_prediction = predicted_phase(prediction * 1e3, t_s, sample_epoch, samples)
+                phase_prediction = predicted_phase(prediction * 1e3, t_s, absolute_time_zero, samples)
                 contribution[name][index] = phase_chi2(group, phase_prediction)
 
         reconstructed = sum(contribution.values())
