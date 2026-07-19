@@ -890,6 +890,7 @@ def render(row, grid_n=41):
             best_phase = np.asarray(cross["best_model_prediction_rad"], dtype=float)
             selected_baselines = np.asarray(cross["selected_baseline_indices"], dtype=int)
             baseline_m = np.asarray(cross["baseline_m"], dtype=float)
+            channel_pairs = np.asarray(cross["channel_pairs"], dtype=int)
             delta_t = np.asarray(cross["delta_t_s"], dtype=float)
             order = np.argsort(cross_time)
             angle_scale_mrad = (
@@ -897,28 +898,31 @@ def render(row, grid_n=41):
                 * pc.wavelength
                 / (2.0 * np.pi * np.linalg.norm(baseline_m, axis=1))
             )
-            for baseline_index in selected_baselines:
+            baseline_colors = plt.get_cmap("tab10")(np.arange(len(selected_baselines)))
+            for color_index, baseline_index in enumerate(selected_baselines):
+                color = baseline_colors[color_index]
+                left, right = channel_pairs[baseline_index]
                 ax.scatter(
                     cross_time,
                     observed_phase[:, baseline_index] * angle_scale_mrad[baseline_index],
                     s=5,
-                    color="black",
-                    alpha=0.55,
+                    color=color,
+                    alpha=0.65,
                     edgecolors="none",
+                    label=f"{left}-{right}",
                 )
                 ax.plot(
                     cross_time[order],
                     np.angle(np.exp(1j * best_phase[order, baseline_index]))
                     * angle_scale_mrad[baseline_index],
-                    color="tab:blue",
+                    color=color,
                     lw=0.8,
-                    alpha=0.7,
-                    label="best fit" if baseline_index == selected_baselines[0] else None,
+                    alpha=0.9,
                 )
             ax.text(
                 0.03,
                 0.97,
-                rf"{len(selected_baselines)} baselines, $\Delta t$={1e3 * np.nanmedian(delta_t):.0f} ms",
+                rf"lines: best fit; $\Delta t$={1e3 * np.nanmedian(delta_t):.0f} ms",
                 transform=ax.transAxes,
                 ha="left",
                 va="top",
@@ -927,7 +931,7 @@ def render(row, grid_n=41):
             ax.set_xlabel("Time (s)")
             ax.set_ylabel("Baseline-projected angle change (mrad)")
             ax.grid(alpha=0.2, lw=0.4)
-            ax.legend(frameon=False, fontsize=6.0, loc="lower left")
+            ax.legend(frameon=False, fontsize=6.0, loc="lower left", ncol=2, title="Baseline")
     fig.subplots_adjust(left=0.05, right=0.98, bottom=0.08, top=0.90, wspace=0.32, hspace=0.40)
     PLOTS.mkdir(parents=True, exist_ok=True)
     fig.savefig(out)
