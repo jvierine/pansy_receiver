@@ -14,13 +14,14 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+import scipy.ndimage as ndi
 
 import fit_best_alias_physics_models as physics
 import pansy_config as pc
 import pansy_interferometry as interferometry
 from interferometer_alias_diagnostics import amp_scale, load_cut, recompute_cut_observables
 from plot_interferometric_disambiguation import split_observations_by_range_time, subset_pulse_observations
-from range_interpolation_study import DRG_KM, PowerOnlyRangeDopplerSearch, quadratic_peak_2d
+from range_interpolation_study import DRG_KM, FFTFractionalRangeDopplerSearch
 
 
 FS_HZ = 1e6
@@ -79,29 +80,36 @@ def precise_matched_filter_estimates(cut: dict, hyp: dict, snr_threshold: float)
     z_tx = np.asarray(cut["ztx_pulses_re"], np.float32) + 1j * np.asarray(cut["ztx_pulses_im"], np.float32)
     z_rx *= amp_scale()[None, :, None]
     delays = np.asarray(cut["delays"], dtype=float)
-    search = PowerOnlyRangeDopplerSearch(
-        txlen=z_tx.shape[1], echolen=z_rx.shape[2], n_channels=z_rx.shape[1], interp=2, fft_pad=16
+    search = FFTFractionalRangeDopplerSearch(
+        txlen=z_tx.shape[1],
+        echolen=z_rx.shape[2],
+        n_channels=z_rx.shape[1],
+        range_oversample=2,
+        fft_pad=16,
     )
     ranges = np.full(len(raw_idx), np.nan)
     dopplers = np.full(len(raw_idx), np.nan)
     for obs_i, pulse in enumerate(raw_idx):
-        power = search.mf(z_tx[pulse], z_rx[pulse])
-        range_profile = np.nanmax(power, axis=1)
-        range_index = int(np.nanargmax(range_profile))
-        doppler_index = int(np.nanargmax(power[range_index]))
-        dr, dd = quadratic_peak_2d(np.log(np.maximum(power, np.nanmedian(power))), range_index, doppler_index)
-        ranges[obs_i] = (delays[pulse] + (range_index + dr) / 2.0) * DRG_KM
-        dopplers[obs_i] = search.dopv[doppler_index] + dd * (search.dopv[1] - search.dopv[0])
+        range_index, doppler = search.peak(z_tx[pulse], z_rx[pulse])
+        ranges[obs_i] = (delays[pulse] + range_index / 2.0) * DRG_KM
+        dopplers[obs_i] = doppler
     return {"raw_idx": raw_idx, "range_km": ranges, "doppler_mps": dopplers}
 
 
 def fractional_segment(values: np.ndarray, start: float, length: int) -> np.ndarray:
-    """Linearly interpolate a complex fast-time segment at a fractional delay."""
-    sample = float(start) + np.arange(length, dtype=np.float64)
-    grid = np.arange(values.shape[-1], dtype=np.float64)
-    if sample[0] < 0.0 or sample[-1] > grid[-1]:
+    """Extract a fractional-delay segment using an FFT phase ramp."""
+    integer_start = int(np.floor(float(start)))
+    fraction = float(start) - integer_start
+    if integer_start < 0 or integer_start + length > values.shape[-1]:
         return np.full(length, np.nan + 1j * np.nan, dtype=np.complex128)
-    return np.interp(sample, grid, values.real) + 1j * np.interp(sample, grid, values.imag)
+    if abs(fraction) < 1e-12:
+        return np.asarray(values[integer_start : integer_start + length], dtype=np.complex128)
+    shifted = np.fft.ifft(
+        ndi.fourier_shift(np.fft.fft(values), shift=-fraction)
+    )
+    return np.asarray(
+        shifted[integer_start : integer_start + length], dtype=np.complex128
+    )
 
 
 def decoded_pulse_responses(
@@ -534,6 +542,8 @@ def write_fit_observables_h5(sample_idx: int, result: dict, output: Path) -> Non
     with h5py.File(output, "w") as handle:
         handle.attrs["sample_idx"] = int(sample_idx)
         handle.attrs["schema"] = "pansy.inter_pulse_fit_observables.v1"
+        handle.attrs["range_estimator"] = "FFT-bandlimited complex ambiguity interpolation at 2x native range sampling"
+        handle.attrs["fractional_echo_delay"] = "FFT phase ramp"
         beat_group = handle.create_group("baud_averaged_beat_pairs")
         for name, values in result["baud_averaged_beat_pairs"].items():
             beat_group.create_dataset(name, data=values)

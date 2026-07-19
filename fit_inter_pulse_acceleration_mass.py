@@ -174,8 +174,24 @@ def fit_profile(
 ) -> dict:
     observations, stored = load_selected_fit(diagnostics_h5)
     t_s = observations["t_s"]
-    points = observations["points_km"]
+    points = np.asarray(observations["points_km"], dtype=float).copy()
     doppler = observations["doppler_km_s"]
+    with h5py.File(beat_h5, "r") as beat_handle:
+        fft_range_km = np.asarray(beat_handle["measurement/range_km"], dtype=float)
+        range_estimator = str(beat_handle.attrs.get("range_estimator", "unknown"))
+    catalogue_range_km = np.linalg.norm(points, axis=1)
+    if len(fft_range_km) != len(points):
+        raise RuntimeError(
+            f"FFT range count {len(fft_range_km)} does not match trajectory count {len(points)}"
+        )
+    valid_range = (
+        np.isfinite(fft_range_km)
+        & np.isfinite(catalogue_range_km)
+        & (catalogue_range_km > 0.0)
+    )
+    points[valid_range] *= (
+        fft_range_km[valid_range] / catalogue_range_km[valid_range]
+    )[:, None]
     finite = np.isfinite(t_s) & np.all(np.isfinite(points), axis=1) & np.isfinite(doppler)
     keep = stored["keep"] & finite
     if np.count_nonzero(keep) < 10:
@@ -735,6 +751,8 @@ def fit_profile(
         handle.attrs["outlier_mask_strategy"] = "locked once from robust coarse-grid best fit before all fixed-radius profile fits"
         handle.attrs["position_likelihood"] = "fixed full 3x3 ENU residual covariance estimated from the stored best fit"
         handle.attrs["phase_cross_likelihood"] = "single covariance over 8-ms and 16-ms phase differences, including covariance from reused decoded beat phases"
+        handle.attrs["fitted_range_estimator"] = range_estimator
+        handle.attrs["fitted_position_direction"] = "catalogue interferometric ENU direction rescaled to the FFT fractional-delay range"
         handle["position_residual_covariance_km2"] = position_covariance
         handle["phase_acceleration_cross_covariance_8ms_16ms_rad2"] = cross_phase_covariance
         profile = handle.create_group("profile")
