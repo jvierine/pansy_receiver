@@ -190,6 +190,8 @@ def main():
             np.r_[parameters6[index], np.log10(radius_um[index] * 1e-6)], t_s, density
         )
     best_residual = points[echo_keep] - target_models[100.0][echo_keep]
+    print("position residual component correlation:")
+    print(np.array2string(np.corrcoef(best_residual.T), precision=3, suppress_small=True))
     for component, label in enumerate(("east", "north", "up")):
         correlations, correlation_time, effective_samples = residual_correlation_summary(
             best_residual[:, component]
