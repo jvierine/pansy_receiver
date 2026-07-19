@@ -889,9 +889,6 @@ def render(row, grid_n=41):
             observed_phase = np.asarray(cross["observed_phase_rad"], dtype=float)
             best_phase = np.asarray(cross["best_model_prediction_rad"], dtype=float)
             selected_baselines = np.asarray(cross["selected_baseline_indices"], dtype=int)
-            baseline_m = np.asarray(cross["baseline_m"], dtype=float)
-            previous = np.asarray(cross["previous"], dtype=int)
-            current = np.asarray(cross["current"], dtype=int)
             delta_t = np.asarray(cross["delta_t_s"], dtype=float)
             order = np.argsort(cross_time)
             for baseline_index in selected_baselines:
@@ -911,37 +908,13 @@ def render(row, grid_n=41):
                     alpha=0.7,
                     label="best fit" if baseline_index == selected_baselines[0] else None,
                 )
-            for target_um, fixed_position in fixed_r0_positions.items():
-                direction = fixed_position / np.linalg.norm(fixed_position, axis=1)[:, None]
-                phase_prediction = (
-                    (2.0 * np.pi / pc.wavelength)
-                    * (
-                        (direction[current] - direction[previous])
-                        @ baseline_m.T
-                    )
-                )
-                color = fixed_colors.get(target_um, "0.35")
-                for baseline_index in selected_baselines:
-                    ax.plot(
-                        cross_time[order],
-                        np.angle(np.exp(1j * phase_prediction[order, baseline_index])),
-                        color=color,
-                        lw=0.7,
-                        ls="--",
-                        alpha=0.65,
-                        label=(
-                            rf"$r_0={target_um:g}\,\mu$m"
-                            if baseline_index == selected_baselines[0]
-                            else None
-                        ),
-                    )
             ax.set_ylim(-np.pi, np.pi)
             ax.set_yticks([-np.pi, -0.5 * np.pi, 0.0, 0.5 * np.pi, np.pi])
             ax.set_yticklabels([r"$-\pi$", r"$-\pi/2$", "0", r"$\pi/2$", r"$\pi$"])
             ax.text(
                 0.03,
                 0.97,
-                f"{len(selected_baselines)} baselines, $\Delta t$={1e3 * np.nanmedian(delta_t):.0f} ms",
+                rf"{len(selected_baselines)} baselines, $\Delta t$={1e3 * np.nanmedian(delta_t):.0f} ms",
                 transform=ax.transAxes,
                 ha="left",
                 va="top",
