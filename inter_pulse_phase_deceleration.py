@@ -40,6 +40,10 @@ def load_selected(path: Path) -> dict:
             "doppler_mps": np.asarray(group["doppler_mps"], dtype=float),
             "physics_model": np.asarray(group["physics_ceplecha_model"], dtype=float),
             "physics_velocity": np.asarray(group["physics_ceplecha_velocity_km_s"], dtype=float),
+            "physics_keep": np.asarray(
+                group.get("physics_ceplecha_keep", np.ones(len(group["t_rel_s"]))),
+                dtype=bool,
+            ),
         }
     order = np.argsort(out["t_rel_s"])
     for name, values in list(out.items()):

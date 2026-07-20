@@ -44,6 +44,7 @@ from inter_pulse_phase_deceleration import (
     diagnostic_to_raw_pulses,
     fractional_segment,
     load_selected,
+    precise_matched_filter_estimates,
 )
 from run_catalogue_mass_profiles import load_selected_fit
 from run_catalogue_mass_profiles import log_grid_probability
@@ -53,7 +54,10 @@ from three_pulse_fit_quality import QUALITY_SCALES
 from three_pulse_fit_quality import event_fit_quality
 
 
-def phase_acceleration_lookup(profile_h5: Path) -> dict[tuple[int, int, int, int], dict]:
+def phase_acceleration_lookup(
+    profile_h5: Path,
+    observation_raw_idx: np.ndarray | None = None,
+) -> dict[tuple[int, int, int, int], dict]:
     lookup = {}
     with h5py.File(profile_h5, "r") as handle:
         group = handle["phase_acceleration"]
@@ -66,7 +70,10 @@ def phase_acceleration_lookup(profile_h5: Path) -> dict[tuple[int, int, int, int
         covariance = np.asarray(group["phase_difference_covariance_rad2"], dtype=float)
         keep = np.asarray(group["shared_inlier_mask"], dtype=bool)
         for index, row in enumerate(support):
-            lookup[tuple(int(value) for value in row)] = {
+            key_values = row
+            if observation_raw_idx is not None:
+                key_values = observation_raw_idx[row]
+            lookup[tuple(int(value) for value in key_values)] = {
                 "model_mps2": float(model[index]),
                 "measured_mps2": float(measured[index]),
                 "principal_mps2": float(principal[index]),
@@ -588,16 +595,25 @@ def main() -> int:
         precise_raw_idx = np.asarray(handle["raw_idx"], dtype=int) if "raw_idx" in handle else None
 
     precise_selection = None
+    target_raw_idx = None
     if precise_raw_idx is not None:
         clock = diagnostic_measurement_clock(cut, hypothesis, args.snr_threshold)
         target_raw_idx = diagnostic_to_raw_pulses(cut, clock, hypothesis["t_rel_s"])
         raw_to_precise = {int(raw): i for i, raw in enumerate(precise_raw_idx)}
-        missing = [int(raw) for raw in target_raw_idx if int(raw) not in raw_to_precise]
-        if missing:
-            raise RuntimeError(f"precise range/Doppler sidecar is missing raw pulse indices: {missing}")
-        precise_selection = np.asarray([raw_to_precise[int(raw)] for raw in target_raw_idx], dtype=int)
-        precise_range_km = precise_range_km[precise_selection]
-        precise_doppler_mps = precise_doppler_mps[precise_selection]
+        precise_selection = np.asarray([raw_to_precise.get(int(raw), -1) for raw in target_raw_idx], dtype=int)
+        common = precise_selection >= 0
+        aligned_range_km = np.full(len(target_raw_idx), np.nan, dtype=float)
+        aligned_doppler_mps = np.full(len(target_raw_idx), np.nan, dtype=float)
+        aligned_range_km[common] = precise_range_km[precise_selection[common]]
+        aligned_doppler_mps[common] = precise_doppler_mps[precise_selection[common]]
+        if np.any(~common):
+            recomputed = precise_matched_filter_estimates(cut, hypothesis, args.snr_threshold)
+            if not np.array_equal(np.asarray(recomputed["raw_idx"], dtype=int), target_raw_idx):
+                raise RuntimeError("recomputed precise measurements do not match the selected raw pulse indices")
+            aligned_range_km[~common] = np.asarray(recomputed["range_km"], dtype=float)[~common]
+            aligned_doppler_mps[~common] = np.asarray(recomputed["doppler_mps"], dtype=float)[~common]
+        precise_range_km = aligned_range_km
+        precise_doppler_mps = aligned_doppler_mps
     elif len(precise_range_km) != len(hypothesis["t_rel_s"]):
         raise RuntimeError(
             "precise range/Doppler sidecar has no raw_idx and does not match the selected echo count"
@@ -611,13 +627,17 @@ def main() -> int:
     )
     pairs = baud_averaged_beat_pairs(decoded, same_beam=True)
     triplets = valid_triplets(pairs)
-    prior_acceleration = phase_acceleration_lookup(args.prior_profile_h5)
+    prior_acceleration = phase_acceleration_lookup(args.prior_profile_h5, precise_raw_idx)
     with h5py.File(args.prior_profile_h5, "r") as handle:
-        echo_keep = np.asarray(handle["result/echo_shared_inlier_mask"], dtype=bool)
+        prior_echo_keep = np.asarray(handle["result/echo_shared_inlier_mask"], dtype=bool)
     if precise_selection is not None:
-        echo_keep = echo_keep[precise_selection]
-    elif len(echo_keep) != len(hypothesis["t_rel_s"]):
+        echo_keep = np.asarray(hypothesis.get("physics_keep", np.ones(len(precise_selection))), dtype=bool)
+        common = precise_selection >= 0
+        echo_keep[common] = prior_echo_keep[precise_selection[common]]
+    elif len(prior_echo_keep) != len(hypothesis["t_rel_s"]):
         raise RuntimeError("prior-profile echo mask does not match the selected echo count")
+    else:
+        echo_keep = prior_echo_keep
 
     observations, stored_fit = load_selected_fit(args.diagnostics_h5)
     trajectory_time = np.asarray(observations["t_s"], dtype=float)
@@ -775,7 +795,11 @@ def main() -> int:
         )
         templates = decoded["z_tx"][raw_indices].astype(np.complex128)
         amplitude_prior = rms_baud_amplitudes(raw_pulses, templates)
-        support = (previous, middle, middle, current)
+        support = (
+            tuple(int(raw_indices[i]) for i in (0, 1, 1, 2))
+            if precise_raw_idx is not None
+            else (previous, middle, middle, current)
+        )
         local_prior = prior_acceleration.get(support)
         middle_time = decoded["tx_idx"][middle] / FS_HZ - absolute_zero
         acceleration_guess = (
