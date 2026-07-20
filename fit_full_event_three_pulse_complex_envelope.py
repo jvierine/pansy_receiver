@@ -278,14 +278,16 @@ def refit_dynamics(
             rows = np.arange(position_count) * 3 + component
             for order in range(position_basis.shape[1]):
                 column = np.zeros(measurement_count)
-                column[rows] = position_basis[:, order] * position_sigma_km[component]
+                column[rows] = (
+                    position_basis[:, order] * 2.0 * position_sigma_km[component]
+                )
                 discrepancy_columns.append(column)
         velocity_basis = legendre_basis(fit_time[velocity_keep], 2)
         velocity_start = 3 * position_count
         for order in range(velocity_basis.shape[1]):
             column = np.zeros(measurement_count)
             column[velocity_start : velocity_start + velocity_count] = (
-                velocity_basis[:, order] * velocity_sigma_mps
+                velocity_basis[:, order] * 2.0 * velocity_sigma_mps
             )
             discrepancy_columns.append(column)
         acceleration_basis = legendre_basis(fit_time[acceleration_keep], 1)
@@ -293,7 +295,7 @@ def refit_dynamics(
         for order in range(acceleration_basis.shape[1]):
             column = np.zeros(measurement_count)
             column[acceleration_start:] = (
-                acceleration_basis[:, order] * acceleration_sigma_mps2
+                acceleration_basis[:, order] * 2.0 * acceleration_sigma_mps2
             )
             discrepancy_columns.append(column)
         discrepancy_basis = np.column_stack(discrepancy_columns)
@@ -457,7 +459,11 @@ def refit_dynamics(
         profile_parameters6[index] = fitted.x
         profile_chi2[index] = fitted_chi2
         scaled_jacobian = np.asarray(fitted.jac, dtype=float) * scale6[None, :]
-        information = scaled_jacobian.T @ scaled_jacobian
+        # A unit Gaussian in these dimensionless optimizer coordinates is a
+        # broad, finite nuisance prior.  It prevents the Laplace volume from
+        # diverging when position/velocity become weakly identifiable in the
+        # large-radius, nearly constant-speed limit.
+        information = scaled_jacobian.T @ scaled_jacobian + np.eye(len(scale6))
         sign, log_determinant = np.linalg.slogdet(information)
         if sign > 0.0 and np.isfinite(log_determinant):
             profile_log_hessian_determinant[index] = float(log_determinant)
