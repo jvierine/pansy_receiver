@@ -43,6 +43,7 @@ from inter_pulse_phase_deceleration import (
     load_selected,
 )
 from run_catalogue_mass_profiles import load_selected_fit
+from run_catalogue_mass_profiles import density_marginalized_radius_probability
 from run_catalogue_mass_profiles import log_grid_probability
 from run_catalogue_mass_profiles import radius_um_to_mass_kg
 from run_catalogue_mass_profiles import weighted_quantile
@@ -404,11 +405,38 @@ def refit_dynamics(
 
     minimum_chi2 = min(float(np.sum(residual(final.x) ** 2)), float(np.nanmin(profile_chi2)))
     profile_delta_chi2 = profile_chi2 - minimum_chi2
-    profile_probability, profile_weights = log_grid_probability(
+    conditional_profile_probability, conditional_profile_weights = log_grid_probability(
         profile_radius_um, profile_delta_chi2
+    )
+    (
+        profile_probability,
+        profile_weights,
+        profile_density_kg_m3,
+        profile_joint_weights,
+        profile_density_delta_chi2,
+    ) = density_marginalized_radius_probability(
+        profile_radius_um,
+        profile_delta_chi2,
+        reference_density_kg_m3=3000.0,
+        density_bounds_kg_m3=(100.0, 8000.0),
     )
     radius_quantiles_um = weighted_quantile(
         profile_radius_um, profile_weights, [0.025, 0.5, 0.975]
+    )
+    joint_radius_um = np.broadcast_to(
+        profile_radius_um[:, None], profile_joint_weights.shape
+    )
+    joint_density_kg_m3 = np.broadcast_to(
+        profile_density_kg_m3[None, :], profile_joint_weights.shape
+    )
+    joint_mass_kg = (
+        (4.0 / 3.0)
+        * np.pi
+        * joint_density_kg_m3
+        * (joint_radius_um * 1e-6) ** 3
+    )
+    mass_quantiles_kg = weighted_quantile(
+        joint_mass_kg.ravel(), profile_joint_weights.ravel(), [0.025, 0.5, 0.975]
     )
 
     profile_position = []
@@ -416,7 +444,7 @@ def refit_dynamics(
     profile_acceleration_mps2 = []
     profile_speed_km_s = []
     model_weights = []
-    for index in np.flatnonzero(profile_success & np.isfinite(profile_weights)):
+    for index in np.flatnonzero(profile_success & np.isfinite(conditional_profile_weights)):
         try:
             predicted = predict(
                 np.r_[profile_parameters6[index], profile_log_radius_m[index]]
@@ -427,7 +455,7 @@ def refit_dynamics(
         profile_doppler_mps.append(predicted[2])
         profile_acceleration_mps2.append(predicted[3])
         profile_speed_km_s.append(np.linalg.norm(predicted[1], axis=1))
-        model_weights.append(profile_weights[index])
+        model_weights.append(conditional_profile_weights[index])
 
     def pointwise_interval(values, weights):
         values = np.asarray(values, dtype=float)
@@ -449,13 +477,20 @@ def refit_dynamics(
     )
 
     fixed_radius_um = np.asarray([10.0, 100.0, 1000.0])
+    fixed_density_kg_m3 = []
     fixed_position_km = []
     fixed_doppler_mps = []
     fixed_acceleration_mps2 = []
     fixed_speed_km_s = []
     for target_um in fixed_radius_um:
-        index = int(np.flatnonzero(profile_radius_um == target_um)[0])
+        target_index = int(np.flatnonzero(profile_radius_um == target_um)[0])
+        density_index = int(np.nanargmin(profile_density_delta_chi2[target_index]))
+        equivalent_radius_um = (
+            target_um * profile_density_kg_m3[density_index] / 3000.0
+        )
+        index = int(np.argmin(np.abs(np.log(profile_radius_um / equivalent_radius_um))))
         predicted = predict(np.r_[profile_parameters6[index], profile_log_radius_m[index]])
+        fixed_density_kg_m3.append(profile_density_kg_m3[density_index])
         fixed_position_km.append(predicted[0])
         fixed_doppler_mps.append(predicted[2])
         fixed_acceleration_mps2.append(predicted[3])
@@ -481,17 +516,24 @@ def refit_dynamics(
         "profile_parameters6": profile_parameters6,
         "profile_chi2": profile_chi2,
         "profile_delta_chi2": profile_delta_chi2,
+        "conditional_profile_probability_density_log_radius": conditional_profile_probability,
+        "conditional_profile_probability_weights": conditional_profile_weights,
         "profile_probability_density_log_radius": profile_probability,
         "profile_probability_weights": profile_weights,
+        "profile_density_kg_m3": profile_density_kg_m3,
+        "profile_joint_probability_weights": profile_joint_weights,
+        "profile_density_delta_chi2": profile_density_delta_chi2,
         "profile_success": profile_success,
         "marginal_radius_quantiles_um": radius_quantiles_um,
-        "marginal_mass_quantiles_kg": radius_um_to_mass_kg(radius_quantiles_um),
+        "marginal_mass_quantiles_kg": mass_quantiles_kg,
+        "radius_upper_limit_data_constrained": False,
         "position_interval_km": position_interval_km,
         "doppler_interval_mps": doppler_interval_mps,
         "acceleration_interval_mps2": acceleration_interval_mps2,
         "speed_interval_km_s": speed_interval_km_s,
         "range_interval_km": range_interval_km,
         "fixed_radius_um": fixed_radius_um,
+        "fixed_density_kg_m3": np.asarray(fixed_density_kg_m3),
         "fixed_position_km": np.asarray(fixed_position_km),
         "fixed_doppler_mps": np.asarray(fixed_doppler_mps),
         "fixed_acceleration_mps2": np.asarray(fixed_acceleration_mps2),
@@ -1170,18 +1212,35 @@ def main() -> int:
     axis = event_axes[1, 1]
     axis.plot(profile_radius_um, profile_probability, color="black")
     axis.fill_between(profile_radius_um, 0.0, profile_probability, color="0.75", alpha=0.7)
-    axis.axvline(1e6 * 10.0 ** dynamics["parameters"][6], color="C0", label="new best fit")
-    axis.axvspan(radius_quantiles_um[0], radius_quantiles_um[-1], color="C0", alpha=0.12)
+    axis.axvline(
+        1e6 * 10.0 ** dynamics["parameters"][6],
+        color="C0",
+        label=r"conditional fit ($\rho_m=3000$ kg m$^{-3}$)",
+    )
+    axis.axvline(radius_quantiles_um[0], color="C0", ls="--", lw=1.0)
+    axis.annotate(
+        "upper tail open",
+        xy=(profile_radius_um[-1], 0.08),
+        xytext=(0.62, 0.08),
+        textcoords="axes fraction",
+        arrowprops={"arrowstyle": "->", "color": "C0"},
+        color="C0",
+        ha="left",
+        va="center",
+        fontsize=8,
+    )
     axis.text(
         0.04,
         0.94,
-        rf"95% $r_0$ {radius_quantiles_um[0]:.0f}--{radius_quantiles_um[-1]:.0f} $\mu$m"
+        rf"95% lower $r_0>{radius_quantiles_um[0]:.0f}$ $\mu$m; upper unconstrained"
         + "\n"
-        + rf"95% $m_0$ {mass_quantiles_kg[0]:.1e}--{mass_quantiles_kg[-1]:.1e} kg",
+        + rf"95% lower $m_0>{mass_quantiles_kg[0]:.1e}$ kg; upper prior-limited"
+        + "\n"
+        + r"$\rho_m$ marginalized over 100--8000 kg m$^{-3}$",
         transform=axis.transAxes,
         ha="left",
         va="top",
-        fontsize=8,
+        fontsize=7.5,
     )
     axis.set_xscale("log")
     axis.set_xlim(1.0, 1e4)
@@ -1193,7 +1252,7 @@ def main() -> int:
         functions=(radius_um_to_mass_kg, lambda mass: 1e6 * (3.0 * mass / (4.0 * np.pi * 3000.0)) ** (1.0 / 3.0)),
     )
     secondary.set_xscale("log")
-    secondary.set_xlabel(r"Initial mass $m_0$ (kg)")
+    secondary.set_xlabel(r"Initial mass $m_0$ (kg), for $\rho_m=3000$ kg m$^{-3}$")
 
     axis = event_axes[1, 2]
     axis.fill_between(
