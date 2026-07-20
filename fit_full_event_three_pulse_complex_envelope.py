@@ -669,6 +669,11 @@ def main() -> int:
         pulse_pair_measurements.append(
             {
                 **measurement,
+                "_raw_pulses": raw_pulses,
+                "_templates": templates,
+                "_pulse_snr": 10.0
+                ** (np.asarray(decoded["snr"][observation_indices], dtype=float) / 10.0),
+                "_pulse_spacing_s": pulse_spacing_s,
                 "previous": previous,
                 "current": current,
                 "time_s": float(
@@ -893,6 +898,35 @@ def main() -> int:
     # pulses.  A triplet rejected as the wrong acceleration alias must therefore
     # be rejected from both observables in the physical trajectory fit.
     fit_acceleration_keep = fit_velocity_keep.copy()
+    retained_triplet_time = result["time_s"][fit_velocity_keep]
+    retained_triplet_velocity = result["velocity_mps"][fit_velocity_keep]
+    if len(retained_triplet_time) < 2:
+        retained_triplet_time = result["time_s"]
+        retained_triplet_velocity = result["velocity_mps"]
+    for measurement in pulse_pair_measurements:
+        three_pulse_prior_velocity_mps = float(
+            np.interp(
+                measurement["time_s"],
+                retained_triplet_time,
+                retained_triplet_velocity,
+            )
+        )
+        three_pulse_refined = gapped_two_pulse_fft_doppler(
+            measurement["_raw_pulses"],
+            measurement["_templates"],
+            measurement["_pulse_spacing_s"],
+            2.0 * three_pulse_prior_velocity_mps / pc.wavelength,
+            pc.wavelength,
+            pulse_snr=measurement["_pulse_snr"],
+            zero_pad_factor=16,
+        )
+        measurement["three_pulse_prior_velocity_mps"] = three_pulse_prior_velocity_mps
+        measurement["three_pulse_resolved_velocity_mps"] = three_pulse_refined[
+            "resolved_velocity_mps"
+        ]
+        measurement["three_pulse_peak_coherence"] = three_pulse_refined[
+            "peak_coherence"
+        ]
     triplet_correlation = overlapping_triplet_correlation(
         selected_triplet_fits,
         np.column_stack((result["previous"], result["middle"], result["current"])),
@@ -994,6 +1028,9 @@ def main() -> int:
                 "timeline_length",
                 "occupied_samples",
                 "peak_coherence",
+                "three_pulse_prior_velocity_mps",
+                "three_pulse_resolved_velocity_mps",
+                "three_pulse_peak_coherence",
             ):
                 pulse_pair_group.create_dataset(
                     name, data=np.asarray([row[name] for row in pulse_pair_measurements])
@@ -1503,6 +1540,10 @@ def main() -> int:
     pair_prior_velocity = np.asarray(
         [row["prior_velocity_mps"] for row in pulse_pair_measurements], dtype=float
     )
+    pair_three_pulse_fft_velocity = np.asarray(
+        [row["three_pulse_resolved_velocity_mps"] for row in pulse_pair_measurements],
+        dtype=float,
+    )
     pair_model_velocity = np.interp(pair_time_absolute, trajectory_time, refit_doppler)
     if len(pair_time):
         axis.plot(
@@ -1521,6 +1562,14 @@ def main() -> int:
             markersize=3.0,
             label="joint two-pulse FFT",
         )
+        axis.plot(
+            pair_time,
+            pair_three_pulse_fft_velocity - pair_model_velocity,
+            ".",
+            color="black",
+            markersize=3.0,
+            label="joint FFT, 3-pulse fringe",
+        )
     axis.axhline(0.0, color="black", lw=0.8)
     axis.set_xlabel("Time (s)")
     axis.set_ylabel("Pulse-pair Doppler residual (m/s)")
@@ -1530,6 +1579,17 @@ def main() -> int:
             0.97,
             f"Aperture {1e3 * np.nanmedian([row['physical_aperture_s'] for row in pulse_pair_measurements]):.2f} ms",
             transform=axis.transAxes,
+            va="top",
+        )
+        axis.text(
+            0.97,
+            0.97,
+            "RMS "
+            f"{rms(pair_prior_velocity - pair_model_velocity):.0f} / "
+            f"{rms(pair_joint_fft_velocity - pair_model_velocity):.0f} / "
+            f"{rms(pair_three_pulse_fft_velocity - pair_model_velocity):.0f} m/s",
+            transform=axis.transAxes,
+            ha="right",
             va="top",
         )
     axis.legend(frameon=False, loc="best", fontsize=7)
