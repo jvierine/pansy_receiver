@@ -292,9 +292,22 @@ def refit_dynamics(
         2 * np.flatnonzero(acceleration_keep) + 1,
     ]
     triplet_start = 3 * position_count
-    measurement_correlation[triplet_start:, triplet_start:] = triplet_correlation[
+    selected_triplet_correlation = triplet_correlation[
         np.ix_(selected_triplet_rows, selected_triplet_rows)
     ]
+    # Linear propagation of shared raw-voltage noise produces nearly singular
+    # modes that are too optimistic for the nonlinear triplet estimator.  The
+    # event bootstrap covariance used OAS shrinkage of about 0.5; retain the
+    # banded correlations while adding the same independent-noise component.
+    triplet_correlation_shrinkage = 0.5
+    selected_triplet_correlation = (
+        (1.0 - triplet_correlation_shrinkage) * selected_triplet_correlation
+        + triplet_correlation_shrinkage
+        * np.eye(len(selected_triplet_correlation))
+    )
+    measurement_correlation[triplet_start:, triplet_start:] = (
+        selected_triplet_correlation
+    )
 
     def covariance_cholesky():
         measurement_scale = np.r_[
@@ -517,6 +530,7 @@ def refit_dynamics(
         "acceleration_sigma_mps2": acceleration_sigma_mps2,
         "position_sigma_km": position_sigma_km,
         "measurement_correlation": measurement_correlation,
+        "triplet_correlation_shrinkage": triplet_correlation_shrinkage,
         "triplet_correlation": triplet_correlation,
         "covariance_degrees_of_freedom": covariance_degrees_of_freedom,
         "covariance_variance_inflation": covariance_variance_inflation,
