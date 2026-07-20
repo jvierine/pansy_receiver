@@ -44,12 +44,12 @@ from inter_pulse_phase_deceleration import (
     diagnostic_to_raw_pulses,
     fractional_segment,
     load_selected,
-    precise_matched_filter_estimates,
 )
 from run_catalogue_mass_profiles import load_selected_fit
 from run_catalogue_mass_profiles import log_grid_probability
 from run_catalogue_mass_profiles import radius_um_to_mass_kg
 from run_catalogue_mass_profiles import weighted_quantile
+from plot_interferometric_disambiguation import refine_coherence_peak
 from three_pulse_fit_quality import QUALITY_SCALES
 from three_pulse_fit_quality import event_fit_quality
 
@@ -582,6 +582,11 @@ def main() -> int:
     parser.add_argument("--joint-covariance-h5", type=Path)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--snr-threshold", type=float, default=7.0)
+    parser.add_argument(
+        "--refine-interferometry-subgrid",
+        action="store_true",
+        help="Continuously refine the already selected interferometer alias within one 501-grid pixel.",
+    )
     parser.add_argument("--debug-triplet-dir", type=Path)
     parser.add_argument("--debug-triplet-count", type=int, default=0)
     parser.add_argument("--debug-only", action="store_true")
@@ -600,20 +605,15 @@ def main() -> int:
         clock = diagnostic_measurement_clock(cut, hypothesis, args.snr_threshold)
         target_raw_idx = diagnostic_to_raw_pulses(cut, clock, hypothesis["t_rel_s"])
         raw_to_precise = {int(raw): i for i, raw in enumerate(precise_raw_idx)}
-        precise_selection = np.asarray([raw_to_precise.get(int(raw), -1) for raw in target_raw_idx], dtype=int)
-        common = precise_selection >= 0
-        aligned_range_km = np.full(len(target_raw_idx), np.nan, dtype=float)
-        aligned_doppler_mps = np.full(len(target_raw_idx), np.nan, dtype=float)
-        aligned_range_km[common] = precise_range_km[precise_selection[common]]
-        aligned_doppler_mps[common] = precise_doppler_mps[precise_selection[common]]
-        if np.any(~common):
-            recomputed = precise_matched_filter_estimates(cut, hypothesis, args.snr_threshold)
-            if not np.array_equal(np.asarray(recomputed["raw_idx"], dtype=int), target_raw_idx):
-                raise RuntimeError("recomputed precise measurements do not match the selected raw pulse indices")
-            aligned_range_km[~common] = np.asarray(recomputed["range_km"], dtype=float)[~common]
-            aligned_doppler_mps[~common] = np.asarray(recomputed["doppler_mps"], dtype=float)[~common]
-        precise_range_km = aligned_range_km
-        precise_doppler_mps = aligned_doppler_mps
+        missing = [int(raw) for raw in target_raw_idx if int(raw) not in raw_to_precise]
+        if missing:
+            raise RuntimeError(
+                "precise range/Doppler sidecar does not contain the selected raw pulse indices: "
+                f"{missing}"
+            )
+        precise_selection = np.asarray([raw_to_precise[int(raw)] for raw in target_raw_idx], dtype=int)
+        precise_range_km = precise_range_km[precise_selection]
+        precise_doppler_mps = precise_doppler_mps[precise_selection]
     elif len(precise_range_km) != len(hypothesis["t_rel_s"]):
         raise RuntimeError(
             "precise range/Doppler sidecar has no raw_idx and does not match the selected echo count"
@@ -631,9 +631,7 @@ def main() -> int:
     with h5py.File(args.prior_profile_h5, "r") as handle:
         prior_echo_keep = np.asarray(handle["result/echo_shared_inlier_mask"], dtype=bool)
     if precise_selection is not None:
-        echo_keep = np.asarray(hypothesis.get("physics_keep", np.ones(len(precise_selection))), dtype=bool)
-        common = precise_selection >= 0
-        echo_keep[common] = prior_echo_keep[precise_selection[common]]
+        echo_keep = prior_echo_keep[precise_selection]
     elif len(prior_echo_keep) != len(hypothesis["t_rel_s"]):
         raise RuntimeError("prior-profile echo mask does not match the selected echo count")
     else:
@@ -927,6 +925,29 @@ def main() -> int:
             return 0
 
     fitted_points_km = np.asarray(observations["points_km"], dtype=float).copy()
+    if args.refine_interferometry_subgrid:
+        ch_pairs = np.asarray(pint.ch_pairs, dtype=int)
+        dmat = pint.pair_mat(ch_pairs, pint.get_antpos())
+        phasecal = pint.get_phasecal()
+        refined_direction = np.asarray(hypothesis["direction_uvw"], dtype=float).copy()
+        for observation in range(len(refined_direction)):
+            refined_direction[observation] = refine_coherence_peak(
+                decoded["xc"][observation],
+                int(decoded["beam_id"][observation]),
+                phasecal,
+                ch_pairs,
+                dmat,
+                float(refined_direction[observation, 0]),
+                float(refined_direction[observation, 1]),
+                2.0 / 500.0,
+            )[:3]
+        fitted_points_km = precise_range_km[:, None] * np.column_stack(
+            (
+                refined_direction[:, 0],
+                refined_direction[:, 1],
+                -refined_direction[:, 2],
+            )
+        )
     catalogue_range_km = np.linalg.norm(fitted_points_km, axis=1)
     valid_range = (
         np.isfinite(precise_range_km)
@@ -1026,6 +1047,7 @@ def main() -> int:
             "robust per-module voltage gain from matched event responses"
         )
         handle.attrs["steering_convention"] = "catalogue_arrival_uvw"
+        handle.attrs["interferometry_subgrid_refined"] = bool(args.refine_interferometry_subgrid)
         handle.create_dataset("triplet_fit", data=result)
         handle.create_dataset("dynamics_velocity_keep", data=fit_velocity_keep)
         handle.create_dataset("dynamics_acceleration_keep", data=fit_acceleration_keep)

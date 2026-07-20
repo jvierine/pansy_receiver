@@ -38,6 +38,7 @@ def load_selected(path: Path) -> dict:
             "t_rel_s": np.asarray(group["t_rel_s"], dtype=float),
             "range_km": np.asarray(group["range_km"], dtype=float),
             "doppler_mps": np.asarray(group["doppler_mps"], dtype=float),
+            "direction_uvw": np.asarray(group["direction_cosines_uvw"], dtype=float),
             "physics_model": np.asarray(group["physics_ceplecha_model"], dtype=float),
             "physics_velocity": np.asarray(group["physics_ceplecha_velocity_km_s"], dtype=float),
             "physics_keep": np.asarray(
