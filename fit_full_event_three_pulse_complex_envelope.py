@@ -46,6 +46,8 @@ from run_catalogue_mass_profiles import load_selected_fit
 from run_catalogue_mass_profiles import log_grid_probability
 from run_catalogue_mass_profiles import radius_um_to_mass_kg
 from run_catalogue_mass_profiles import weighted_quantile
+from three_pulse_fit_quality import QUALITY_SCALES
+from three_pulse_fit_quality import event_fit_quality
 
 
 def phase_acceleration_lookup(profile_h5: Path) -> dict[tuple[int, int, int, int], dict]:
@@ -853,6 +855,20 @@ def main() -> int:
         acceleration_keep=fit_acceleration_keep,
     )
 
+    quality = event_fit_quality(
+        fitted_points_km,
+        dynamics["position_km"],
+        echo_keep,
+        result["time_s"],
+        result["velocity_mps"],
+        result["acceleration_mps2"],
+        fit_velocity_keep,
+        fit_acceleration_keep,
+        trajectory_time,
+        dynamics["doppler_mps"],
+        dynamics["acceleration_mps2"],
+    )
+
     output_h5 = args.output_dir / f"three_pulse_full_event_{args.sample_idx}.h5"
     output_png = args.output_dir / f"three_pulse_full_event_{args.sample_idx}.png"
     event_png = args.output_dir / f"three_pulse_full_event_plot_{args.sample_idx}.png"
@@ -904,6 +920,14 @@ def main() -> int:
                 fit_group.create_dataset(name, data=value)
             else:
                 fit_group.attrs[name] = value
+        quality_group = handle.create_group("quality")
+        quality_group.attrs["score_definition"] = (
+            "sum((RMS / reference_standard_deviation)**2)"
+        )
+        for name, value in quality.items():
+            quality_group.attrs[name] = value
+        for name, scale in QUALITY_SCALES.items():
+            quality_group.attrs[f"reference_standard_deviation_{name}"] = scale
 
     time = result["time_s"] - trajectory_time[0]
     fft_residual = result["fft_velocity_mps"] - result["model_velocity_mps"]
