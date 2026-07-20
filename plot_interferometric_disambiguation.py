@@ -1201,6 +1201,53 @@ def local_coherence_peaks(coh: np.ndarray, threshold: float, max_peaks: int | No
     return ii, jj
 
 
+def refine_coherence_peak(
+    xc,
+    beam_id,
+    phasecal,
+    ch_pairs,
+    dmat,
+    u0,
+    v0,
+    grid_step,
+):
+    """Refine one discrete interferometer maximum in continuous u/v space."""
+    z = np.exp(
+        1j
+        * (
+            np.angle(xc)
+            + phasecal[beam_id, ch_pairs[:, 0]]
+            - phasecal[beam_id, ch_pairs[:, 1]]
+        )
+    )
+    k0 = 2.0 * np.pi / pc.wavelength
+
+    def coherence(offset):
+        uu = float(u0 + grid_step * offset[0])
+        vv = float(v0 + grid_step * offset[1])
+        rho2 = uu * uu + vv * vv
+        if rho2 >= 1.0:
+            return -1e3 - rho2
+        ww = -np.sqrt(1.0 - rho2)
+        steering = np.exp(-1j * k0 * (dmat @ np.array([uu, vv, ww])))
+        return float(np.abs(z @ steering) / len(ch_pairs))
+
+    result = opt.minimize(
+        lambda offset: -coherence(offset),
+        np.zeros(2, dtype=np.float64),
+        method="L-BFGS-B",
+        bounds=((-1.0, 1.0), (-1.0, 1.0)),
+        options={"ftol": 1e-12, "gtol": 1e-9, "maxiter": 50},
+    )
+    offset = result.x if result.success else np.zeros(2, dtype=np.float64)
+    uu = float(u0 + grid_step * offset[0])
+    vv = float(v0 + grid_step * offset[1])
+    if uu * uu + vv * vv >= 1.0:
+        uu, vv = float(u0), float(v0)
+    ww = float(-np.sqrt(max(0.0, 1.0 - uu * uu - vv * vv)))
+    return uu, vv, ww, coherence((np.array([uu, vv]) - np.array([u0, v0])) / grid_step)
+
+
 def selected_pulse_interferometer_response(candidates, obs, phasecal, ch_pairs, steering, valid, shape):
     """Normalized summed interferometer coherence over selected candidate pulses."""
     if obs is None or len(obs.get("xc", [])) == 0 or not candidates:
@@ -4981,19 +5028,30 @@ def main():
     peak_ij = local_coherence_peaks(single, args.coherence_threshold, max_peaks=args.max_peaks_per_pulse)
 
     candidates = []
+    grid_step = float(u[0, 1] - u[0, 0])
     t_rel = obs["tx_idx"] / 1e6 - obs["tx_idx"][0] / 1e6
     for i in range(len(obs["snr"])):
         coh = coherence_map(obs["xc"][i], int(obs["beam_id"][i]), phasecal, ch_pairs, steering, valid, u.shape)
         ii, jj = local_coherence_peaks(coh, args.coherence_threshold, max_peaks=args.max_peaks_per_pulse)
         for row, col in zip(ii, jj):
+            refined_u, refined_v, refined_w, refined_coherence = refine_coherence_peak(
+                obs["xc"][i],
+                int(obs["beam_id"][i]),
+                phasecal,
+                ch_pairs,
+                dmat,
+                float(u[row, col]),
+                float(v[row, col]),
+                grid_step,
+            )
             candidates.append(
                 {
-                    "u": float(u[row, col]),
-                    "v": float(v[row, col]),
-                    "w": float(w[row, col]),
+                    "u": refined_u,
+                    "v": refined_v,
+                    "w": refined_w,
                     "grid_row": int(row),
                     "grid_col": int(col),
-                    "coherence": float(coh[row, col]),
+                    "coherence": refined_coherence,
                     "t_rel": float(t_rel[i]),
                     "pulse": int(i),
                     "range_km": float(obs["range_km"][i]),

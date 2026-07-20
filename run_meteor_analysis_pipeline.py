@@ -75,6 +75,7 @@ def make_context(grid_n: int):
     tx_gain_maps = disamb.precompute_tx_array_gain_maps(u, v, w, valid)
     return {
         "ch_pairs": ch_pairs,
+        "dmat": dmat,
         "phasecal": phasecal,
         "u": u,
         "v": v,
@@ -98,6 +99,7 @@ def build_candidates(
     steering = context["steering"]
     phasecal = context["phasecal"]
     ch_pairs = context["ch_pairs"]
+    dmat = context["dmat"]
 
     strongest = int(np.argmax(obs["snr"]))
     single = disamb.coherence_map(
@@ -106,19 +108,30 @@ def build_candidates(
     peak_ij = disamb.local_coherence_peaks(single, coherence_threshold, max_peaks=max_peaks_per_pulse)
 
     candidates = []
+    grid_step = float(u[0, 1] - u[0, 0])
     t_rel = obs["tx_idx"] / 1e6 - obs["tx_idx"][0] / 1e6
     for i in range(len(obs["snr"])):
         coh = disamb.coherence_map(obs["xc"][i], int(obs["beam_id"][i]), phasecal, ch_pairs, steering, valid, u.shape)
         ii, jj = disamb.local_coherence_peaks(coh, coherence_threshold, max_peaks=max_peaks_per_pulse)
         for row, col in zip(ii, jj):
+            refined_u, refined_v, refined_w, refined_coherence = disamb.refine_coherence_peak(
+                obs["xc"][i],
+                int(obs["beam_id"][i]),
+                phasecal,
+                ch_pairs,
+                dmat,
+                float(u[row, col]),
+                float(v[row, col]),
+                grid_step,
+            )
             candidates.append(
                 {
-                    "u": float(u[row, col]),
-                    "v": float(v[row, col]),
-                    "w": float(context["w"][row, col]),
+                    "u": refined_u,
+                    "v": refined_v,
+                    "w": refined_w,
                     "grid_row": int(row),
                     "grid_col": int(col),
-                    "coherence": float(coh[row, col]),
+                    "coherence": refined_coherence,
                     "t_rel": float(t_rel[i]),
                     "pulse": int(i),
                     "range_km": float(obs["range_km"][i]),

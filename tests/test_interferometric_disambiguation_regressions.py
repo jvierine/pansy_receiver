@@ -43,6 +43,33 @@ def _subset_observations(obs, idx):
     }
 
 
+def test_continuous_coherence_refinement_recovers_off_grid_direction():
+    import pansy_config as pc
+    import pansy_interferometry as pint
+    import plot_interferometric_disambiguation as disamb
+
+    ch_pairs = np.asarray(list(itertools.combinations(np.arange(7), 2)))
+    dmat = pint.pair_mat(ch_pairs, pint.get_antpos())
+    true_u = 0.1234
+    true_v = -0.0876
+    true_w = -np.sqrt(1.0 - true_u**2 - true_v**2)
+    xc = np.exp(1j * (2.0 * np.pi / pc.wavelength) * (dmat @ np.array([true_u, true_v, true_w])))
+
+    u, v, _w, coherence = disamb.refine_coherence_peak(
+        xc,
+        0,
+        np.zeros((5, 7)),
+        ch_pairs,
+        dmat,
+        0.125,
+        -0.09,
+        0.005,
+    )
+
+    assert np.hypot(u - true_u, v - true_v) < 1e-6
+    assert coherence > 0.999999
+
+
 def _fit_best_component(obs, sample_idx, grid_n=501):
     import pansy_interferometry as pint
     import plot_interferometric_disambiguation as disamb
