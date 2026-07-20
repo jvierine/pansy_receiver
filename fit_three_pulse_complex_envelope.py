@@ -299,19 +299,11 @@ def fit_three_pulse_envelope(
     residual_vector = residual_full(parameters)
     weighted_sse = float(np.sum(residual_vector**2))
     degrees_of_freedom = max(len(residual_vector) - len(fit.x), 1)
-    nuisance_covariance = np.full((len(fit.x), len(fit.x)), np.nan)
+    covariance = np.full((len(fit.x), len(fit.x)), np.nan)
     try:
-        nuisance_covariance = (
-            np.linalg.inv(jacobian.T @ jacobian) * weighted_sse / degrees_of_freedom
-        )
+        covariance = np.linalg.inv(jacobian.T @ jacobian) * weighted_sse / degrees_of_freedom
     except np.linalg.LinAlgError:
         pass
-    if fixed_acceleration_mps2 is None:
-        covariance = nuisance_covariance
-    else:
-        covariance = np.zeros((len(parameters), len(parameters)), dtype=float)
-        nuisance_indices = np.arange(len(parameters) - 1)
-        covariance[np.ix_(nuisance_indices, nuisance_indices)] = nuisance_covariance
     velocity_mps = float(parameters[4] * wavelength_m / 2.0)
     velocity_acceleration_covariance = np.asarray(
         [
@@ -448,73 +440,6 @@ def fit_three_pulse_acceleration_aliases(
         "frequency_alias_spacing_hz": frequency_alias_spacing_hz,
         "velocity_alias_spacing_mps": wavelength_m / (2.0 * pulse_spacing_s),
         "frequency_half_width_hz": float(frequency_half_width_hz),
-        "weighted_sse": weighted_sse,
-        "delta_chi2": delta_chi2,
-        "residual_variance": residual_variance,
-        "fits": fits,
-    }
-
-
-def fit_three_pulse_doppler_aliases(
-    raw_pulses: np.ndarray,
-    pulse_templates: np.ndarray,
-    pulse_spacing_s: float,
-    reference_fit: dict,
-    wavelength_m: float,
-    *,
-    alias_numbers: np.ndarray | None = None,
-    pulse_snr: np.ndarray | None = None,
-    matched_filter_amplitudes: np.ndarray | None = None,
-) -> dict:
-    """Refit neighboring inter-pulse Doppler aliases at fixed acceleration."""
-    if alias_numbers is None:
-        alias_numbers = np.arange(-3, 4, dtype=int)
-    alias_numbers = np.asarray(alias_numbers, dtype=int)
-    if alias_numbers.ndim != 1 or len(alias_numbers) == 0:
-        raise ValueError("alias_numbers must be a non-empty one-dimensional array")
-
-    frequency_spacing_hz = 1.0 / float(pulse_spacing_s)
-    reference_parameters = np.asarray(reference_fit["parameters"], dtype=float)
-    reference_frequency_hz = float(reference_parameters[4])
-    acceleration_mps2 = float(reference_parameters[5])
-    fits = []
-    for alias_number in alias_numbers:
-        frequency_center_hz = reference_frequency_hz + alias_number * frequency_spacing_hz
-        initial = reference_parameters.copy()
-        initial[4] = frequency_center_hz
-        fits.append(
-            fit_three_pulse_envelope(
-                raw_pulses,
-                pulse_templates,
-                pulse_spacing_s,
-                frequency_center_hz,
-                acceleration_mps2,
-                wavelength_m,
-                frequency_half_width_hz=0.24 * frequency_spacing_hz,
-                pulse_snr=pulse_snr,
-                matched_filter_amplitudes=matched_filter_amplitudes,
-                fixed_acceleration_mps2=acceleration_mps2,
-                initial_parameters=initial,
-            )
-        )
-
-    weighted_sse = np.asarray([fit["weighted_sse"] for fit in fits], dtype=float)
-    best = int(np.nanargmin(weighted_sse))
-    residual_variance = weighted_sse[best] / max(
-        int(fits[best]["degrees_of_freedom"]), 1
-    )
-    delta_chi2 = (weighted_sse - weighted_sse[best]) / max(
-        float(residual_variance), np.finfo(float).tiny
-    )
-    frequency_hz = np.asarray([fit["parameters"][4] for fit in fits], dtype=float)
-    frequency_std_hz = np.asarray(
-        [np.sqrt(fit["parameter_covariance"][4, 4]) for fit in fits], dtype=float
-    )
-    return {
-        "alias_number": alias_numbers,
-        "fit_frequency_hz": frequency_hz,
-        "fit_velocity_mps": frequency_hz * wavelength_m / 2.0,
-        "fit_velocity_std_mps": frequency_std_hz * wavelength_m / 2.0,
         "weighted_sse": weighted_sse,
         "delta_chi2": delta_chi2,
         "residual_variance": residual_variance,

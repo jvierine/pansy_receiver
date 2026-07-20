@@ -32,83 +32,9 @@ from fit_three_pulse_complex_envelope import (
     PAIR_SPACING_S,
     PAIR_SPACING_TOLERANCE_S,
     fit_three_pulse_acceleration_aliases,
-    fit_three_pulse_doppler_aliases,
     fit_three_pulse_envelope,
     rms_baud_amplitudes,
 )
-
-
-def select_global_doppler_alias_path(
-    candidate_rows: list[dict],
-    time_s: np.ndarray,
-    model_velocity_mps: np.ndarray,
-    *,
-    transition_sigma_mps: float = 60.0,
-    anchor_sigma_mps: float = 400.0,
-) -> dict:
-    """Select a smooth event-wide Doppler alias path with dynamic programming."""
-    order = np.argsort(np.asarray(time_s), kind="stable")
-    costs: list[np.ndarray] = []
-    parents: list[np.ndarray] = []
-    emission_rows: list[np.ndarray] = []
-    transition_rows: list[np.ndarray] = []
-    for ordered_index, row_index in enumerate(order):
-        candidates = candidate_rows[int(row_index)]
-        velocity = np.asarray(candidates["fit_velocity_mps"], dtype=float)
-        velocity_std = np.asarray(candidates["fit_velocity_std_mps"], dtype=float)
-        likelihood = np.asarray(candidates["delta_chi2"], dtype=float)
-        anchor = ((velocity - model_velocity_mps[row_index]) / anchor_sigma_mps) ** 2
-        emission = likelihood + anchor
-        emission_rows.append(emission)
-        if ordered_index == 0:
-            costs.append(emission.copy())
-            parents.append(np.full(len(velocity), -1, dtype=int))
-            transition_rows.append(np.zeros(len(velocity)))
-            continue
-
-        previous_row_index = int(order[ordered_index - 1])
-        previous_candidates = candidate_rows[previous_row_index]
-        previous_velocity = np.asarray(
-            previous_candidates["fit_velocity_mps"], dtype=float
-        )
-        previous_std = np.asarray(
-            previous_candidates["fit_velocity_std_mps"], dtype=float
-        )
-        previous_departure = previous_velocity - model_velocity_mps[previous_row_index]
-        departure = velocity - model_velocity_mps[row_index]
-        sigma2 = (
-            transition_sigma_mps**2
-            + previous_std[:, None] ** 2
-            + velocity_std[None, :] ** 2
-        )
-        transition = (departure[None, :] - previous_departure[:, None]) ** 2 / sigma2
-        combined = costs[-1][:, None] + transition
-        parent = np.argmin(combined, axis=0)
-        costs.append(emission + combined[parent, np.arange(len(velocity))])
-        parents.append(parent)
-        transition_rows.append(transition[parent, np.arange(len(velocity))])
-
-    selected_ordered = np.empty(len(order), dtype=int)
-    selected_ordered[-1] = int(np.argmin(costs[-1]))
-    for index in range(len(order) - 1, 0, -1):
-        selected_ordered[index - 1] = parents[index][selected_ordered[index]]
-    selected = np.empty(len(order), dtype=int)
-    selected[order] = selected_ordered
-    emission_selected = np.empty(len(order), dtype=float)
-    transition_selected = np.empty(len(order), dtype=float)
-    for ordered_index, row_index in enumerate(order):
-        state = selected_ordered[ordered_index]
-        emission_selected[row_index] = emission_rows[ordered_index][state]
-        transition_selected[row_index] = transition_rows[ordered_index][state]
-    return {
-        "selected_index": selected,
-        "order": order,
-        "emission_cost": emission_selected,
-        "transition_cost": transition_selected,
-        "total_cost": float(np.min(costs[-1])),
-        "transition_sigma_mps": float(transition_sigma_mps),
-        "anchor_sigma_mps": float(anchor_sigma_mps),
-    }
 from interferometer_alias_diagnostics import load_cut, recompute_cut_observables
 from inter_pulse_phase_deceleration import (
     baud_averaged_beat_pairs,
@@ -676,14 +602,9 @@ def main() -> int:
         ("complex_best_alias_number", "i4"),
         ("selected_alias_delta_chi2", "f8"),
         ("second_alias_delta_chi2", "f8"),
-        ("selected_doppler_alias_number", "i4"),
-        ("selected_doppler_alias_delta_chi2", "f8"),
-        ("doppler_alias_emission_cost", "f8"),
-        ("doppler_alias_transition_cost", "f8"),
     ]
     rows = []
     alias_rows = []
-    doppler_alias_rows = []
     triplet_debug = []
     n_fast = decoded["z_tx"].shape[1]
     for previous, middle, current in triplets:
@@ -730,9 +651,6 @@ def main() -> int:
                 )
             )
             acceleration_phase_std_rad = local_prior["phase_std_rad"]
-        pulse_snr_linear = 10.0 ** (
-            np.asarray(decoded["snr"][observation_indices], dtype=float) / 10.0
-        )
         alias_fits = fit_three_pulse_acceleration_aliases(
             raw_pulses,
             templates,
@@ -740,7 +658,8 @@ def main() -> int:
             2.0 * velocity_guess / pc.wavelength,
             acceleration_guess,
             pc.wavelength,
-            pulse_snr=pulse_snr_linear,
+            pulse_snr=10.0
+            ** (np.asarray(decoded["snr"][observation_indices], dtype=float) / 10.0),
             matched_filter_amplitudes=amplitude_prior,
             acceleration_phase_rad=acceleration_phase_rad,
             acceleration_phase_std_rad=acceleration_phase_std_rad,
@@ -753,16 +672,6 @@ def main() -> int:
         )
         selected_alias_index = int(np.nanargmin(branch_score))
         fit = alias_fits["fits"][selected_alias_index]
-        doppler_aliases = fit_three_pulse_doppler_aliases(
-            raw_pulses,
-            templates,
-            pulse_spacing_s,
-            fit,
-            pc.wavelength,
-            pulse_snr=pulse_snr_linear,
-            matched_filter_amplitudes=amplitude_prior,
-        )
-        doppler_alias_rows.append(doppler_aliases)
         alias_rows.append(
             {
                 "observation_indices": observation_indices.copy(),
@@ -818,29 +727,11 @@ def main() -> int:
                     if len(alias_fits["delta_chi2"]) > 1
                     else np.inf
                 ),
-                0,
-                np.nan,
-                np.nan,
-                np.nan,
             )
         )
     result = np.asarray(rows, dtype=dtype)
     if len(result) == 0:
         raise RuntimeError("no valid three-pulse fits")
-
-    doppler_path = select_global_doppler_alias_path(
-        doppler_alias_rows,
-        result["time_s"],
-        result["model_velocity_mps"],
-    )
-    for row_index, selected_index in enumerate(doppler_path["selected_index"]):
-        candidates = doppler_alias_rows[row_index]
-        result["velocity_mps"][row_index] = candidates["fit_velocity_mps"][selected_index]
-        result["velocity_std_mps"][row_index] = candidates["fit_velocity_std_mps"][selected_index]
-        result["selected_doppler_alias_number"][row_index] = candidates["alias_number"][selected_index]
-        result["selected_doppler_alias_delta_chi2"][row_index] = candidates["delta_chi2"][selected_index]
-        result["doppler_alias_emission_cost"][row_index] = doppler_path["emission_cost"][row_index]
-        result["doppler_alias_transition_cost"][row_index] = doppler_path["transition_cost"][row_index]
 
     if args.debug_triplet_count > 0:
         if args.debug_triplet_dir is None:
@@ -966,32 +857,6 @@ def main() -> int:
             )
             for row_index, row in enumerate(alias_rows):
                 dataset[row_index] = np.asarray(row[name], dtype=base_dtype)
-        doppler_group = handle.create_group("triplet_doppler_aliases")
-        for name in (
-            "alias_number",
-            "fit_velocity_mps",
-            "fit_velocity_std_mps",
-            "weighted_sse",
-            "delta_chi2",
-        ):
-            base_dtype = np.int32 if name == "alias_number" else np.float64
-            doppler_group.create_dataset(
-                name,
-                data=np.asarray(
-                    [np.asarray(row[name], dtype=base_dtype) for row in doppler_alias_rows]
-                ),
-            )
-        doppler_group.create_dataset(
-            "selected_index", data=doppler_path["selected_index"]
-        )
-        doppler_group.attrs["selection"] = (
-            "event-wide dynamic programming over complex-likelihood Doppler aliases"
-        )
-        doppler_group.attrs["transition_sigma_mps"] = doppler_path[
-            "transition_sigma_mps"
-        ]
-        doppler_group.attrs["anchor_sigma_mps"] = doppler_path["anchor_sigma_mps"]
-        doppler_group.attrs["total_cost"] = doppler_path["total_cost"]
         handle.create_dataset("event_module_voltage_gain", data=module_voltage_gain)
         fit_group = handle.create_group("dynamics_refit")
         for name, value in dynamics.items():
