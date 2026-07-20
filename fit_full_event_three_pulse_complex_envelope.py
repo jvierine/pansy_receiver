@@ -209,6 +209,58 @@ def overlapping_triplet_correlation(triplet_fits, observation_indices):
     return correlation
 
 
+def smooth_global_branch_indices(
+    branch_candidates,
+    predicted_velocity_mps,
+    predicted_acceleration_mps2,
+    velocity_sigma_mps,
+    acceleration_sigma_mps2,
+    smoothness_sigma_mps2=2.5e4,
+):
+    """Select equally likely k=-1,0,+1 branches with weak acceleration smoothness."""
+    count = len(branch_candidates)
+    if count == 0:
+        return np.empty(0, dtype=int)
+    candidate_velocity = np.asarray(
+        [row["velocity_mps"] for row in branch_candidates], dtype=float
+    )
+    candidate_acceleration = np.asarray(
+        [row["acceleration_mps2"] for row in branch_candidates], dtype=float
+    )
+    if candidate_velocity.shape != (count, 3) or candidate_acceleration.shape != (
+        count,
+        3,
+    ):
+        raise ValueError("each triplet must retain exactly three branch candidates")
+    emission = (
+        (candidate_velocity - np.asarray(predicted_velocity_mps)[:, None])
+        / float(velocity_sigma_mps)
+    ) ** 2 + (
+        (candidate_acceleration - np.asarray(predicted_acceleration_mps2)[:, None])
+        / float(acceleration_sigma_mps2)
+    ) ** 2
+
+    cost = emission[0].copy()
+    predecessor = np.full((count, 3), -1, dtype=int)
+    for row in range(1, count):
+        smoothness = (
+            (
+                candidate_acceleration[row][None, :]
+                - candidate_acceleration[row - 1][:, None]
+            )
+            / float(smoothness_sigma_mps2)
+        ) ** 2
+        transition_cost = cost[:, None] + smoothness
+        predecessor[row] = np.argmin(transition_cost, axis=0)
+        cost = emission[row] + np.min(transition_cost, axis=0)
+
+    selected = np.empty(count, dtype=int)
+    selected[-1] = int(np.argmin(cost))
+    for row in range(count - 1, 0, -1):
+        selected[row - 1] = predecessor[row, selected[row]]
+    return selected
+
+
 def refit_dynamics(
     physics,
     trajectory_time,
@@ -222,6 +274,8 @@ def refit_dynamics(
     triplet_correlation=None,
     velocity_keep=None,
     acceleration_keep=None,
+    branch_candidates=None,
+    branch_observation_indices=None,
 ) -> dict:
     if velocity_keep is None:
         velocity_keep = np.asarray(result["shared_inlier"], dtype=bool)
@@ -359,6 +413,106 @@ def refit_dynamics(
         max_nfev=200,
     )
     preliminary = predict(final.x)
+
+    selected_branch_k = np.asarray(result["selected_alias_number"], dtype=int).copy()
+    branch_iterations = 0
+    if branch_candidates is not None:
+        if len(branch_candidates) != len(result):
+            raise ValueError("branch candidates must match the triplet result rows")
+        branch_observation_indices = np.asarray(branch_observation_indices, dtype=int)
+        if branch_observation_indices.shape != (len(result), 3):
+            raise ValueError("branch observation indices must have shape (n, 3)")
+
+        for branch_iterations in range(1, 7):
+            prediction = predict(final.x)
+            predicted_velocity = np.interp(fit_time, trajectory_time, prediction[2])
+            predicted_acceleration = np.interp(fit_time, trajectory_time, prediction[3])
+            selected_indices = smooth_global_branch_indices(
+                branch_candidates,
+                predicted_velocity,
+                predicted_acceleration,
+                velocity_sigma_mps,
+                acceleration_sigma_mps2,
+            )
+            changed = False
+            selected_fits = []
+            for row_index, (candidates, selected) in enumerate(
+                zip(branch_candidates, selected_indices)
+            ):
+                candidate_velocity = np.asarray(candidates["velocity_mps"], dtype=float)
+                candidate_acceleration = np.asarray(
+                    candidates["acceleration_mps2"], dtype=float
+                )
+                candidate_delta = np.asarray(candidates["delta_chi2"], dtype=float)
+                selected = int(selected)
+                fit = candidates["fits"][selected]
+                covariance = np.asarray(fit["parameter_covariance"], dtype=float)
+                selected_fits.append(fit)
+                new_k = int(candidates["k"][selected])
+                changed |= new_k != selected_branch_k[row_index]
+                selected_branch_k[row_index] = new_k
+                result["selected_alias_number"][row_index] = new_k
+                result["selected_alias_delta_chi2"][row_index] = candidate_delta[selected]
+                result["velocity_mps"][row_index] = candidate_velocity[selected]
+                result["velocity_std_mps"][row_index] = (
+                    np.sqrt(covariance[4, 4]) * pc.wavelength / 2.0
+                )
+                result["acceleration_mps2"][row_index] = candidate_acceleration[selected]
+                result["acceleration_std_mps2"][row_index] = np.sqrt(covariance[5, 5])
+                result["frequency_acceleration_correlation"][row_index] = (
+                    covariance[4, 5]
+                    / np.sqrt(covariance[4, 4] * covariance[5, 5])
+                )
+
+            triplet_correlation = overlapping_triplet_correlation(
+                selected_fits, branch_observation_indices
+            )
+            measurement_correlation[triplet_start:, triplet_start:] = triplet_correlation[
+                np.ix_(selected_triplet_rows, selected_triplet_rows)
+            ]
+            preliminary_velocity = np.interp(fit_time, trajectory_time, prediction[2])
+            preliminary_acceleration = np.interp(fit_time, trajectory_time, prediction[3])
+            velocity_sigma_mps = max(
+                20.0,
+                float(
+                    np.sqrt(
+                        np.mean(
+                            (
+                                result["velocity_mps"][velocity_keep]
+                                - preliminary_velocity[velocity_keep]
+                            )
+                            ** 2
+                        )
+                    )
+                ),
+            )
+            acceleration_sigma_mps2 = max(
+                1e3,
+                float(
+                    np.sqrt(
+                        np.mean(
+                            (
+                                result["acceleration_mps2"][acceleration_keep]
+                                - preliminary_acceleration[acceleration_keep]
+                            )
+                            ** 2
+                        )
+                    )
+                ),
+            )
+            joint_cholesky = covariance_cholesky()
+            final = least_squares(
+                residual,
+                final.x,
+                bounds=(lower, upper),
+                x_scale=scale,
+                loss="linear",
+                max_nfev=180,
+            )
+            if not changed:
+                break
+
+        preliminary = predict(final.x)
     preliminary_velocity = np.interp(fit_time, trajectory_time, preliminary[2])
     preliminary_acceleration = np.interp(fit_time, trajectory_time, preliminary[3])
     position_sigma_km = np.maximum(
@@ -561,6 +715,8 @@ def refit_dynamics(
         "triplet_correlation": triplet_correlation,
         "covariance_degrees_of_freedom": covariance_degrees_of_freedom,
         "covariance_variance_inflation": covariance_variance_inflation,
+        "selected_branch_k": selected_branch_k,
+        "branch_assignment_iterations": branch_iterations,
         "cost": float(final.cost),
         "success": bool(final.success),
         "profile_radius_um": profile_radius_um,
@@ -661,16 +817,6 @@ def main() -> int:
         raise RuntimeError(f"prior physical trajectory failed: {message}")
     model_doppler_mps = physics.predicted_doppler(position, velocity) * 1e3
     model_acceleration_mps2 = np.gradient(model_doppler_mps, trajectory_time)
-    initial_fft_model_doppler_mps = (
-        physics.predicted_doppler(
-            hypothesis["physics_model"], hypothesis["physics_velocity"]
-        )
-        * 1e3
-    )
-    initial_fft_model_acceleration_mps2 = np.gradient(
-        initial_fft_model_doppler_mps, trajectory_time
-    )
-
     dtype = [
         ("previous", "i4"),
         ("middle", "i4"),
@@ -697,6 +843,7 @@ def main() -> int:
     rows = []
     alias_rows = []
     selected_triplet_fits = []
+    branch_candidates = []
     triplet_debug = []
     n_fast = decoded["z_tx"].shape[1]
     for previous, middle, current in triplets:
@@ -738,13 +885,28 @@ def main() -> int:
             ** (np.asarray(decoded["snr"][observation_indices], dtype=float) / 10.0),
             matched_filter_amplitudes=amplitude_prior,
         )
-        initial_model_acceleration = float(
-            np.interp(middle_time, trajectory_time, initial_fft_model_acceleration_mps2)
+        alias_number = np.asarray(alias_fits["alias_number"], dtype=int)
+        branch_indices = np.asarray(
+            [int(np.flatnonzero(alias_number == k)[0]) for k in (-1, 0, 1)],
+            dtype=int,
         )
-        branch_score = np.abs(
-            alias_fits["fit_acceleration_mps2"] - initial_model_acceleration
+        branch_candidates.append(
+            {
+                "k": alias_number[branch_indices].copy(),
+                "velocity_mps": np.asarray(alias_fits["fit_velocity_mps"])[
+                    branch_indices
+                ].copy(),
+                "acceleration_mps2": np.asarray(
+                    alias_fits["fit_acceleration_mps2"]
+                )[branch_indices].copy(),
+                "delta_chi2": np.asarray(alias_fits["delta_chi2"])[
+                    branch_indices
+                ].copy(),
+                "fits": [alias_fits["fits"][index] for index in branch_indices],
+            }
         )
-        selected_alias_index = int(np.nanargmin(branch_score))
+        # Start at k=0. The event-wide trajectory fit chooses among all three.
+        selected_alias_index = int(branch_indices[1])
         fit = alias_fits["fits"][selected_alias_index]
         selected_triplet_fits.append(fit)
         alias_rows.append(
@@ -872,6 +1034,10 @@ def main() -> int:
         triplet_correlation=triplet_correlation,
         velocity_keep=fit_velocity_keep,
         acceleration_keep=fit_acceleration_keep,
+        branch_candidates=branch_candidates,
+        branch_observation_indices=np.column_stack(
+            (result["previous"], result["middle"], result["current"])
+        ),
     )
 
     output_h5 = args.output_dir / f"three_pulse_full_event_{args.sample_idx}.h5"
