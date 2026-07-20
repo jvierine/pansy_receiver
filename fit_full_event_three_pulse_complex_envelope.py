@@ -245,6 +245,18 @@ def refit_dynamics(
             f"joint correlation shape {joint_correlation.shape} does not match "
             f"the {measurement_count}-element fit vector"
         )
+    fit_time = np.asarray(result["time_s"], dtype=float)
+
+    def legendre_basis(time_s, degree):
+        time_s = np.asarray(time_s, dtype=float)
+        if time_s.size == 0:
+            return np.empty((0, degree + 1), dtype=float)
+        span = float(np.ptp(time_s))
+        if span <= 0.0:
+            normalized = np.zeros_like(time_s)
+        else:
+            normalized = 2.0 * (time_s - np.min(time_s)) / span - 1.0
+        return np.polynomial.legendre.legvander(normalized, degree)
 
     def covariance_cholesky():
         measurement_scale = np.r_[
@@ -253,13 +265,45 @@ def refit_dynamics(
             np.full(np.count_nonzero(acceleration_keep), acceleration_sigma_mps2),
         ]
         covariance = joint_correlation * np.outer(measurement_scale, measurement_scale)
+        # The voltage bootstrap captures random pulse noise but keeps the phase
+        # calibration and physical/measurement model fixed.  Add smooth
+        # event-level discrepancy modes so a coherent sub-RMS model difference
+        # is not counted as an independent detection at every echo.  The mode
+        # amplitudes use the same locked residual RMS scales for every r0.
+        discrepancy_columns = []
+        position_count = np.count_nonzero(echo_keep)
+        velocity_count = np.count_nonzero(velocity_keep)
+        position_basis = legendre_basis(trajectory_time[echo_keep], 2)
+        for component in range(3):
+            rows = np.arange(position_count) * 3 + component
+            for order in range(position_basis.shape[1]):
+                column = np.zeros(measurement_count)
+                column[rows] = position_basis[:, order] * position_sigma_km[component]
+                discrepancy_columns.append(column)
+        velocity_basis = legendre_basis(fit_time[velocity_keep], 2)
+        velocity_start = 3 * position_count
+        for order in range(velocity_basis.shape[1]):
+            column = np.zeros(measurement_count)
+            column[velocity_start : velocity_start + velocity_count] = (
+                velocity_basis[:, order] * velocity_sigma_mps
+            )
+            discrepancy_columns.append(column)
+        acceleration_basis = legendre_basis(fit_time[acceleration_keep], 1)
+        acceleration_start = velocity_start + velocity_count
+        for order in range(acceleration_basis.shape[1]):
+            column = np.zeros(measurement_count)
+            column[acceleration_start:] = (
+                acceleration_basis[:, order] * acceleration_sigma_mps2
+            )
+            discrepancy_columns.append(column)
+        discrepancy_basis = np.column_stack(discrepancy_columns)
+        covariance += discrepancy_basis @ discrepancy_basis.T
         covariance += np.eye(len(covariance)) * max(
             1e-12, 1e-10 * float(np.median(np.diag(covariance)))
         )
         return np.linalg.cholesky(covariance)
 
     joint_cholesky = covariance_cholesky()
-    fit_time = np.asarray(result["time_s"], dtype=float)
 
     def predict(parameters):
         position, velocity, radius, mass, success, message = physics.propagate_shrinking_radius_model(
