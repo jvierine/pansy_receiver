@@ -22,7 +22,8 @@ def test_global_alias_path_removes_independent_sideband_switches():
         rows,
         np.arange(len(rows), dtype=float) * 0.008,
         model,
-        trajectory_sigma_mps=20.0,
+        transition_sigma_mps=20.0,
+        anchor_sigma_mps=400.0,
     )
     selected = np.asarray(
         [rows[index]["fit_velocity_mps"][state] for index, state in enumerate(path["selected_index"])]
