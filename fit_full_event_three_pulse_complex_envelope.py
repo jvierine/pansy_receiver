@@ -31,7 +31,7 @@ from fit_three_pulse_complex_envelope import (
     FS_HZ,
     PAIR_SPACING_S,
     PAIR_SPACING_TOLERANCE_S,
-    common_bin_pulse_pair_doppler,
+    gapped_two_pulse_fft_doppler,
     fit_three_pulse_acceleration_aliases,
     fit_three_pulse_envelope,
     rms_baud_amplitudes,
@@ -654,7 +654,7 @@ def main() -> int:
             / pc.wavelength
         )
         try:
-            measurement = common_bin_pulse_pair_doppler(
+            measurement = gapped_two_pulse_fft_doppler(
                 raw_pulses,
                 templates,
                 pulse_spacing_s,
@@ -971,9 +971,9 @@ def main() -> int:
             for row_index, row in enumerate(alias_rows):
                 dataset[row_index] = np.asarray(row[name], dtype=base_dtype)
         handle.create_dataset("event_module_voltage_gain", data=module_voltage_gain)
-        pulse_pair_group = handle.create_group("common_bin_pulse_pair_doppler")
+        pulse_pair_group = handle.create_group("gapped_two_pulse_fft_doppler")
         pulse_pair_group.attrs["source"] = (
-            "same AoA-steered, fractional-range-aligned, baud-averaged voltage used by three-pulse fit"
+            "two AoA-steered, fractional-range-aligned, baud-averaged pulses on one native time grid"
         )
         pulse_pair_group.attrs["zero_pad_factor"] = 16
         if pulse_pair_measurements:
@@ -981,17 +981,19 @@ def main() -> int:
                 "previous",
                 "current",
                 "time_s",
-                "phase_rad",
-                "wrapped_frequency_hz",
-                "frequency_ambiguity_hz",
-                "wrapped_velocity_mps",
-                "velocity_ambiguity_mps",
                 "resolved_frequency_hz",
                 "resolved_velocity_mps",
-                "common_frequency_hz",
+                "prior_frequency_hz",
+                "prior_velocity_mps",
+                "sampled_peak_frequency_hz",
+                "baud_sample_rate_hz",
+                "baud_spacing_s",
+                "physical_aperture_s",
                 "frequency_step_hz",
                 "nfft",
-                "coherence",
+                "timeline_length",
+                "occupied_samples",
+                "peak_coherence",
             ):
                 pulse_pair_group.create_dataset(
                     name, data=np.asarray([row[name] for row in pulse_pair_measurements])
@@ -1495,56 +1497,38 @@ def main() -> int:
         [row["time_s"] for row in pulse_pair_measurements], dtype=float
     )
     pair_time = pair_time_absolute - time_origin
-    pair_ambiguity = np.asarray(
-        [row["velocity_ambiguity_mps"] for row in pulse_pair_measurements], dtype=float
-    )
-    pair_wrapped_velocity = np.asarray(
-        [row["wrapped_velocity_mps"] for row in pulse_pair_measurements], dtype=float
-    )
-    pair_fft_velocity = np.asarray(
+    pair_joint_fft_velocity = np.asarray(
         [row["resolved_velocity_mps"] for row in pulse_pair_measurements], dtype=float
     )
-    retained_triplet_time_absolute = result["time_s"][fit_velocity_keep]
-    retained_triplet_velocity = result["velocity_mps"][fit_velocity_keep]
-    if len(retained_triplet_time_absolute) >= 2:
-        pair_three_pulse_reference = np.interp(
-            pair_time_absolute,
-            retained_triplet_time_absolute,
-            retained_triplet_velocity,
-        )
-    else:
-        pair_three_pulse_reference = np.interp(
-            pair_time_absolute, trajectory_time, refit_doppler
-        )
-    pair_three_pulse_velocity = pair_wrapped_velocity + np.rint(
-        (pair_three_pulse_reference - pair_wrapped_velocity) / pair_ambiguity
-    ) * pair_ambiguity
+    pair_prior_velocity = np.asarray(
+        [row["prior_velocity_mps"] for row in pulse_pair_measurements], dtype=float
+    )
     pair_model_velocity = np.interp(pair_time_absolute, trajectory_time, refit_doppler)
     if len(pair_time):
         axis.plot(
             pair_time,
-            pair_fft_velocity - pair_model_velocity,
+            pair_prior_velocity - pair_model_velocity,
             ".",
             color="C0",
             markersize=3.0,
-            label="8 ms phase, FFT branch",
+            label="single-pulse FFT prior",
         )
         axis.plot(
             pair_time,
-            pair_three_pulse_velocity - pair_model_velocity,
+            pair_joint_fft_velocity - pair_model_velocity,
             ".",
             color="C1",
             markersize=3.0,
-            label="8 ms phase, 3-pulse branch",
+            label="joint two-pulse FFT",
         )
     axis.axhline(0.0, color="black", lw=0.8)
     axis.set_xlabel("Time (s)")
     axis.set_ylabel("Pulse-pair Doppler residual (m/s)")
-    if len(pair_ambiguity):
+    if pulse_pair_measurements:
         axis.text(
             0.03,
             0.97,
-            f"Alias spacing {np.nanmedian(pair_ambiguity):.1f} m/s",
+            f"Aperture {1e3 * np.nanmedian([row['physical_aperture_s'] for row in pulse_pair_measurements]):.2f} ms",
             transform=axis.transAxes,
             va="top",
         )

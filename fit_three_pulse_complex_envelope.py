@@ -220,6 +220,126 @@ def common_bin_pulse_pair_doppler(
     }
 
 
+def gapped_two_pulse_fft_doppler(
+    raw_pulses: np.ndarray,
+    pulse_templates: np.ndarray,
+    pulse_spacing_s: float,
+    frequency_prior_hz: float,
+    wavelength_m: float,
+    pulse_snr: np.ndarray | None = None,
+    zero_pad_factor: int = 16,
+    search_half_width_hz: float = 2000.0,
+) -> dict:
+    """FFT two baud-averaged pulses at native separation with a zero-filled gap."""
+    raw_pulses = np.asarray(raw_pulses, dtype=np.complex128)
+    pulse_templates = np.asarray(pulse_templates, dtype=np.complex128)
+    if raw_pulses.ndim != 2 or raw_pulses.shape[0] != 2:
+        raise ValueError("raw_pulses must have shape (2, n_fast)")
+    if pulse_templates.shape != raw_pulses.shape:
+        raise ValueError("pulse_templates must match raw_pulses")
+    if pulse_snr is None:
+        pulse_snr = np.ones(2, dtype=float)
+    if int(zero_pad_factor) < 1:
+        raise ValueError("zero_pad_factor must be positive")
+
+    bauds = baud_measurements(
+        raw_pulses,
+        pulse_templates,
+        np.zeros(2),
+        float(pulse_spacing_s),
+        np.asarray(pulse_snr, dtype=float),
+    )
+    use = (
+        np.isfinite(bauds["data"].real)
+        & np.isfinite(bauds["data"].imag)
+        & np.isfinite(bauds["envelope"])
+        & np.isfinite(bauds["weight"])
+        & (bauds["envelope"] > 0.0)
+        & (bauds["weight"] > 0.0)
+    )
+    for pulse in range(2):
+        if np.count_nonzero(use & (bauds["pulse_index"] == pulse)) < 4:
+            raise RuntimeError("too few finite baud averages for joint pulse FFT")
+
+    spacing_samples = []
+    for pulse in range(2):
+        pulse_time = bauds["absolute_time_s"][use & (bauds["pulse_index"] == pulse)]
+        spacing_samples.extend(np.diff(pulse_time))
+    spacing_samples = np.asarray(spacing_samples, dtype=float)
+    spacing_samples = spacing_samples[
+        np.isfinite(spacing_samples) & (spacing_samples > 0.0)
+    ]
+    if len(spacing_samples) == 0:
+        raise RuntimeError("baud times do not define a sample rate")
+    baud_spacing_s = float(np.median(spacing_samples))
+    baud_sample_rate_hz = 1.0 / baud_spacing_s
+
+    time_s = bauds["absolute_time_s"][use]
+    time_zero_s = float(np.min(time_s))
+    sample_index = np.rint((time_s - time_zero_s) / baud_spacing_s).astype(int)
+    placement_error_s = time_s - (time_zero_s + sample_index * baud_spacing_s)
+    if np.nanmax(np.abs(placement_error_s)) > 0.25 * baud_spacing_s:
+        raise RuntimeError("baud centers cannot be represented on one native time grid")
+
+    timeline_length = int(np.max(sample_index)) + 1
+    nfft_minimum = max(timeline_length, int(zero_pad_factor) * timeline_length)
+    nfft = int(2 ** np.ceil(np.log2(max(nfft_minimum, 2))))
+    timeline = np.zeros(timeline_length, dtype=np.complex128)
+    timeline_weight = np.zeros(timeline_length, dtype=float)
+    normalized_data = bauds["data"][use] / bauds["envelope"][use]
+    sample_weight = bauds["weight"][use]
+    sample_weight /= max(float(np.nanmax(sample_weight)), np.finfo(float).tiny)
+    np.add.at(timeline, sample_index, sample_weight * normalized_data)
+    np.add.at(timeline_weight, sample_index, sample_weight)
+    occupied = timeline_weight > 0.0
+    timeline[occupied] /= timeline_weight[occupied]
+    timeline *= np.sqrt(timeline_weight)
+
+    spectrum = np.fft.fftshift(np.fft.fft(timeline, n=nfft))
+    frequency_hz = np.fft.fftshift(np.fft.fftfreq(nfft, d=baud_spacing_s))
+    prior_alias_hz = (
+        (float(frequency_prior_hz) + 0.5 * baud_sample_rate_hz)
+        % baud_sample_rate_hz
+        - 0.5 * baud_sample_rate_hz
+    )
+    search = np.abs(frequency_hz - prior_alias_hz) <= float(search_half_width_hz)
+    if not np.any(search):
+        raise RuntimeError("joint pulse FFT search interval is empty")
+    power = np.abs(spectrum) ** 2
+    candidates = np.flatnonzero(search)
+    peak = int(candidates[np.nanargmax(power[candidates])])
+    peak_frequency_hz = float(frequency_hz[peak])
+    if 0 < peak < nfft - 1:
+        left, center, right = np.log(np.maximum(power[peak - 1 : peak + 2], 1e-300))
+        denominator = left - 2.0 * center + right
+        if np.isfinite(denominator) and abs(denominator) > 1e-15:
+            peak_frequency_hz += float(0.5 * (left - right) / denominator) * (
+                frequency_hz[1] - frequency_hz[0]
+            )
+    resolved_frequency_hz = peak_frequency_hz + np.rint(
+        (float(frequency_prior_hz) - peak_frequency_hz) / baud_sample_rate_hz
+    ) * baud_sample_rate_hz
+    peak_coherence = float(
+        abs(spectrum[peak])
+        / max(float(np.sum(np.abs(timeline))), np.finfo(float).tiny)
+    )
+    return {
+        "resolved_frequency_hz": resolved_frequency_hz,
+        "resolved_velocity_mps": resolved_frequency_hz * float(wavelength_m) / 2.0,
+        "prior_frequency_hz": float(frequency_prior_hz),
+        "prior_velocity_mps": float(frequency_prior_hz) * float(wavelength_m) / 2.0,
+        "sampled_peak_frequency_hz": peak_frequency_hz,
+        "baud_sample_rate_hz": baud_sample_rate_hz,
+        "baud_spacing_s": baud_spacing_s,
+        "physical_aperture_s": float(np.max(time_s) - np.min(time_s)),
+        "frequency_step_hz": float(frequency_hz[1] - frequency_hz[0]),
+        "nfft": nfft,
+        "timeline_length": timeline_length,
+        "occupied_samples": int(np.count_nonzero(occupied)),
+        "peak_coherence": peak_coherence,
+    }
+
+
 def fit_three_pulse_envelope(
     raw_pulses: np.ndarray,
     pulse_templates: np.ndarray,

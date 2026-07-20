@@ -7,6 +7,7 @@ from fit_three_pulse_complex_envelope import (
     baud_measurements,
     complex_envelope_model,
     fit_three_pulse_envelope,
+    gapped_two_pulse_fft_doppler,
 )
 
 
@@ -43,6 +44,41 @@ def test_common_bin_pulse_pair_recovers_frequency_alias():
     assert result["frequency_step_hz"] < 1e4
     assert abs(result["resolved_frequency_hz"] - frequency_hz) < 1e-6
     assert 0.0 < result["coherence"] <= 1.0
+
+
+def test_gapped_two_pulse_fft_uses_native_separation():
+    sample_count = 80
+    template = np.zeros(sample_count, dtype=np.complex128)
+    for start in (5, 15, 25, 35, 45, 55):
+        template[start : start + 3] = 1.0
+    pulse_spacing_s = 0.008
+    frequency_hz = 12345.0
+    fast_time_s = np.arange(sample_count) / FS_HZ
+    raw_pulses = np.stack(
+        [
+            template
+            * np.exp(
+                1j
+                * 2.0
+                * np.pi
+                * frequency_hz
+                * (pulse * pulse_spacing_s + fast_time_s)
+            )
+            for pulse in range(2)
+        ]
+    )
+    result = gapped_two_pulse_fft_doppler(
+        raw_pulses,
+        np.stack((template, template)),
+        pulse_spacing_s,
+        frequency_hz + 20.0,
+        0.6,
+        zero_pad_factor=16,
+    )
+    assert result["timeline_length"] > 0.9 * pulse_spacing_s * result["baud_sample_rate_hz"]
+    assert result["occupied_samples"] == 12
+    assert result["physical_aperture_s"] > pulse_spacing_s
+    assert abs(result["resolved_frequency_hz"] - frequency_hz) < 10.0
 
 
 def test_event_module_voltage_gain_removes_common_meteor_amplitude():
