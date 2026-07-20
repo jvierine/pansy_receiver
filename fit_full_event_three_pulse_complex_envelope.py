@@ -105,6 +105,68 @@ def pair_velocity_at_middle(pairs: dict, previous: int, middle: int, current: in
     return float(0.5 * (velocity[first[0]] + velocity[second[0]]))
 
 
+def plot_triplet_components(
+    fit: dict,
+    observation_indices: np.ndarray,
+    event_time_s: np.ndarray,
+    output: Path,
+) -> None:
+    """Plot the exact baud-averaged beamformed voltages used by one fit."""
+    pulse_index = np.asarray(fit["pulse_index"], dtype=int)
+    use = np.asarray(fit["use"], dtype=bool)
+    local_time_us = 1e6 * (
+        np.asarray(fit["absolute_time_s"], dtype=float) - pulse_index * PAIR_SPACING_S
+    )
+    fig, axes = plt.subplots(
+        1, 3, figsize=(11.5, 3.6), sharex=True, sharey=True, constrained_layout=True
+    )
+    for pulse, axis in enumerate(axes):
+        select = use & (pulse_index == pulse)
+        order = np.argsort(local_time_us[select])
+        for component, color, label in (
+            (np.real, "C0", "real"),
+            (np.imag, "C1", "imaginary"),
+        ):
+            axis.plot(
+                local_time_us[select],
+                component(fit["data"][select]),
+                ".",
+                color=color,
+                markersize=5,
+                label=f"{label} measurement",
+                zorder=3,
+            )
+            axis.plot(
+                local_time_us[select][order],
+                component(fit["model"][select])[order],
+                color=color,
+                linewidth=1.2,
+                label=f"{label} model",
+            )
+        observation = int(observation_indices[pulse])
+        axis.set_title(
+            (r"Pulse $n$", r"Pulse $n+1$", r"Pulse $n+2$")[pulse]
+            + rf", $t={event_time_s[observation] - event_time_s[0]:.3f}$ s"
+        )
+        axis.set_xlabel(r"Fast time within pulse ($\mu$s)")
+        axis.grid(alpha=0.2, linewidth=0.5)
+    axes[0].set_ylabel("Normalized decoded complex voltage")
+    axes[0].legend(loc="best", fontsize=7, frameon=False)
+    axes[-1].text(
+        0.97,
+        0.97,
+        rf"$v_r={fit['parameters'][4] * pc.wavelength / 2e3:.3f}$ km s$^{{-1}}$"
+        + "\n"
+        + rf"$a_r={fit['parameters'][5] / 1e3:.2f}$ km s$^{{-2}}$",
+        transform=axes[-1].transAxes,
+        ha="right",
+        va="top",
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output, dpi=180)
+    plt.close(fig)
+
+
 def refit_dynamics(
     physics,
     trajectory_time,
@@ -422,6 +484,9 @@ def main() -> int:
     parser.add_argument("--joint-covariance-h5", type=Path)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--snr-threshold", type=float, default=7.0)
+    parser.add_argument("--debug-triplet-dir", type=Path)
+    parser.add_argument("--debug-triplet-count", type=int, default=0)
+    parser.add_argument("--debug-only", action="store_true")
     args = parser.parse_args()
 
     cut = load_cut(args.base / "metadata/cut", args.sample_idx)
@@ -510,6 +575,7 @@ def main() -> int:
         ("acceleration_at_bound", "?"),
     ]
     rows = []
+    triplet_debug = []
     n_fast = decoded["z_tx"].shape[1]
     for previous, middle, current in triplets:
         observation_indices = np.asarray([previous, middle, current], dtype=int)
@@ -548,6 +614,8 @@ def main() -> int:
             pulse_snr=np.asarray(decoded["snr"][observation_indices], dtype=float),
             matched_filter_amplitudes=amplitude_prior,
         )
+        if args.debug_triplet_count > 0:
+            triplet_debug.append((fit, observation_indices.copy()))
         covariance = np.asarray(fit["parameter_covariance"], dtype=float)
         fit_time = decoded["tx_idx"][previous] / FS_HZ - absolute_zero + fit["time_center_s"]
         model_velocity = float(np.interp(fit_time, trajectory_time, model_doppler_mps))
@@ -581,6 +649,37 @@ def main() -> int:
     result = np.asarray(rows, dtype=dtype)
     if len(result) == 0:
         raise RuntimeError("no valid three-pulse fits")
+
+    if args.debug_triplet_count > 0:
+        if args.debug_triplet_dir is None:
+            raise ValueError("--debug-triplet-dir is required with --debug-triplet-count")
+        selected = np.unique(
+            np.linspace(
+                0,
+                len(triplet_debug) - 1,
+                min(args.debug_triplet_count, len(triplet_debug)),
+                dtype=int,
+            )
+        )
+        for debug_rank, triplet_index in enumerate(selected, start=1):
+            fit, observation_indices = triplet_debug[int(triplet_index)]
+            plot_triplet_components(
+                fit,
+                observation_indices,
+                trajectory_time,
+                args.debug_triplet_dir
+                / (
+                    f"triplet_{debug_rank:02d}_index_{triplet_index:03d}_"
+                    f"obs_{observation_indices[0]:03d}_{observation_indices[1]:03d}_"
+                    f"{observation_indices[2]:03d}.png"
+                ),
+            )
+        if args.debug_only:
+            print(
+                f"debug_triplets={len(selected)} output={args.debug_triplet_dir}",
+                flush=True,
+            )
+            return 0
 
     fitted_points_km = np.asarray(observations["points_km"], dtype=float).copy()
     catalogue_range_km = np.linalg.norm(fitted_points_km, axis=1)
