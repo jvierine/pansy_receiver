@@ -746,6 +746,9 @@ def main() -> int:
         )
         selected_alias_index = int(np.nanargmin(branch_score))
         fit = alias_fits["fits"][selected_alias_index]
+        acceleration_at_bound = (
+            abs(fit["parameters"][5] - initial_model_acceleration) > 1.99e4
+        )
         selected_triplet_fits.append(fit)
         alias_rows.append(
             {
@@ -793,7 +796,7 @@ def main() -> int:
                 covariance[4, 5] / np.sqrt(covariance[4, 4] * covariance[5, 5]),
                 bool(np.all(echo_keep[observation_indices]))
                 and (local_prior is None or local_prior["keep"]),
-                False,
+                acceleration_at_bound,
                 int(alias_fits["alias_number"][selected_alias_index]),
                 int(alias_fits["alias_number"][alias_fits["selected_index"]]),
                 float(alias_fits["delta_chi2"][selected_alias_index]),
@@ -851,10 +854,13 @@ def main() -> int:
     )[:, None]
     with h5py.File(args.prior_profile_h5, "r") as handle:
         position_covariance_km2 = np.asarray(handle["position_residual_covariance_km2"], dtype=float)
-    fit_velocity_keep = np.asarray(result["shared_inlier"], dtype=bool)
-    fit_acceleration_keep = fit_velocity_keep & ~np.asarray(
+    fit_velocity_keep = np.asarray(result["shared_inlier"], dtype=bool) & ~np.asarray(
         result["acceleration_at_bound"], dtype=bool
     )
+    # Velocity and acceleration are jointly estimated from the same three raw
+    # pulses.  A triplet rejected as the wrong acceleration alias must therefore
+    # be rejected from both observables in the physical trajectory fit.
+    fit_acceleration_keep = fit_velocity_keep.copy()
     triplet_correlation = overlapping_triplet_correlation(
         selected_triplet_fits,
         np.column_stack((result["previous"], result["middle"], result["current"])),
