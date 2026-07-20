@@ -1343,17 +1343,6 @@ def main() -> int:
             + rf"95% $m_0$ {mass_quantiles_kg[0]:.1e}--{mass_quantiles_kg[-1]:.1e} kg"
         )
     else:
-        axis.annotate(
-            "upper bound not constrained",
-            xy=(profile_radius_um[-1], 0.08),
-            xytext=(0.54, 0.08),
-            textcoords="axes fraction",
-            arrowprops={"arrowstyle": "->", "color": "C0"},
-            color="C0",
-            ha="left",
-            va="center",
-            fontsize=8,
-        )
         interval_text = (
             rf"95% lower $r_0>{radius_quantiles_um[0]:.0f}$ $\mu$m; no upper bound"
             + "\n"
@@ -1426,9 +1415,8 @@ def main() -> int:
     axis.plot(
         observation_time[echo_keep],
         along_track_residual(refit_position)[echo_keep],
-        ".-",
+        ".",
         color="C0",
-        linewidth=0.9,
         markersize=3.0,
         label="fit",
     )
@@ -1438,9 +1426,10 @@ def main() -> int:
         axis.plot(
             observation_time[echo_keep],
             along_track_residual(fixed_position)[echo_keep],
-            linestyle="--",
+            linestyle="none",
+            marker=".",
             color=color,
-            linewidth=0.9,
+            markersize=3.0,
             label=rf"$r_0={target_um:g}\,\mu$m",
         )
     axis.axhline(0.0, color="black", lw=0.8)
