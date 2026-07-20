@@ -662,7 +662,7 @@ def main() -> int:
                 pc.wavelength,
                 pulse_snr=10.0
                 ** (np.asarray(decoded["snr"][observation_indices], dtype=float) / 10.0),
-                zero_pad_factor=4,
+                zero_pad_factor=16,
             )
         except (RuntimeError, ValueError):
             continue
@@ -975,7 +975,7 @@ def main() -> int:
         pulse_pair_group.attrs["source"] = (
             "same AoA-steered, fractional-range-aligned, baud-averaged voltage used by three-pulse fit"
         )
-        pulse_pair_group.attrs["zero_pad_factor"] = 4
+        pulse_pair_group.attrs["zero_pad_factor"] = 16
         if pulse_pair_measurements:
             for name in (
                 "previous",

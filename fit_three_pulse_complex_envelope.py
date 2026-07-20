@@ -124,7 +124,7 @@ def common_bin_pulse_pair_doppler(
     frequency_prior_hz: float,
     wavelength_m: float,
     pulse_snr: np.ndarray | None = None,
-    zero_pad_factor: int = 4,
+    zero_pad_factor: int = 16,
 ) -> dict:
     """Measure pulse-pair Doppler phase at one shared baud-domain FFT bin."""
     raw_pulses = np.asarray(raw_pulses, dtype=np.complex128)
