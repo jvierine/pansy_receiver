@@ -37,10 +37,25 @@ def find_sample_file(directory: Path, sample_idx: int) -> Path:
     return matches[0]
 
 
+def catalogue_diagnostics_file(events_dir: Path, sample_idx: int) -> Path:
+    event_date = dt.datetime.fromtimestamp(
+        sample_idx / 1e6, tz=dt.timezone.utc
+    ).date().isoformat()
+    path = events_dir / event_date / f"pansy_disambiguation_diagnostics_{sample_idx}.h5"
+    if not path.is_file():
+        raise FileNotFoundError(f"catalogue diagnostics not found: {path}")
+    return path
+
+
 def fit_one(args: argparse.Namespace, sample_idx: int) -> Path:
     output = args.output_dir / "fits" / f"three_pulse_full_event_{sample_idx}.h5"
     if output.exists() and args.resume:
         return output
+    diagnostics_h5 = (
+        catalogue_diagnostics_file(args.events_dir, sample_idx)
+        if args.events_dir is not None
+        else find_sample_file(args.diagnostics_dir, sample_idx)
+    )
     command = [
         args.python,
         str(REPO / "fit_full_event_three_pulse_complex_envelope.py"),
@@ -49,7 +64,7 @@ def fit_one(args: argparse.Namespace, sample_idx: int) -> Path:
         "--base",
         str(args.base),
         "--diagnostics-h5",
-        str(find_sample_file(args.diagnostics_dir, sample_idx)),
+        str(diagnostics_h5),
         "--initial-fit-h5",
         str(find_sample_file(args.initial_fit_dir, sample_idx)),
         "--prior-profile-h5",
@@ -98,6 +113,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", type=Path)
     parser.add_argument("--diagnostics-dir", type=Path)
+    parser.add_argument(
+        "--events-dir",
+        type=Path,
+        help="authoritative catalogue events tree; preferred over --diagnostics-dir",
+    )
     parser.add_argument("--initial-fit-dir", type=Path)
     parser.add_argument("--prior-profile-dir", type=Path)
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -116,14 +136,11 @@ def main() -> int:
     (args.output_dir / "logs").mkdir(exist_ok=True)
 
     if not args.audit_only:
-        required = (
-            args.base,
-            args.diagnostics_dir,
-            args.initial_fit_dir,
-            args.prior_profile_dir,
-        )
+        required = (args.base, args.initial_fit_dir, args.prior_profile_dir)
         if any(path is None for path in required):
-            parser.error("the four input paths are required unless --audit-only is used")
+            parser.error("the input paths are required unless --audit-only is used")
+        if args.events_dir is None and args.diagnostics_dir is None:
+            parser.error("either --events-dir or --diagnostics-dir is required")
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as executor:
             futures = {executor.submit(fit_one, args, sample): sample for sample in samples}
             for future in concurrent.futures.as_completed(futures):
