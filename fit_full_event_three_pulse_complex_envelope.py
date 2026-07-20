@@ -43,71 +43,70 @@ def select_global_doppler_alias_path(
     time_s: np.ndarray,
     model_velocity_mps: np.ndarray,
     *,
-    transition_sigma_mps: float = 60.0,
-    anchor_sigma_mps: float = 400.0,
+    keep: np.ndarray | None = None,
+    trajectory_sigma_mps: float = 60.0,
 ) -> dict:
-    """Select a smooth event-wide Doppler alias path with dynamic programming."""
-    order = np.argsort(np.asarray(time_s), kind="stable")
-    costs: list[np.ndarray] = []
-    parents: list[np.ndarray] = []
-    emission_rows: list[np.ndarray] = []
-    transition_rows: list[np.ndarray] = []
-    for ordered_index, row_index in enumerate(order):
-        candidates = candidate_rows[int(row_index)]
-        velocity = np.asarray(candidates["fit_velocity_mps"], dtype=float)
-        velocity_std = np.asarray(candidates["fit_velocity_std_mps"], dtype=float)
-        likelihood = np.asarray(candidates["delta_chi2"], dtype=float)
-        anchor = ((velocity - model_velocity_mps[row_index]) / anchor_sigma_mps) ** 2
-        emission = likelihood + anchor
-        emission_rows.append(emission)
-        if ordered_index == 0:
-            costs.append(emission.copy())
-            parents.append(np.full(len(velocity), -1, dtype=int))
-            transition_rows.append(np.zeros(len(velocity)))
-            continue
+    """Select aliases around one affine correction to the prior trajectory."""
+    time = np.asarray(time_s, dtype=float)
+    model = np.asarray(model_velocity_mps, dtype=float)
+    if keep is None:
+        keep = np.ones(len(time), dtype=bool)
+    else:
+        keep = np.asarray(keep, dtype=bool)
+    centered_time = time - float(np.mean(time[keep]))
+    velocity = np.asarray(
+        [np.asarray(row["fit_velocity_mps"], dtype=float) for row in candidate_rows]
+    )
+    delta_chi2 = np.asarray(
+        [np.asarray(row["delta_chi2"], dtype=float) for row in candidate_rows]
+    )
+    # Shared pulses make nominal triplet likelihood ratios strongly correlated.
+    # A logarithmic robustification prevents one reused pulse from dictating the
+    # event-wide integer ambiguity.
+    complex_cost = 2.0 * np.log1p(np.maximum(delta_chi2, 0.0) / 2.0)
 
-        previous_row_index = int(order[ordered_index - 1])
-        previous_candidates = candidate_rows[previous_row_index]
-        previous_velocity = np.asarray(
-            previous_candidates["fit_velocity_mps"], dtype=float
-        )
-        previous_std = np.asarray(
-            previous_candidates["fit_velocity_std_mps"], dtype=float
-        )
-        previous_departure = previous_velocity - model_velocity_mps[previous_row_index]
-        departure = velocity - model_velocity_mps[row_index]
-        sigma2 = (
-            transition_sigma_mps**2
-            + previous_std[:, None] ** 2
-            + velocity_std[None, :] ** 2
-        )
-        transition = (departure[None, :] - previous_departure[:, None]) ** 2 / sigma2
-        combined = costs[-1][:, None] + transition
-        parent = np.argmin(combined, axis=0)
-        costs.append(emission + combined[parent, np.arange(len(velocity))])
-        parents.append(parent)
-        transition_rows.append(transition[parent, np.arange(len(velocity))])
+    best_cost = np.inf
+    best_offset = np.nan
+    best_slope = np.nan
+    best_selected = None
+    search_levels = (
+        (np.arange(-800.0, 800.1, 20.0), np.arange(-3000.0, 3000.1, 50.0)),
+        (np.arange(-30.0, 30.1, 2.0), np.arange(-100.0, 100.1, 10.0)),
+    )
+    offset_center = 0.0
+    slope_center = 0.0
+    rows = np.arange(len(time))
+    for offset_grid, slope_grid in search_levels:
+        for offset_delta in offset_grid:
+            offset = offset_center + offset_delta
+            for slope_delta in slope_grid:
+                slope = slope_center + slope_delta
+                target = model + offset + slope * centered_time
+                trajectory_cost = ((velocity - target[:, None]) / trajectory_sigma_mps) ** 2
+                score = complex_cost + trajectory_cost
+                selected = np.argmin(score, axis=1)
+                total = float(np.sum(score[rows[keep], selected[keep]]))
+                if total < best_cost:
+                    best_cost = total
+                    best_offset = offset
+                    best_slope = slope
+                    best_selected = selected.copy()
+        offset_center = best_offset
+        slope_center = best_slope
 
-    selected_ordered = np.empty(len(order), dtype=int)
-    selected_ordered[-1] = int(np.argmin(costs[-1]))
-    for index in range(len(order) - 1, 0, -1):
-        selected_ordered[index - 1] = parents[index][selected_ordered[index]]
-    selected = np.empty(len(order), dtype=int)
-    selected[order] = selected_ordered
-    emission_selected = np.empty(len(order), dtype=float)
-    transition_selected = np.empty(len(order), dtype=float)
-    for ordered_index, row_index in enumerate(order):
-        state = selected_ordered[ordered_index]
-        emission_selected[row_index] = emission_rows[ordered_index][state]
-        transition_selected[row_index] = transition_rows[ordered_index][state]
+    selected = np.asarray(best_selected, dtype=int)
+    target = model + best_offset + best_slope * centered_time
+    trajectory_cost = ((velocity - target[:, None]) / trajectory_sigma_mps) ** 2
+    emission_selected = complex_cost[rows, selected]
+    trajectory_selected = trajectory_cost[rows, selected]
     return {
         "selected_index": selected,
-        "order": order,
         "emission_cost": emission_selected,
-        "transition_cost": transition_selected,
-        "total_cost": float(np.min(costs[-1])),
-        "transition_sigma_mps": float(transition_sigma_mps),
-        "anchor_sigma_mps": float(anchor_sigma_mps),
+        "transition_cost": trajectory_selected,
+        "total_cost": best_cost,
+        "trajectory_sigma_mps": float(trajectory_sigma_mps),
+        "velocity_offset_mps": float(best_offset),
+        "acceleration_offset_mps2": float(best_slope),
     }
 from interferometer_alias_diagnostics import load_cut, recompute_cut_observables
 from inter_pulse_phase_deceleration import (
@@ -832,6 +831,7 @@ def main() -> int:
         doppler_alias_rows,
         result["time_s"],
         result["model_velocity_mps"],
+        keep=result["shared_inlier"],
     )
     for row_index, selected_index in enumerate(doppler_path["selected_index"]):
         candidates = doppler_alias_rows[row_index]
@@ -985,12 +985,17 @@ def main() -> int:
             "selected_index", data=doppler_path["selected_index"]
         )
         doppler_group.attrs["selection"] = (
-            "event-wide dynamic programming over complex-likelihood Doppler aliases"
+            "event-wide affine trajectory correction over complex-likelihood Doppler aliases"
         )
-        doppler_group.attrs["transition_sigma_mps"] = doppler_path[
-            "transition_sigma_mps"
+        doppler_group.attrs["trajectory_sigma_mps"] = doppler_path[
+            "trajectory_sigma_mps"
         ]
-        doppler_group.attrs["anchor_sigma_mps"] = doppler_path["anchor_sigma_mps"]
+        doppler_group.attrs["velocity_offset_mps"] = doppler_path[
+            "velocity_offset_mps"
+        ]
+        doppler_group.attrs["acceleration_offset_mps2"] = doppler_path[
+            "acceleration_offset_mps2"
+        ]
         doppler_group.attrs["total_cost"] = doppler_path["total_cost"]
         handle.create_dataset("event_module_voltage_gain", data=module_voltage_gain)
         fit_group = handle.create_group("dynamics_refit")
