@@ -369,6 +369,7 @@ def refit_dynamics(
     profile_log_radius_m = np.log10(profile_radius_um * 1e-6)
     profile_parameters6 = np.full((len(profile_radius_um), 6), np.nan)
     profile_chi2 = np.full(len(profile_radius_um), np.nan)
+    profile_log_hessian_determinant = np.full(len(profile_radius_um), np.nan)
     profile_success = np.zeros(len(profile_radius_um), dtype=bool)
     lower6 = lower[:6]
     upper6 = upper[:6]
@@ -391,6 +392,11 @@ def refit_dynamics(
         )
         profile_parameters6[index] = fitted.x
         profile_chi2[index] = float(np.sum(fixed_residual(fitted.x) ** 2))
+        scaled_jacobian = np.asarray(fitted.jac, dtype=float) * scale6[None, :]
+        information = scaled_jacobian.T @ scaled_jacobian
+        sign, log_determinant = np.linalg.slogdet(information)
+        if sign > 0.0 and np.isfinite(log_determinant):
+            profile_log_hessian_determinant[index] = float(log_determinant)
         profile_success[index] = bool(fitted.success)
         return fitted.x
 
@@ -404,11 +410,29 @@ def refit_dynamics(
 
     minimum_chi2 = min(float(np.sum(residual(final.x) ** 2)), float(np.nanmin(profile_chi2)))
     profile_delta_chi2 = profile_chi2 - minimum_chi2
+    # Integrate over the six fitted trajectory nuisance parameters with a
+    # Laplace approximation.  exp(-Delta chi2/2) alone is a profile likelihood,
+    # not a marginal probability, and can substantially overstate a radius
+    # constraint when the nuisance-parameter volume grows toward large radii.
+    profile_marginal_deviance = profile_chi2 + profile_log_hessian_determinant
+    finite_marginal = np.isfinite(profile_marginal_deviance) & profile_success
+    profile_delta_marginal_deviance = np.full_like(profile_marginal_deviance, np.nan)
+    profile_delta_marginal_deviance[finite_marginal] = (
+        profile_marginal_deviance[finite_marginal]
+        - np.min(profile_marginal_deviance[finite_marginal])
+    )
     profile_probability, profile_weights = log_grid_probability(
-        profile_radius_um, profile_delta_chi2
+        profile_radius_um, profile_delta_marginal_deviance
     )
     radius_quantiles_um = weighted_quantile(
         profile_radius_um, profile_weights, [0.025, 0.5, 0.975]
+    )
+    marginal_best_index = int(np.nanargmin(profile_delta_marginal_deviance))
+    upper_tail = profile_delta_marginal_deviance[marginal_best_index:]
+    upper_limit_data_constrained = bool(
+        len(upper_tail) >= 3
+        and np.all(np.isfinite(upper_tail[-3:]))
+        and np.min(upper_tail[-3:]) > 3.841458820694124
     )
 
     profile_position = []
@@ -481,11 +505,15 @@ def refit_dynamics(
         "profile_parameters6": profile_parameters6,
         "profile_chi2": profile_chi2,
         "profile_delta_chi2": profile_delta_chi2,
+        "profile_log_hessian_determinant": profile_log_hessian_determinant,
+        "profile_marginal_deviance": profile_marginal_deviance,
+        "profile_delta_marginal_deviance": profile_delta_marginal_deviance,
         "profile_probability_density_log_radius": profile_probability,
         "profile_probability_weights": profile_weights,
         "profile_success": profile_success,
         "marginal_radius_quantiles_um": radius_quantiles_um,
         "marginal_mass_quantiles_kg": radius_um_to_mass_kg(radius_quantiles_um),
+        "radius_upper_limit_data_constrained": upper_limit_data_constrained,
         "position_interval_km": position_interval_km,
         "doppler_interval_mps": doppler_interval_mps,
         "acceleration_interval_mps2": acceleration_interval_mps2,
@@ -956,6 +984,9 @@ def main() -> int:
     profile_probability = dynamics["profile_probability_density_log_radius"]
     radius_quantiles_um = dynamics["marginal_radius_quantiles_um"]
     mass_quantiles_kg = dynamics["marginal_mass_quantiles_kg"]
+    radius_upper_limit_data_constrained = bool(
+        dynamics["radius_upper_limit_data_constrained"]
+    )
     profile_probability /= max(float(np.nanmax(profile_probability)), 1e-30)
     observation_rti = recompute_cut_observables(cut, interp=1)
     rti_time_absolute = np.asarray(observation_rti["tx_idx"], dtype=float) / FS_HZ
@@ -1170,14 +1201,36 @@ def main() -> int:
     axis = event_axes[1, 1]
     axis.plot(profile_radius_um, profile_probability, color="black")
     axis.fill_between(profile_radius_um, 0.0, profile_probability, color="0.75", alpha=0.7)
-    axis.axvline(1e6 * 10.0 ** dynamics["parameters"][6], color="C0", label="new best fit")
-    axis.axvspan(radius_quantiles_um[0], radius_quantiles_um[-1], color="C0", alpha=0.12)
+    axis.axvline(1e6 * 10.0 ** dynamics["parameters"][6], color="C0", label="best fit")
+    axis.axvline(radius_quantiles_um[0], color="C0", ls="--", lw=1.0)
+    if radius_upper_limit_data_constrained:
+        axis.axvspan(radius_quantiles_um[0], radius_quantiles_um[-1], color="C0", alpha=0.12)
+        interval_text = (
+            rf"95% $r_0$ {radius_quantiles_um[0]:.0f}--{radius_quantiles_um[-1]:.0f} $\mu$m"
+            + "\n"
+            + rf"95% $m_0$ {mass_quantiles_kg[0]:.1e}--{mass_quantiles_kg[-1]:.1e} kg"
+        )
+    else:
+        axis.annotate(
+            "upper bound not constrained",
+            xy=(profile_radius_um[-1], 0.08),
+            xytext=(0.54, 0.08),
+            textcoords="axes fraction",
+            arrowprops={"arrowstyle": "->", "color": "C0"},
+            color="C0",
+            ha="left",
+            va="center",
+            fontsize=8,
+        )
+        interval_text = (
+            rf"95% lower $r_0>{radius_quantiles_um[0]:.0f}$ $\mu$m; no upper bound"
+            + "\n"
+            + rf"95% lower $m_0>{mass_quantiles_kg[0]:.1e}$ kg; no upper bound"
+        )
     axis.text(
         0.04,
         0.94,
-        rf"95% $r_0$ {radius_quantiles_um[0]:.0f}--{radius_quantiles_um[-1]:.0f} $\mu$m"
-        + "\n"
-        + rf"95% $m_0$ {mass_quantiles_kg[0]:.1e}--{mass_quantiles_kg[-1]:.1e} kg",
+        interval_text,
         transform=axis.transAxes,
         ha="left",
         va="top",
