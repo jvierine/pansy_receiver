@@ -40,6 +40,7 @@ def test_common_bin_pulse_pair_recovers_frequency_alias():
         zero_pad_factor=16,
     )
     assert result["nfft"] >= 16 * np.max(result["baud_count"])
+    assert result["frequency_step_hz"] < 1e4
     assert abs(result["resolved_frequency_hz"] - frequency_hz) < 1e-6
     assert 0.0 < result["coherence"] <= 1.0
 

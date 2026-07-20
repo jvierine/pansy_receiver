@@ -165,8 +165,7 @@ def common_bin_pulse_pair_doppler(
         baud_count.append(int(np.count_nonzero(use)))
         local_times.append(bauds["absolute_time_s"][use] - pulse * pulse_spacing_s)
 
-    all_local_time = np.unique(np.concatenate(local_times))
-    differences = np.diff(all_local_time)
+    differences = np.concatenate([np.diff(times) for times in local_times])
     differences = differences[np.isfinite(differences) & (differences > 0.0)]
     if len(differences) == 0:
         raise RuntimeError("baud times do not define a Doppler grid")
