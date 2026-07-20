@@ -2,10 +2,46 @@ import numpy as np
 
 from aod_complex_doppler_fit import event_module_voltage_gain
 from fit_three_pulse_complex_envelope import (
+    FS_HZ,
+    common_bin_pulse_pair_doppler,
     baud_measurements,
     complex_envelope_model,
     fit_three_pulse_envelope,
 )
+
+
+def test_common_bin_pulse_pair_recovers_frequency_alias():
+    sample_count = 80
+    template = np.zeros(sample_count, dtype=np.complex128)
+    for start in (5, 15, 25, 35, 45, 55):
+        template[start : start + 3] = 1.0
+    pulse_spacing_s = 0.008
+    frequency_hz = 12345.0
+    fast_time_s = np.arange(sample_count) / FS_HZ
+    raw_pulses = np.stack(
+        [
+            template
+            * np.exp(
+                1j
+                * 2.0
+                * np.pi
+                * frequency_hz
+                * (pulse * pulse_spacing_s + fast_time_s)
+            )
+            for pulse in range(2)
+        ]
+    )
+    result = common_bin_pulse_pair_doppler(
+        raw_pulses,
+        np.stack((template, template)),
+        pulse_spacing_s,
+        frequency_hz + 20.0,
+        0.6,
+        zero_pad_factor=4,
+    )
+    assert result["nfft"] >= 4 * np.max(result["baud_count"])
+    assert abs(result["resolved_frequency_hz"] - frequency_hz) < 1e-6
+    assert 0.0 < result["coherence"] <= 1.0
 
 
 def test_event_module_voltage_gain_removes_common_meteor_amplitude():

@@ -117,6 +117,110 @@ def rms_baud_amplitudes(raw_pulses: np.ndarray, pulse_templates: np.ndarray) -> 
     return amplitudes
 
 
+def common_bin_pulse_pair_doppler(
+    raw_pulses: np.ndarray,
+    pulse_templates: np.ndarray,
+    pulse_spacing_s: float,
+    frequency_prior_hz: float,
+    wavelength_m: float,
+    pulse_snr: np.ndarray | None = None,
+    zero_pad_factor: int = 4,
+) -> dict:
+    """Measure pulse-pair Doppler phase at one shared baud-domain FFT bin."""
+    raw_pulses = np.asarray(raw_pulses, dtype=np.complex128)
+    pulse_templates = np.asarray(pulse_templates, dtype=np.complex128)
+    if raw_pulses.ndim != 2 or raw_pulses.shape[0] != 2:
+        raise ValueError("raw_pulses must have shape (2, n_fast)")
+    if pulse_templates.shape != raw_pulses.shape:
+        raise ValueError("pulse_templates must match raw_pulses")
+    if pulse_snr is None:
+        pulse_snr = np.ones(2, dtype=float)
+    if int(zero_pad_factor) < 4:
+        raise ValueError("zero_pad_factor must be at least four")
+
+    bauds = baud_measurements(
+        raw_pulses,
+        pulse_templates,
+        np.zeros(2),
+        float(pulse_spacing_s),
+        np.asarray(pulse_snr, dtype=float),
+    )
+    pulse_measurements = []
+    baud_count = []
+    local_times = []
+    for pulse in range(2):
+        select = bauds["pulse_index"] == pulse
+        use = (
+            select
+            & np.isfinite(bauds["data"].real)
+            & np.isfinite(bauds["data"].imag)
+            & np.isfinite(bauds["envelope"])
+            & np.isfinite(bauds["weight"])
+            & (bauds["envelope"] > 0.0)
+            & (bauds["weight"] > 0.0)
+        )
+        if np.count_nonzero(use) < 4:
+            raise RuntimeError("too few finite baud averages for pulse-pair Doppler")
+        pulse_measurements.append(use)
+        baud_count.append(int(np.count_nonzero(use)))
+        local_times.append(bauds["absolute_time_s"][use] - pulse * pulse_spacing_s)
+
+    all_local_time = np.unique(np.concatenate(local_times))
+    differences = np.diff(all_local_time)
+    differences = differences[np.isfinite(differences) & (differences > 0.0)]
+    if len(differences) == 0:
+        raise RuntimeError("baud times do not define a Doppler grid")
+    baud_spacing_s = float(np.median(differences))
+    n_baud = max(baud_count)
+    nfft = int(2 ** np.ceil(np.log2(max(int(zero_pad_factor) * n_baud, 2))))
+    frequency_step_hz = 1.0 / (nfft * baud_spacing_s)
+    common_frequency_hz = (
+        np.rint(float(frequency_prior_hz) / frequency_step_hz) * frequency_step_hz
+    )
+
+    responses = []
+    response_norm = []
+    for pulse, use in enumerate(pulse_measurements):
+        local_time = bauds["absolute_time_s"][use] - pulse * pulse_spacing_s
+        basis = bauds["envelope"][use] * np.exp(
+            1j * 2.0 * np.pi * common_frequency_hz * local_time
+        )
+        weight = bauds["weight"][use]
+        numerator = np.sum(weight * bauds["data"][use] * np.conj(basis))
+        denominator = np.sum(weight * np.abs(basis) ** 2)
+        response = numerator / max(float(denominator), np.finfo(float).tiny)
+        responses.append(response)
+        response_norm.append(
+            abs(numerator)
+            / max(
+                float(np.sum(weight * np.abs(bauds["data"][use]) * np.abs(basis))),
+                np.finfo(float).tiny,
+            )
+        )
+    responses = np.asarray(responses, dtype=np.complex128)
+    phase_rad = float(np.angle(responses[1] * np.conj(responses[0])))
+    wrapped_frequency_hz = phase_rad / (2.0 * np.pi * float(pulse_spacing_s))
+    frequency_ambiguity_hz = 1.0 / float(pulse_spacing_s)
+    resolved_frequency_hz = wrapped_frequency_hz + np.rint(
+        (float(frequency_prior_hz) - wrapped_frequency_hz) / frequency_ambiguity_hz
+    ) * frequency_ambiguity_hz
+    return {
+        "phase_rad": phase_rad,
+        "wrapped_frequency_hz": wrapped_frequency_hz,
+        "frequency_ambiguity_hz": frequency_ambiguity_hz,
+        "wrapped_velocity_mps": wrapped_frequency_hz * float(wavelength_m) / 2.0,
+        "velocity_ambiguity_mps": frequency_ambiguity_hz * float(wavelength_m) / 2.0,
+        "resolved_frequency_hz": resolved_frequency_hz,
+        "resolved_velocity_mps": resolved_frequency_hz * float(wavelength_m) / 2.0,
+        "common_frequency_hz": common_frequency_hz,
+        "frequency_step_hz": frequency_step_hz,
+        "nfft": nfft,
+        "baud_count": np.asarray(baud_count, dtype=int),
+        "response": responses,
+        "coherence": float(min(response_norm)),
+    }
+
+
 def fit_three_pulse_envelope(
     raw_pulses: np.ndarray,
     pulse_templates: np.ndarray,

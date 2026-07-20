@@ -31,6 +31,7 @@ from fit_three_pulse_complex_envelope import (
     FS_HZ,
     PAIR_SPACING_S,
     PAIR_SPACING_TOLERANCE_S,
+    common_bin_pulse_pair_doppler,
     fit_three_pulse_acceleration_aliases,
     fit_three_pulse_envelope,
     rms_baud_amplitudes,
@@ -41,7 +42,6 @@ from inter_pulse_phase_deceleration import (
     decoded_pulse_responses,
     fractional_segment,
     load_selected,
-    pair_responses,
 )
 from run_catalogue_mass_profiles import load_selected_fit
 from run_catalogue_mass_profiles import log_grid_probability
@@ -591,7 +591,6 @@ def main() -> int:
         precise_doppler_mps=precise_doppler_mps,
     )
     pairs = baud_averaged_beat_pairs(decoded, same_beam=True)
-    matched_filter_pairs = pair_responses(decoded, same_beam=True)
     triplets = valid_triplets(pairs)
     prior_acceleration = phase_acceleration_lookup(args.prior_profile_h5)
     with h5py.File(args.prior_profile_h5, "r") as handle:
@@ -622,6 +621,63 @@ def main() -> int:
         ]
     )
     absolute_zero = decoded["tx_idx"][0] / FS_HZ - trajectory_time[0]
+    pulse_pair_measurements = []
+    previous_by_beam = {}
+    n_fast = decoded["z_tx"].shape[1]
+    for current in range(len(decoded["tx_idx"])):
+        beam = int(decoded["beam_id"][current])
+        previous = previous_by_beam.get(beam)
+        previous_by_beam[beam] = current
+        if previous is None:
+            continue
+        pulse_spacing_s = float(
+            (decoded["tx_idx"][current] - decoded["tx_idx"][previous]) / FS_HZ
+        )
+        if abs(pulse_spacing_s - PAIR_SPACING_S) > PAIR_SPACING_TOLERANCE_S:
+            continue
+        observation_indices = np.asarray([previous, current], dtype=int)
+        raw_indices = np.asarray(decoded["raw_idx"][observation_indices], dtype=int)
+        raw_pulses = np.stack(
+            [
+                fractional_segment(
+                    beamformed_echo[observation],
+                    decoded["range_gate"][observation],
+                    n_fast,
+                )
+                for observation in observation_indices
+            ]
+        )
+        templates = decoded["z_tx"][raw_indices].astype(np.complex128)
+        frequency_prior_hz = float(
+            np.mean(decoded["coarse_doppler_mps"][observation_indices])
+            * 2.0
+            / pc.wavelength
+        )
+        try:
+            measurement = common_bin_pulse_pair_doppler(
+                raw_pulses,
+                templates,
+                pulse_spacing_s,
+                frequency_prior_hz,
+                pc.wavelength,
+                pulse_snr=10.0
+                ** (np.asarray(decoded["snr"][observation_indices], dtype=float) / 10.0),
+                zero_pad_factor=4,
+            )
+        except (RuntimeError, ValueError):
+            continue
+        pulse_pair_measurements.append(
+            {
+                **measurement,
+                "previous": previous,
+                "current": current,
+                "time_s": float(
+                    0.5 * (decoded["tx_idx"][previous] + decoded["tx_idx"][current])
+                    / FS_HZ
+                    - absolute_zero
+                ),
+            }
+        )
     with h5py.File(args.prior_profile_h5, "r") as handle:
         delta = np.asarray(handle["profile/delta_chi2"], dtype=float)
         best_index = int(np.nanargmin(delta))
@@ -675,7 +731,6 @@ def main() -> int:
     alias_rows = []
     selected_triplet_fits = []
     triplet_debug = []
-    n_fast = decoded["z_tx"].shape[1]
     for previous, middle, current in triplets:
         observation_indices = np.asarray([previous, middle, current], dtype=int)
         raw_indices = np.asarray(decoded["raw_idx"][observation_indices], dtype=int)
@@ -916,6 +971,31 @@ def main() -> int:
             for row_index, row in enumerate(alias_rows):
                 dataset[row_index] = np.asarray(row[name], dtype=base_dtype)
         handle.create_dataset("event_module_voltage_gain", data=module_voltage_gain)
+        pulse_pair_group = handle.create_group("common_bin_pulse_pair_doppler")
+        pulse_pair_group.attrs["source"] = (
+            "same AoA-steered, fractional-range-aligned, baud-averaged voltage used by three-pulse fit"
+        )
+        pulse_pair_group.attrs["zero_pad_factor"] = 4
+        if pulse_pair_measurements:
+            for name in (
+                "previous",
+                "current",
+                "time_s",
+                "phase_rad",
+                "wrapped_frequency_hz",
+                "frequency_ambiguity_hz",
+                "wrapped_velocity_mps",
+                "velocity_ambiguity_mps",
+                "resolved_frequency_hz",
+                "resolved_velocity_mps",
+                "common_frequency_hz",
+                "frequency_step_hz",
+                "nfft",
+                "coherence",
+            ):
+                pulse_pair_group.create_dataset(
+                    name, data=np.asarray([row[name] for row in pulse_pair_measurements])
+                )
         fit_group = handle.create_group("dynamics_refit")
         for name, value in dynamics.items():
             if isinstance(value, np.ndarray):
@@ -1411,20 +1491,19 @@ def main() -> int:
     axis.legend(frameon=False, loc="best", fontsize=7)
 
     axis = event_axes[2, 2]
-    pair_delta_t = np.asarray(matched_filter_pairs["delta_t_s"], dtype=float)
-    pair_keep = np.isfinite(pair_delta_t) & (
-        np.abs(pair_delta_t - PAIR_SPACING_S) <= PAIR_SPACING_TOLERANCE_S
+    pair_time_absolute = np.asarray(
+        [row["time_s"] for row in pulse_pair_measurements], dtype=float
     )
-    pair_time_absolute = np.asarray(matched_filter_pairs["time_s"], dtype=float)[pair_keep]
     pair_time = pair_time_absolute - time_origin
-    pair_phase = np.asarray(matched_filter_pairs["phase_rad"], dtype=float)[pair_keep]
-    pair_ambiguity = np.asarray(matched_filter_pairs["ambiguity_mps"], dtype=float)[pair_keep]
-    pair_wrapped_velocity = (
-        pair_phase * pc.wavelength / (4.0 * np.pi * pair_delta_t[pair_keep])
+    pair_ambiguity = np.asarray(
+        [row["velocity_ambiguity_mps"] for row in pulse_pair_measurements], dtype=float
+    )
+    pair_wrapped_velocity = np.asarray(
+        [row["wrapped_velocity_mps"] for row in pulse_pair_measurements], dtype=float
     )
     pair_fft_velocity = np.asarray(
-        matched_filter_pairs["phase_doppler_mps"], dtype=float
-    )[pair_keep]
+        [row["resolved_velocity_mps"] for row in pulse_pair_measurements], dtype=float
+    )
     retained_triplet_time_absolute = result["time_s"][fit_velocity_keep]
     retained_triplet_velocity = result["velocity_mps"][fit_velocity_keep]
     if len(retained_triplet_time_absolute) >= 2:
@@ -1441,22 +1520,23 @@ def main() -> int:
         (pair_three_pulse_reference - pair_wrapped_velocity) / pair_ambiguity
     ) * pair_ambiguity
     pair_model_velocity = np.interp(pair_time_absolute, trajectory_time, refit_doppler)
-    axis.plot(
-        pair_time,
-        pair_fft_velocity - pair_model_velocity,
-        ".",
-        color="C0",
-        markersize=3.0,
-        label="8 ms phase, FFT branch",
-    )
-    axis.plot(
-        pair_time,
-        pair_three_pulse_velocity - pair_model_velocity,
-        ".",
-        color="C1",
-        markersize=3.0,
-        label="8 ms phase, 3-pulse branch",
-    )
+    if len(pair_time):
+        axis.plot(
+            pair_time,
+            pair_fft_velocity - pair_model_velocity,
+            ".",
+            color="C0",
+            markersize=3.0,
+            label="8 ms phase, FFT branch",
+        )
+        axis.plot(
+            pair_time,
+            pair_three_pulse_velocity - pair_model_velocity,
+            ".",
+            color="C1",
+            markersize=3.0,
+            label="8 ms phase, 3-pulse branch",
+        )
     axis.axhline(0.0, color="black", lw=0.8)
     axis.set_xlabel("Time (s)")
     axis.set_ylabel("Pulse-pair Doppler residual (m/s)")
