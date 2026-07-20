@@ -409,21 +409,50 @@ def refit_dynamics(
     lower = np.asarray([-np.inf, -np.inf, 20e3, -90e3, -90e3, -90e3, -6.0])
     upper = np.asarray([np.inf, np.inf, 220e3, 90e3, 90e3, 90e3, -2.0])
     scale = np.asarray([1e5, 1e5, 1e5, 7e4, 7e4, 7e4, 1.0])
-    robust = least_squares(
-        residual,
-        np.clip(initial_parameters, lower + 1e-10, upper - 1e-10),
-        bounds=(lower, upper),
-        x_scale=scale,
-        loss="soft_l1",
-        max_nfev=160,
-    )
-    final = least_squares(
-        residual,
-        robust.x,
-        bounds=(lower, upper),
-        x_scale=scale,
-        loss="linear",
-        max_nfev=200,
+    retained_time = trajectory_time[echo_keep] - float(np.min(trajectory_time))
+    kinematic_seed = np.empty(6, dtype=float)
+    for component in range(3):
+        slope, intercept = np.polyfit(
+            retained_time, points_km[echo_keep, component] * 1e3, 1
+        )
+        kinematic_seed[component] = intercept
+        kinematic_seed[3 + component] = slope
+
+    position_corrected_seed = np.asarray(initial_parameters, dtype=float).copy()
+    try:
+        initial_prediction = predict(position_corrected_seed)[0]
+        position_corrected_seed[:3] += 1e3 * np.mean(
+            points_km[echo_keep] - initial_prediction[echo_keep], axis=0
+        )
+    except Exception:
+        pass
+
+    fitted_starts = []
+    for start in (
+        np.asarray(initial_parameters, dtype=float),
+        position_corrected_seed,
+        np.r_[kinematic_seed, initial_parameters[6]],
+    ):
+        robust = least_squares(
+            residual,
+            np.clip(start, lower + 1e-10, upper - 1e-10),
+            bounds=(lower, upper),
+            x_scale=scale,
+            loss="soft_l1",
+            max_nfev=160,
+        )
+        fitted_starts.append(
+            least_squares(
+                residual,
+                robust.x,
+                bounds=(lower, upper),
+                x_scale=scale,
+                loss="linear",
+                max_nfev=200,
+            )
+        )
+    final = min(
+        fitted_starts, key=lambda candidate: float(np.sum(residual(candidate.x) ** 2))
     )
     preliminary = predict(final.x)
 
@@ -594,15 +623,6 @@ def refit_dynamics(
     upper6 = upper[:6]
     scale6 = scale[:6]
     center = int(np.argmin(np.abs(profile_log_radius_m - final.x[6])))
-
-    retained_time = trajectory_time[echo_keep] - float(np.min(trajectory_time))
-    kinematic_seed = np.empty(6, dtype=float)
-    for component in range(3):
-        slope, intercept = np.polyfit(
-            retained_time, points_km[echo_keep, component] * 1e3, 1
-        )
-        kinematic_seed[component] = intercept
-        kinematic_seed[3 + component] = slope
 
     def fit_profile_index(index, seeds):
         fixed_log_radius = profile_log_radius_m[index]
