@@ -374,7 +374,6 @@ def fit_three_pulse_acceleration_aliases(
     pulse_snr: np.ndarray | None = None,
     matched_filter_amplitudes: np.ndarray | None = None,
     frequency_half_width_hz: float | None = None,
-    acceleration_branch_half_width_mps2: float | None = None,
 ) -> dict:
     """Search the FFT-selected velocity alias and every phase-compatible acceleration.
 
@@ -391,12 +390,6 @@ def fit_three_pulse_acceleration_aliases(
         raise ValueError("acceleration_limits_mps2 must be increasing")
     alias_spacing = float(wavelength_m) / (2.0 * float(pulse_spacing_s) ** 2)
     alias_half_width = 0.499 * alias_spacing
-    if acceleration_branch_half_width_mps2 is not None:
-        alias_half_width = min(
-            alias_half_width, float(acceleration_branch_half_width_mps2)
-        )
-        if alias_half_width <= 0.0:
-            raise ValueError("acceleration branch half-width must be positive")
     frequency_alias_spacing_hz = 1.0 / float(pulse_spacing_s)
     if frequency_half_width_hz is None:
         frequency_half_width_hz = 0.499 * frequency_alias_spacing_hz
