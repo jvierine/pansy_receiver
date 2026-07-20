@@ -727,22 +727,6 @@ def main() -> int:
         pulse_spacing_s = float(
             np.mean(np.diff(decoded["tx_idx"][observation_indices])) / FS_HZ
         )
-        acceleration_phase_rad = None
-        acceleration_phase_std_rad = None
-        if local_prior is not None:
-            acceleration_phase_rad = float(
-                np.angle(
-                    np.exp(
-                        1j
-                        * 4.0
-                        * np.pi
-                        * acceleration_guess
-                        * pulse_spacing_s**2
-                        / pc.wavelength
-                    )
-                )
-            )
-            acceleration_phase_std_rad = local_prior["phase_std_rad"]
         alias_fits = fit_three_pulse_acceleration_aliases(
             raw_pulses,
             templates,
@@ -753,8 +737,6 @@ def main() -> int:
             pulse_snr=10.0
             ** (np.asarray(decoded["snr"][observation_indices], dtype=float) / 10.0),
             matched_filter_amplitudes=amplitude_prior,
-            acceleration_phase_rad=acceleration_phase_rad,
-            acceleration_phase_std_rad=acceleration_phase_std_rad,
         )
         initial_model_acceleration = float(
             np.interp(middle_time, trajectory_time, initial_fft_model_acceleration_mps2)
