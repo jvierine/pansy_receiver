@@ -4756,6 +4756,11 @@ def main():
     parser.add_argument("--cut-dir", type=Path, default=Path("data/metadata/cut"))
     parser.add_argument("--output-dir", type=Path, default=Path("../pansy_paper/memos/figures"))
     parser.add_argument("--grid-n", type=int, default=501)
+    parser.add_argument(
+        "--no-subgrid-refinement",
+        action="store_true",
+        help="Retain discrete interferometer grid maxima without continuous u/v refinement.",
+    )
     parser.add_argument("--coherence-threshold", type=float, default=0.80)
     parser.add_argument("--snr-threshold", type=float, default=7.0)
     parser.add_argument("--linearity-angular-sigma-deg", type=float, default=0.25)
@@ -5034,16 +5039,22 @@ def main():
         coh = coherence_map(obs["xc"][i], int(obs["beam_id"][i]), phasecal, ch_pairs, steering, valid, u.shape)
         ii, jj = local_coherence_peaks(coh, args.coherence_threshold, max_peaks=args.max_peaks_per_pulse)
         for row, col in zip(ii, jj):
-            refined_u, refined_v, refined_w, refined_coherence = refine_coherence_peak(
-                obs["xc"][i],
-                int(obs["beam_id"][i]),
-                phasecal,
-                ch_pairs,
-                dmat,
-                float(u[row, col]),
-                float(v[row, col]),
-                grid_step,
-            )
+            if args.no_subgrid_refinement:
+                refined_u = float(u[row, col])
+                refined_v = float(v[row, col])
+                refined_w = float(w[row, col])
+                refined_coherence = float(coh[row, col])
+            else:
+                refined_u, refined_v, refined_w, refined_coherence = refine_coherence_peak(
+                    obs["xc"][i],
+                    int(obs["beam_id"][i]),
+                    phasecal,
+                    ch_pairs,
+                    dmat,
+                    float(u[row, col]),
+                    float(v[row, col]),
+                    grid_step,
+                )
             candidates.append(
                 {
                     "u": refined_u,
