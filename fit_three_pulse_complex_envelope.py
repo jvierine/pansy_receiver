@@ -228,7 +228,7 @@ def gapped_two_pulse_fft_doppler(
     wavelength_m: float,
     pulse_snr: np.ndarray | None = None,
     zero_pad_factor: int = 16,
-    search_half_width_hz: float = 2000.0,
+    search_half_width_hz: float | None = None,
 ) -> dict:
     """FFT two baud-averaged pulses at native separation with a zero-filled gap."""
     raw_pulses = np.asarray(raw_pulses, dtype=np.complex128)
@@ -241,6 +241,8 @@ def gapped_two_pulse_fft_doppler(
         pulse_snr = np.ones(2, dtype=float)
     if int(zero_pad_factor) < 1:
         raise ValueError("zero_pad_factor must be positive")
+    if search_half_width_hz is None:
+        search_half_width_hz = 0.499 / float(pulse_spacing_s)
 
     bauds = baud_measurements(
         raw_pulses,
