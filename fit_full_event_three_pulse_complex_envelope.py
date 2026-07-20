@@ -332,6 +332,14 @@ def refit_dynamics(
             )
         ),
     )
+    branch_velocity_sigma_mps = velocity_sigma_mps
+    branch_acceleration_sigma_mps2 = acceleration_sigma_mps2
+    branch_reference_velocity_mps = np.asarray(
+        result["model_velocity_mps"], dtype=float
+    ).copy()
+    branch_reference_acceleration_mps2 = np.asarray(
+        result["model_acceleration_mps2"], dtype=float
+    ).copy()
     position_sigma_km = np.sqrt(np.maximum(np.diag(position_covariance_km2), 1e-8))
     measurement_count = (
         3 * np.count_nonzero(echo_keep)
@@ -508,14 +516,12 @@ def refit_dynamics(
 
         for branch_iterations in range(1, 7):
             prediction = predict(final.x)
-            predicted_velocity = np.interp(fit_time, trajectory_time, prediction[2])
-            predicted_acceleration = np.interp(fit_time, trajectory_time, prediction[3])
             selected_indices = smooth_global_branch_indices(
                 branch_candidates,
-                predicted_velocity,
-                predicted_acceleration,
-                velocity_sigma_mps,
-                acceleration_sigma_mps2,
+                branch_reference_velocity_mps,
+                branch_reference_acceleration_mps2,
+                branch_velocity_sigma_mps,
+                branch_acceleration_sigma_mps2,
                 chain_id=np.asarray(
                     [row["chain_id"] for row in branch_candidates], dtype=int
                 ),
@@ -634,13 +640,12 @@ def refit_dynamics(
     # once: repeated discrete/continuous alternation can cycle between two
     # equally plausible branch assignments.
     if branch_candidates is not None:
-        final_prediction = predict(final.x)
         selected_indices = smooth_global_branch_indices(
             branch_candidates,
-            np.interp(fit_time, trajectory_time, final_prediction[2]),
-            np.interp(fit_time, trajectory_time, final_prediction[3]),
-            velocity_sigma_mps,
-            acceleration_sigma_mps2,
+            branch_reference_velocity_mps,
+            branch_reference_acceleration_mps2,
+            branch_velocity_sigma_mps,
+            branch_acceleration_sigma_mps2,
             chain_id=np.asarray(
                 [row["chain_id"] for row in branch_candidates], dtype=int
             ),
