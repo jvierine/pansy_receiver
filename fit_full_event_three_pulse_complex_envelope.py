@@ -215,7 +215,7 @@ def smooth_global_branch_indices(
     predicted_acceleration_mps2,
     velocity_sigma_mps,
     acceleration_sigma_mps2,
-    smoothness_sigma_mps2=2.5e4,
+    smoothness_sigma_mps2=1.0e5,
     chain_id=None,
 ):
     """Select equally likely k=-1,0,+1 branches with weak acceleration smoothness."""
