@@ -410,42 +410,6 @@ def refit_dynamics(
     radius_quantiles_um = weighted_quantile(
         profile_radius_um, profile_weights, [0.025, 0.5, 0.975]
     )
-    conditional_radius_quantiles_um = radius_quantiles_um.copy()
-
-    # The high-radius tail is dominated by repeated, model-dependent residual
-    # structure and is not used to claim an upper radius limit.  Retain the raw
-    # conditional profile for auditing, but report only the lower crossing of
-    # the one-parameter 95% profile-likelihood threshold.
-    lower_threshold = 2.705543454095404
-    best_profile_index = int(np.nanargmin(profile_chi2))
-    lower_index = best_profile_index
-    while lower_index > 0 and profile_delta_chi2[lower_index - 1] <= lower_threshold:
-        lower_index -= 1
-    if lower_index == 0 and profile_delta_chi2[0] <= lower_threshold:
-        lower_radius_um = np.nan
-    else:
-        below = lower_index - 1
-        above = lower_index
-        x = np.log(profile_radius_um[[below, above]])
-        y = profile_delta_chi2[[below, above]]
-        if np.all(np.isfinite(y)) and y[0] != y[1]:
-            lower_radius_um = float(
-                np.exp(x[0] + (lower_threshold - y[0]) * (x[1] - x[0]) / (y[1] - y[0]))
-            )
-        else:
-            lower_radius_um = float(profile_radius_um[above])
-    lower_mass_kg = (
-        float(radius_um_to_mass_kg(lower_radius_um))
-        if np.isfinite(lower_radius_um)
-        else np.nan
-    )
-    reported_radius_quantiles_um = np.asarray([lower_radius_um, np.nan, np.nan])
-    reported_mass_quantiles_kg = np.asarray([lower_mass_kg, np.nan, np.nan])
-    lower_bound_delta_chi2 = profile_delta_chi2.copy()
-    lower_bound_delta_chi2[best_profile_index:] = 0.0
-    lower_bound_relative_likelihood = np.exp(
-        -0.5 * np.minimum(lower_bound_delta_chi2, 700.0)
-    )
 
     profile_position = []
     profile_doppler_mps = []
@@ -520,18 +484,8 @@ def refit_dynamics(
         "profile_probability_density_log_radius": profile_probability,
         "profile_probability_weights": profile_weights,
         "profile_success": profile_success,
-        "marginal_radius_quantiles_um": reported_radius_quantiles_um,
-        "marginal_mass_quantiles_kg": reported_mass_quantiles_kg,
-        "conditional_marginal_radius_quantiles_um": conditional_radius_quantiles_um,
-        "conditional_marginal_mass_quantiles_kg": radius_um_to_mass_kg(
-            conditional_radius_quantiles_um
-        ),
-        "profile_lower_bound_delta_chi2": lower_bound_delta_chi2,
-        "profile_lower_bound_relative_likelihood": lower_bound_relative_likelihood,
-        "profile_lower_bound_threshold_delta_chi2": lower_threshold,
-        "profile_lower_bound_radius_um": lower_radius_um,
-        "profile_lower_bound_mass_kg": lower_mass_kg,
-        "profile_upper_bound_valid": False,
+        "marginal_radius_quantiles_um": radius_quantiles_um,
+        "marginal_mass_quantiles_kg": radius_um_to_mass_kg(radius_quantiles_um),
         "position_interval_km": position_interval_km,
         "doppler_interval_mps": doppler_interval_mps,
         "acceleration_interval_mps2": acceleration_interval_mps2,
@@ -999,7 +953,7 @@ def main() -> int:
     path_length_km = float(np.sum(np.linalg.norm(np.diff(refit_position[echo_keep], axis=0), axis=1)))
 
     profile_radius_um = dynamics["profile_radius_um"]
-    profile_probability = dynamics["profile_lower_bound_relative_likelihood"]
+    profile_probability = dynamics["profile_probability_density_log_radius"]
     radius_quantiles_um = dynamics["marginal_radius_quantiles_um"]
     mass_quantiles_kg = dynamics["marginal_mass_quantiles_kg"]
     profile_probability /= max(float(np.nanmax(profile_probability)), 1e-30)
@@ -1216,16 +1170,14 @@ def main() -> int:
     axis = event_axes[1, 1]
     axis.plot(profile_radius_um, profile_probability, color="black")
     axis.fill_between(profile_radius_um, 0.0, profile_probability, color="0.75", alpha=0.7)
-    axis.axvline(1e6 * 10.0 ** dynamics["parameters"][6], color="C0", label="best fit")
-    if np.isfinite(radius_quantiles_um[0]):
-        axis.axvline(radius_quantiles_um[0], color="C0", linestyle="--", linewidth=0.9)
+    axis.axvline(1e6 * 10.0 ** dynamics["parameters"][6], color="C0", label="new best fit")
+    axis.axvspan(radius_quantiles_um[0], radius_quantiles_um[-1], color="C0", alpha=0.12)
     axis.text(
         0.04,
         0.94,
-        rf"95% $r_0>{radius_quantiles_um[0]:.0f}\,\mu$m"
+        rf"95% $r_0$ {radius_quantiles_um[0]:.0f}--{radius_quantiles_um[-1]:.0f} $\mu$m"
         + "\n"
-        + rf"95% $m_0>{mass_quantiles_kg[0]:.1e}$ kg"
-        + "\nupper bound unconstrained",
+        + rf"95% $m_0$ {mass_quantiles_kg[0]:.1e}--{mass_quantiles_kg[-1]:.1e} kg",
         transform=axis.transAxes,
         ha="left",
         va="top",
@@ -1235,7 +1187,7 @@ def main() -> int:
     axis.set_xlim(1.0, 1e4)
     axis.set_ylim(0.0, 1.05)
     axis.set_xlabel(r"Initial radius $r_0$ ($\mu$m)")
-    axis.set_ylabel("Relative likelihood")
+    axis.set_ylabel("Relative probability")
     secondary = axis.secondary_xaxis(
         "top",
         functions=(radius_um_to_mass_kg, lambda mass: 1e6 * (3.0 * mass / (4.0 * np.pi * 3000.0)) ** (1.0 / 3.0)),
