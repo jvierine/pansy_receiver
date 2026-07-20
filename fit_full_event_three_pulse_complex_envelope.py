@@ -1038,7 +1038,7 @@ def main() -> int:
         float(np.nanpercentile(np.r_[snr_db[np.isfinite(snr_db)], rti_db[np.isfinite(rti_db)]], 99.7)),
     )
 
-    event_fig, event_axes = plt.subplots(2, 4, figsize=(16.0, 8.0), constrained_layout=True)
+    event_fig, event_axes = plt.subplots(3, 4, figsize=(16.0, 12.0), constrained_layout=True)
     fixed_colors = ["tab:purple", "tab:orange", "tab:red"]
     axis = event_axes[0, 0]
     beam_east_km, beam_north_km, beam_map = beam_pixmap()
@@ -1337,6 +1337,160 @@ def main() -> int:
     axis.set_xlabel("Time (s)")
     axis.set_ylabel("Along-track position residual (km)")
     axis.legend(frameon=False, loc="best", fontsize=7)
+
+    axis = event_axes[2, 0]
+    axis.plot(
+        observation_time[echo_keep],
+        position_residual[echo_keep, 0],
+        ".",
+        color="C0",
+        markersize=3.0,
+        label="EW",
+    )
+    axis.plot(
+        observation_time[echo_keep],
+        position_residual[echo_keep, 1],
+        ".",
+        color="C1",
+        markersize=3.0,
+        label="NS",
+    )
+    if np.any(~echo_keep):
+        axis.plot(
+            observation_time[~echo_keep],
+            position_residual[~echo_keep, 0],
+            "x",
+            color="0.7",
+            markersize=3.0,
+            label="rejected echo",
+        )
+    axis.axhline(0.0, color="black", lw=0.8)
+    axis.set_xlabel("Time (s)")
+    axis.set_ylabel("Horizontal residual (km)")
+    axis.text(
+        0.03,
+        0.97,
+        rf"$S={quality['variance_weighted_score']:.2f}$",
+        transform=axis.transAxes,
+        va="top",
+    )
+    axis.legend(frameon=False, loc="lower left", fontsize=7)
+
+    axis = event_axes[2, 1]
+    full_range_residual = precise_range_km - refit_range
+    axis.plot(
+        observation_time[echo_keep],
+        position_residual[echo_keep, 2],
+        ".",
+        color="C0",
+        markersize=3.0,
+        label="Up",
+    )
+    axis.plot(
+        observation_time[echo_keep],
+        full_range_residual[echo_keep],
+        ".",
+        color="C1",
+        markersize=3.0,
+        label="range",
+    )
+    if np.any(~echo_keep):
+        axis.plot(
+            observation_time[~echo_keep],
+            full_range_residual[~echo_keep],
+            "x",
+            color="0.7",
+            markersize=3.0,
+            label="rejected echo",
+        )
+    axis.axhline(0.0, color="black", lw=0.8)
+    axis.set_xlabel("Time (s)")
+    axis.set_ylabel("Vertical/range residual (km)")
+    axis.legend(frameon=False, loc="best", fontsize=7)
+
+    axis = event_axes[2, 2]
+    fft_refit_residual = precise_doppler_mps - refit_doppler
+    axis.plot(
+        observation_time[echo_keep],
+        fft_refit_residual[echo_keep],
+        ".",
+        color="0.7",
+        markersize=3.0,
+        label="FFT Doppler",
+    )
+    axis.errorbar(
+        triplet_time[fit_velocity_keep],
+        velocity_residual_refit[fit_velocity_keep],
+        yerr=result["velocity_std_mps"][fit_velocity_keep],
+        fmt=".",
+        color="black",
+        ecolor="black",
+        markersize=3.0,
+        linewidth=0.7,
+        label="retained triplet",
+    )
+    rejected_triplet = ~fit_velocity_keep
+    if np.any(rejected_triplet):
+        axis.plot(
+            triplet_time[rejected_triplet],
+            velocity_residual_refit[rejected_triplet],
+            "x",
+            color="C3",
+            markersize=4.0,
+            label="rejected triplet",
+        )
+    axis.axhline(0.0, color="black", lw=0.8)
+    axis.set_xlabel("Time (s)")
+    axis.set_ylabel("Doppler residual (m/s)")
+    axis.legend(frameon=False, loc="best", fontsize=7)
+
+    axis = event_axes[2, 3]
+    alias_colors = {-1: "C0", 0: "C1", 1: "C2"}
+    for alias_number in (-1, 0, 1):
+        alias_time = []
+        alias_residual = []
+        for triplet_index, row in enumerate(alias_rows):
+            aliases = np.asarray(row["alias_number"], dtype=int)
+            match = np.flatnonzero(aliases == alias_number)
+            if len(match) != 1:
+                continue
+            alias_time.append(triplet_time[triplet_index])
+            alias_residual.append(
+                np.asarray(row["fit_acceleration_mps2"], dtype=float)[match[0]]
+                - acceleration_refit_at_triplet[triplet_index]
+            )
+        axis.plot(
+            alias_time,
+            np.asarray(alias_residual) / 1e3,
+            ".",
+            color=alias_colors[alias_number],
+            markersize=3.0,
+            alpha=0.65,
+            label=rf"$k={alias_number:+d}$",
+        )
+    axis.plot(
+        triplet_time[fit_acceleration_keep],
+        acceleration_residual_refit[fit_acceleration_keep] / 1e3,
+        "o",
+        markerfacecolor="none",
+        markeredgecolor="black",
+        markeredgewidth=0.7,
+        markersize=4.5,
+        label="selected",
+    )
+    if np.any(~fit_acceleration_keep):
+        axis.plot(
+            triplet_time[~fit_acceleration_keep],
+            acceleration_residual_refit[~fit_acceleration_keep] / 1e3,
+            "x",
+            color="C3",
+            markersize=4.0,
+            label="rejected",
+        )
+    axis.axhline(0.0, color="black", lw=0.8)
+    axis.set_xlabel("Time (s)")
+    axis.set_ylabel(r"Acceleration residual (km s$^{-2}$)")
+    axis.legend(frameon=False, loc="best", fontsize=7, ncol=2)
     for axis in event_axes.ravel():
         axis.grid(alpha=0.2, lw=0.5)
     event_fig.savefig(event_png, dpi=190)
