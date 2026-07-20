@@ -788,6 +788,13 @@ def main() -> int:
     )
     pairs = baud_averaged_beat_pairs(decoded, same_beam=True)
     triplets = valid_triplets(pairs)
+    triplets.sort(
+        key=lambda row: (
+            float(decoded["tx_idx"][row[1]]),
+            float(decoded["tx_idx"][row[0]]),
+            float(decoded["tx_idx"][row[2]]),
+        )
+    )
     prior_acceleration = phase_acceleration_lookup(args.prior_profile_h5)
     with h5py.File(args.prior_profile_h5, "r") as handle:
         echo_keep = np.asarray(handle["result/echo_shared_inlier_mask"], dtype=bool)
@@ -902,6 +909,17 @@ def main() -> int:
         pulse_spacing_s = float(
             np.mean(np.diff(decoded["tx_idx"][observation_indices])) / FS_HZ
         )
+        if local_prior is not None and np.isfinite(local_prior["phase_std_rad"]):
+            phase_acceleration_sigma = (
+                pc.wavelength
+                * local_prior["phase_std_rad"]
+                / (4.0 * np.pi * pulse_spacing_s**2)
+            )
+            branch_half_width = float(
+                np.clip(4.0 * phase_acceleration_sigma, 2.0e3, 1.0e4)
+            )
+        else:
+            branch_half_width = 1.0e4
         alias_fits = fit_three_pulse_acceleration_aliases(
             raw_pulses,
             templates,
@@ -912,6 +930,7 @@ def main() -> int:
             pulse_snr=10.0
             ** (np.asarray(decoded["snr"][observation_indices], dtype=float) / 10.0),
             matched_filter_amplitudes=amplitude_prior,
+            acceleration_branch_half_width_mps2=branch_half_width,
         )
         alias_number = np.asarray(alias_fits["alias_number"], dtype=int)
         branch_indices = np.asarray(
