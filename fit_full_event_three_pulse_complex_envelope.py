@@ -41,6 +41,7 @@ from inter_pulse_phase_deceleration import (
     decoded_pulse_responses,
     fractional_segment,
     load_selected,
+    pair_responses,
 )
 from run_catalogue_mass_profiles import load_selected_fit
 from run_catalogue_mass_profiles import log_grid_probability
@@ -590,6 +591,7 @@ def main() -> int:
         precise_doppler_mps=precise_doppler_mps,
     )
     pairs = baud_averaged_beat_pairs(decoded, same_beam=True)
+    matched_filter_pairs = pair_responses(decoded, same_beam=True)
     triplets = valid_triplets(pairs)
     prior_acceleration = phase_acceleration_lookup(args.prior_profile_h5)
     with h5py.File(args.prior_profile_h5, "r") as handle:
@@ -1409,39 +1411,63 @@ def main() -> int:
     axis.legend(frameon=False, loc="best", fontsize=7)
 
     axis = event_axes[2, 2]
-    fft_refit_residual = precise_doppler_mps - refit_doppler
-    axis.plot(
-        observation_time[echo_keep],
-        fft_refit_residual[echo_keep],
-        ".",
-        color="0.7",
-        markersize=3.0,
-        label="FFT Doppler",
+    pair_delta_t = np.asarray(matched_filter_pairs["delta_t_s"], dtype=float)
+    pair_keep = np.isfinite(pair_delta_t) & (
+        np.abs(pair_delta_t - PAIR_SPACING_S) <= PAIR_SPACING_TOLERANCE_S
     )
-    axis.errorbar(
-        triplet_time[fit_velocity_keep],
-        velocity_residual_refit[fit_velocity_keep],
-        yerr=result["velocity_std_mps"][fit_velocity_keep],
-        fmt=".",
-        color="black",
-        ecolor="black",
-        markersize=3.0,
-        linewidth=0.7,
-        label="retained triplet",
+    pair_time_absolute = np.asarray(matched_filter_pairs["time_s"], dtype=float)[pair_keep]
+    pair_time = pair_time_absolute - time_origin
+    pair_phase = np.asarray(matched_filter_pairs["phase_rad"], dtype=float)[pair_keep]
+    pair_ambiguity = np.asarray(matched_filter_pairs["ambiguity_mps"], dtype=float)[pair_keep]
+    pair_wrapped_velocity = (
+        pair_phase * pc.wavelength / (4.0 * np.pi * pair_delta_t[pair_keep])
     )
-    rejected_triplet = ~fit_velocity_keep
-    if np.any(rejected_triplet):
-        axis.plot(
-            triplet_time[rejected_triplet],
-            velocity_residual_refit[rejected_triplet],
-            "x",
-            color="C3",
-            markersize=4.0,
-            label="rejected triplet",
+    pair_fft_velocity = np.asarray(
+        matched_filter_pairs["phase_doppler_mps"], dtype=float
+    )[pair_keep]
+    retained_triplet_time_absolute = result["time_s"][fit_velocity_keep]
+    retained_triplet_velocity = result["velocity_mps"][fit_velocity_keep]
+    if len(retained_triplet_time_absolute) >= 2:
+        pair_three_pulse_reference = np.interp(
+            pair_time_absolute,
+            retained_triplet_time_absolute,
+            retained_triplet_velocity,
         )
+    else:
+        pair_three_pulse_reference = np.interp(
+            pair_time_absolute, trajectory_time, refit_doppler
+        )
+    pair_three_pulse_velocity = pair_wrapped_velocity + np.rint(
+        (pair_three_pulse_reference - pair_wrapped_velocity) / pair_ambiguity
+    ) * pair_ambiguity
+    pair_model_velocity = np.interp(pair_time_absolute, trajectory_time, refit_doppler)
+    axis.plot(
+        pair_time,
+        pair_fft_velocity - pair_model_velocity,
+        ".",
+        color="C0",
+        markersize=3.0,
+        label="8 ms phase, FFT branch",
+    )
+    axis.plot(
+        pair_time,
+        pair_three_pulse_velocity - pair_model_velocity,
+        ".",
+        color="C1",
+        markersize=3.0,
+        label="8 ms phase, 3-pulse branch",
+    )
     axis.axhline(0.0, color="black", lw=0.8)
     axis.set_xlabel("Time (s)")
-    axis.set_ylabel("Doppler residual (m/s)")
+    axis.set_ylabel("Pulse-pair Doppler residual (m/s)")
+    if len(pair_ambiguity):
+        axis.text(
+            0.03,
+            0.97,
+            f"Alias spacing {np.nanmedian(pair_ambiguity):.1f} m/s",
+            transform=axis.transAxes,
+            va="top",
+        )
     axis.legend(frameon=False, loc="best", fontsize=7)
 
     axis = event_axes[2, 3]
