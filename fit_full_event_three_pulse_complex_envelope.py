@@ -40,6 +40,8 @@ from interferometer_alias_diagnostics import load_cut, recompute_cut_observables
 from inter_pulse_phase_deceleration import (
     baud_averaged_beat_pairs,
     decoded_pulse_responses,
+    diagnostic_measurement_clock,
+    diagnostic_to_raw_pulses,
     fractional_segment,
     load_selected,
 )
