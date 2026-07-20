@@ -531,10 +531,9 @@ def refit_dynamics(
         preliminary = predict(final.x)
     preliminary_velocity = np.interp(fit_time, trajectory_time, preliminary[2])
     preliminary_acceleration = np.interp(fit_time, trajectory_time, preliminary[3])
-    position_sigma_km = np.maximum(
-        np.sqrt(np.mean((points_km[echo_keep] - preliminary[0][echo_keep]) ** 2, axis=0)),
-        0.01,
-    )
+    # Keep the position error model fixed from the established trajectory
+    # residuals.  Re-estimating it from this candidate fit lets a constant
+    # position offset inflate its own uncertainty and become self-consistent.
     velocity_sigma_mps = max(
         20.0,
         float(
