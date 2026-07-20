@@ -630,22 +630,22 @@ def refit_dynamics(
 
     # Reconcile the discrete aliases after the final continuous trajectory
     # adjustment.  Position re-anchoring can move the Doppler/acceleration
-    # prediction enough to change the preferred local alias.
+    # prediction enough to change the preferred local alias.  Perform this
+    # once: repeated discrete/continuous alternation can cycle between two
+    # equally plausible branch assignments.
     if branch_candidates is not None:
-        for _ in range(10):
-            final_prediction = predict(final.x)
-            selected_indices = smooth_global_branch_indices(
-                branch_candidates,
-                np.interp(fit_time, trajectory_time, final_prediction[2]),
-                np.interp(fit_time, trajectory_time, final_prediction[3]),
-                velocity_sigma_mps,
-                acceleration_sigma_mps2,
-                chain_id=np.asarray(
-                    [row["chain_id"] for row in branch_candidates], dtype=int
-                ),
-            )
-            if not apply_branch_selection(selected_indices):
-                break
+        final_prediction = predict(final.x)
+        selected_indices = smooth_global_branch_indices(
+            branch_candidates,
+            np.interp(fit_time, trajectory_time, final_prediction[2]),
+            np.interp(fit_time, trajectory_time, final_prediction[3]),
+            velocity_sigma_mps,
+            acceleration_sigma_mps2,
+            chain_id=np.asarray(
+                [row["chain_id"] for row in branch_candidates], dtype=int
+            ),
+        )
+        if apply_branch_selection(selected_indices):
             joint_cholesky = covariance_cholesky()
             final = least_squares(
                 residual,
