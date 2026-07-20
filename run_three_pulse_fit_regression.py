@@ -87,7 +87,8 @@ def fit_one(args: argparse.Namespace, sample_idx: int) -> Path:
 def read_quality(path: Path) -> dict[str, float]:
     with h5py.File(path, "r") as handle:
         group = handle["quality"]
-        return {name: float(value) for name, value in group.attrs.items()}
+        names = [*QUALITY_SCALES, "variance_weighted_score"]
+        return {name: float(group.attrs[name]) for name in names}
 
 
 def write_summary(output: Path, samples: list[int], rows: list[dict[str, float]]) -> None:
