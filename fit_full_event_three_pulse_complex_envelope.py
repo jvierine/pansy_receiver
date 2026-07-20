@@ -465,20 +465,7 @@ def refit_dynamics(
         if branch_observation_indices.shape != (len(result), 3):
             raise ValueError("branch observation indices must have shape (n, 3)")
 
-        for branch_iterations in range(1, 7):
-            prediction = predict(final.x)
-            predicted_velocity = np.interp(fit_time, trajectory_time, prediction[2])
-            predicted_acceleration = np.interp(fit_time, trajectory_time, prediction[3])
-            selected_indices = smooth_global_branch_indices(
-                branch_candidates,
-                predicted_velocity,
-                predicted_acceleration,
-                velocity_sigma_mps,
-                acceleration_sigma_mps2,
-                chain_id=np.asarray(
-                    [row["chain_id"] for row in branch_candidates], dtype=int
-                ),
-            )
+        def apply_branch_selection(selected_indices):
             changed = False
             selected_fits = []
             for row_index, (candidates, selected) in enumerate(
@@ -509,12 +496,31 @@ def refit_dynamics(
                     / np.sqrt(covariance[4, 4] * covariance[5, 5])
                 )
 
-            triplet_correlation = overlapping_triplet_correlation(
+            selected_correlation = overlapping_triplet_correlation(
                 selected_fits, branch_observation_indices
             )
-            measurement_correlation[triplet_start:, triplet_start:] = triplet_correlation[
-                np.ix_(selected_triplet_rows, selected_triplet_rows)
-            ]
+            measurement_correlation[triplet_start:, triplet_start:] = (
+                selected_correlation[
+                    np.ix_(selected_triplet_rows, selected_triplet_rows)
+                ]
+            )
+            return changed
+
+        for branch_iterations in range(1, 7):
+            prediction = predict(final.x)
+            predicted_velocity = np.interp(fit_time, trajectory_time, prediction[2])
+            predicted_acceleration = np.interp(fit_time, trajectory_time, prediction[3])
+            selected_indices = smooth_global_branch_indices(
+                branch_candidates,
+                predicted_velocity,
+                predicted_acceleration,
+                velocity_sigma_mps,
+                acceleration_sigma_mps2,
+                chain_id=np.asarray(
+                    [row["chain_id"] for row in branch_candidates], dtype=int
+                ),
+            )
+            changed = apply_branch_selection(selected_indices)
             preliminary_velocity = np.interp(fit_time, trajectory_time, prediction[2])
             preliminary_acceleration = np.interp(fit_time, trajectory_time, prediction[3])
             velocity_sigma_mps = max(
@@ -621,6 +627,35 @@ def refit_dynamics(
         loss="linear",
         max_nfev=240,
     )
+
+    # Reconcile the discrete aliases after the final continuous trajectory
+    # adjustment.  Position re-anchoring can move the Doppler/acceleration
+    # prediction enough to change the preferred local alias.
+    if branch_candidates is not None:
+        for _ in range(10):
+            final_prediction = predict(final.x)
+            selected_indices = smooth_global_branch_indices(
+                branch_candidates,
+                np.interp(fit_time, trajectory_time, final_prediction[2]),
+                np.interp(fit_time, trajectory_time, final_prediction[3]),
+                velocity_sigma_mps,
+                acceleration_sigma_mps2,
+                chain_id=np.asarray(
+                    [row["chain_id"] for row in branch_candidates], dtype=int
+                ),
+            )
+            if not apply_branch_selection(selected_indices):
+                break
+            joint_cholesky = covariance_cholesky()
+            final = least_squares(
+                residual,
+                final.x,
+                bounds=(lower, upper),
+                x_scale=scale,
+                loss="linear",
+                max_nfev=240,
+            )
+
     covariance_degrees_of_freedom = max(measurement_count - len(final.x), 1)
     covariance_variance_inflation = max(
         1.0, float(np.sum(residual(final.x) ** 2) / covariance_degrees_of_freedom)
