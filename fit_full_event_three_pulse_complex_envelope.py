@@ -449,12 +449,14 @@ def refit_dynamics(
     )
 
     fixed_radius_um = np.asarray([10.0, 100.0, 1000.0])
+    fixed_position_km = []
     fixed_doppler_mps = []
     fixed_acceleration_mps2 = []
     fixed_speed_km_s = []
     for target_um in fixed_radius_um:
         index = int(np.flatnonzero(profile_radius_um == target_um)[0])
         predicted = predict(np.r_[profile_parameters6[index], profile_log_radius_m[index]])
+        fixed_position_km.append(predicted[0])
         fixed_doppler_mps.append(predicted[2])
         fixed_acceleration_mps2.append(predicted[3])
         fixed_speed_km_s.append(np.linalg.norm(predicted[1], axis=1))
@@ -490,6 +492,7 @@ def refit_dynamics(
         "speed_interval_km_s": speed_interval_km_s,
         "range_interval_km": range_interval_km,
         "fixed_radius_um": fixed_radius_um,
+        "fixed_position_km": np.asarray(fixed_position_km),
         "fixed_doppler_mps": np.asarray(fixed_doppler_mps),
         "fixed_acceleration_mps2": np.asarray(fixed_acceleration_mps2),
         "fixed_speed_km_s": np.asarray(fixed_speed_km_s),
@@ -1226,34 +1229,39 @@ def main() -> int:
     axis.legend(frameon=False, loc="lower left", fontsize=7)
 
     axis = event_axes[1, 3]
-    doppler_artist = axis.errorbar(
-        triplet_time[fit_velocity_keep],
-        velocity_residual_refit[fit_velocity_keep],
-        yerr=result["velocity_std_mps"][fit_velocity_keep],
-        fmt=".",
-        color="C0",
-        label="Doppler",
+    along_track = refit_velocity / np.maximum(
+        np.linalg.norm(refit_velocity, axis=1, keepdims=True), 1e-12
     )
-    acceleration_axis = axis.twinx()
-    acceleration_artist = acceleration_axis.plot(
-        triplet_time[fit_acceleration_keep],
-        acceleration_residual_refit[fit_acceleration_keep] / 1e3,
-        ".",
-        color="C1",
-        label="Acceleration",
-    )[0]
+
+    def along_track_residual(model_position_km):
+        return np.einsum(
+            "ij,ij->i", fitted_points_km - model_position_km, along_track
+        )
+
+    axis.plot(
+        observation_time[echo_keep],
+        along_track_residual(refit_position)[echo_keep],
+        ".-",
+        color="C0",
+        linewidth=0.9,
+        markersize=3.0,
+        label="fit",
+    )
+    for target_um, fixed_position, color in zip(
+        dynamics["fixed_radius_um"], dynamics["fixed_position_km"], fixed_colors
+    ):
+        axis.plot(
+            observation_time[echo_keep],
+            along_track_residual(fixed_position)[echo_keep],
+            linestyle="--",
+            color=color,
+            linewidth=0.9,
+            label=rf"$r_0={target_um:g}\,\mu$m",
+        )
     axis.axhline(0.0, color="black", lw=0.8)
     axis.set_xlabel("Time (s)")
-    axis.set_ylabel("Doppler residual (m/s)", color="C0")
-    acceleration_axis.set_ylabel(r"Acceleration residual (km s$^{-2}$)", color="C1")
-    axis.tick_params(axis="y", colors="C0")
-    acceleration_axis.tick_params(axis="y", colors="C1")
-    axis.legend(
-        [doppler_artist, acceleration_artist],
-        ["Doppler", "Acceleration"],
-        frameon=False,
-        loc="upper left",
-    )
+    axis.set_ylabel("Along-track position residual (km)")
+    axis.legend(frameon=False, loc="best", fontsize=7)
     for axis in event_axes.ravel():
         axis.grid(alpha=0.2, lw=0.5)
     event_fig.savefig(event_png, dpi=190)
