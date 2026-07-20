@@ -13,7 +13,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-from scipy.linalg import solve_triangular
+from scipy.linalg import block_diag, solve_triangular
 from scipy.optimize import least_squares
 
 import pansy_config as pc
@@ -69,6 +69,20 @@ def phase_acceleration_lookup(profile_h5: Path) -> dict[tuple[int, int, int, int
                 "keep": bool(keep[index]),
             }
     return lookup
+
+
+def load_phase_acceleration_modality(profile_h5: Path) -> dict:
+    """Load the wrapped 8-ms acceleration observable and its locked covariance."""
+    with h5py.File(profile_h5, "r") as handle:
+        group = handle["phase_acceleration"]
+        return {
+            "samples": np.asarray(group["samples"]),
+            "keep": np.asarray(group["shared_inlier_mask"], dtype=bool),
+            "covariance_rad2": np.asarray(
+                group["phase_difference_covariance_rad2"], dtype=float
+            ),
+            "covariance_scale": float(group.attrs["covariance_scale"]),
+        }
 
 
 def beam_pixmap() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -221,22 +235,26 @@ def refit_dynamics(
     profile_radius_um,
     triplet_correlation=None,
     velocity_keep=None,
-    acceleration_keep=None,
+    phase_modality=None,
+    phase_absolute_zero_s=None,
 ) -> dict:
     if velocity_keep is None:
         velocity_keep = np.asarray(result["shared_inlier"], dtype=bool)
     else:
         velocity_keep = np.asarray(velocity_keep, dtype=bool)
-    if acceleration_keep is None:
-        acceleration_keep = velocity_keep & ~np.asarray(
-            result["acceleration_at_bound"], dtype=bool
-        )
-    else:
-        acceleration_keep = np.asarray(acceleration_keep, dtype=bool)
-    if velocity_keep.shape != result.shape or acceleration_keep.shape != result.shape:
-        raise ValueError("triplet measurement masks must match the fit result")
-    if np.any(acceleration_keep & ~velocity_keep):
-        raise ValueError("acceleration mask cannot retain a rejected velocity triplet")
+    if velocity_keep.shape != result.shape:
+        raise ValueError("triplet velocity mask must match the fit result")
+    if phase_modality is None or phase_absolute_zero_s is None:
+        raise ValueError("wrapped phase acceleration data and time origin are required")
+    phase_samples = np.asarray(phase_modality["samples"])
+    phase_keep = np.asarray(phase_modality["keep"], dtype=bool)
+    phase_covariance_rad2 = np.asarray(
+        phase_modality["covariance_rad2"], dtype=float
+    )
+    if phase_keep.shape != (len(phase_samples),):
+        raise ValueError("phase acceleration mask does not match phase samples")
+    if phase_covariance_rad2.shape != (len(phase_samples), len(phase_samples)):
+        raise ValueError("phase acceleration covariance has an unexpected shape")
     velocity_sigma_mps = max(
         20.0,
         float(
@@ -251,25 +269,11 @@ def refit_dynamics(
             )
         ),
     )
-    acceleration_sigma_mps2 = max(
-        1e3,
-        float(
-            np.sqrt(
-                np.mean(
-                    (
-                        result["acceleration_mps2"][acceleration_keep]
-                        - result["model_acceleration_mps2"][acceleration_keep]
-                    )
-                    ** 2
-                )
-            )
-        ),
-    )
     position_sigma_km = np.sqrt(np.maximum(np.diag(position_covariance_km2), 1e-8))
     measurement_count = (
         3 * np.count_nonzero(echo_keep)
         + np.count_nonzero(velocity_keep)
-        + np.count_nonzero(acceleration_keep)
+        + np.count_nonzero(phase_keep)
     )
     triplet_correlation = np.asarray(triplet_correlation, dtype=float)
     if triplet_correlation.shape != (2 * len(result), 2 * len(result)):
@@ -287,23 +291,24 @@ def refit_dynamics(
     for echo in range(position_count):
         rows = slice(3 * echo, 3 * echo + 3)
         measurement_correlation[rows, rows] = position_correlation
-    selected_triplet_rows = np.r_[
-        2 * np.flatnonzero(velocity_keep),
-        2 * np.flatnonzero(acceleration_keep) + 1,
-    ]
-    triplet_start = 3 * position_count
-    measurement_correlation[triplet_start:, triplet_start:] = triplet_correlation[
+    selected_triplet_rows = 2 * np.flatnonzero(velocity_keep)
+    velocity_correlation = triplet_correlation[
         np.ix_(selected_triplet_rows, selected_triplet_rows)
     ]
+    selected_phase_covariance = phase_covariance_rad2[np.ix_(phase_keep, phase_keep)]
 
     def covariance_cholesky():
-        measurement_scale = np.r_[
-            np.tile(position_sigma_km, np.count_nonzero(echo_keep)),
-            np.full(np.count_nonzero(velocity_keep), velocity_sigma_mps),
-            np.full(np.count_nonzero(acceleration_keep), acceleration_sigma_mps2),
-        ]
-        covariance = measurement_correlation * np.outer(
-            measurement_scale, measurement_scale
+        position_block = measurement_correlation[
+            : 3 * position_count, : 3 * position_count
+        ] * np.outer(
+            np.tile(position_sigma_km, position_count),
+            np.tile(position_sigma_km, position_count),
+        )
+        covariance = block_diag(
+            position_block,
+            velocity_correlation * velocity_sigma_mps**2,
+            selected_phase_covariance
+            * float(phase_modality["covariance_scale"]) ** 2,
         )
         covariance += np.eye(len(covariance)) * max(
             1e-12, 1e-10 * float(np.median(np.diag(covariance)))
@@ -322,20 +327,48 @@ def refit_dynamics(
         acceleration_mps2 = np.gradient(doppler_mps, trajectory_time)
         return position, velocity, doppler_mps, acceleration_mps2, radius, mass
 
+    def predicted_phase(doppler_mps):
+        first_t = phase_samples["first_time_s"] - phase_absolute_zero_s
+        second_t = phase_samples["second_time_s"] - phase_absolute_zero_s
+        first_velocity = np.interp(first_t, trajectory_time, doppler_mps)
+        second_velocity = np.interp(second_t, trajectory_time, doppler_mps)
+        first_phase = (
+            4.0
+            * np.pi
+            * first_velocity
+            * phase_samples["first_dt_s"]
+            / pc.wavelength
+        )
+        second_phase = (
+            4.0
+            * np.pi
+            * second_velocity
+            * phase_samples["second_dt_s"]
+            / pc.wavelength
+        )
+        return np.angle(np.exp(1j * (second_phase - first_phase)))
+
     def residual(parameters):
         try:
             position, _velocity, doppler_mps, acceleration_mps2, _radius, _mass = predict(parameters)
         except Exception:
-            count = 3 * np.count_nonzero(echo_keep) + np.count_nonzero(velocity_keep) + np.count_nonzero(acceleration_keep)
-            return np.full(count, 1e6)
+            return np.full(measurement_count, 1e6)
         position_residual = (points_km[echo_keep] - position[echo_keep]).ravel()
         velocity_prediction = np.interp(fit_time, trajectory_time, doppler_mps)
-        acceleration_prediction = np.interp(fit_time, trajectory_time, acceleration_mps2)
+        phase_prediction = predicted_phase(doppler_mps)
+        phase_residual = np.angle(
+            np.exp(
+                1j
+                * (
+                    phase_samples["observed_delta_phase_rad"]
+                    - phase_prediction
+                )
+            )
+        )
         raw_residual = np.r_[
             position_residual,
             result["velocity_mps"][velocity_keep] - velocity_prediction[velocity_keep],
-            result["acceleration_mps2"][acceleration_keep]
-            - acceleration_prediction[acceleration_keep],
+            phase_residual[phase_keep],
         ]
         return solve_triangular(joint_cholesky, raw_residual, lower=True, check_finite=False)
 
@@ -360,7 +393,6 @@ def refit_dynamics(
     )
     preliminary = predict(final.x)
     preliminary_velocity = np.interp(fit_time, trajectory_time, preliminary[2])
-    preliminary_acceleration = np.interp(fit_time, trajectory_time, preliminary[3])
     position_sigma_km = np.maximum(
         np.sqrt(np.mean((points_km[echo_keep] - preliminary[0][echo_keep]) ** 2, axis=0)),
         0.01,
@@ -371,20 +403,6 @@ def refit_dynamics(
             np.sqrt(
                 np.mean(
                     (result["velocity_mps"][velocity_keep] - preliminary_velocity[velocity_keep])
-                    ** 2
-                )
-            )
-        ),
-    )
-    acceleration_sigma_mps2 = max(
-        1e3,
-        float(
-            np.sqrt(
-                np.mean(
-                    (
-                        result["acceleration_mps2"][acceleration_keep]
-                        - preliminary_acceleration[acceleration_keep]
-                    )
                     ** 2
                 )
             )
@@ -555,7 +573,7 @@ def refit_dynamics(
         "radius_m": radius,
         "mass_kg": mass,
         "velocity_sigma_mps": velocity_sigma_mps,
-        "acceleration_sigma_mps2": acceleration_sigma_mps2,
+        "phase_covariance_scale": float(phase_modality["covariance_scale"]),
         "position_sigma_km": position_sigma_km,
         "measurement_correlation": measurement_correlation,
         "triplet_correlation": triplet_correlation,
@@ -567,7 +585,10 @@ def refit_dynamics(
         "profile_parameters6": profile_parameters6,
         "profile_chi2": profile_chi2,
         "profile_delta_chi2": profile_delta_chi2,
-        "profile_probability_method": "standard fixed-covariance profile likelihood with shared-pulse banded covariance",
+        "profile_probability_method": (
+            "standard fixed-covariance profile likelihood with shared-pulse "
+            "three-pulse Doppler covariance and wrapped-phase acceleration covariance"
+        ),
         "profile_probability_density_log_radius": profile_probability,
         "profile_probability_weights": profile_weights,
         "profile_success": profile_success,
@@ -617,6 +638,7 @@ def main() -> int:
     pairs = baud_averaged_beat_pairs(decoded, same_beam=True)
     triplets = valid_triplets(pairs)
     prior_acceleration = phase_acceleration_lookup(args.prior_profile_h5)
+    phase_modality = load_phase_acceleration_modality(args.prior_profile_h5)
     with h5py.File(args.prior_profile_h5, "r") as handle:
         echo_keep = np.asarray(handle["result/echo_shared_inlier_mask"], dtype=bool)
 
@@ -871,7 +893,8 @@ def main() -> int:
         profile_grid_radius_um,
         triplet_correlation=triplet_correlation,
         velocity_keep=fit_velocity_keep,
-        acceleration_keep=fit_acceleration_keep,
+        phase_modality=phase_modality,
+        phase_absolute_zero_s=absolute_zero,
     )
 
     output_h5 = args.output_dir / f"three_pulse_full_event_{args.sample_idx}.h5"
