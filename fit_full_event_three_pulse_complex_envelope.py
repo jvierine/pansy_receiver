@@ -558,6 +558,30 @@ def refit_dynamics(
                 break
 
         preliminary = predict(final.x)
+
+    # Discrete branch changes can move the continuous optimizer into a basin
+    # with a nearly constant Cartesian offset.  Re-anchor the initial position
+    # from the measured mean residual, then retain it only when the complete
+    # physical objective improves.
+    for _ in range(2):
+        current_prediction = predict(final.x)[0]
+        anchored_start = final.x.copy()
+        anchored_start[:3] += 1e3 * np.mean(
+            points_km[echo_keep] - current_prediction[echo_keep], axis=0
+        )
+        anchored = least_squares(
+            residual,
+            np.clip(anchored_start, lower + 1e-10, upper - 1e-10),
+            bounds=(lower, upper),
+            x_scale=scale,
+            loss="linear",
+            max_nfev=240,
+        )
+        if np.sum(residual(anchored.x) ** 2) >= np.sum(residual(final.x) ** 2):
+            break
+        final = anchored
+
+    preliminary = predict(final.x)
     preliminary_velocity = np.interp(fit_time, trajectory_time, preliminary[2])
     preliminary_acceleration = np.interp(fit_time, trajectory_time, preliminary[3])
     # Keep the position error model fixed from the established trajectory
