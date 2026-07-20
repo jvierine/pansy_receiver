@@ -358,47 +358,6 @@ def refit_dynamics(
         loss="linear",
         max_nfev=200,
     )
-    preliminary = predict(final.x)
-    preliminary_velocity = np.interp(fit_time, trajectory_time, preliminary[2])
-    preliminary_acceleration = np.interp(fit_time, trajectory_time, preliminary[3])
-    position_sigma_km = np.maximum(
-        np.sqrt(np.mean((points_km[echo_keep] - preliminary[0][echo_keep]) ** 2, axis=0)),
-        0.01,
-    )
-    velocity_sigma_mps = max(
-        20.0,
-        float(
-            np.sqrt(
-                np.mean(
-                    (result["velocity_mps"][velocity_keep] - preliminary_velocity[velocity_keep])
-                    ** 2
-                )
-            )
-        ),
-    )
-    acceleration_sigma_mps2 = max(
-        1e3,
-        float(
-            np.sqrt(
-                np.mean(
-                    (
-                        result["acceleration_mps2"][acceleration_keep]
-                        - preliminary_acceleration[acceleration_keep]
-                    )
-                    ** 2
-                )
-            )
-        ),
-    )
-    joint_cholesky = covariance_cholesky()
-    final = least_squares(
-        residual,
-        final.x,
-        bounds=(lower, upper),
-        x_scale=scale,
-        loss="linear",
-        max_nfev=240,
-    )
     covariance_degrees_of_freedom = max(measurement_count - len(final.x), 1)
     covariance_variance_inflation = max(
         1.0, float(np.sum(residual(final.x) ** 2) / covariance_degrees_of_freedom)
