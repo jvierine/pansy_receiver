@@ -216,6 +216,7 @@ def smooth_global_branch_indices(
     velocity_sigma_mps,
     acceleration_sigma_mps2,
     smoothness_sigma_mps2=2.5e4,
+    chain_id=None,
 ):
     """Select equally likely k=-1,0,+1 branches with weak acceleration smoothness."""
     count = len(branch_candidates)
@@ -240,24 +241,36 @@ def smooth_global_branch_indices(
         / float(acceleration_sigma_mps2)
     ) ** 2
 
-    cost = emission[0].copy()
-    predecessor = np.full((count, 3), -1, dtype=int)
-    for row in range(1, count):
-        smoothness = (
-            (
-                candidate_acceleration[row][None, :]
-                - candidate_acceleration[row - 1][:, None]
-            )
-            / float(smoothness_sigma_mps2)
-        ) ** 2
-        transition_cost = cost[:, None] + smoothness
-        predecessor[row] = np.argmin(transition_cost, axis=0)
-        cost = emission[row] + np.min(transition_cost, axis=0)
+    if chain_id is None:
+        chain_id = np.zeros(count, dtype=int)
+    chain_id = np.asarray(chain_id, dtype=int)
+    if chain_id.shape != (count,):
+        raise ValueError("chain_id must contain one value per triplet")
 
     selected = np.empty(count, dtype=int)
-    selected[-1] = int(np.argmin(cost))
-    for row in range(count - 1, 0, -1):
-        selected[row - 1] = predecessor[row, selected[row]]
+    for chain in np.unique(chain_id):
+        rows = np.flatnonzero(chain_id == chain)
+        cost = emission[rows[0]].copy()
+        predecessor = np.full((len(rows), 3), -1, dtype=int)
+        for local_row in range(1, len(rows)):
+            row = rows[local_row]
+            previous = rows[local_row - 1]
+            smoothness = (
+                (
+                    candidate_acceleration[row][None, :]
+                    - candidate_acceleration[previous][:, None]
+                )
+                / float(smoothness_sigma_mps2)
+            ) ** 2
+            transition_cost = cost[:, None] + smoothness
+            predecessor[local_row] = np.argmin(transition_cost, axis=0)
+            cost = emission[row] + np.min(transition_cost, axis=0)
+
+        selected[rows[-1]] = int(np.argmin(cost))
+        for local_row in range(len(rows) - 1, 0, -1):
+            selected[rows[local_row - 1]] = predecessor[
+                local_row, selected[rows[local_row]]
+            ]
     return selected
 
 
@@ -433,6 +446,9 @@ def refit_dynamics(
                 predicted_acceleration,
                 velocity_sigma_mps,
                 acceleration_sigma_mps2,
+                chain_id=np.asarray(
+                    [row["chain_id"] for row in branch_candidates], dtype=int
+                ),
             )
             changed = False
             selected_fits = []
@@ -846,8 +862,19 @@ def main() -> int:
     branch_candidates = []
     triplet_debug = []
     n_fast = decoded["z_tx"].shape[1]
+    chain_id = -1
+    previous_triplet = None
     for previous, middle, current in triplets:
         observation_indices = np.asarray([previous, middle, current], dtype=int)
+        beam = int(decoded["beam_id"][middle])
+        if (
+            previous_triplet is None
+            or previous_triplet[1] != previous
+            or previous_triplet[2] != middle
+            or previous_triplet[3] != beam
+        ):
+            chain_id += 1
+        previous_triplet = (previous, middle, current, beam)
         raw_indices = np.asarray(decoded["raw_idx"][observation_indices], dtype=int)
         channel = -1
         raw_pulses = np.stack(
@@ -866,8 +893,9 @@ def main() -> int:
         local_prior = prior_acceleration.get(support)
         middle_time = decoded["tx_idx"][middle] / FS_HZ - absolute_zero
         acceleration_guess = (
-            local_prior["principal_mps2"]
+            local_prior["measured_mps2"]
             if local_prior is not None
+            and np.isfinite(local_prior["measured_mps2"])
             else float(np.interp(middle_time, trajectory_time, model_acceleration_mps2))
         )
         velocity_guess = float(np.interp(middle_time, trajectory_time, model_doppler_mps))
@@ -892,6 +920,7 @@ def main() -> int:
         )
         branch_candidates.append(
             {
+                "chain_id": chain_id,
                 "k": alias_number[branch_indices].copy(),
                 "velocity_mps": np.asarray(alias_fits["fit_velocity_mps"])[
                     branch_indices
