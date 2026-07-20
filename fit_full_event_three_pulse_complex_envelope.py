@@ -498,18 +498,70 @@ def refit_dynamics(
         profile_marginal_deviance[finite_marginal]
         - np.min(profile_marginal_deviance[finite_marginal])
     )
-    profile_probability, profile_weights = log_grid_probability(
-        profile_radius_um, profile_delta_marginal_deviance
+    profile_whitened_residual = np.asarray(
+        [
+            residual(np.r_[profile_parameters6[index], profile_log_radius_m[index]])
+            if profile_success[index]
+            else np.full(measurement_count, np.nan)
+            for index in range(len(profile_radius_um))
+        ]
     )
+
+    def contiguous_blocks(indices, count=8):
+        indices = np.asarray(indices, dtype=int)
+        return [block for block in np.array_split(indices, count) if len(block)]
+
+    position_count = np.count_nonzero(echo_keep)
+    velocity_count = np.count_nonzero(velocity_keep)
+    position_rows = np.arange(3 * position_count).reshape(position_count, 3)
+    velocity_start = 3 * position_count
+    acceleration_start = velocity_start + velocity_count
+    residual_blocks = []
+    for echo_block in contiguous_blocks(np.arange(position_count)):
+        residual_blocks.append(position_rows[echo_block].ravel())
+    residual_blocks.extend(
+        contiguous_blocks(np.arange(velocity_start, acceleration_start))
+    )
+    residual_blocks.extend(
+        contiguous_blocks(np.arange(acceleration_start, measurement_count))
+    )
+    profile_block_chi2 = np.column_stack(
+        [np.nansum(profile_whitened_residual[:, rows] ** 2, axis=1) for rows in residual_blocks]
+    )
+    profile_block_chi2[~profile_success] = np.inf
+
+    # Marginalize over event-to-event/model-discrepancy leverage with a
+    # Bayesian bootstrap of contiguous residual blocks.  This is a cheap
+    # probability calculation on completed profile fits, not a refit bootstrap.
+    rng = np.random.default_rng(20260720 + int(result.shape[0]))
+    bootstrap_count = 256
+    block_weights = rng.dirichlet(
+        np.ones(profile_block_chi2.shape[1]), size=bootstrap_count
+    ) * profile_block_chi2.shape[1]
+    bootstrap_chi2 = block_weights @ profile_block_chi2.T
+    profile_probability = np.zeros(len(profile_radius_um))
+    profile_weights = np.zeros(len(profile_radius_um))
+    for replicate_chi2 in bootstrap_chi2:
+        replicate_delta = replicate_chi2 - np.nanmin(replicate_chi2)
+        replicate_probability, replicate_weights = log_grid_probability(
+            profile_radius_um, replicate_delta
+        )
+        profile_probability += replicate_probability
+        profile_weights += replicate_weights
+    profile_probability /= bootstrap_count
+    profile_weights /= bootstrap_count
     radius_quantiles_um = weighted_quantile(
         profile_radius_um, profile_weights, [0.025, 0.5, 0.975]
     )
-    marginal_best_index = int(np.nanargmin(profile_delta_marginal_deviance))
-    upper_tail = profile_delta_marginal_deviance[marginal_best_index:]
+    marginal_best_index = int(np.nanargmax(profile_probability))
+    relative_upper_tail = (
+        profile_probability[marginal_best_index:]
+        / max(float(np.nanmax(profile_probability)), 1e-30)
+    )
     upper_limit_data_constrained = bool(
-        len(upper_tail) >= 3
-        and np.all(np.isfinite(upper_tail[-3:]))
-        and np.min(upper_tail[-3:]) > 3.841458820694124
+        len(relative_upper_tail) >= 3
+        and np.all(np.isfinite(relative_upper_tail[-3:]))
+        and np.max(relative_upper_tail[-3:]) < 0.025
     )
 
     profile_position = []
@@ -585,6 +637,9 @@ def refit_dynamics(
         "profile_log_hessian_determinant": profile_log_hessian_determinant,
         "profile_marginal_deviance": profile_marginal_deviance,
         "profile_delta_marginal_deviance": profile_delta_marginal_deviance,
+        "profile_block_chi2": profile_block_chi2,
+        "profile_bootstrap_chi2": bootstrap_chi2,
+        "profile_probability_method": "256-replicate Bayesian bootstrap over contiguous position, Doppler, and acceleration residual blocks",
         "profile_probability_density_log_radius": profile_probability,
         "profile_probability_weights": profile_weights,
         "profile_success": profile_success,
