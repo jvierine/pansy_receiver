@@ -129,6 +129,8 @@ def fit_three_pulse_envelope(
     pulse_snr: np.ndarray | None = None,
     matched_filter_amplitudes: np.ndarray | None = None,
     fixed_acceleration_mps2: float | None = None,
+    acceleration_phase_rad: float | None = None,
+    acceleration_phase_std_rad: float | None = None,
     initial_parameters: np.ndarray | None = None,
     max_nfev: int = 2000,
 ) -> dict:
@@ -219,7 +221,26 @@ def fit_three_pulse_envelope(
     def residual_full(parameters: np.ndarray) -> np.ndarray:
         model = complex_envelope_model(parameters, time_s, envelope, pulse_index, wavelength_m)
         residual = sqrt_weight * (data[use] - model[use])
-        return np.concatenate((residual.real, residual.imag))
+        components = [residual.real, residual.imag]
+        if acceleration_phase_rad is not None:
+            if acceleration_phase_std_rad is None or acceleration_phase_std_rad <= 0.0:
+                raise ValueError(
+                    "acceleration_phase_std_rad must be positive with a phase measurement"
+                )
+            predicted_phase = (
+                4.0
+                * np.pi
+                * parameters[5]
+                * float(pulse_spacing_s) ** 2
+                / float(wavelength_m)
+            )
+            wrapped_residual = np.angle(
+                np.exp(1j * (float(acceleration_phase_rad) - predicted_phase))
+            )
+            components.append(
+                np.asarray([wrapped_residual / float(acceleration_phase_std_rad)])
+            )
+        return np.concatenate(components)
 
     lower = np.asarray(
         [
@@ -283,10 +304,26 @@ def fit_three_pulse_envelope(
         covariance = np.linalg.inv(jacobian.T @ jacobian) * weighted_sse / degrees_of_freedom
     except np.linalg.LinAlgError:
         pass
+    velocity_mps = float(parameters[4] * wavelength_m / 2.0)
+    velocity_acceleration_covariance = np.asarray(
+        [
+            [
+                covariance[4, 4] * (wavelength_m / 2.0) ** 2,
+                covariance[4, 5] * wavelength_m / 2.0,
+            ],
+            [
+                covariance[5, 4] * wavelength_m / 2.0,
+                covariance[5, 5],
+            ],
+        ]
+    )
     return {
         "parameters": parameters,
         "starting_parameters": starting_parameters,
         "parameter_covariance": covariance,
+        "velocity_mps": velocity_mps,
+        "acceleration_mps2": float(parameters[5]),
+        "velocity_acceleration_covariance": velocity_acceleration_covariance,
         "model": model,
         "data": final_data,
         "envelope": envelope,
@@ -301,6 +338,112 @@ def fit_three_pulse_envelope(
         "degrees_of_freedom": degrees_of_freedom,
         "success": bool(fit.success),
         "message": str(fit.message),
+    }
+
+
+def fit_three_pulse_acceleration_aliases(
+    raw_pulses: np.ndarray,
+    pulse_templates: np.ndarray,
+    pulse_spacing_s: float,
+    frequency_guess_hz: float,
+    acceleration_phase_guess_mps2: float,
+    wavelength_m: float,
+    *,
+    acceleration_limits_mps2: tuple[float, float] = (-1.5e5, 1.5e5),
+    acceleration_phase_rad: float | None = None,
+    acceleration_phase_std_rad: float | None = None,
+    pulse_snr: np.ndarray | None = None,
+    matched_filter_amplitudes: np.ndarray | None = None,
+    frequency_half_width_hz: float | None = None,
+) -> dict:
+    """Search the FFT-selected velocity alias and every phase-compatible acceleration.
+
+    Three equally spaced pulses repeat their quadratic-phase information when
+    acceleration changes by ``wavelength / (2 * spacing**2)``.  The established
+    pulse-to-pulse phase progression pins narrow solutions in every acceleration
+    alias cell.  The established FFT Doppler chooses the frequency alias, so the
+    local frequency search is limited to half of its ``1 / pulse_spacing``
+    ambiguity interval.  The complex-envelope objective then distinguishes the
+    remaining acceleration cells.
+    """
+    lower_limit, upper_limit = map(float, acceleration_limits_mps2)
+    if not lower_limit < upper_limit:
+        raise ValueError("acceleration_limits_mps2 must be increasing")
+    alias_spacing = float(wavelength_m) / (2.0 * float(pulse_spacing_s) ** 2)
+    alias_half_width = 0.499 * alias_spacing
+    frequency_alias_spacing_hz = 1.0 / float(pulse_spacing_s)
+    if frequency_half_width_hz is None:
+        frequency_half_width_hz = 0.499 * frequency_alias_spacing_hz
+    minimum_alias = int(
+        np.ceil((lower_limit - acceleration_phase_guess_mps2) / alias_spacing)
+    )
+    maximum_alias = int(
+        np.floor((upper_limit - acceleration_phase_guess_mps2) / alias_spacing)
+    )
+    alias_number = np.arange(minimum_alias, maximum_alias + 1, dtype=int)
+    alias_center = acceleration_phase_guess_mps2 + alias_number * alias_spacing
+    fits = []
+    for center in alias_center:
+        local_half_width = min(
+            alias_half_width,
+            center - lower_limit if center > lower_limit else alias_half_width,
+            upper_limit - center if center < upper_limit else alias_half_width,
+        )
+        local_half_width = max(float(local_half_width), 1.0)
+        fits.append(
+            fit_three_pulse_envelope(
+                raw_pulses,
+                pulse_templates,
+                pulse_spacing_s,
+                frequency_guess_hz,
+                float(center),
+                wavelength_m,
+                acceleration_half_width_mps2=local_half_width,
+                frequency_half_width_hz=frequency_half_width_hz,
+                pulse_snr=pulse_snr,
+                matched_filter_amplitudes=matched_filter_amplitudes,
+                acceleration_phase_rad=acceleration_phase_rad,
+                acceleration_phase_std_rad=acceleration_phase_std_rad,
+            )
+        )
+    weighted_sse = np.asarray([fit["weighted_sse"] for fit in fits], dtype=float)
+    selected_index = int(np.nanargmin(weighted_sse))
+    residual_variance = weighted_sse[selected_index] / max(
+        int(fits[selected_index]["degrees_of_freedom"]), 1
+    )
+    delta_chi2 = (weighted_sse - weighted_sse[selected_index]) / max(
+        float(residual_variance), np.finfo(float).tiny
+    )
+    frequency_std_hz = np.asarray(
+        [np.sqrt(fit["parameter_covariance"][4, 4]) for fit in fits], dtype=float
+    )
+    acceleration_std_mps2 = np.asarray(
+        [np.sqrt(fit["parameter_covariance"][5, 5]) for fit in fits], dtype=float
+    )
+    return {
+        "selected_fit": fits[selected_index],
+        "selected_index": selected_index,
+        "alias_number": alias_number,
+        "alias_center_mps2": alias_center,
+        "alias_spacing_mps2": alias_spacing,
+        "fit_acceleration_mps2": np.asarray(
+            [fit["parameters"][5] for fit in fits], dtype=float
+        ),
+        "fit_frequency_hz": np.asarray(
+            [fit["parameters"][4] for fit in fits], dtype=float
+        ),
+        "fit_velocity_mps": np.asarray(
+            [fit["parameters"][4] * wavelength_m / 2.0 for fit in fits], dtype=float
+        ),
+        "fit_velocity_std_mps": frequency_std_hz * wavelength_m / 2.0,
+        "fit_acceleration_std_mps2": acceleration_std_mps2,
+        "frequency_alias_spacing_hz": frequency_alias_spacing_hz,
+        "velocity_alias_spacing_mps": wavelength_m / (2.0 * pulse_spacing_s),
+        "frequency_half_width_hz": float(frequency_half_width_hz),
+        "weighted_sse": weighted_sse,
+        "delta_chi2": delta_chi2,
+        "residual_variance": residual_variance,
+        "fits": fits,
     }
 
 
@@ -435,7 +578,9 @@ def plot_result(
                 0.03,
                 rf"$a_{{\rm fit}}={fit['parameters'][5] / 1e3:.2f}$ km s$^{{-2}}$"
                 + "\n"
-                + rf"$a_{{\rm prior}}={metadata['acceleration_guess_mps2'] / 1e3:.2f}$ km s$^{{-2}}$",
+                + rf"$v_0={fit['parameters'][4] * pc.wavelength / 2e3:.3f}$ km s$^{{-1}}$"
+                + "\n"
+                + rf"$a_{{\rm phase,0}}={metadata['acceleration_guess_mps2'] / 1e3:.2f}$ km s$^{{-2}}$",
                 transform=ax.transAxes,
                 ha="left",
                 va="bottom",
@@ -485,6 +630,12 @@ def write_result(
             dtype=h5py.string_dtype("utf-8"),
         )
         handle.create_dataset("parameter_covariance", data=fit["parameter_covariance"])
+        handle.create_dataset("velocity_mps", data=fit["velocity_mps"])
+        handle.create_dataset("acceleration_mps2", data=fit["acceleration_mps2"])
+        handle.create_dataset(
+            "velocity_acceleration_covariance",
+            data=fit["velocity_acceleration_covariance"],
+        )
         for name in ("data", "model", "envelope", "weight", "use", "time_s", "pulse_index"):
             handle.create_dataset(name, data=fit[name])
         conditioned = handle.create_group("conditioned_on_beat_phase_acceleration")

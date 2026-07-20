@@ -18,11 +18,12 @@ from scipy.optimize import least_squares
 
 import pansy_config as pc
 from aod_complex_doppler_fit import (
-    ESTABLISHED_AOD_GEOMETRY_SIGN,
-    ESTABLISHED_AOD_PHASECAL_SIGN,
-    beamform_echo,
-    event_module_voltage_gain,
     event_receiver_noise_variance,
+)
+from pansy_coherent import (
+    coherent_add_modules,
+    enu_line_of_sight_to_arrival_uvw,
+    estimate_event_module_voltage_gain,
 )
 import pansy_interferometry as pint
 import pansy_modes as pmm
@@ -30,6 +31,7 @@ from fit_three_pulse_complex_envelope import (
     FS_HZ,
     PAIR_SPACING_S,
     PAIR_SPACING_TOLERANCE_S,
+    fit_three_pulse_acceleration_aliases,
     fit_three_pulse_envelope,
     rms_baud_amplitudes,
 )
@@ -53,11 +55,17 @@ def phase_acceleration_lookup(profile_h5: Path) -> dict[tuple[int, int, int, int
         support = np.asarray(group["support_observation_indices"], dtype=int)
         model = np.asarray(group["best_model_radial_acceleration_mps2"], dtype=float)
         measured = np.asarray(group["measured_radial_acceleration_display_mps2"], dtype=float)
+        principal = np.asarray(
+            group["measured_radial_acceleration_principal_mps2"], dtype=float
+        )
+        covariance = np.asarray(group["phase_difference_covariance_rad2"], dtype=float)
         keep = np.asarray(group["shared_inlier_mask"], dtype=bool)
         for index, row in enumerate(support):
             lookup[tuple(int(value) for value in row)] = {
                 "model_mps2": float(model[index]),
                 "measured_mps2": float(measured[index]),
+                "principal_mps2": float(principal[index]),
+                "phase_std_rad": float(np.sqrt(covariance[index, index])),
                 "keep": bool(keep[index]),
             }
     return lookup
@@ -510,29 +518,23 @@ def main() -> int:
     observations, stored_fit = load_selected_fit(args.diagnostics_h5)
     trajectory_time = np.asarray(observations["t_s"], dtype=float)
     steering_points_km = np.asarray(stored_fit["model_km"], dtype=float)
-    steering_uvw = steering_points_km / np.linalg.norm(
-        steering_points_km, axis=1, keepdims=True
-    )
+    steering_uvw = enu_line_of_sight_to_arrival_uvw(steering_points_km)
     module_noise_variance = event_receiver_noise_variance(
         decoded["z_rx"],
         decoded["raw_idx"],
         decoded["range_gate"],
         decoded["z_tx"].shape[1],
     )
-    module_voltage_gain = event_module_voltage_gain(decoded["response"])
-    steering_signs = (
-        ESTABLISHED_AOD_PHASECAL_SIGN,
-        ESTABLISHED_AOD_GEOMETRY_SIGN,
-    )
+    module_voltage_gain = estimate_event_module_voltage_gain(decoded["response"])
     beamformed_echo = np.stack(
         [
-            beamform_echo(
+            coherent_add_modules(
                 decoded["z_rx"][raw_index],
                 steering_uvw[observation],
                 int(decoded["beam_id"][observation]),
-                steering_signs,
-                module_noise_variance[raw_index],
-                module_voltage_gain,
+                module_noise_variance=module_noise_variance[raw_index],
+                module_voltage_gain=module_voltage_gain,
+                normalization="weighted_mean",
             )
             for observation, raw_index in enumerate(decoded["raw_idx"])
         ]
@@ -554,6 +556,15 @@ def main() -> int:
         raise RuntimeError(f"prior physical trajectory failed: {message}")
     model_doppler_mps = physics.predicted_doppler(position, velocity) * 1e3
     model_acceleration_mps2 = np.gradient(model_doppler_mps, trajectory_time)
+    initial_fft_model_doppler_mps = (
+        physics.predicted_doppler(
+            hypothesis["physics_model"], hypothesis["physics_velocity"]
+        )
+        * 1e3
+    )
+    initial_fft_model_acceleration_mps2 = np.gradient(
+        initial_fft_model_doppler_mps, trajectory_time
+    )
 
     dtype = [
         ("previous", "i4"),
@@ -573,8 +584,13 @@ def main() -> int:
         ("frequency_acceleration_correlation", "f8"),
         ("shared_inlier", "?"),
         ("acceleration_at_bound", "?"),
+        ("selected_alias_number", "i4"),
+        ("complex_best_alias_number", "i4"),
+        ("selected_alias_delta_chi2", "f8"),
+        ("second_alias_delta_chi2", "f8"),
     ]
     rows = []
+    alias_rows = []
     triplet_debug = []
     n_fast = decoded["z_tx"].shape[1]
     for previous, middle, current in triplets:
@@ -597,22 +613,67 @@ def main() -> int:
         local_prior = prior_acceleration.get(support)
         middle_time = decoded["tx_idx"][middle] / FS_HZ - absolute_zero
         acceleration_guess = (
-            local_prior["model_mps2"]
+            local_prior["principal_mps2"]
             if local_prior is not None
             else float(np.interp(middle_time, trajectory_time, model_acceleration_mps2))
         )
         velocity_guess = float(np.interp(middle_time, trajectory_time, model_doppler_mps))
-        fit = fit_three_pulse_envelope(
+        pulse_spacing_s = float(
+            np.mean(np.diff(decoded["tx_idx"][observation_indices])) / FS_HZ
+        )
+        acceleration_phase_rad = None
+        acceleration_phase_std_rad = None
+        if local_prior is not None:
+            acceleration_phase_rad = float(
+                np.angle(
+                    np.exp(
+                        1j
+                        * 4.0
+                        * np.pi
+                        * acceleration_guess
+                        * pulse_spacing_s**2
+                        / pc.wavelength
+                    )
+                )
+            )
+            acceleration_phase_std_rad = local_prior["phase_std_rad"]
+        alias_fits = fit_three_pulse_acceleration_aliases(
             raw_pulses,
             templates,
-            PAIR_SPACING_S,
+            pulse_spacing_s,
             2.0 * velocity_guess / pc.wavelength,
             acceleration_guess,
             pc.wavelength,
-            acceleration_half_width_mps2=2.0e4,
-            frequency_half_width_hz=1.0e3,
-            pulse_snr=np.asarray(decoded["snr"][observation_indices], dtype=float),
+            pulse_snr=10.0
+            ** (np.asarray(decoded["snr"][observation_indices], dtype=float) / 10.0),
             matched_filter_amplitudes=amplitude_prior,
+            acceleration_phase_rad=acceleration_phase_rad,
+            acceleration_phase_std_rad=acceleration_phase_std_rad,
+        )
+        initial_model_acceleration = float(
+            np.interp(middle_time, trajectory_time, initial_fft_model_acceleration_mps2)
+        )
+        branch_score = np.abs(
+            alias_fits["fit_acceleration_mps2"] - initial_model_acceleration
+        )
+        selected_alias_index = int(np.nanargmin(branch_score))
+        fit = alias_fits["fits"][selected_alias_index]
+        alias_rows.append(
+            {
+                "observation_indices": observation_indices.copy(),
+                **{
+                    name: np.asarray(alias_fits[name]).copy()
+                    for name in (
+                        "alias_number",
+                        "fit_velocity_mps",
+                        "fit_velocity_std_mps",
+                        "fit_acceleration_mps2",
+                        "fit_acceleration_std_mps2",
+                        "weighted_sse",
+                        "delta_chi2",
+                    )
+                },
+            }
         )
         if args.debug_triplet_count > 0:
             triplet_debug.append((fit, observation_indices.copy()))
@@ -643,7 +704,15 @@ def main() -> int:
                 covariance[4, 5] / np.sqrt(covariance[4, 4] * covariance[5, 5]),
                 bool(np.all(echo_keep[observation_indices]))
                 and (local_prior is None or local_prior["keep"]),
-                bool(abs(fit["parameters"][5] - acceleration_guess) > 1.99e4),
+                False,
+                int(alias_fits["alias_number"][selected_alias_index]),
+                int(alias_fits["alias_number"][alias_fits["selected_index"]]),
+                float(alias_fits["delta_chi2"][selected_alias_index]),
+                float(
+                    np.partition(alias_fits["delta_chi2"], 1)[1]
+                    if len(alias_fits["delta_chi2"]) > 1
+                    else np.inf
+                ),
             )
         )
     result = np.asarray(rows, dtype=dtype)
@@ -741,9 +810,30 @@ def main() -> int:
         handle.attrs["event_amplitude_calibration"] = (
             "robust per-module voltage gain from matched event responses"
         )
-        handle.attrs["phasecal_sign"] = ESTABLISHED_AOD_PHASECAL_SIGN
-        handle.attrs["geometry_sign"] = ESTABLISHED_AOD_GEOMETRY_SIGN
+        handle.attrs["steering_convention"] = "catalogue_arrival_uvw"
         handle.create_dataset("triplet_fit", data=result)
+        alias_group = handle.create_group("triplet_aliases")
+        alias_group.create_dataset(
+            "observation_indices",
+            data=np.asarray([row["observation_indices"] for row in alias_rows]),
+        )
+        for name in (
+            "alias_number",
+            "fit_velocity_mps",
+            "fit_velocity_std_mps",
+            "fit_acceleration_mps2",
+            "fit_acceleration_std_mps2",
+            "weighted_sse",
+            "delta_chi2",
+        ):
+            base_dtype = np.int32 if name == "alias_number" else np.float64
+            dataset = alias_group.create_dataset(
+                name,
+                shape=(len(alias_rows),),
+                dtype=h5py.vlen_dtype(np.dtype(base_dtype)),
+            )
+            for row_index, row in enumerate(alias_rows):
+                dataset[row_index] = np.asarray(row[name], dtype=base_dtype)
         handle.create_dataset("event_module_voltage_gain", data=module_voltage_gain)
         fit_group = handle.create_group("dynamics_refit")
         for name, value in dynamics.items():

@@ -13,11 +13,12 @@ import numpy as np
 import pansy_config as pc
 import pansy_interferometry as pint
 from aod_complex_doppler_fit import (
-    ESTABLISHED_AOD_GEOMETRY_SIGN,
-    ESTABLISHED_AOD_PHASECAL_SIGN,
-    beamform_echo,
-    event_module_voltage_gain,
     event_receiver_noise_variance,
+)
+from pansy_coherent import (
+    coherent_add_modules,
+    enu_line_of_sight_to_arrival_uvw,
+    estimate_event_module_voltage_gain,
 )
 from fit_full_event_three_pulse_complex_envelope import (
     phase_acceleration_lookup,
@@ -113,17 +114,16 @@ def beamformed_echoes(
     decoded = state["decoded"]
     if response is None:
         response = decoded["response"]
-    module_gain = event_module_voltage_gain(response)
-    signs = (ESTABLISHED_AOD_PHASECAL_SIGN, ESTABLISHED_AOD_GEOMETRY_SIGN)
+    module_gain = estimate_event_module_voltage_gain(response)
     return np.stack(
         [
-            beamform_echo(
+            coherent_add_modules(
                 z_rx[raw_index],
                 state["steering_uvw"][observation],
                 int(decoded["beam_id"][observation]),
-                signs,
-                state["noise_variance"][raw_index],
-                module_gain,
+                module_noise_variance=state["noise_variance"][raw_index],
+                module_voltage_gain=module_gain,
+                normalization="weighted_mean",
             )
             for observation, raw_index in enumerate(decoded["raw_idx"])
         ]
@@ -243,9 +243,7 @@ def main() -> int:
     observations, stored_fit = load_selected_fit(args.diagnostics_h5)
     points_km = np.asarray(observations["points_km"], dtype=float)
     steering_points_km = np.asarray(stored_fit["model_km"], dtype=float)
-    steering_uvw = steering_points_km / np.linalg.norm(
-        steering_points_km, axis=1, keepdims=True
-    )
+    steering_uvw = enu_line_of_sight_to_arrival_uvw(steering_points_km)
     trajectory_time = np.asarray(observations["t_s"], dtype=float)
     absolute_zero = decoded["tx_idx"][0] / FS_HZ - trajectory_time[0]
     prior_acceleration = phase_acceleration_lookup(args.prior_profile_h5)
@@ -384,8 +382,7 @@ def main() -> int:
         handle.attrs["event_amplitude_calibration"] = (
             "robust per-module voltage gain re-estimated in each bootstrap replicate"
         )
-        handle.attrs["phasecal_sign"] = ESTABLISHED_AOD_PHASECAL_SIGN
-        handle.attrs["geometry_sign"] = ESTABLISHED_AOD_GEOMETRY_SIGN
+        handle.attrs["steering_convention"] = "catalogue_arrival_uvw"
         handle.attrs["measurement_order"] = "position_enu_km[echo_keep].ravel, triplet_velocity_mps[velocity_keep], triplet_acceleration_mps2[acceleration_keep]"
         handle.create_dataset("bootstrap_samples", data=samples, compression="gzip")
         handle.create_dataset("nominal_measurement", data=nominal_vector)

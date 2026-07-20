@@ -14,18 +14,9 @@ import scipy.constants as sc
 import estimate_meteor_rcs as emr
 from interferometer_alias_diagnostics import RangeDopplerSearch, amp_scale, load_cut
 import pansy_config as pc
-import pansy_interferometry as pint
-
-
-ESTABLISHED_AOD_PHASECAL_SIGN = -1
-ESTABLISHED_AOD_GEOMETRY_SIGN = -1
-ESTABLISHED_AOD_SIGN_EVIDENCE = (
-    "2025-05-10 sample 1746912595445243, pulse 298, beam 1: all four AoD coherent "
-    "voltage steering conventions were scored by baud-averaged decoded-voltage "
-    "sinusoid fit SNR. The best was cal=-1, geom=-1 at 30.8 dB, followed by "
-    "cal=+1, geom=+1 at 30.4 dB, cal=+1, geom=-1 at 25.5 dB, and "
-    "cal=-1, geom=+1 at 25.0 dB. The default is therefore fixed to cal=-1, geom=-1; "
-    "use --search-sign-conventions only as a calibration diagnostic."
+from pansy_coherent import (
+    coherent_add_modules,
+    estimate_event_module_voltage_gain,
 )
 
 
@@ -82,47 +73,7 @@ def event_module_voltage_gain(response: np.ndarray) -> np.ndarray:
     robust two-way log-amplitude decomposition removes the common meteor
     amplitude at each pulse and leaves one constant residual gain per module.
     """
-    amplitude = np.abs(np.asarray(response, dtype=np.complex128))
-    valid = np.isfinite(amplitude) & (amplitude > 0.0)
-    log_amplitude = np.full(amplitude.shape, np.nan, dtype=float)
-    log_amplitude[valid] = np.log(amplitude[valid])
-    pulse_level = np.nanmedian(log_amplitude, axis=1, keepdims=True)
-    log_gain = np.nanmedian(log_amplitude - pulse_level, axis=0)
-    finite = np.isfinite(log_gain)
-    if not np.any(finite):
-        return np.ones(amplitude.shape[1], dtype=float)
-    log_gain[~finite] = np.nanmedian(log_gain[finite])
-    log_gain -= np.mean(log_gain)
-    return np.exp(log_gain)
-
-
-def beamform_echo(
-    echo_ch: np.ndarray,
-    uvw: np.ndarray,
-    beam: int,
-    signs: tuple[int, int],
-    noise_variance: np.ndarray | None = None,
-    module_voltage_gain: np.ndarray | None = None,
-) -> np.ndarray:
-    """Gain-calibrate, AoA-steer, and coherently combine receiver modules."""
-    antpos = pint.get_antpos()
-    phasecal = pint.get_phasecal()[beam]
-    geom_phase = (2.0 * np.pi / pc.wavelength) * (antpos @ uvw)
-    s_cal, s_geom = signs
-    steering = np.exp(1j * (s_cal * phasecal + s_geom * geom_phase))
-    if module_voltage_gain is None:
-        gain = np.ones(len(steering), dtype=float)
-    else:
-        gain = np.asarray(module_voltage_gain, dtype=float)
-        gain = np.maximum(gain, np.nanmedian(gain) * 1e-6)
-    calibrated_echo = echo_ch / gain[:, None]
-    if noise_variance is None:
-        precision = np.ones(len(steering), dtype=float)
-    else:
-        variance = np.asarray(noise_variance, dtype=float) / gain**2
-        precision = 1.0 / np.maximum(variance, np.nanmedian(variance) * 1e-6)
-    weights = precision * steering
-    return np.sum(calibrated_echo * weights[:, None], axis=0) / np.sum(precision)
+    return estimate_event_module_voltage_gain(response)
 
 
 def fractional_delay_fft(x: np.ndarray, delay_samples: float) -> np.ndarray:
@@ -255,9 +206,6 @@ def main() -> int:
     parser.add_argument("--range-search-samples", type=int, default=8)
     parser.add_argument("--fractional-delay-step", type=float, default=0.05)
     parser.add_argument("--frequency-search-hz", type=float, default=20000.0)
-    parser.add_argument("--phasecal-sign", type=int, choices=(-1, 1), default=None)
-    parser.add_argument("--geometry-sign", type=int, choices=(-1, 1), default=None)
-    parser.add_argument("--search-sign-conventions", action="store_true")
     args = parser.parse_args()
 
     cut = load_cut(args.cut_dir, args.sample_idx)
@@ -292,22 +240,11 @@ def main() -> int:
     beam = int(beam_id[pulse])
     tx = z_tx[pulse].astype(np.complex128)
     best = None
-    sign_summary = []
     frac_delays = np.arange(-0.5, 0.5001, args.fractional_delay_step)
-    if args.search_sign_conventions:
-        if args.phasecal_sign is not None or args.geometry_sign is not None:
-            raise ValueError("--search-sign-conventions cannot be combined with explicit sign overrides")
-        sign_options = [(-1, -1), (-1, 1), (1, -1), (1, 1)]
-    elif args.phasecal_sign is not None and args.geometry_sign is not None:
-        sign_options = [(args.phasecal_sign, args.geometry_sign)]
-    elif args.phasecal_sign is None and args.geometry_sign is None:
-        sign_options = [(ESTABLISHED_AOD_PHASECAL_SIGN, ESTABLISHED_AOD_GEOMETRY_SIGN)]
-    else:
-        raise ValueError("--phasecal-sign and --geometry-sign must be supplied together")
-
-    for signs in sign_options:
-        sign_best = None
-        summed_i = beamform_echo(z_rx[pulse].astype(np.complex128), uvw[pulse], beam, signs)
+    summed_i = coherent_add_modules(
+        z_rx[pulse].astype(np.complex128), uvw[pulse], beam
+    )
+    for _ in range(1):
         for range_bin_i in range(
             int(coarse["range_bin"][pulse]) - args.range_search_samples,
             int(coarse["range_bin"][pulse]) + args.range_search_samples + 1,
@@ -326,22 +263,16 @@ def main() -> int:
                 snr_db_i = baud_fit_snr_db(fit_i)
                 candidate = {
                     "score": snr_db_i,
-                    "signs": signs,
                     "range_bin": range_bin_i,
                     "frac_delay": float(frac_delay),
                     "summed": summed_i,
                     "decoded": decoded_i,
                     "fit": fit_i,
                 }
-                if sign_best is None or candidate["score"] > sign_best["score"]:
-                    sign_best = candidate
                 if best is None or candidate["score"] > best["score"]:
                     best = candidate
-        if sign_best is not None:
-            sign_summary.append(sign_best)
     if best is None:
-        raise RuntimeError("no valid range/sign candidates")
-    signs = best["signs"]
+        raise RuntimeError("no valid range candidates")
     range_bin = best["range_bin"]
     frac_delay = best["frac_delay"]
     decoded = best["decoded"]
@@ -363,17 +294,10 @@ def main() -> int:
         f"AoD coherent sum + weighted complex sinusoid, sample {args.sample_idx}, "
         f"pulse {pulse}, beam {beam}, SNR {10*np.log10(max(coarse['snr'][pulse], 1e-30)):.1f} dB"
     )
-    if args.search_sign_conventions:
-        sign_text = "\n".join(
-            f"cal={cand['signs'][0]:+d}, geom={cand['signs'][1]:+d}: "
-            f"{cand['score']:.1f} dB @ {cand['range_bin']}{cand['frac_delay']:+.2f}"
-            for cand in sorted(sign_summary, key=lambda row: row["score"], reverse=True)
-        )
-    else:
-        sign_text = (
-            f"fixed AoD signs: cal={signs[0]:+d}, geom={signs[1]:+d}\n"
-            f"baud-fit SNR {best['score']:.1f} dB @ {range_bin}{frac_delay:+.2f}"
-        )
+    sign_text = (
+        "catalogue AoA steering\n"
+        f"baud-fit SNR {best['score']:.1f} dB @ {range_bin}{frac_delay:+.2f}"
+    )
     axes[0].text(
         0.01,
         0.96,
@@ -424,7 +348,7 @@ def main() -> int:
         f"coarse Doppler {coarse['doppler_mps'][pulse]:.1f} m/s; "
         f"sinusoid Doppler {fit['doppler_mps']:.1f} m/s; "
         f"f={fit['freq_hz']:.1f} Hz; range {range_bin}{frac_delay:+.2f}; "
-        f"signs cal={signs[0]}, geom={signs[1]}; baud-fit SNR={best['score']:.1f} dB; chi={fit['chi']:.3g}",
+        f"catalogue AoA steering; baud-fit SNR={best['score']:.1f} dB; chi={fit['chi']:.3g}",
         fontsize=9,
     )
     fig.savefig(args.output, dpi=170)
@@ -433,17 +357,7 @@ def main() -> int:
     print(f"coarse_doppler_mps {coarse['doppler_mps'][pulse]:.6g}")
     print(f"fit_doppler_mps {fit['doppler_mps']:.6g}")
     print(f"fit_frequency_hz {fit['freq_hz']:.6g}")
-    print(f"steering_signs cal={signs[0]:+d} geom={signs[1]:+d}")
-    if args.search_sign_conventions:
-        print("sign convention summary, sorted by coherent baud-fit SNR:")
-    else:
-        print(f"established sign convention evidence: {ESTABLISHED_AOD_SIGN_EVIDENCE}")
-    for cand in sorted(sign_summary, key=lambda row: row["score"], reverse=True):
-        print(
-            f"  cal={cand['signs'][0]:+d} geom={cand['signs'][1]:+d} "
-            f"snr_db={cand['score']:.6g} range={cand['range_bin']}{cand['frac_delay']:+.2f} "
-            f"doppler_mps={cand['fit']['doppler_mps']:.6g}"
-        )
+    print("steering_convention catalogue_arrival_uvw")
     return 0
 
 
