@@ -186,9 +186,23 @@ def refit_dynamics(
     density,
     profile_radius_um,
     joint_correlation=None,
+    velocity_keep=None,
+    acceleration_keep=None,
 ) -> dict:
-    velocity_keep = np.asarray(result["shared_inlier"], dtype=bool)
-    acceleration_keep = velocity_keep & ~np.asarray(result["acceleration_at_bound"], dtype=bool)
+    if velocity_keep is None:
+        velocity_keep = np.asarray(result["shared_inlier"], dtype=bool)
+    else:
+        velocity_keep = np.asarray(velocity_keep, dtype=bool)
+    if acceleration_keep is None:
+        acceleration_keep = velocity_keep & ~np.asarray(
+            result["acceleration_at_bound"], dtype=bool
+        )
+    else:
+        acceleration_keep = np.asarray(acceleration_keep, dtype=bool)
+    if velocity_keep.shape != result.shape or acceleration_keep.shape != result.shape:
+        raise ValueError("triplet measurement masks must match the fit result")
+    if np.any(acceleration_keep & ~velocity_keep):
+        raise ValueError("acceleration mask cannot retain a rejected velocity triplet")
     velocity_sigma_mps = max(
         20.0,
         float(
@@ -762,6 +776,10 @@ def main() -> int:
     )[:, None]
     with h5py.File(args.prior_profile_h5, "r") as handle:
         position_covariance_km2 = np.asarray(handle["position_residual_covariance_km2"], dtype=float)
+    fit_velocity_keep = np.asarray(result["shared_inlier"], dtype=bool)
+    fit_acceleration_keep = fit_velocity_keep & ~np.asarray(
+        result["acceleration_at_bound"], dtype=bool
+    )
     joint_correlation = None
     if args.joint_covariance_h5 is not None:
         with h5py.File(args.joint_covariance_h5, "r") as handle:
@@ -769,16 +787,17 @@ def main() -> int:
             covariance_velocity_keep = np.asarray(handle["velocity_keep"], dtype=bool)
             covariance_acceleration_keep = np.asarray(handle["acceleration_keep"], dtype=bool)
             joint_correlation = np.asarray(handle["correlation"], dtype=float)
-        expected_velocity_keep = np.asarray(result["shared_inlier"], dtype=bool)
-        expected_acceleration_keep = expected_velocity_keep & ~np.asarray(
-            result["acceleration_at_bound"], dtype=bool
-        )
         if not np.array_equal(covariance_echo_keep, echo_keep):
             raise RuntimeError("joint covariance echo mask does not match this fit")
-        if not np.array_equal(covariance_velocity_keep, expected_velocity_keep):
+        if not np.array_equal(covariance_velocity_keep, fit_velocity_keep):
             raise RuntimeError("joint covariance velocity mask does not match this fit")
-        if not np.array_equal(covariance_acceleration_keep, expected_acceleration_keep):
-            raise RuntimeError("joint covariance acceleration mask does not match this fit")
+        if np.any(covariance_acceleration_keep & ~fit_velocity_keep):
+            raise RuntimeError("joint covariance retains acceleration for a rejected triplet")
+        # Preserve the measurement subset represented by this covariance. Older
+        # bootstrap products omit rows that encountered the former local
+        # acceleration bound; the corrected alias search still plots those rows
+        # but must not invent covariance entries for them.
+        fit_acceleration_keep = covariance_acceleration_keep
     dynamics = refit_dynamics(
         physics,
         trajectory_time,
@@ -790,6 +809,8 @@ def main() -> int:
         density,
         profile_grid_radius_um,
         joint_correlation=joint_correlation,
+        velocity_keep=fit_velocity_keep,
+        acceleration_keep=fit_acceleration_keep,
     )
 
     output_h5 = args.output_dir / f"three_pulse_full_event_{args.sample_idx}.h5"
@@ -812,6 +833,8 @@ def main() -> int:
         )
         handle.attrs["steering_convention"] = "catalogue_arrival_uvw"
         handle.create_dataset("triplet_fit", data=result)
+        handle.create_dataset("dynamics_velocity_keep", data=fit_velocity_keep)
+        handle.create_dataset("dynamics_acceleration_keep", data=fit_acceleration_keep)
         alias_group = handle.create_group("triplet_aliases")
         alias_group.create_dataset(
             "observation_indices",
@@ -851,8 +874,8 @@ def main() -> int:
     )
     fit_acceleration_residual = result["acceleration_mps2"] - result["model_acceleration_mps2"]
     rms = lambda values: float(np.sqrt(np.nanmean(np.asarray(values) ** 2)))
-    compare = np.asarray(result["shared_inlier"], dtype=bool)
-    acceleration_compare = compare & ~np.asarray(result["acceleration_at_bound"], dtype=bool)
+    compare = fit_velocity_keep
+    acceleration_compare = fit_acceleration_keep
 
     fig, axes = plt.subplots(2, 1, figsize=(9.0, 7.0), sharex=True, constrained_layout=True)
     axes[0].plot(time[compare], fft_residual[compare], ".", color="0.65", label=f"FFT Doppler, RMS {rms(fft_residual[compare]):.0f} m/s")
@@ -924,8 +947,6 @@ def main() -> int:
     )
     velocity_residual_refit = result["velocity_mps"] - velocity_refit_at_triplet
     acceleration_residual_refit = result["acceleration_mps2"] - acceleration_refit_at_triplet
-    fit_velocity_keep = np.asarray(result["shared_inlier"], dtype=bool)
-    fit_acceleration_keep = fit_velocity_keep & ~np.asarray(result["acceleration_at_bound"], dtype=bool)
     path_length_km = float(np.sum(np.linalg.norm(np.diff(refit_position[echo_keep], axis=0), axis=1)))
 
     profile_radius_um = dynamics["profile_radius_um"]
