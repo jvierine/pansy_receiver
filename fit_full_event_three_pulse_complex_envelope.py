@@ -175,6 +175,40 @@ def plot_triplet_components(
     plt.close(fig)
 
 
+def overlapping_triplet_correlation(triplet_fits, observation_indices):
+    """Propagate shared-pulse noise into a banded (velocity, acceleration) correlation."""
+    observation_indices = np.asarray(observation_indices, dtype=int)
+    if observation_indices.shape != (len(triplet_fits), 3):
+        raise ValueError("triplet observation indices must have shape (n_triplets, 3)")
+    column_lookup = {}
+    fit_columns = []
+    for triplet, (fit, observations) in enumerate(zip(triplet_fits, observation_indices)):
+        pulse_index = np.asarray(fit["residual_pulse_index"], dtype=int)
+        local_columns = []
+        for column, local_pulse in enumerate(pulse_index):
+            if local_pulse < 0:
+                key = ("independent", triplet, column)
+            else:
+                pulse_columns = np.flatnonzero(pulse_index == local_pulse)
+                ordinal = int(np.flatnonzero(pulse_columns == column)[0])
+                key = ("pulse", int(observations[local_pulse]), ordinal)
+            local_columns.append(column_lookup.setdefault(key, len(column_lookup)))
+        fit_columns.append(np.asarray(local_columns, dtype=int))
+
+    loading = np.zeros((2 * len(triplet_fits), len(column_lookup)), dtype=float)
+    for triplet, (fit, columns) in enumerate(zip(triplet_fits, fit_columns)):
+        influence = np.asarray(fit["velocity_acceleration_noise_influence"], dtype=float)
+        if influence.shape != (2, len(columns)):
+            raise ValueError("unexpected three-pulse influence matrix shape")
+        loading[2 * triplet : 2 * triplet + 2, columns] += influence
+    covariance = loading @ loading.T
+    diagonal = np.sqrt(np.maximum(np.diag(covariance), np.finfo(float).tiny))
+    correlation = covariance / np.outer(diagonal, diagonal)
+    correlation = 0.5 * (correlation + correlation.T)
+    np.fill_diagonal(correlation, 1.0)
+    return correlation
+
+
 def refit_dynamics(
     physics,
     trajectory_time,
@@ -185,7 +219,7 @@ def refit_dynamics(
     initial_parameters,
     density,
     profile_radius_um,
-    joint_correlation=None,
+    triplet_correlation=None,
     velocity_keep=None,
     acceleration_keep=None,
 ) -> dict:
@@ -237,26 +271,30 @@ def refit_dynamics(
         + np.count_nonzero(velocity_keep)
         + np.count_nonzero(acceleration_keep)
     )
-    if joint_correlation is None:
-        joint_correlation = np.eye(measurement_count)
-    joint_correlation = np.asarray(joint_correlation, dtype=float)
-    if joint_correlation.shape != (measurement_count, measurement_count):
+    triplet_correlation = np.asarray(triplet_correlation, dtype=float)
+    if triplet_correlation.shape != (2 * len(result), 2 * len(result)):
         raise ValueError(
-            f"joint correlation shape {joint_correlation.shape} does not match "
-            f"the {measurement_count}-element fit vector"
+            f"triplet correlation shape {triplet_correlation.shape} does not match "
+            f"the {len(result)} three-pulse estimates"
         )
     fit_time = np.asarray(result["time_s"], dtype=float)
-
-    def legendre_basis(time_s, degree):
-        time_s = np.asarray(time_s, dtype=float)
-        if time_s.size == 0:
-            return np.empty((0, degree + 1), dtype=float)
-        span = float(np.ptp(time_s))
-        if span <= 0.0:
-            normalized = np.zeros_like(time_s)
-        else:
-            normalized = 2.0 * (time_s - np.min(time_s)) / span - 1.0
-        return np.polynomial.legendre.legvander(normalized, degree)
+    position_count = np.count_nonzero(echo_keep)
+    velocity_count = np.count_nonzero(velocity_keep)
+    position_correlation = position_covariance_km2 / np.outer(
+        position_sigma_km, position_sigma_km
+    )
+    measurement_correlation = np.eye(measurement_count)
+    for echo in range(position_count):
+        rows = slice(3 * echo, 3 * echo + 3)
+        measurement_correlation[rows, rows] = position_correlation
+    selected_triplet_rows = np.r_[
+        2 * np.flatnonzero(velocity_keep),
+        2 * np.flatnonzero(acceleration_keep) + 1,
+    ]
+    triplet_start = 3 * position_count
+    measurement_correlation[triplet_start:, triplet_start:] = triplet_correlation[
+        np.ix_(selected_triplet_rows, selected_triplet_rows)
+    ]
 
     def covariance_cholesky():
         measurement_scale = np.r_[
@@ -264,42 +302,9 @@ def refit_dynamics(
             np.full(np.count_nonzero(velocity_keep), velocity_sigma_mps),
             np.full(np.count_nonzero(acceleration_keep), acceleration_sigma_mps2),
         ]
-        covariance = joint_correlation * np.outer(measurement_scale, measurement_scale)
-        # The voltage bootstrap captures random pulse noise but keeps the phase
-        # calibration and physical/measurement model fixed.  Add smooth
-        # event-level discrepancy modes so a coherent sub-RMS model difference
-        # is not counted as an independent detection at every echo.  The mode
-        # amplitudes use the same locked residual RMS scales for every r0.
-        discrepancy_columns = []
-        position_count = np.count_nonzero(echo_keep)
-        velocity_count = np.count_nonzero(velocity_keep)
-        position_basis = legendre_basis(trajectory_time[echo_keep], 2)
-        for component in range(3):
-            rows = np.arange(position_count) * 3 + component
-            for order in range(position_basis.shape[1]):
-                column = np.zeros(measurement_count)
-                column[rows] = (
-                    position_basis[:, order] * 2.0 * position_sigma_km[component]
-                )
-                discrepancy_columns.append(column)
-        velocity_basis = legendre_basis(fit_time[velocity_keep], 2)
-        velocity_start = 3 * position_count
-        for order in range(velocity_basis.shape[1]):
-            column = np.zeros(measurement_count)
-            column[velocity_start : velocity_start + velocity_count] = (
-                velocity_basis[:, order] * 2.0 * velocity_sigma_mps
-            )
-            discrepancy_columns.append(column)
-        acceleration_basis = legendre_basis(fit_time[acceleration_keep], 1)
-        acceleration_start = velocity_start + velocity_count
-        for order in range(acceleration_basis.shape[1]):
-            column = np.zeros(measurement_count)
-            column[acceleration_start:] = (
-                acceleration_basis[:, order] * 2.0 * acceleration_sigma_mps2
-            )
-            discrepancy_columns.append(column)
-        discrepancy_basis = np.column_stack(discrepancy_columns)
-        covariance += discrepancy_basis @ discrepancy_basis.T
+        covariance = measurement_correlation * np.outer(
+            measurement_scale, measurement_scale
+        )
         covariance += np.eye(len(covariance)) * max(
             1e-12, 1e-10 * float(np.median(np.diag(covariance)))
         )
@@ -415,7 +420,6 @@ def refit_dynamics(
     profile_log_radius_m = np.log10(profile_radius_um * 1e-6)
     profile_parameters6 = np.full((len(profile_radius_um), 6), np.nan)
     profile_chi2 = np.full(len(profile_radius_um), np.nan)
-    profile_log_hessian_determinant = np.full(len(profile_radius_um), np.nan)
     profile_success = np.zeros(len(profile_radius_um), dtype=bool)
     lower6 = lower[:6]
     upper6 = upper[:6]
@@ -458,15 +462,6 @@ def refit_dynamics(
             return profile_parameters6[index]
         profile_parameters6[index] = fitted.x
         profile_chi2[index] = fitted_chi2
-        scaled_jacobian = np.asarray(fitted.jac, dtype=float) * scale6[None, :]
-        # A unit Gaussian in these dimensionless optimizer coordinates is a
-        # broad, finite nuisance prior.  It prevents the Laplace volume from
-        # diverging when position/velocity become weakly identifiable in the
-        # large-radius, nearly constant-speed limit.
-        information = scaled_jacobian.T @ scaled_jacobian + np.eye(len(scale6))
-        sign, log_determinant = np.linalg.slogdet(information)
-        if sign > 0.0 and np.isfinite(log_determinant):
-            profile_log_hessian_determinant[index] = float(log_determinant)
         profile_success[index] = bool(fitted.success)
         return profile_parameters6[index]
 
@@ -487,81 +482,18 @@ def refit_dynamics(
 
     minimum_chi2 = min(float(np.sum(residual(final.x) ** 2)), float(np.nanmin(profile_chi2)))
     profile_delta_chi2 = profile_chi2 - minimum_chi2
-    # Integrate over the six fitted trajectory nuisance parameters with a
-    # Laplace approximation.  exp(-Delta chi2/2) alone is a profile likelihood,
-    # not a marginal probability, and can substantially overstate a radius
-    # constraint when the nuisance-parameter volume grows toward large radii.
-    profile_marginal_deviance = profile_chi2 + profile_log_hessian_determinant
-    finite_marginal = np.isfinite(profile_marginal_deviance) & profile_success
-    profile_delta_marginal_deviance = np.full_like(profile_marginal_deviance, np.nan)
-    profile_delta_marginal_deviance[finite_marginal] = (
-        profile_marginal_deviance[finite_marginal]
-        - np.min(profile_marginal_deviance[finite_marginal])
+    profile_probability, profile_weights = log_grid_probability(
+        profile_radius_um, profile_delta_chi2
     )
-    profile_whitened_residual = np.asarray(
-        [
-            residual(np.r_[profile_parameters6[index], profile_log_radius_m[index]])
-            if profile_success[index]
-            else np.full(measurement_count, np.nan)
-            for index in range(len(profile_radius_um))
-        ]
-    )
-
-    def contiguous_blocks(indices, count=8):
-        indices = np.asarray(indices, dtype=int)
-        return [block for block in np.array_split(indices, count) if len(block)]
-
-    position_count = np.count_nonzero(echo_keep)
-    velocity_count = np.count_nonzero(velocity_keep)
-    position_rows = np.arange(3 * position_count).reshape(position_count, 3)
-    velocity_start = 3 * position_count
-    acceleration_start = velocity_start + velocity_count
-    residual_blocks = []
-    for echo_block in contiguous_blocks(np.arange(position_count)):
-        residual_blocks.append(position_rows[echo_block].ravel())
-    residual_blocks.extend(
-        contiguous_blocks(np.arange(velocity_start, acceleration_start))
-    )
-    residual_blocks.extend(
-        contiguous_blocks(np.arange(acceleration_start, measurement_count))
-    )
-    profile_block_chi2 = np.column_stack(
-        [np.nansum(profile_whitened_residual[:, rows] ** 2, axis=1) for rows in residual_blocks]
-    )
-    profile_block_chi2[~profile_success] = np.inf
-
-    # Marginalize over event-to-event/model-discrepancy leverage with a
-    # Bayesian bootstrap of contiguous residual blocks.  This is a cheap
-    # probability calculation on completed profile fits, not a refit bootstrap.
-    rng = np.random.default_rng(20260720 + int(result.shape[0]))
-    bootstrap_count = 256
-    block_weights = rng.dirichlet(
-        np.ones(profile_block_chi2.shape[1]), size=bootstrap_count
-    ) * profile_block_chi2.shape[1]
-    bootstrap_chi2 = block_weights @ profile_block_chi2.T
-    profile_probability = np.zeros(len(profile_radius_um))
-    profile_weights = np.zeros(len(profile_radius_um))
-    for replicate_chi2 in bootstrap_chi2:
-        replicate_delta = replicate_chi2 - np.nanmin(replicate_chi2)
-        replicate_probability, replicate_weights = log_grid_probability(
-            profile_radius_um, replicate_delta
-        )
-        profile_probability += replicate_probability
-        profile_weights += replicate_weights
-    profile_probability /= bootstrap_count
-    profile_weights /= bootstrap_count
     radius_quantiles_um = weighted_quantile(
         profile_radius_um, profile_weights, [0.025, 0.5, 0.975]
     )
-    marginal_best_index = int(np.nanargmax(profile_probability))
-    relative_upper_tail = (
-        profile_probability[marginal_best_index:]
-        / max(float(np.nanmax(profile_probability)), 1e-30)
-    )
+    marginal_best_index = int(np.nanargmin(profile_delta_chi2))
+    upper_tail = profile_delta_chi2[marginal_best_index:]
     upper_limit_data_constrained = bool(
-        len(relative_upper_tail) >= 3
-        and np.all(np.isfinite(relative_upper_tail[-3:]))
-        and np.max(relative_upper_tail[-3:]) < 0.025
+        len(upper_tail) >= 3
+        and np.all(np.isfinite(upper_tail[-3:]))
+        and np.min(upper_tail[-3:]) > 3.841458820694124
     )
 
     profile_position = []
@@ -625,7 +557,8 @@ def refit_dynamics(
         "velocity_sigma_mps": velocity_sigma_mps,
         "acceleration_sigma_mps2": acceleration_sigma_mps2,
         "position_sigma_km": position_sigma_km,
-        "joint_correlation": joint_correlation,
+        "measurement_correlation": measurement_correlation,
+        "triplet_correlation": triplet_correlation,
         "covariance_degrees_of_freedom": covariance_degrees_of_freedom,
         "covariance_variance_inflation": covariance_variance_inflation,
         "cost": float(final.cost),
@@ -634,12 +567,7 @@ def refit_dynamics(
         "profile_parameters6": profile_parameters6,
         "profile_chi2": profile_chi2,
         "profile_delta_chi2": profile_delta_chi2,
-        "profile_log_hessian_determinant": profile_log_hessian_determinant,
-        "profile_marginal_deviance": profile_marginal_deviance,
-        "profile_delta_marginal_deviance": profile_delta_marginal_deviance,
-        "profile_block_chi2": profile_block_chi2,
-        "profile_bootstrap_chi2": bootstrap_chi2,
-        "profile_probability_method": "256-replicate Bayesian bootstrap over contiguous position, Doppler, and acceleration residual blocks",
+        "profile_probability_method": "standard fixed-covariance profile likelihood with shared-pulse banded covariance",
         "profile_probability_density_log_radius": profile_probability,
         "profile_probability_weights": profile_weights,
         "profile_success": profile_success,
@@ -768,6 +696,7 @@ def main() -> int:
     ]
     rows = []
     alias_rows = []
+    selected_triplet_fits = []
     triplet_debug = []
     n_fast = decoded["z_tx"].shape[1]
     for previous, middle, current in triplets:
@@ -835,6 +764,7 @@ def main() -> int:
         )
         selected_alias_index = int(np.nanargmin(branch_score))
         fit = alias_fits["fits"][selected_alias_index]
+        selected_triplet_fits.append(fit)
         alias_rows.append(
             {
                 "observation_indices": observation_indices.copy(),
@@ -943,24 +873,10 @@ def main() -> int:
     fit_acceleration_keep = fit_velocity_keep & ~np.asarray(
         result["acceleration_at_bound"], dtype=bool
     )
-    joint_correlation = None
-    if args.joint_covariance_h5 is not None:
-        with h5py.File(args.joint_covariance_h5, "r") as handle:
-            covariance_echo_keep = np.asarray(handle["echo_keep"], dtype=bool)
-            covariance_velocity_keep = np.asarray(handle["velocity_keep"], dtype=bool)
-            covariance_acceleration_keep = np.asarray(handle["acceleration_keep"], dtype=bool)
-            joint_correlation = np.asarray(handle["correlation"], dtype=float)
-        if not np.array_equal(covariance_echo_keep, echo_keep):
-            raise RuntimeError("joint covariance echo mask does not match this fit")
-        if not np.array_equal(covariance_velocity_keep, fit_velocity_keep):
-            raise RuntimeError("joint covariance velocity mask does not match this fit")
-        if np.any(covariance_acceleration_keep & ~fit_velocity_keep):
-            raise RuntimeError("joint covariance retains acceleration for a rejected triplet")
-        # Preserve the measurement subset represented by this covariance. Older
-        # bootstrap products omit rows that encountered the former local
-        # acceleration bound; the corrected alias search still plots those rows
-        # but must not invent covariance entries for them.
-        fit_acceleration_keep = covariance_acceleration_keep
+    triplet_correlation = overlapping_triplet_correlation(
+        selected_triplet_fits,
+        np.column_stack((result["previous"], result["middle"], result["current"])),
+    )
     dynamics = refit_dynamics(
         physics,
         trajectory_time,
@@ -971,7 +887,7 @@ def main() -> int:
         np.r_[parameters6, np.log10(radius_um * 1e-6)],
         density,
         profile_grid_radius_um,
-        joint_correlation=joint_correlation,
+        triplet_correlation=triplet_correlation,
         velocity_keep=fit_velocity_keep,
         acceleration_keep=fit_acceleration_keep,
     )

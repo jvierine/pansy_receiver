@@ -65,6 +65,19 @@ def test_three_pulse_fit_recovers_frequency_and_acceleration_from_good_initial_b
     assert abs(fit["parameters"][4] - truth[4]) < 5.0
     assert abs(fit["parameters"][5] - truth[5]) < 500.0
     assert abs(np.exp(fit["parameters"][1] - fit["parameters"][0]) - 1.25 / 0.8) < 0.12
+    propagated = (
+        fit["velocity_acceleration_noise_influence"]
+        @ fit["velocity_acceleration_noise_influence"].T
+    )
+    np.testing.assert_allclose(
+        propagated,
+        fit["velocity_acceleration_covariance"],
+        rtol=1e-10,
+        atol=1e-10,
+    )
+    assert fit["residual_pulse_index"].shape == (
+        fit["velocity_acceleration_noise_influence"].shape[1],
+    )
 
 
 def test_independent_pulse_amplitudes_do_not_introduce_independent_phase():

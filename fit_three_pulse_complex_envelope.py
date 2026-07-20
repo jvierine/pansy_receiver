@@ -300,8 +300,14 @@ def fit_three_pulse_envelope(
     weighted_sse = float(np.sum(residual_vector**2))
     degrees_of_freedom = max(len(residual_vector) - len(fit.x), 1)
     covariance = np.full((len(fit.x), len(fit.x)), np.nan)
+    parameter_noise_influence = np.full((len(fit.x), len(residual_vector)), np.nan)
     try:
-        covariance = np.linalg.inv(jacobian.T @ jacobian) * weighted_sse / degrees_of_freedom
+        inverse_information = np.linalg.inv(jacobian.T @ jacobian)
+        residual_variance = weighted_sse / degrees_of_freedom
+        covariance = inverse_information * residual_variance
+        parameter_noise_influence = (
+            inverse_information @ jacobian.T * np.sqrt(residual_variance)
+        )
     except np.linalg.LinAlgError:
         pass
     velocity_mps = float(parameters[4] * wavelength_m / 2.0)
@@ -317,6 +323,17 @@ def fit_three_pulse_envelope(
             ],
         ]
     )
+    velocity_acceleration_noise_influence = np.vstack(
+        (
+            parameter_noise_influence[4] * wavelength_m / 2.0,
+            parameter_noise_influence[5],
+        )
+    )
+    residual_pulse_index = np.r_[
+        pulse_index[use],
+        pulse_index[use],
+        np.full(len(residual_vector) - 2 * np.count_nonzero(use), -1, dtype=int),
+    ]
     return {
         "parameters": parameters,
         "starting_parameters": starting_parameters,
@@ -324,6 +341,8 @@ def fit_three_pulse_envelope(
         "velocity_mps": velocity_mps,
         "acceleration_mps2": float(parameters[5]),
         "velocity_acceleration_covariance": velocity_acceleration_covariance,
+        "velocity_acceleration_noise_influence": velocity_acceleration_noise_influence,
+        "residual_pulse_index": residual_pulse_index,
         "model": model,
         "data": final_data,
         "envelope": envelope,
