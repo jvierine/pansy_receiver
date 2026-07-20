@@ -376,37 +376,64 @@ def refit_dynamics(
     scale6 = scale[:6]
     center = int(np.argmin(np.abs(profile_log_radius_m - final.x[6])))
 
-    def fit_profile_index(index, seed):
+    retained_time = trajectory_time[echo_keep] - float(np.min(trajectory_time))
+    kinematic_seed = np.empty(6, dtype=float)
+    for component in range(3):
+        slope, intercept = np.polyfit(
+            retained_time, points_km[echo_keep, component] * 1e3, 1
+        )
+        kinematic_seed[component] = intercept
+        kinematic_seed[3 + component] = slope
+
+    def fit_profile_index(index, seeds):
         fixed_log_radius = profile_log_radius_m[index]
 
         def fixed_residual(parameters6):
             return residual(np.r_[parameters6, fixed_log_radius])
 
-        fitted = least_squares(
-            fixed_residual,
-            np.clip(seed, lower6 + 1e-10, upper6 - 1e-10),
-            bounds=(lower6, upper6),
-            x_scale=scale6,
-            loss="linear",
-            max_nfev=180,
+        fitted_candidates = []
+        for seed in seeds:
+            fitted_candidates.append(
+                least_squares(
+                    fixed_residual,
+                    np.clip(seed, lower6 + 1e-10, upper6 - 1e-10),
+                    bounds=(lower6, upper6),
+                    x_scale=scale6,
+                    loss="linear",
+                    max_nfev=400,
+                )
+            )
+        fitted = min(
+            fitted_candidates,
+            key=lambda candidate: float(np.sum(fixed_residual(candidate.x) ** 2)),
         )
+        fitted_chi2 = float(np.sum(fixed_residual(fitted.x) ** 2))
+        if np.isfinite(profile_chi2[index]) and profile_chi2[index] <= fitted_chi2:
+            return profile_parameters6[index]
         profile_parameters6[index] = fitted.x
-        profile_chi2[index] = float(np.sum(fixed_residual(fitted.x) ** 2))
+        profile_chi2[index] = fitted_chi2
         scaled_jacobian = np.asarray(fitted.jac, dtype=float) * scale6[None, :]
         information = scaled_jacobian.T @ scaled_jacobian
         sign, log_determinant = np.linalg.slogdet(information)
         if sign > 0.0 and np.isfinite(log_determinant):
             profile_log_hessian_determinant[index] = float(log_determinant)
         profile_success[index] = bool(fitted.success)
-        return fitted.x
+        return profile_parameters6[index]
 
-    center_seed = fit_profile_index(center, final.x[:6])
+    center_seed = fit_profile_index(center, [final.x[:6], kinematic_seed])
     seed = center_seed
     for index in range(center - 1, -1, -1):
-        seed = fit_profile_index(index, seed)
+        seed = fit_profile_index(index, [seed, final.x[:6]])
     seed = center_seed
     for index in range(center + 1, len(profile_radius_um)):
-        seed = fit_profile_index(index, seed)
+        seed = fit_profile_index(index, [seed, kinematic_seed, final.x[:6]])
+
+    # Propagate any better basin found at the large-radius asymptote back toward
+    # the center.  The radius profile must be the lower envelope of converged
+    # fixed-radius fits, not the result of one continuation direction.
+    seed = profile_parameters6[-1]
+    for index in range(len(profile_radius_um) - 2, center - 1, -1):
+        seed = fit_profile_index(index, [profile_parameters6[index], seed])
 
     minimum_chi2 = min(float(np.sum(residual(final.x) ** 2)), float(np.nanmin(profile_chi2)))
     profile_delta_chi2 = profile_chi2 - minimum_chi2
