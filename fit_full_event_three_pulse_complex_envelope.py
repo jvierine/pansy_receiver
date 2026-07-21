@@ -321,6 +321,8 @@ def refit_dynamics(
     velocity_keep=None,
     acceleration_keep=None,
     compute_profile=True,
+    velocity_sigma_override_mps=None,
+    acceleration_sigma_override_mps2=None,
 ) -> dict:
     if velocity_keep is None:
         velocity_keep = np.asarray(result["shared_inlier"], dtype=bool)
@@ -336,34 +338,40 @@ def refit_dynamics(
         raise ValueError("triplet measurement masks must match the fit result")
     if np.any(acceleration_keep & ~velocity_keep):
         raise ValueError("acceleration mask cannot retain a rejected velocity triplet")
-    velocity_sigma_mps = max(
-        20.0,
-        float(
-            np.sqrt(
-                np.mean(
-                    (
-                        result["velocity_mps"][velocity_keep]
-                        - result["model_velocity_mps"][velocity_keep]
+    if velocity_sigma_override_mps is None:
+        velocity_sigma_mps = max(
+            20.0,
+            float(
+                np.sqrt(
+                    np.mean(
+                        (
+                            result["velocity_mps"][velocity_keep]
+                            - result["model_velocity_mps"][velocity_keep]
+                        )
+                        ** 2
                     )
-                    ** 2
                 )
-            )
-        ),
-    )
-    acceleration_sigma_mps2 = max(
-        1e3,
-        float(
-            np.sqrt(
-                np.mean(
-                    (
-                        result["acceleration_mps2"][acceleration_keep]
-                        - result["model_acceleration_mps2"][acceleration_keep]
+            ),
+        )
+    else:
+        velocity_sigma_mps = float(velocity_sigma_override_mps)
+    if acceleration_sigma_override_mps2 is None:
+        acceleration_sigma_mps2 = max(
+            1e3,
+            float(
+                np.sqrt(
+                    np.mean(
+                        (
+                            result["acceleration_mps2"][acceleration_keep]
+                            - result["model_acceleration_mps2"][acceleration_keep]
+                        )
+                        ** 2
                     )
-                    ** 2
                 )
-            )
-        ),
-    )
+            ),
+        )
+    else:
+        acceleration_sigma_mps2 = float(acceleration_sigma_override_mps2)
     position_sigma_km = np.sqrt(np.maximum(np.diag(position_covariance_km2), 1e-8))
     measurement_count = (
         3 * np.count_nonzero(echo_keep)
@@ -1141,6 +1149,10 @@ def main() -> int:
             velocity_keep=velocity_keep,
             acceleration_keep=acceleration_keep,
             compute_profile=compute_profile,
+            velocity_sigma_override_mps=QUALITY_SCALES["doppler_rms_mps"],
+            acceleration_sigma_override_mps2=(
+                QUALITY_SCALES["acceleration_rms_km_s2"] * 1e3
+            ),
         )
         return fitted, velocity_keep, acceleration_keep, correlation
 
