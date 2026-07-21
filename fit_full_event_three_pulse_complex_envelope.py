@@ -1245,10 +1245,13 @@ def main() -> int:
     if missing_rti:
         raise RuntimeError(f"RTI does not contain selected pulse indices: {missing_rti}")
     rti_rows = np.asarray([rti_row_by_tx_idx[int(value)] for value in measurement_tx_idx], dtype=int)
+    native_ipp_samples = int(
+        round(float(pmm.get_m_mode()["ipp_us"]) * 1e-6 * FS_HZ)
+    )
     rti_uniform_tx_idx, rti_linear = uniform_ipp_rti(
         measurement_tx_idx,
         np.asarray(observation_rti["rti_snr"], dtype=float)[rti_rows],
-        int(round(PAIR_SPACING_S * FS_HZ)),
+        native_ipp_samples,
     )
     rti_db = 10.0 * np.log10(
         np.maximum(rti_linear, 1e-12)
