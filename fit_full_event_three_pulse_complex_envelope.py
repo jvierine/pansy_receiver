@@ -1404,7 +1404,7 @@ def main() -> int:
     axis.text(
         0.03,
         0.97,
-        f"Path {path_length_km:.1f} km\nEW RMS {position_rms[0]:.2f} km\nNS RMS {position_rms[1]:.2f} km",
+        f"Path {path_length_km:.1f} km\nEW RMS {position_rms[0] * 1e3:.0f} m\nNS RMS {position_rms[1] * 1e3:.0f} m",
         transform=axis.transAxes,
         va="top",
     )
@@ -1428,7 +1428,14 @@ def main() -> int:
     axis.plot(observation_time[echo_keep], refit_position[echo_keep, 2], color="C0")
     axis.set_xlabel("Time (s)")
     axis.set_ylabel("Up (km)")
-    axis.text(0.97, 0.97, f"Up RMS {position_rms[2]:.2f} km", transform=axis.transAxes, ha="right", va="top")
+    axis.text(
+        0.97,
+        0.97,
+        f"Up RMS {position_rms[2] * 1e3:.0f} m",
+        transform=axis.transAxes,
+        ha="right",
+        va="top",
+    )
 
     axis = event_axes[0, 2]
     axis.fill_between(
@@ -1548,7 +1555,13 @@ def main() -> int:
     )
     axis.set_xlabel("Time (s)")
     axis.set_ylabel("Range (km)")
-    axis.text(0.03, 0.97, f"RMS {rms(range_residual):.2f} km", transform=axis.transAxes, va="top")
+    axis.text(
+        0.03,
+        0.97,
+        f"RMS {rms(range_residual) * 1e3:.0f} m",
+        transform=axis.transAxes,
+        va="top",
+    )
 
     axis = event_axes[1, 1]
     axis.plot(profile_radius_um, profile_probability, color="black")
