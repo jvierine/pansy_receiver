@@ -334,10 +334,10 @@ def main() -> int:
 
     axis = axes[0, 2]
     axis.fill_between(observation_time[echo_keep], dynamics["doppler_interval_mps"][0, echo_keep] / 1e3, dynamics["doppler_interval_mps"][1, echo_keep] / 1e3, color="C0", alpha=0.18, linewidth=0)
-    axis.errorbar(measurement_time[velocity_keep], result["velocity_mps"][velocity_keep] / 1e3, yerr=result["velocity_std_mps"][velocity_keep] / 1e3, fmt=".", color="black")
-    axis.plot(observation_time, refit_doppler / 1e3, color="C0")
+    axis.errorbar(measurement_time[velocity_keep], result["velocity_mps"][velocity_keep] / 1e3, yerr=result["velocity_std_mps"][velocity_keep] / 1e3, fmt=".", color="black", zorder=2)
     for fixed_doppler, color in zip(dynamics["fixed_doppler_mps"], fixed_colors):
-        axis.plot(observation_time[echo_keep], fixed_doppler[echo_keep] / 1e3, color=color, ls="--", lw=0.9)
+        axis.plot(observation_time[echo_keep], fixed_doppler[echo_keep] / 1e3, color=color, ls="--", lw=0.9, zorder=4)
+    axis.plot(observation_time, refit_doppler / 1e3, color="C0", zorder=5)
     axis.set(xlabel="Time (s)", ylabel="Doppler (km/s)")
     axis.text(0.03, 0.97, f"RMS {rms(doppler_residual[velocity_keep]):.0f} m/s", transform=axis.transAxes, va="top")
 
