@@ -236,3 +236,18 @@ def test_joint_velocity_acceleration_alias_search_recovers_wrong_seed_branches()
     assert abs(fit["parameters"][4] - truth[4]) < 5.0
     assert abs(fit["parameters"][5] - truth[5]) < 500.0
     assert result["reseed_passes"] >= 2
+    candidate_count = len(result["weighted_sse"])
+    for name in (
+        "alias_number",
+        "velocity_alias_number",
+        "fit_velocity_mps",
+        "fit_acceleration_mps2",
+        "fit_velocity_variance_mps2",
+        "fit_velocity_acceleration_covariance_mps3_s2",
+        "fit_acceleration_variance_mps4_s4",
+        "fit_success",
+        "degrees_of_freedom",
+        "delta_chi2",
+    ):
+        assert len(result[name]) == candidate_count
+    assert np.all(np.isfinite(result["weighted_sse"]))

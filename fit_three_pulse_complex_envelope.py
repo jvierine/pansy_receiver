@@ -844,7 +844,8 @@ def fit_three_pulse_acceleration_aliases(
         if pass_index > 0 and best_sse >= pass_start_sse * (1.0 - 1e-8):
             break
 
-    fits = [fit for fit in fits if fit is not None]
+    if any(fit is None for fit in fits):
+        raise RuntimeError("three-pulse alias lattice contains an unevaluated candidate")
     weighted_sse = np.asarray([fit["weighted_sse"] for fit in fits], dtype=float)
     selected_index = int(np.nanargmin(weighted_sse))
     residual_variance = weighted_sse[selected_index] / max(
@@ -858,6 +859,9 @@ def fit_three_pulse_acceleration_aliases(
     )
     acceleration_std_mps2 = np.asarray(
         [np.sqrt(fit["parameter_covariance"][5, 5]) for fit in fits], dtype=float
+    )
+    velocity_acceleration_covariance = np.asarray(
+        [fit["velocity_acceleration_covariance"] for fit in fits], dtype=float
     )
     return {
         "selected_fit": fits[selected_index],
@@ -881,6 +885,15 @@ def fit_three_pulse_acceleration_aliases(
         ),
         "fit_velocity_std_mps": frequency_std_hz * wavelength_m / 2.0,
         "fit_acceleration_std_mps2": acceleration_std_mps2,
+        "fit_velocity_variance_mps2": velocity_acceleration_covariance[:, 0, 0],
+        "fit_velocity_acceleration_covariance_mps3_s2": velocity_acceleration_covariance[
+            :, 0, 1
+        ],
+        "fit_acceleration_variance_mps4_s4": velocity_acceleration_covariance[:, 1, 1],
+        "fit_success": np.asarray([fit["success"] for fit in fits], dtype=bool),
+        "degrees_of_freedom": np.asarray(
+            [fit["degrees_of_freedom"] for fit in fits], dtype=int
+        ),
         "frequency_alias_spacing_hz": frequency_alias_spacing_hz,
         "velocity_alias_spacing_mps": wavelength_m / (2.0 * pulse_spacing_s),
         "frequency_half_width_hz": float(frequency_half_width_hz),

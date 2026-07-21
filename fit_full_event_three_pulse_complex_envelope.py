@@ -895,6 +895,10 @@ def main() -> int:
         alias_rows.append(
             {
                 "observation_indices": observation_indices.copy(),
+                "independent_fft_pulse_velocity_mps": np.asarray(
+                    pulse_fft["pulse_velocity_mps"], dtype=float
+                ).copy(),
+                "reseed_passes": int(alias_fits["reseed_passes"]),
                 **{
                     name: np.asarray(alias_fits[name]).copy()
                     for name in (
@@ -906,6 +910,11 @@ def main() -> int:
                         "fit_velocity_std_mps",
                         "fit_acceleration_mps2",
                         "fit_acceleration_std_mps2",
+                        "fit_velocity_variance_mps2",
+                        "fit_velocity_acceleration_covariance_mps3_s2",
+                        "fit_acceleration_variance_mps4_s4",
+                        "fit_success",
+                        "degrees_of_freedom",
                         "weighted_sse",
                         "delta_chi2",
                     )
@@ -1122,9 +1131,31 @@ def main() -> int:
         handle.create_dataset("dynamics_velocity_keep", data=fit_velocity_keep)
         handle.create_dataset("dynamics_acceleration_keep", data=fit_acceleration_keep)
         alias_group = handle.create_group("triplet_aliases")
+        alias_group.attrs["schema"] = "pansy.three_pulse_alias_likelihood.v2"
+        alias_group.attrs["candidate_grid"] = (
+            "Cartesian product of pulse-phase velocity and acceleration aliases"
+        )
+        alias_group.attrs["chi2_dataset"] = "weighted_sse"
+        alias_group.attrs["delta_chi2_reference"] = (
+            "minimum weighted_sse within each three-pulse candidate lattice"
+        )
+        alias_group.attrs["local_selection_is_provisional"] = True
+        alias_group.attrs["resolution_stage"] = (
+            "global event dynamics fit using all retained alias candidates"
+        )
         alias_group.create_dataset(
             "observation_indices",
             data=np.asarray([row["observation_indices"] for row in alias_rows]),
+        )
+        alias_group.create_dataset(
+            "independent_fft_pulse_velocity_mps",
+            data=np.asarray(
+                [row["independent_fft_pulse_velocity_mps"] for row in alias_rows]
+            ),
+        )
+        alias_group.create_dataset(
+            "reseed_passes",
+            data=np.asarray([row["reseed_passes"] for row in alias_rows], dtype=np.int32),
         )
         for name in (
             "alias_number",
@@ -1135,14 +1166,20 @@ def main() -> int:
             "fit_velocity_std_mps",
             "fit_acceleration_mps2",
             "fit_acceleration_std_mps2",
+            "fit_velocity_variance_mps2",
+            "fit_velocity_acceleration_covariance_mps3_s2",
+            "fit_acceleration_variance_mps4_s4",
+            "fit_success",
+            "degrees_of_freedom",
             "weighted_sse",
             "delta_chi2",
         ):
-            base_dtype = (
-                np.int32
-                if name in ("alias_number", "velocity_alias_number")
-                else np.float64
-            )
+            if name in ("alias_number", "velocity_alias_number", "degrees_of_freedom"):
+                base_dtype = np.int32
+            elif name == "fit_success":
+                base_dtype = np.bool_
+            else:
+                base_dtype = np.float64
             dataset = alias_group.create_dataset(
                 name,
                 shape=(len(alias_rows),),
