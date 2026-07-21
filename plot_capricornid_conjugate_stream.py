@@ -14,7 +14,7 @@ from matplotlib.colors import LogNorm, Normalize
 from matplotlib.ticker import FuncFormatter
 
 
-RADVIEW_ROOT = Path("/Users/j/src/radview")
+RADVIEW_ROOT = Path.home() / "src" / "radview"
 LIVE_RADVIEW_DATA = Path("/tmp/radiantviz_live_data")
 RADVIEW_DATA = LIVE_RADVIEW_DATA if LIVE_RADVIEW_DATA.exists() else RADVIEW_ROOT / "public" / "data"
 CLUSTER_SOLAR_WINDOW_DEG = 14.0
@@ -56,6 +56,8 @@ PASSAGES = (
 )
 
 COMET_169P_NEAT = np.asarray([2.604, 0.76796, 11.285, 176.04, 218.13, np.nan, 0.604], dtype=np.float64)
+DCS_PROFILE_SOLAR_RANGE_DEG = (300.0, 330.0)
+DCS_PROFILE_BIN_WIDTH_DEG = 0.25
 
 
 def wrap180(deg):
@@ -248,6 +250,66 @@ def cluster_filter(rows: np.ndarray, vg_range: tuple[float, float], e_range: tup
     return rows[keep]
 
 
+def ecliptic_to_equatorial_deg(lon_deg: np.ndarray, lat_deg: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Convert J2000 ecliptic radiant coordinates to equatorial coordinates."""
+    lon = np.deg2rad(np.asarray(lon_deg, dtype=np.float64))
+    lat = np.deg2rad(np.asarray(lat_deg, dtype=np.float64))
+    obliquity = np.deg2rad(23.4392911)
+    cos_lat = np.cos(lat)
+    x = cos_lat * np.cos(lon)
+    y = cos_lat * np.sin(lon) * np.cos(obliquity) - np.sin(lat) * np.sin(obliquity)
+    z = cos_lat * np.sin(lon) * np.sin(obliquity) + np.sin(lat) * np.cos(obliquity)
+    ra_deg = wrap360(np.rad2deg(np.arctan2(y, x)))
+    dec_deg = np.rad2deg(np.arcsin(np.clip(z, -1.0, 1.0)))
+    return ra_deg, dec_deg
+
+
+def plot_dcs_solar_longitude_profile(
+    rows: np.ndarray,
+    out: Path,
+    solar_range_deg: tuple[float, float] = DCS_PROFILE_SOLAR_RANGE_DEG,
+    bin_width_deg: float = DCS_PROFILE_BIN_WIDTH_DEG,
+) -> None:
+    """Plot DCS radiant drift and counts in fixed solar-longitude bins."""
+    solar_min, solar_max = sorted(map(float, solar_range_deg))
+    ra_deg, dec_deg = ecliptic_to_equatorial_deg(rows["ecliptic_lon"], rows["beta"])
+    finite = np.isfinite(rows["solar_lon"]) & np.isfinite(ra_deg) & np.isfinite(dec_deg)
+    solar_lon = np.asarray(rows["solar_lon"][finite], dtype=np.float64)
+    ra_deg = ra_deg[finite]
+    dec_deg = dec_deg[finite]
+
+    edges = np.arange(solar_min, solar_max + bin_width_deg, bin_width_deg, dtype=np.float64)
+    counts, _ = np.histogram(solar_lon, bins=edges)
+    centers = 0.5 * (edges[:-1] + edges[1:])
+
+    fig, axes = plt.subplots(1, 3, figsize=(12.0, 3.45), constrained_layout=True)
+    scatter_style = {
+        "s": 8,
+        "facecolors": "none",
+        "edgecolors": "0.30",
+        "linewidths": 0.6,
+        "alpha": 0.48,
+    }
+    axes[0].scatter(solar_lon, ra_deg, **scatter_style)
+    axes[1].scatter(solar_lon, dec_deg, **scatter_style)
+    axes[2].bar(centers, counts, width=bin_width_deg, color="0.25", edgecolor="0.25", linewidth=0.25)
+
+    for ax in axes:
+        ax.set_xlim(solar_min, solar_max)
+        ax.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)")
+        ax.grid(alpha=0.20, linewidth=0.45)
+    axes[0].set_ylabel(r"Geocentric right ascension, $\alpha_g$ (deg)")
+    axes[1].set_ylabel(r"Geocentric declination, $\delta_g$ (deg)")
+    axes[2].set_ylabel(rf"Counts per {bin_width_deg:g}$^\circ$")
+    axes[0].set_ylim(295.0, 320.0)
+    axes[1].set_ylim(-35.0, -20.0)
+    axes[2].set_ylim(bottom=0.0)
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=240)
+    plt.close(fig)
+
+
 def orbit_xy(kepler: np.ndarray, samples: int = 361) -> tuple[np.ndarray, np.ndarray]:
     a, e, inc, raan, argp = kepler[:5]
     if not np.isfinite(a) or a <= 0.0 or not np.isfinite(e) or e < 0.0 or e >= 1.0:
@@ -410,8 +472,16 @@ def plot_orbit_panel_figure(selections: list[tuple[Passage, np.ndarray]], out: P
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--radview-data", type=Path, default=RADVIEW_DATA)
-    parser.add_argument("--output", type=Path, default=Path("/Users/j/src/pansy_paper/paper_capricornid_conjugate_stream.png"))
+    parser.add_argument("--output", type=Path, default=Path.home() / "src" / "pansy_paper" / "paper_capricornid_conjugate_stream.png")
     parser.add_argument("--orbit-output", type=Path)
+    parser.add_argument(
+        "--profile-output",
+        type=Path,
+        default=Path.home() / "src" / "pansy_paper" / "paper_dcs_solar_longitude_profile.png",
+    )
+    parser.add_argument("--profile-solar-min-deg", type=float, default=DCS_PROFILE_SOLAR_RANGE_DEG[0])
+    parser.add_argument("--profile-solar-max-deg", type=float, default=DCS_PROFILE_SOLAR_RANGE_DEG[1])
+    parser.add_argument("--profile-bin-width-deg", type=float, default=DCS_PROFILE_BIN_WIDTH_DEG)
     parser.add_argument("--solar-half-width-deg", type=float, default=CLUSTER_SOLAR_WINDOW_DEG / 2.0)
     parser.add_argument("--radiant-radius-deg", type=float, default=5.0)
     parser.add_argument("--velocity-half-width-kms", type=float, default=10.0)
@@ -446,6 +516,27 @@ def main():
     plt.close(fig)
     if args.orbit_output is not None:
         plot_orbit_panel_figure(selections, args.orbit_output)
+    if args.profile_output is not None:
+        profile_solar_range = (args.profile_solar_min_deg, args.profile_solar_max_deg)
+        profile_center = 0.5 * sum(profile_solar_range)
+        profile_half_width = 0.5 * abs(profile_solar_range[1] - profile_solar_range[0])
+        profile_rows = load_chunk_rows(args.radview_data, "pansy", profile_center, profile_half_width)
+        if args.cluster_filter:
+            profile_rows = cluster_filter(profile_rows, vg_range, e_range)
+        profile_rows = select_associated(
+            profile_rows,
+            PASSAGES[0],
+            args.radiant_radius_deg,
+            args.velocity_half_width_kms,
+        )
+        plot_dcs_solar_longitude_profile(
+            profile_rows,
+            args.profile_output,
+            solar_range_deg=profile_solar_range,
+            bin_width_deg=args.profile_bin_width_deg,
+        )
+        print(f"DCS profile: selected {len(profile_rows)}")
+        print(args.profile_output)
     for passage, rows in selections:
         print(f"{passage.name}: selected {len(rows)}")
         if len(rows):
