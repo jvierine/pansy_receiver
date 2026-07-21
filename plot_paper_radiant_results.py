@@ -109,10 +109,10 @@ SNAPSHOT_WINDOWS = (
         marker_beta_deg=-48.17,
     ),
     SnapshotWindow(
-        label=r"$\lambda_\odot=120.5^\circ$",
-        solar_lon_deg=120.5,
-        marker_sc_lon_deg=343.6,
-        marker_beta_deg=-48.4,
+        label=r"CAP, $\lambda_\odot=132.3^\circ$",
+        solar_lon_deg=132.3,
+        marker_sc_lon_deg=177.1875,
+        marker_beta_deg=10.806922874860348,
     ),
     SnapshotWindow(label=r"$\lambda_\odot=197.0^\circ$", solar_lon_deg=197.0),
     SnapshotWindow(
