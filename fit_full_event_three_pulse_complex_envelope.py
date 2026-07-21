@@ -322,122 +322,28 @@ def overlapping_triplet_correlation(triplet_fits, observation_indices):
     return correlation
 
 
-def global_alias_scores(
-    alias_fits,
-    model_velocity_mps,
-    model_acceleration_mps2,
-    velocity_sigma_mps,
-    acceleration_sigma_mps2,
+def fft_locked_acceleration_limits(
+    fft_acceleration_mps2, alias_spacing_mps2
 ):
-    """Combine local complex-voltage likelihood with the global trajectory fit."""
-    local_chi2 = np.asarray(alias_fits["delta_chi2"], dtype=float)
-    velocity_residual = (
-        np.asarray(alias_fits["fit_velocity_mps"], dtype=float)
-        - float(model_velocity_mps)
-    )
-    acceleration_residual = (
-        np.asarray(alias_fits["fit_acceleration_mps2"], dtype=float)
-        - float(model_acceleration_mps2)
-    )
-    global_chi2 = (
-        (velocity_residual / float(velocity_sigma_mps)) ** 2
-        + (acceleration_residual / float(acceleration_sigma_mps2)) ** 2
-    )
-    score = local_chi2 + global_chi2
-    score[~np.asarray(alias_fits["fit_success"], dtype=bool)] = np.inf
-    return score, local_chi2, global_chi2
+    """Return one acceleration-alias interval centered on the FFT trajectory."""
+    half_width = 0.499 * float(alias_spacing_mps2)
+    center = float(fft_acceleration_mps2)
+    return center - half_width, center + half_width
 
 
-def select_global_alias(
-    alias_fits,
-    model_velocity_mps,
-    model_acceleration_mps2,
-    velocity_sigma_mps,
-    acceleration_sigma_mps2,
-):
-    """Select acceleration first, after profiling over velocity aliases.
-
-    The absolute Doppler and acceleration aliases are separate discrete
-    ambiguities.  A wrong velocity alias must therefore not force selection of
-    the wrong acceleration branch.  For every acceleration branch, profile the
-    local voltage likelihood plus global acceleration agreement over all
-    velocity aliases.  Only after choosing the acceleration branch do we use
-    the global absolute Doppler agreement to select its velocity alias.
-    """
-    score, local_chi2, global_chi2 = global_alias_scores(
-        alias_fits,
-        model_velocity_mps,
-        model_acceleration_mps2,
-        velocity_sigma_mps,
-        acceleration_sigma_mps2,
-    )
+def select_local_alias(alias_fits):
+    """Choose minimum local complex-voltage chi2 in one locked acceleration branch."""
     success = np.asarray(alias_fits["fit_success"], dtype=bool)
     acceleration_alias = np.asarray(alias_fits["alias_number"], dtype=int)
-    acceleration_residual = (
-        np.asarray(alias_fits["fit_acceleration_mps2"], dtype=float)
-        - float(model_acceleration_mps2)
-    )
-    acceleration_score = local_chi2 + (
-        acceleration_residual / float(acceleration_sigma_mps2)
-    ) ** 2
-    acceleration_score[~success] = np.inf
-
-    branch_numbers = np.unique(acceleration_alias[success])
-    if len(branch_numbers) == 0:
-        raise RuntimeError("three-pulse alias search produced no successful fits")
-    branch_scores = np.asarray(
-        [
-            np.min(acceleration_score[acceleration_alias == branch])
-            for branch in branch_numbers
-        ],
-        dtype=float,
-    )
-    selected_acceleration_alias = int(branch_numbers[np.argmin(branch_scores)])
-    branch_candidates = np.flatnonzero(
-        success & (acceleration_alias == selected_acceleration_alias)
-    )
-    selected = int(branch_candidates[np.argmin(score[branch_candidates])])
-    return (
-        selected,
-        selected_acceleration_alias,
-        score,
-        local_chi2,
-        global_chi2,
-        acceleration_score,
-    )
-
-
-def apply_alias_choices(result, alias_fit_results, choices, wavelength_m):
-    """Update the triplet measurement table from discrete alias choices."""
-    selected_fits = []
-    for triplet, (alias_fits, choice) in enumerate(zip(alias_fit_results, choices)):
-        choice = int(choice)
-        fit = alias_fits["fits"][choice]
-        covariance = np.asarray(fit["parameter_covariance"], dtype=float)
-        acceleration_at_bound = (
-            abs(
-                fit["parameters"][5]
-                - alias_fits["acceleration_alias_center_mps2"][choice]
-            )
-            > 0.98 * 0.499 * alias_fits["alias_spacing_mps2"]
+    successful_branches = np.unique(acceleration_alias[success])
+    if len(successful_branches) != 1:
+        raise RuntimeError(
+            "FFT-locked three-pulse search must contain exactly one successful "
+            f"acceleration branch, found {successful_branches.tolist()}"
         )
-        result["velocity_mps"][triplet] = fit["parameters"][4] * wavelength_m / 2.0
-        result["velocity_std_mps"][triplet] = (
-            np.sqrt(covariance[4, 4]) * wavelength_m / 2.0
-        )
-        result["acceleration_mps2"][triplet] = fit["parameters"][5]
-        result["acceleration_std_mps2"][triplet] = np.sqrt(covariance[5, 5])
-        result["frequency_acceleration_correlation"][triplet] = covariance[4, 5] / np.sqrt(
-            covariance[4, 4] * covariance[5, 5]
-        )
-        result["acceleration_at_bound"][triplet] = acceleration_at_bound
-        result["selected_alias_number"][triplet] = alias_fits["alias_number"][choice]
-        result["selected_velocity_alias_number"][triplet] = alias_fits[
-            "velocity_alias_number"
-        ][choice]
-        result["selected_alias_delta_chi2"][triplet] = alias_fits["delta_chi2"][choice]
-        selected_fits.append(fit)
-    return selected_fits
+    weighted_sse = np.asarray(alias_fits["weighted_sse"], dtype=float).copy()
+    weighted_sse[~success] = np.inf
+    return int(np.argmin(weighted_sse))
 
 
 def refit_dynamics(
@@ -885,6 +791,18 @@ def main() -> int:
 
     observations, stored_fit = load_selected_fit(args.diagnostics_h5)
     trajectory_time = np.asarray(observations["t_s"], dtype=float)
+    import fit_best_alias_physics_models as physics
+
+    initial_fft_doppler_mps = (
+        physics.predicted_doppler(
+            np.asarray(stored_fit["model_km"], dtype=float),
+            np.asarray(stored_fit["velocity_km_s"], dtype=float),
+        )
+        * 1e3
+    )
+    initial_fft_acceleration_mps2 = np.gradient(
+        initial_fft_doppler_mps, trajectory_time
+    )
     steering_points_km = np.asarray(stored_fit["model_km"], dtype=float)
     steering_uvw = enu_line_of_sight_to_arrival_uvw(steering_points_km)
     module_noise_variance = event_receiver_noise_variance(
@@ -976,8 +894,6 @@ def main() -> int:
         parameters6 = np.asarray(handle["profile/parameters6"][best_index], dtype=float)
         radius_um = float(handle["profile/radius_um"][best_index])
         profile_grid_radius_um = np.asarray(handle["profile/radius_um"], dtype=float)
-    import fit_best_alias_physics_models as physics
-
     density, _metadata = physics.pbal.density_interpolator(observations["sample_epoch_unix"])
     position, velocity, _radius, _mass, success, message = physics.propagate_shrinking_radius_model(
         np.r_[parameters6, np.log10(radius_um * 1e-6)], trajectory_time, density
@@ -1015,7 +931,7 @@ def main() -> int:
     rows = []
     alias_rows = []
     alias_fit_results = []
-    provisional_alias_choices = []
+    local_alias_choices = []
     selected_triplet_fits = []
     triplet_debug = []
     for previous, middle, current in triplets:
@@ -1055,22 +971,25 @@ def main() -> int:
         )
         local_prior = prior_acceleration.get(support)
         middle_time = decoded["tx_idx"][middle] / FS_HZ - absolute_zero
-        acceleration_guess = (
-            local_prior["principal_mps2"]
-            if local_prior is not None
-            else float(np.interp(middle_time, trajectory_time, model_acceleration_mps2))
-        )
         velocity_guess = float(pulse_fft["mean_velocity_mps"])
-        model_velocity_guess = float(
-            np.interp(middle_time, trajectory_time, model_doppler_mps)
+        fft_velocity_guess = float(
+            np.interp(middle_time, trajectory_time, initial_fft_doppler_mps)
         )
-        model_acceleration_guess = float(
-            np.interp(middle_time, trajectory_time, model_acceleration_mps2)
+        fft_acceleration_guess = float(
+            np.interp(
+                middle_time, trajectory_time, initial_fft_acceleration_mps2
+            )
+        )
+        acceleration_alias_spacing_mps2 = pc.wavelength / (
+            2.0 * pulse_spacing_s**2
+        )
+        acceleration_limits_mps2 = fft_locked_acceleration_limits(
+            fft_acceleration_guess, acceleration_alias_spacing_mps2
         )
         velocity_alias_spacing_mps = pc.wavelength / (2.0 * pulse_spacing_s)
         model_velocity_alias = int(
             np.rint(
-                (model_velocity_guess - velocity_guess)
+                (fft_velocity_guess - velocity_guess)
                 / velocity_alias_spacing_mps
             )
         )
@@ -1084,26 +1003,14 @@ def main() -> int:
             templates,
             pulse_spacing_s,
             2.0 * velocity_guess / pc.wavelength,
-            acceleration_guess,
+            fft_acceleration_guess,
             pc.wavelength,
+            acceleration_limits_mps2=acceleration_limits_mps2,
             pulse_snr=pulse_snr,
             matched_filter_amplitudes=amplitude_prior,
             velocity_alias_numbers=velocity_alias_numbers,
         )
-        branch_score = (
-            (
-                (alias_fits["fit_velocity_mps"] - model_velocity_guess)
-                / alias_fits["velocity_alias_spacing_mps"]
-            )
-            ** 2
-            + (
-                (alias_fits["fit_acceleration_mps2"] - model_acceleration_guess)
-                / alias_fits["alias_spacing_mps2"]
-            )
-            ** 2
-            + 0.01 * np.minimum(alias_fits["delta_chi2"], 25.0)
-        )
-        selected_alias_index = int(np.nanargmin(branch_score))
+        selected_alias_index = select_local_alias(alias_fits)
         fit = alias_fits["fits"][selected_alias_index]
         acceleration_at_bound = (
             abs(
@@ -1114,10 +1021,13 @@ def main() -> int:
         )
         selected_triplet_fits.append(fit)
         alias_fit_results.append(alias_fits)
-        provisional_alias_choices.append(selected_alias_index)
+        local_alias_choices.append(selected_alias_index)
         alias_rows.append(
             {
                 "observation_indices": observation_indices.copy(),
+                "fft_acceleration_lock_mps2": fft_acceleration_guess,
+                "fft_acceleration_lower_mps2": acceleration_limits_mps2[0],
+                "fft_acceleration_upper_mps2": acceleration_limits_mps2[1],
                 "independent_fft_pulse_velocity_mps": np.asarray(
                     pulse_fft["pulse_velocity_mps"], dtype=float
                 ).copy(),
@@ -1299,57 +1209,14 @@ def main() -> int:
         )
         return fitted, velocity_keep, acceleration_keep, correlation
 
-    alias_choices = np.asarray(provisional_alias_choices, dtype=int)
+    alias_choices = np.asarray(local_alias_choices, dtype=int)
     dynamics, fit_velocity_keep, fit_acceleration_keep, triplet_correlation = (
         fit_current_alias_assignment(
-            np.r_[parameters6, np.log10(radius_um * 1e-6)], compute_profile=False
+            np.r_[parameters6, np.log10(radius_um * 1e-6)], compute_profile=True
         )
     )
-    alias_iterations = 0
-    alias_converged = False
     selected_alias_local_chi2 = np.full(len(result), np.nan)
-    selected_alias_global_chi2 = np.full(len(result), np.nan)
-    selected_alias_total_chi2 = np.full(len(result), np.nan)
-    for alias_iteration in range(12):
-        model_velocity = np.interp(
-            result["time_s"], trajectory_time, dynamics["doppler_mps"]
-        )
-        model_acceleration = np.interp(
-            result["time_s"], trajectory_time, dynamics["acceleration_mps2"]
-        )
-        new_choices = np.empty_like(alias_choices)
-        for triplet, alias_fits in enumerate(alias_fit_results):
-            (
-                new_choices[triplet],
-                _selected_acceleration_alias,
-                score,
-                local_chi2,
-                global_chi2,
-                _acceleration_score,
-            ) = select_global_alias(
-                alias_fits,
-                model_velocity[triplet],
-                model_acceleration[triplet],
-                dynamics["velocity_sigma_mps"],
-                dynamics["acceleration_sigma_mps2"],
-            )
-            selected_alias_local_chi2[triplet] = local_chi2[new_choices[triplet]]
-            selected_alias_global_chi2[triplet] = global_chi2[new_choices[triplet]]
-            selected_alias_total_chi2[triplet] = score[new_choices[triplet]]
-        alias_iterations = alias_iteration + 1
-        if np.array_equal(new_choices, alias_choices):
-            alias_converged = True
-            break
-        alias_choices = new_choices
-        selected_triplet_fits = apply_alias_choices(
-            result, alias_fit_results, alias_choices, pc.wavelength
-        )
-        dynamics, fit_velocity_keep, fit_acceleration_keep, triplet_correlation = (
-            fit_current_alias_assignment(dynamics["parameters"], compute_profile=False)
-        )
-
-    # Recalculate the final candidate scores at the converged physical trajectory
-    # and perform the expensive radius profile only once.
+    selected_alias_trajectory_chi2 = np.full(len(result), np.nan)
     model_velocity = np.interp(
         result["time_s"], trajectory_time, dynamics["doppler_mps"]
     )
@@ -1357,27 +1224,15 @@ def main() -> int:
         result["time_s"], trajectory_time, dynamics["acceleration_mps2"]
     )
     for triplet, alias_fits in enumerate(alias_fit_results):
-        (
-            _selected,
-            _selected_acceleration_alias,
-            score,
-            local_chi2,
-            global_chi2,
-            _acceleration_score,
-        ) = select_global_alias(
-            alias_fits,
-            model_velocity[triplet],
-            model_acceleration[triplet],
-            dynamics["velocity_sigma_mps"],
-            dynamics["acceleration_sigma_mps2"],
-        )
         choice = alias_choices[triplet]
-        selected_alias_local_chi2[triplet] = local_chi2[choice]
-        selected_alias_global_chi2[triplet] = global_chi2[choice]
-        selected_alias_total_chi2[triplet] = score[choice]
-    dynamics, fit_velocity_keep, fit_acceleration_keep, triplet_correlation = (
-        fit_current_alias_assignment(dynamics["parameters"], compute_profile=True)
-    )
+        selected_alias_local_chi2[triplet] = alias_fits["delta_chi2"][choice]
+        selected_alias_trajectory_chi2[triplet] = (
+            (result["velocity_mps"][triplet] - model_velocity[triplet])
+            / dynamics["velocity_sigma_mps"]
+        ) ** 2 + (
+            (result["acceleration_mps2"][triplet] - model_acceleration[triplet])
+            / dynamics["acceleration_sigma_mps2"]
+        ) ** 2
 
     memo_triplet_index = -1
     if args.memo_alias_dir is not None:
@@ -1540,32 +1395,25 @@ def main() -> int:
         handle.create_dataset("dynamics_velocity_keep", data=fit_velocity_keep)
         handle.create_dataset("dynamics_acceleration_keep", data=fit_acceleration_keep)
         alias_group = handle.create_group("triplet_aliases")
-        alias_group.attrs["schema"] = "pansy.three_pulse_alias_likelihood.v3"
+        alias_group.attrs["schema"] = "pansy.three_pulse_alias_likelihood.v4"
         alias_group.attrs["candidate_grid"] = (
-            "Cartesian product of pulse-phase velocity and acceleration aliases"
+            "pulse-phase velocity aliases within one FFT-locked acceleration interval"
         )
         alias_group.attrs["chi2_dataset"] = "weighted_sse"
         alias_group.attrs["delta_chi2_reference"] = (
             "minimum weighted_sse within each three-pulse candidate lattice"
         )
-        alias_group.attrs["local_selection_is_provisional"] = True
+        alias_group.attrs["local_selection_is_provisional"] = False
         alias_group.attrs["resolution_stage"] = (
-            "alternating hierarchical alias selection and global event-dynamics fit"
+            "local complex-voltage fit before global event dynamics"
         )
-        alias_group.attrs["global_objective"] = (
-            "profile local delta chi2 plus global acceleration residual over velocity "
-            "aliases to select acceleration branch; then add global Doppler residual "
-            "to select velocity alias within that branch"
+        alias_group.attrs["selection_objective"] = (
+            "minimum local weighted SSE after locking acceleration alias from initial "
+            "FFT Doppler trajectory"
         )
-        alias_group.attrs["alias_selection_order"] = (
-            "acceleration branch first, velocity alias second"
+        alias_group.attrs["acceleration_lock"] = (
+            "initial FFT trajectory acceleration plus or minus 0.499 alias spacing"
         )
-        alias_group.attrs["global_alias_iterations"] = alias_iterations
-        alias_group.attrs["global_alias_converged"] = alias_converged
-        alias_group.attrs["global_velocity_sigma_mps"] = dynamics["velocity_sigma_mps"]
-        alias_group.attrs["global_acceleration_sigma_mps2"] = dynamics[
-            "acceleration_sigma_mps2"
-        ]
         alias_group.create_dataset(
             "observation_indices",
             data=np.asarray([row["observation_indices"] for row in alias_rows]),
@@ -1576,25 +1424,28 @@ def main() -> int:
                 [row["independent_fft_pulse_velocity_mps"] for row in alias_rows]
             ),
         )
+        for name in (
+            "fft_acceleration_lock_mps2",
+            "fft_acceleration_lower_mps2",
+            "fft_acceleration_upper_mps2",
+        ):
+            alias_group.create_dataset(
+                name,
+                data=np.asarray([row[name] for row in alias_rows], dtype=np.float64),
+            )
         alias_group.create_dataset(
             "reseed_passes",
             data=np.asarray([row["reseed_passes"] for row in alias_rows], dtype=np.int32),
         )
         alias_group.create_dataset(
-            "provisional_selected_index",
-            data=np.asarray(provisional_alias_choices, dtype=np.int32),
+            "selected_index", data=np.asarray(alias_choices, dtype=np.int32)
         )
         alias_group.create_dataset(
-            "global_selected_index", data=np.asarray(alias_choices, dtype=np.int32)
+            "selected_local_delta_chi2", data=selected_alias_local_chi2
         )
         alias_group.create_dataset(
-            "global_selected_local_chi2", data=selected_alias_local_chi2
-        )
-        alias_group.create_dataset(
-            "global_selected_trajectory_chi2", data=selected_alias_global_chi2
-        )
-        alias_group.create_dataset(
-            "global_selected_total_chi2", data=selected_alias_total_chi2
+            "selected_trajectory_chi2_diagnostic",
+            data=selected_alias_trajectory_chi2,
         )
         for name in (
             "alias_number",
