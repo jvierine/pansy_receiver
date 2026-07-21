@@ -1936,39 +1936,28 @@ def main() -> int:
     axis.legend(frameon=False, loc="lower left", fontsize=7)
 
     axis = event_axes[1, 3]
-    along_track = refit_velocity / np.maximum(
-        np.linalg.norm(refit_velocity, axis=1, keepdims=True), 1e-12
-    )
-
-    def along_track_residual(model_position_km):
-        return np.einsum(
-            "ij,ij->i", fitted_points_km - model_position_km, along_track
-        )
-
     axis.plot(
-        observation_time[echo_keep],
-        along_track_residual(refit_position)[echo_keep],
+        triplet_time[fit_velocity_keep],
+        velocity_residual_refit[fit_velocity_keep],
         ".",
         color="C0",
         markersize=3.0,
-        label="fit",
     )
-    for target_um, fixed_position, color in zip(
-        dynamics["fixed_radius_um"], dynamics["fixed_position_km"], fixed_colors
+    for fixed_doppler, color in zip(
+        dynamics["fixed_doppler_mps"], fixed_colors
     ):
+        fixed_at_triplet = np.interp(result["time_s"], trajectory_time, fixed_doppler)
         axis.plot(
-            observation_time[echo_keep],
-            along_track_residual(fixed_position)[echo_keep],
+            triplet_time[fit_velocity_keep],
+            (result["velocity_mps"] - fixed_at_triplet)[fit_velocity_keep],
             linestyle="none",
             marker=".",
             color=color,
             markersize=3.0,
-            label=rf"$r_0={target_um:g}\,\mu$m",
         )
     axis.axhline(0.0, color="black", lw=0.8)
     axis.set_xlabel("Time (s)")
-    axis.set_ylabel("Along-track position residual (km)")
-    axis.legend(frameon=False, loc="best", fontsize=7)
+    axis.set_ylabel("Doppler residual (m/s)")
 
     for axis in event_axes.ravel():
         axis.grid(alpha=0.2, lw=0.5)
