@@ -840,6 +840,24 @@ def main() -> int:
             else float(np.interp(middle_time, trajectory_time, model_acceleration_mps2))
         )
         velocity_guess = float(pulse_fft["mean_velocity_mps"])
+        model_velocity_guess = float(
+            np.interp(middle_time, trajectory_time, model_doppler_mps)
+        )
+        model_acceleration_guess = float(
+            np.interp(middle_time, trajectory_time, model_acceleration_mps2)
+        )
+        velocity_alias_spacing_mps = pc.wavelength / (2.0 * pulse_spacing_s)
+        model_velocity_alias = int(
+            np.rint(
+                (model_velocity_guess - velocity_guess)
+                / velocity_alias_spacing_mps
+            )
+        )
+        velocity_alias_numbers = np.arange(
+            min(-2, model_velocity_alias - 1),
+            max(2, model_velocity_alias + 1) + 1,
+            dtype=int,
+        )
         alias_fits = fit_three_pulse_acceleration_aliases(
             raw_pulses,
             templates,
@@ -849,9 +867,23 @@ def main() -> int:
             pc.wavelength,
             pulse_snr=pulse_snr,
             matched_filter_amplitudes=amplitude_prior,
+            velocity_alias_numbers=velocity_alias_numbers,
         )
-        selected_alias_index = int(alias_fits["selected_index"])
-        fit = alias_fits["selected_fit"]
+        branch_score = (
+            (
+                (alias_fits["fit_velocity_mps"] - model_velocity_guess)
+                / alias_fits["velocity_alias_spacing_mps"]
+            )
+            ** 2
+            + (
+                (alias_fits["fit_acceleration_mps2"] - model_acceleration_guess)
+                / alias_fits["alias_spacing_mps2"]
+            )
+            ** 2
+            + 0.01 * np.minimum(alias_fits["delta_chi2"], 25.0)
+        )
+        selected_alias_index = int(np.nanargmin(branch_score))
+        fit = alias_fits["fits"][selected_alias_index]
         acceleration_at_bound = (
             abs(
                 fit["parameters"][5]

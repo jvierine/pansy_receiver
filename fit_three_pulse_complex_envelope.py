@@ -714,6 +714,7 @@ def fit_three_pulse_acceleration_aliases(
     matched_filter_amplitudes: np.ndarray | None = None,
     frequency_half_width_hz: float | None = None,
     velocity_alias_half_count: int = 2,
+    velocity_alias_numbers: np.ndarray | None = None,
     maximum_reseed_passes: int = 3,
 ) -> dict:
     """Search pulse-phase velocity and acceleration aliases in the complex fit.
@@ -751,11 +752,18 @@ def fit_three_pulse_acceleration_aliases(
         acceleration_phase_guess_mps2
         + acceleration_alias_number_1d * alias_spacing
     )
-    velocity_alias_number_1d = np.arange(
-        -int(velocity_alias_half_count),
-        int(velocity_alias_half_count) + 1,
-        dtype=int,
-    )
+    if velocity_alias_numbers is None:
+        velocity_alias_number_1d = np.arange(
+            -int(velocity_alias_half_count),
+            int(velocity_alias_half_count) + 1,
+            dtype=int,
+        )
+    else:
+        velocity_alias_number_1d = np.unique(
+            np.asarray(velocity_alias_numbers, dtype=int)
+        )
+        if len(velocity_alias_number_1d) == 0:
+            raise ValueError("velocity_alias_numbers cannot be empty")
     velocity_alias_center_hz_1d = (
         float(frequency_guess_hz)
         + velocity_alias_number_1d * frequency_alias_spacing_hz
