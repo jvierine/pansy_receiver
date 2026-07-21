@@ -993,11 +993,7 @@ def main() -> int:
                 / velocity_alias_spacing_mps
             )
         )
-        velocity_alias_numbers = np.arange(
-            min(-2, model_velocity_alias - 1),
-            max(2, model_velocity_alias + 1) + 1,
-            dtype=int,
-        )
+        velocity_alias_numbers = np.asarray([model_velocity_alias], dtype=int)
         alias_fits = fit_three_pulse_acceleration_aliases(
             raw_pulses,
             templates,
@@ -1009,6 +1005,7 @@ def main() -> int:
             pulse_snr=pulse_snr,
             matched_filter_amplitudes=amplitude_prior,
             velocity_alias_numbers=velocity_alias_numbers,
+            maximum_reseed_passes=1,
         )
         selected_alias_index = select_local_alias(alias_fits)
         fit = alias_fits["fits"][selected_alias_index]
@@ -1028,6 +1025,8 @@ def main() -> int:
                 "fft_acceleration_lock_mps2": fft_acceleration_guess,
                 "fft_acceleration_lower_mps2": acceleration_limits_mps2[0],
                 "fft_acceleration_upper_mps2": acceleration_limits_mps2[1],
+                "fft_velocity_lock_mps": fft_velocity_guess,
+                "fft_velocity_alias_number": model_velocity_alias,
                 "independent_fft_pulse_velocity_mps": np.asarray(
                     pulse_fft["pulse_velocity_mps"], dtype=float
                 ).copy(),
@@ -1397,7 +1396,7 @@ def main() -> int:
         alias_group = handle.create_group("triplet_aliases")
         alias_group.attrs["schema"] = "pansy.three_pulse_alias_likelihood.v4"
         alias_group.attrs["candidate_grid"] = (
-            "pulse-phase velocity aliases within one FFT-locked acceleration interval"
+            "one FFT-locked pulse-phase velocity and acceleration cell per triplet"
         )
         alias_group.attrs["chi2_dataset"] = "weighted_sse"
         alias_group.attrs["delta_chi2_reference"] = (
@@ -1414,6 +1413,9 @@ def main() -> int:
         alias_group.attrs["acceleration_lock"] = (
             "initial FFT trajectory acceleration plus or minus 0.499 alias spacing"
         )
+        alias_group.attrs["velocity_lock"] = (
+            "pulse-phase velocity interval nearest the initial FFT trajectory Doppler"
+        )
         alias_group.create_dataset(
             "observation_indices",
             data=np.asarray([row["observation_indices"] for row in alias_rows]),
@@ -1428,11 +1430,19 @@ def main() -> int:
             "fft_acceleration_lock_mps2",
             "fft_acceleration_lower_mps2",
             "fft_acceleration_upper_mps2",
+            "fft_velocity_lock_mps",
         ):
             alias_group.create_dataset(
                 name,
                 data=np.asarray([row[name] for row in alias_rows], dtype=np.float64),
             )
+        alias_group.create_dataset(
+            "fft_velocity_alias_number",
+            data=np.asarray(
+                [row["fft_velocity_alias_number"] for row in alias_rows],
+                dtype=np.int32,
+            ),
+        )
         alias_group.create_dataset(
             "reseed_passes",
             data=np.asarray([row["reseed_passes"] for row in alias_rows], dtype=np.int32),
