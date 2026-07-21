@@ -117,6 +117,120 @@ def rms_baud_amplitudes(raw_pulses: np.ndarray, pulse_templates: np.ndarray) -> 
     return amplitudes
 
 
+def independent_pulse_fft_doppler(
+    raw_pulses: np.ndarray,
+    pulse_templates: np.ndarray,
+    pulse_spacing_s: float,
+    wavelength_m: float,
+    pulse_snr: np.ndarray | None = None,
+    zero_pad_factor: int = 16,
+) -> dict:
+    """Estimate Doppler independently in each baud-averaged pulse."""
+    raw_pulses = np.asarray(raw_pulses, dtype=np.complex128)
+    pulse_templates = np.asarray(pulse_templates, dtype=np.complex128)
+    if raw_pulses.ndim != 2:
+        raise ValueError("raw_pulses must have shape (n_pulse, n_fast)")
+    if pulse_templates.shape != raw_pulses.shape:
+        raise ValueError("pulse_templates must match raw_pulses")
+    if pulse_snr is None:
+        pulse_snr = np.ones(len(raw_pulses), dtype=float)
+    pulse_snr = np.asarray(pulse_snr, dtype=float)
+    if pulse_snr.shape != (len(raw_pulses),):
+        raise ValueError("pulse_snr must contain one value for each pulse")
+    if int(zero_pad_factor) < 4:
+        raise ValueError("zero_pad_factor must be at least four")
+
+    bauds = baud_measurements(
+        raw_pulses,
+        pulse_templates,
+        np.zeros(len(raw_pulses)),
+        float(pulse_spacing_s),
+        pulse_snr,
+    )
+    frequency_hz = []
+    frequency_step_hz = []
+    nfft_values = []
+    aperture_s = []
+    sample_rate_hz = []
+    for pulse in range(len(raw_pulses)):
+        select = bauds["pulse_index"] == pulse
+        use = (
+            select
+            & np.isfinite(bauds["data"].real)
+            & np.isfinite(bauds["data"].imag)
+            & np.isfinite(bauds["envelope"])
+            & np.isfinite(bauds["weight"])
+            & (bauds["envelope"] > 0.0)
+            & (bauds["weight"] > 0.0)
+        )
+        if np.count_nonzero(use) < 4:
+            raise RuntimeError("too few finite baud averages for independent pulse FFT")
+        local_time = bauds["absolute_time_s"][use] - pulse * float(pulse_spacing_s)
+        differences = np.diff(local_time)
+        differences = differences[np.isfinite(differences) & (differences > 0.0)]
+        if len(differences) == 0:
+            raise RuntimeError("baud times do not define an independent Doppler grid")
+        baud_spacing_s = float(np.median(differences))
+        sample_index = np.rint((local_time - local_time[0]) / baud_spacing_s).astype(int)
+        placement_error_s = local_time - (local_time[0] + sample_index * baud_spacing_s)
+        if np.max(np.abs(placement_error_s)) > 0.25 * baud_spacing_s:
+            raise RuntimeError("baud centers cannot be represented on one pulse grid")
+
+        timeline_length = int(np.max(sample_index)) + 1
+        nfft = int(
+            2
+            ** np.ceil(
+                np.log2(max(int(zero_pad_factor) * timeline_length, 2))
+            )
+        )
+        timeline = np.zeros(timeline_length, dtype=np.complex128)
+        timeline_weight = np.zeros(timeline_length, dtype=float)
+        normalized_data = bauds["data"][use] / bauds["envelope"][use]
+        weight = bauds["weight"][use]
+        weight /= max(float(np.max(weight)), np.finfo(float).tiny)
+        np.add.at(timeline, sample_index, weight * normalized_data)
+        np.add.at(timeline_weight, sample_index, weight)
+        occupied = timeline_weight > 0.0
+        timeline[occupied] /= timeline_weight[occupied]
+        timeline *= np.sqrt(timeline_weight)
+
+        spectrum = np.fft.fftshift(np.fft.fft(timeline, n=nfft))
+        frequencies = np.fft.fftshift(np.fft.fftfreq(nfft, d=baud_spacing_s))
+        power = np.abs(spectrum) ** 2
+        peak = int(np.nanargmax(power))
+        peak_frequency_hz = float(frequencies[peak])
+        if 0 < peak < nfft - 1:
+            left, center, right = np.log(np.maximum(power[peak - 1 : peak + 2], 1e-300))
+            denominator = left - 2.0 * center + right
+            if np.isfinite(denominator) and abs(denominator) > 1e-15:
+                peak_frequency_hz += float(0.5 * (left - right) / denominator) * (
+                    frequencies[1] - frequencies[0]
+                )
+        frequency_hz.append(peak_frequency_hz)
+        frequency_step_hz.append(float(frequencies[1] - frequencies[0]))
+        nfft_values.append(nfft)
+        aperture_s.append(float(np.max(local_time) - np.min(local_time)))
+        sample_rate_hz.append(1.0 / baud_spacing_s)
+
+    frequency_hz = np.asarray(frequency_hz, dtype=float)
+    sample_rate_hz = np.asarray(sample_rate_hz, dtype=float)
+    reference_frequency_hz = float(np.median(frequency_hz))
+    frequency_hz += np.rint(
+        (reference_frequency_hz - frequency_hz) / sample_rate_hz
+    ) * sample_rate_hz
+    mean_frequency_hz = float(np.mean(frequency_hz))
+    return {
+        "pulse_frequency_hz": frequency_hz,
+        "pulse_velocity_mps": frequency_hz * float(wavelength_m) / 2.0,
+        "mean_frequency_hz": mean_frequency_hz,
+        "mean_velocity_mps": mean_frequency_hz * float(wavelength_m) / 2.0,
+        "frequency_step_hz": np.asarray(frequency_step_hz, dtype=float),
+        "nfft": np.asarray(nfft_values, dtype=int),
+        "aperture_s": np.asarray(aperture_s, dtype=float),
+        "baud_sample_rate_hz": sample_rate_hz,
+    }
+
+
 def common_bin_pulse_pair_doppler(
     raw_pulses: np.ndarray,
     pulse_templates: np.ndarray,
@@ -599,20 +713,26 @@ def fit_three_pulse_acceleration_aliases(
     pulse_snr: np.ndarray | None = None,
     matched_filter_amplitudes: np.ndarray | None = None,
     frequency_half_width_hz: float | None = None,
+    velocity_alias_half_count: int = 2,
+    maximum_reseed_passes: int = 3,
 ) -> dict:
-    """Search the FFT-selected velocity alias and every phase-compatible acceleration.
+    """Search pulse-phase velocity and acceleration aliases in the complex fit.
 
     Three equally spaced pulses repeat their quadratic-phase information when
     acceleration changes by ``wavelength / (2 * spacing**2)``.  The established
-    pulse-to-pulse phase progression pins narrow solutions in every acceleration
-    alias cell.  The established FFT Doppler chooses the frequency alias, so the
-    local frequency search is limited to half of its ``1 / pulse_spacing``
-    ambiguity interval.  The complex-envelope objective then distinguishes the
-    remaining acceleration cells.
+    pulse-to-pulse phase also repeats when frequency changes by
+    ``1 / pulse_spacing``.  Optimize the Cartesian product of nearby frequency
+    aliases and all physically allowed acceleration aliases.  After the initial
+    independent fits, re-seed every cell from the best fitted nuisance parameters
+    until a complete pass no longer improves the global objective.
     """
     lower_limit, upper_limit = map(float, acceleration_limits_mps2)
     if not lower_limit < upper_limit:
         raise ValueError("acceleration_limits_mps2 must be increasing")
+    if int(velocity_alias_half_count) < 0:
+        raise ValueError("velocity_alias_half_count must be non-negative")
+    if int(maximum_reseed_passes) < 1:
+        raise ValueError("maximum_reseed_passes must be positive")
     alias_spacing = float(wavelength_m) / (2.0 * float(pulse_spacing_s) ** 2)
     alias_half_width = 0.499 * alias_spacing
     frequency_alias_spacing_hz = 1.0 / float(pulse_spacing_s)
@@ -624,32 +744,99 @@ def fit_three_pulse_acceleration_aliases(
     maximum_alias = int(
         np.floor((upper_limit - acceleration_phase_guess_mps2) / alias_spacing)
     )
-    alias_number = np.arange(minimum_alias, maximum_alias + 1, dtype=int)
-    alias_center = acceleration_phase_guess_mps2 + alias_number * alias_spacing
-    fits = []
-    for center in alias_center:
-        local_half_width = min(
-            alias_half_width,
-            center - lower_limit if center > lower_limit else alias_half_width,
-            upper_limit - center if center < upper_limit else alias_half_width,
-        )
-        local_half_width = max(float(local_half_width), 1.0)
-        fits.append(
-            fit_three_pulse_envelope(
+    acceleration_alias_number_1d = np.arange(
+        minimum_alias, maximum_alias + 1, dtype=int
+    )
+    acceleration_alias_center_1d = (
+        acceleration_phase_guess_mps2
+        + acceleration_alias_number_1d * alias_spacing
+    )
+    velocity_alias_number_1d = np.arange(
+        -int(velocity_alias_half_count),
+        int(velocity_alias_half_count) + 1,
+        dtype=int,
+    )
+    velocity_alias_center_hz_1d = (
+        float(frequency_guess_hz)
+        + velocity_alias_number_1d * frequency_alias_spacing_hz
+    )
+    velocity_alias_number, acceleration_alias_number = np.meshgrid(
+        velocity_alias_number_1d,
+        acceleration_alias_number_1d,
+        indexing="ij",
+    )
+    velocity_alias_center_hz, acceleration_alias_center = np.meshgrid(
+        velocity_alias_center_hz_1d,
+        acceleration_alias_center_1d,
+        indexing="ij",
+    )
+    velocity_alias_number = velocity_alias_number.ravel()
+    acceleration_alias_number = acceleration_alias_number.ravel()
+    velocity_alias_center_hz = velocity_alias_center_hz.ravel()
+    acceleration_alias_center = acceleration_alias_center.ravel()
+
+    local_acceleration_half_width = np.asarray(
+        [
+            max(
+                1.0,
+                min(
+                    alias_half_width,
+                    center - lower_limit if center > lower_limit else alias_half_width,
+                    upper_limit - center if center < upper_limit else alias_half_width,
+                ),
+            )
+            for center in acceleration_alias_center
+        ],
+        dtype=float,
+    )
+    fits: list[dict | None] = [None] * len(velocity_alias_number)
+    evaluation_order = np.argsort(
+        np.abs(velocity_alias_number) + np.abs(acceleration_alias_number),
+        kind="stable",
+    )
+    best_fit = None
+    best_sse = np.inf
+    reseed_passes = 0
+    for pass_index in range(int(maximum_reseed_passes)):
+        pass_start_sse = best_sse
+        seed_parameters = None if best_fit is None else best_fit["parameters"].copy()
+        for index in evaluation_order:
+            frequency_center = velocity_alias_center_hz[index]
+            acceleration_center = acceleration_alias_center[index]
+            initial_parameters = None
+            if seed_parameters is not None:
+                initial_parameters = seed_parameters.copy()
+                initial_parameters[4] = frequency_center
+                initial_parameters[5] = acceleration_center
+            candidate = fit_three_pulse_envelope(
                 raw_pulses,
                 pulse_templates,
                 pulse_spacing_s,
-                frequency_guess_hz,
-                float(center),
+                float(frequency_center),
+                float(acceleration_center),
                 wavelength_m,
-                acceleration_half_width_mps2=local_half_width,
+                acceleration_half_width_mps2=local_acceleration_half_width[index],
                 frequency_half_width_hz=frequency_half_width_hz,
                 pulse_snr=pulse_snr,
                 matched_filter_amplitudes=matched_filter_amplitudes,
                 acceleration_phase_rad=acceleration_phase_rad,
                 acceleration_phase_std_rad=acceleration_phase_std_rad,
+                initial_parameters=initial_parameters,
             )
-        )
+            if (
+                fits[index] is None
+                or candidate["weighted_sse"] < fits[index]["weighted_sse"]
+            ):
+                fits[index] = candidate
+            if candidate["weighted_sse"] < best_sse:
+                best_fit = candidate
+                best_sse = float(candidate["weighted_sse"])
+                seed_parameters = best_fit["parameters"].copy()
+        reseed_passes = pass_index + 1
+        if pass_index > 0 and best_sse >= pass_start_sse * (1.0 - 1e-8):
+            break
+
+    fits = [fit for fit in fits if fit is not None]
     weighted_sse = np.asarray([fit["weighted_sse"] for fit in fits], dtype=float)
     selected_index = int(np.nanargmin(weighted_sse))
     residual_variance = weighted_sse[selected_index] / max(
@@ -667,8 +854,13 @@ def fit_three_pulse_acceleration_aliases(
     return {
         "selected_fit": fits[selected_index],
         "selected_index": selected_index,
-        "alias_number": alias_number,
-        "alias_center_mps2": alias_center,
+        "alias_number": acceleration_alias_number,
+        "acceleration_alias_number": acceleration_alias_number,
+        "velocity_alias_number": velocity_alias_number,
+        "alias_center_mps2": acceleration_alias_center,
+        "acceleration_alias_center_mps2": acceleration_alias_center,
+        "velocity_alias_center_hz": velocity_alias_center_hz,
+        "velocity_alias_center_mps": velocity_alias_center_hz * wavelength_m / 2.0,
         "alias_spacing_mps2": alias_spacing,
         "fit_acceleration_mps2": np.asarray(
             [fit["parameters"][5] for fit in fits], dtype=float
@@ -684,6 +876,8 @@ def fit_three_pulse_acceleration_aliases(
         "frequency_alias_spacing_hz": frequency_alias_spacing_hz,
         "velocity_alias_spacing_mps": wavelength_m / (2.0 * pulse_spacing_s),
         "frequency_half_width_hz": float(frequency_half_width_hz),
+        "velocity_alias_half_count": int(velocity_alias_half_count),
+        "reseed_passes": reseed_passes,
         "weighted_sse": weighted_sse,
         "delta_chi2": delta_chi2,
         "residual_variance": residual_variance,

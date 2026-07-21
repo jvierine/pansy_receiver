@@ -32,6 +32,7 @@ from fit_three_pulse_complex_envelope import (
     PAIR_SPACING_S,
     PAIR_SPACING_TOLERANCE_S,
     gapped_two_pulse_fft_doppler,
+    independent_pulse_fft_doppler,
     fit_three_pulse_acceleration_aliases,
     fit_three_pulse_envelope,
     rms_baud_amplitudes,
@@ -766,16 +767,6 @@ def main() -> int:
         raise RuntimeError(f"prior physical trajectory failed: {message}")
     model_doppler_mps = physics.predicted_doppler(position, velocity) * 1e3
     model_acceleration_mps2 = np.gradient(model_doppler_mps, trajectory_time)
-    initial_fft_model_doppler_mps = (
-        physics.predicted_doppler(
-            hypothesis["physics_model"], hypothesis["physics_velocity"]
-        )
-        * 1e3
-    )
-    initial_fft_model_acceleration_mps2 = np.gradient(
-        initial_fft_model_doppler_mps, trajectory_time
-    )
-
     dtype = [
         ("previous", "i4"),
         ("middle", "i4"),
@@ -785,6 +776,7 @@ def main() -> int:
         ("velocity_mps", "f8"),
         ("velocity_std_mps", "f8"),
         ("fft_velocity_mps", "f8"),
+        ("independent_fft_velocity_mps", "f8"),
         ("beat_velocity_mps", "f8"),
         ("model_velocity_mps", "f8"),
         ("acceleration_mps2", "f8"),
@@ -795,7 +787,9 @@ def main() -> int:
         ("shared_inlier", "?"),
         ("acceleration_at_bound", "?"),
         ("selected_alias_number", "i4"),
+        ("selected_velocity_alias_number", "i4"),
         ("complex_best_alias_number", "i4"),
+        ("complex_best_velocity_alias_number", "i4"),
         ("selected_alias_delta_chi2", "f8"),
         ("second_alias_delta_chi2", "f8"),
     ]
@@ -819,6 +813,20 @@ def main() -> int:
         )
         templates = decoded["z_tx"][raw_indices].astype(np.complex128)
         amplitude_prior = rms_baud_amplitudes(raw_pulses, templates)
+        pulse_spacing_s = float(
+            np.mean(np.diff(decoded["tx_idx"][observation_indices])) / FS_HZ
+        )
+        pulse_snr = 10.0 ** (
+            np.asarray(decoded["snr"][observation_indices], dtype=float) / 10.0
+        )
+        pulse_fft = independent_pulse_fft_doppler(
+            raw_pulses,
+            templates,
+            pulse_spacing_s,
+            pc.wavelength,
+            pulse_snr=pulse_snr,
+            zero_pad_factor=16,
+        )
         support = (
             tuple(int(raw_indices[i]) for i in (0, 1, 1, 2))
             if precise_raw_idx is not None
@@ -831,10 +839,7 @@ def main() -> int:
             if local_prior is not None
             else float(np.interp(middle_time, trajectory_time, model_acceleration_mps2))
         )
-        velocity_guess = float(np.interp(middle_time, trajectory_time, model_doppler_mps))
-        pulse_spacing_s = float(
-            np.mean(np.diff(decoded["tx_idx"][observation_indices])) / FS_HZ
-        )
+        velocity_guess = float(pulse_fft["mean_velocity_mps"])
         alias_fits = fit_three_pulse_acceleration_aliases(
             raw_pulses,
             templates,
@@ -842,20 +847,17 @@ def main() -> int:
             2.0 * velocity_guess / pc.wavelength,
             acceleration_guess,
             pc.wavelength,
-            pulse_snr=10.0
-            ** (np.asarray(decoded["snr"][observation_indices], dtype=float) / 10.0),
+            pulse_snr=pulse_snr,
             matched_filter_amplitudes=amplitude_prior,
         )
-        initial_model_acceleration = float(
-            np.interp(middle_time, trajectory_time, initial_fft_model_acceleration_mps2)
-        )
-        branch_score = np.abs(
-            alias_fits["fit_acceleration_mps2"] - initial_model_acceleration
-        )
-        selected_alias_index = int(np.nanargmin(branch_score))
-        fit = alias_fits["fits"][selected_alias_index]
+        selected_alias_index = int(alias_fits["selected_index"])
+        fit = alias_fits["selected_fit"]
         acceleration_at_bound = (
-            abs(fit["parameters"][5] - initial_model_acceleration) > 1.99e4
+            abs(
+                fit["parameters"][5]
+                - alias_fits["acceleration_alias_center_mps2"][selected_alias_index]
+            )
+            > 0.98 * 0.499 * alias_fits["alias_spacing_mps2"]
         )
         selected_triplet_fits.append(fit)
         alias_rows.append(
@@ -865,6 +867,9 @@ def main() -> int:
                     name: np.asarray(alias_fits[name]).copy()
                     for name in (
                         "alias_number",
+                        "velocity_alias_number",
+                        "velocity_alias_center_mps",
+                        "acceleration_alias_center_mps2",
                         "fit_velocity_mps",
                         "fit_velocity_std_mps",
                         "fit_acceleration_mps2",
@@ -895,6 +900,7 @@ def main() -> int:
                 fit["parameters"][4] * pc.wavelength / 2.0,
                 np.sqrt(covariance[4, 4]) * pc.wavelength / 2.0,
                 decoded["coarse_doppler_mps"][middle],
+                pulse_fft["mean_velocity_mps"],
                 pair_velocity_at_middle(pairs, previous, middle, current),
                 model_velocity,
                 fit["parameters"][5],
@@ -906,7 +912,13 @@ def main() -> int:
                 and (local_prior is None or local_prior["keep"]),
                 acceleration_at_bound,
                 int(alias_fits["alias_number"][selected_alias_index]),
+                int(alias_fits["velocity_alias_number"][selected_alias_index]),
                 int(alias_fits["alias_number"][alias_fits["selected_index"]]),
+                int(
+                    alias_fits["velocity_alias_number"][
+                        alias_fits["selected_index"]
+                    ]
+                ),
                 float(alias_fits["delta_chi2"][selected_alias_index]),
                 float(
                     np.partition(alias_fits["delta_chi2"], 1)[1]
@@ -1084,6 +1096,9 @@ def main() -> int:
         )
         for name in (
             "alias_number",
+            "velocity_alias_number",
+            "velocity_alias_center_mps",
+            "acceleration_alias_center_mps2",
             "fit_velocity_mps",
             "fit_velocity_std_mps",
             "fit_acceleration_mps2",
@@ -1091,7 +1106,11 @@ def main() -> int:
             "weighted_sse",
             "delta_chi2",
         ):
-            base_dtype = np.int32 if name == "alias_number" else np.float64
+            base_dtype = (
+                np.int32
+                if name in ("alias_number", "velocity_alias_number")
+                else np.float64
+            )
             dataset = alias_group.create_dataset(
                 name,
                 shape=(len(alias_rows),),
