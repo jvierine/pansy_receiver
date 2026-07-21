@@ -8,9 +8,36 @@ from fit_three_pulse_complex_envelope import (
     complex_envelope_model,
     fit_three_pulse_acceleration_aliases,
     fit_three_pulse_envelope,
+    fit_single_pulse_raw_voltage,
     gapped_two_pulse_fft_doppler,
     independent_pulse_fft_doppler,
 )
+
+
+def test_single_pulse_raw_voltage_recovers_doppler():
+    rng = np.random.default_rng(42)
+    wavelength_m = 0.4
+    frequency_hz = 4200.0
+    time_s = np.arange(132) / 1e6
+    template = np.exp(1j * rng.uniform(-np.pi, np.pi, len(time_s)))
+    template[:4] = 0.0
+    template[-4:] = 0.0
+    amplitude = 2.0 * np.exp(0.7j)
+    raw = amplitude * template * np.exp(1j * 2.0 * np.pi * frequency_hz * time_s)
+    raw += 0.02 * (rng.normal(size=len(raw)) + 1j * rng.normal(size=len(raw)))
+
+    fitted = fit_single_pulse_raw_voltage(
+        raw,
+        template,
+        frequency_guess_hz=frequency_hz + 500.0,
+        wavelength_m=wavelength_m,
+        frequency_half_width_hz=3000.0,
+        frequency_grid_size=1001,
+    )
+
+    assert abs(fitted["frequency_hz"] - frequency_hz) < 30.0
+    assert abs(fitted["velocity_mps"] - frequency_hz * wavelength_m / 2.0) < 6.0
+    assert fitted["success"]
 
 
 def test_common_bin_pulse_pair_recovers_frequency_alias():

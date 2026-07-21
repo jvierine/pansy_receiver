@@ -117,6 +117,128 @@ def rms_baud_amplitudes(raw_pulses: np.ndarray, pulse_templates: np.ndarray) -> 
     return amplitudes
 
 
+def fit_single_pulse_raw_voltage(
+    raw_pulse: np.ndarray,
+    pulse_template: np.ndarray,
+    frequency_guess_hz: float,
+    wavelength_m: float,
+    frequency_half_width_hz: float = 1.5e4,
+    frequency_grid_size: int = 2001,
+) -> dict:
+    """Fit one complex amplitude and Doppler frequency to one raw-voltage pulse.
+
+    The pulse is assumed to have already been fractional-range aligned and
+    coherently summed across receiver modules.  For each trial frequency the
+    complex amplitude is solved analytically, after which the best grid cell is
+    refined with bounded nonlinear least squares.
+    """
+    raw_pulse = np.asarray(raw_pulse, dtype=np.complex128)
+    pulse_template = np.asarray(pulse_template, dtype=np.complex128)
+    if raw_pulse.ndim != 1 or pulse_template.shape != raw_pulse.shape:
+        raise ValueError("raw_pulse and pulse_template must be equal-length vectors")
+    if frequency_half_width_hz <= 0.0:
+        raise ValueError("frequency_half_width_hz must be positive")
+    if int(frequency_grid_size) < 5:
+        raise ValueError("frequency_grid_size must be at least five")
+
+    use = (
+        np.isfinite(raw_pulse.real)
+        & np.isfinite(raw_pulse.imag)
+        & np.isfinite(pulse_template.real)
+        & np.isfinite(pulse_template.imag)
+        & (np.abs(pulse_template) > 0.05 * np.nanmax(np.abs(pulse_template)))
+    )
+    if np.count_nonzero(use) < 8:
+        raise RuntimeError("too few finite raw-voltage samples in the pulse")
+    sample_time_s = np.arange(len(raw_pulse), dtype=float) / FS_HZ
+    time_center_s = float(
+        np.sum(sample_time_s[use] * np.abs(pulse_template[use]) ** 2)
+        / np.sum(np.abs(pulse_template[use]) ** 2)
+    )
+    centered_time_s = sample_time_s - time_center_s
+    data_scale = max(float(np.sqrt(np.mean(np.abs(raw_pulse[use]) ** 2))), 1e-30)
+    data = raw_pulse / data_scale
+    template = pulse_template / max(float(np.max(np.abs(pulse_template[use]))), 1e-30)
+
+    frequencies_hz = np.linspace(
+        float(frequency_guess_hz) - float(frequency_half_width_hz),
+        float(frequency_guess_hz) + float(frequency_half_width_hz),
+        int(frequency_grid_size),
+    )
+    phase = np.exp(
+        1j * 2.0 * np.pi * frequencies_hz[:, None] * centered_time_s[use][None, :]
+    )
+    basis = template[use][None, :] * phase
+    denominator = np.sum(np.abs(basis) ** 2, axis=1)
+    coefficient = np.sum(np.conj(basis) * data[use][None, :], axis=1) / denominator
+    residual = data[use][None, :] - coefficient[:, None] * basis
+    profile_sse = np.sum(np.abs(residual) ** 2, axis=1)
+    best = int(np.argmin(profile_sse))
+    grid_step_hz = float(frequencies_hz[1] - frequencies_hz[0])
+    initial = np.asarray(
+        [
+            np.log(max(abs(coefficient[best]), 1e-12)),
+            np.angle(coefficient[best]),
+            frequencies_hz[best],
+        ]
+    )
+
+    def residual_vector(parameters):
+        amplitude = np.exp(parameters[0] + 1j * parameters[1])
+        model = amplitude * template[use] * np.exp(
+            1j * 2.0 * np.pi * parameters[2] * centered_time_s[use]
+        )
+        difference = data[use] - model
+        return np.r_[difference.real, difference.imag]
+
+    lower_frequency = max(frequencies_hz[0], frequencies_hz[best] - 1.5 * grid_step_hz)
+    upper_frequency = min(frequencies_hz[-1], frequencies_hz[best] + 1.5 * grid_step_hz)
+    fitted = least_squares(
+        residual_vector,
+        initial,
+        bounds=(
+            np.asarray([-20.0, -np.inf, lower_frequency]),
+            np.asarray([20.0, np.inf, upper_frequency]),
+        ),
+        x_scale=np.asarray([1.0, 1.0, max(grid_step_hz, 1.0)]),
+        loss="linear",
+        max_nfev=300,
+    )
+    fitted_residual = residual_vector(fitted.x)
+    degrees_of_freedom = max(len(fitted_residual) - len(fitted.x), 1)
+    weighted_sse = float(np.sum(fitted_residual**2))
+    covariance = np.full((3, 3), np.nan)
+    try:
+        covariance = (
+            np.linalg.inv(fitted.jac.T @ fitted.jac)
+            * weighted_sse
+            / degrees_of_freedom
+        )
+    except np.linalg.LinAlgError:
+        pass
+    complex_amplitude = np.exp(fitted.x[0] + 1j * fitted.x[1]) * data_scale
+    model = complex_amplitude * template * np.exp(
+        1j * 2.0 * np.pi * fitted.x[2] * centered_time_s
+    )
+    velocity_scale = float(wavelength_m) / 2.0
+    return {
+        "frequency_hz": float(fitted.x[2]),
+        "frequency_std_hz": float(np.sqrt(max(covariance[2, 2], 0.0))),
+        "velocity_mps": float(fitted.x[2] * velocity_scale),
+        "velocity_std_mps": float(np.sqrt(max(covariance[2, 2], 0.0)) * velocity_scale),
+        "complex_amplitude": complex_amplitude,
+        "time_center_s": time_center_s,
+        "sample_time_s": sample_time_s,
+        "model": model,
+        "residual": raw_pulse - model,
+        "weighted_sse": weighted_sse,
+        "degrees_of_freedom": degrees_of_freedom,
+        "success": bool(fitted.success),
+        "frequency_grid_hz": frequencies_hz,
+        "profile_sse": profile_sse,
+    }
+
+
 def independent_pulse_fft_doppler(
     raw_pulses: np.ndarray,
     pulse_templates: np.ndarray,
