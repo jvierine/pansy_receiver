@@ -214,6 +214,80 @@ def plot_triplet_components(
     plt.close(fig)
 
 
+def plot_triplet_alias_grid(
+    alias_fits: dict,
+    candidate_indices: list[int],
+    row_labels: list[str],
+    observation_indices: np.ndarray,
+    event_time_s: np.ndarray,
+    output: Path,
+) -> None:
+    """Compare actual baud-voltage fits on neighboring phase-alias branches."""
+    fig, axes = plt.subplots(
+        len(candidate_indices),
+        3,
+        figsize=(11.5, 2.6 * len(candidate_indices)),
+        sharex=True,
+        sharey=True,
+        squeeze=False,
+        constrained_layout=True,
+    )
+    for row, (candidate_index, row_label) in enumerate(
+        zip(candidate_indices, row_labels)
+    ):
+        fit = alias_fits["fits"][candidate_index]
+        pulse_index = np.asarray(fit["pulse_index"], dtype=int)
+        use = np.asarray(fit["use"], dtype=bool)
+        local_time_us = 1e6 * (
+            np.asarray(fit["absolute_time_s"], dtype=float)
+            - pulse_index * PAIR_SPACING_S
+        )
+        for pulse, axis in enumerate(axes[row]):
+            select = use & (pulse_index == pulse)
+            order = np.argsort(local_time_us[select])
+            for component, color in ((np.real, "C0"), (np.imag, "C1")):
+                axis.plot(
+                    local_time_us[select],
+                    component(fit["data"][select]),
+                    ".",
+                    color=color,
+                    markersize=4,
+                    zorder=3,
+                )
+                axis.plot(
+                    local_time_us[select][order],
+                    component(fit["model"][select])[order],
+                    color=color,
+                    linewidth=1.1,
+                )
+            observation = int(observation_indices[pulse])
+            if row == 0:
+                axis.set_title(
+                    (r"Pulse $n$", r"Pulse $n+1$", r"Pulse $n+2$")[pulse]
+                    + rf", $t={event_time_s[observation] - event_time_s[0]:.3f}$ s"
+                )
+            if row == len(candidate_indices) - 1:
+                axis.set_xlabel(r"Fast time within pulse ($\mu$s)")
+            axis.grid(alpha=0.2, linewidth=0.5)
+        axes[row, 0].set_ylabel(
+            row_label
+            + "\n"
+            + rf"$v_r={fit['parameters'][4] * pc.wavelength / 2e3:.3f}$ km s$^{{-1}}$"
+            + "\n"
+            + rf"$a_r={fit['parameters'][5] / 1e3:.2f}$ km s$^{{-2}}$"
+            + "\n"
+            + rf"$\Delta\chi^2_{{\rm local}}={alias_fits['delta_chi2'][candidate_index]:.1f}$"
+        )
+    axes[0, 0].plot([], [], ".", color="C0", label="real measurement")
+    axes[0, 0].plot([], [], color="C0", label="real model")
+    axes[0, 0].plot([], [], ".", color="C1", label="imaginary measurement")
+    axes[0, 0].plot([], [], color="C1", label="imaginary model")
+    axes[0, 0].legend(loc="best", fontsize=7, frameon=False)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output, dpi=200)
+    plt.close(fig)
+
+
 def overlapping_triplet_correlation(triplet_fits, observation_indices):
     """Propagate shared-pulse noise into a banded (velocity, acceleration) correlation."""
     observation_indices = np.asarray(observation_indices, dtype=int)
@@ -691,6 +765,16 @@ def main() -> int:
     parser.add_argument("--debug-triplet-dir", type=Path)
     parser.add_argument("--debug-triplet-count", type=int, default=0)
     parser.add_argument("--debug-only", action="store_true")
+    parser.add_argument(
+        "--memo-alias-dir",
+        type=Path,
+        help="Write publication-style raw-voltage comparisons for one good triplet and its neighboring aliases.",
+    )
+    parser.add_argument(
+        "--memo-triplet-index",
+        type=int,
+        help="Triplet index for --memo-alias-dir; default is the retained fit with the smallest reduced local chi2.",
+    )
     args = parser.parse_args()
 
     cut = load_cut(args.base / "metadata/cut", args.sample_idx)
@@ -1222,6 +1306,99 @@ def main() -> int:
     dynamics, fit_velocity_keep, fit_acceleration_keep, triplet_correlation = (
         fit_current_alias_assignment(dynamics["parameters"], compute_profile=True)
     )
+
+    memo_triplet_index = -1
+    if args.memo_alias_dir is not None:
+        if args.memo_triplet_index is None:
+            eligible = np.flatnonzero(fit_velocity_keep)
+            if len(eligible) == 0:
+                eligible = np.arange(len(result))
+            reduced_local_chi2 = np.asarray(
+                [
+                    alias_fit_results[index]["weighted_sse"][alias_choices[index]]
+                    / max(
+                        alias_fit_results[index]["degrees_of_freedom"][
+                            alias_choices[index]
+                        ],
+                        1,
+                    )
+                    for index in eligible
+                ]
+            )
+            memo_triplet_index = int(eligible[np.nanargmin(reduced_local_chi2)])
+        else:
+            memo_triplet_index = int(args.memo_triplet_index)
+            if not 0 <= memo_triplet_index < len(result):
+                raise IndexError(
+                    f"memo triplet index {memo_triplet_index} is outside 0..{len(result) - 1}"
+                )
+        memo_alias_fits = alias_fit_results[memo_triplet_index]
+        memo_choice = int(alias_choices[memo_triplet_index])
+        selected_velocity_alias = int(
+            memo_alias_fits["velocity_alias_number"][memo_choice]
+        )
+        selected_acceleration_alias = int(memo_alias_fits["alias_number"][memo_choice])
+
+        def neighboring_alias_indices(axis_name):
+            if axis_name == "velocity":
+                fixed = np.asarray(memo_alias_fits["alias_number"], dtype=int)
+                varying = np.asarray(
+                    memo_alias_fits["velocity_alias_number"], dtype=int
+                )
+                fixed_value = selected_acceleration_alias
+                center_value = selected_velocity_alias
+                symbol = "k_v"
+            else:
+                fixed = np.asarray(
+                    memo_alias_fits["velocity_alias_number"], dtype=int
+                )
+                varying = np.asarray(memo_alias_fits["alias_number"], dtype=int)
+                fixed_value = selected_velocity_alias
+                center_value = selected_acceleration_alias
+                symbol = "k_a"
+            indices = []
+            labels = []
+            for offset in (-1, 0, 1):
+                match = np.flatnonzero(
+                    (fixed == fixed_value) & (varying == center_value + offset)
+                )
+                if len(match) == 1:
+                    indices.append(int(match[0]))
+                    labels.append(
+                        "selected" if offset == 0 else rf"$\Delta {symbol}={offset:+d}$"
+                    )
+            return indices, labels
+
+        memo_observations = observation_indices[memo_triplet_index]
+        velocity_indices, velocity_labels = neighboring_alias_indices("velocity")
+        acceleration_indices, acceleration_labels = neighboring_alias_indices(
+            "acceleration"
+        )
+        plot_triplet_components(
+            memo_alias_fits["fits"][memo_choice],
+            memo_observations,
+            trajectory_time,
+            args.memo_alias_dir
+            / f"three_pulse_selected_fit_{args.sample_idx}.png",
+        )
+        plot_triplet_alias_grid(
+            memo_alias_fits,
+            velocity_indices,
+            velocity_labels,
+            memo_observations,
+            trajectory_time,
+            args.memo_alias_dir
+            / f"three_pulse_velocity_aliases_{args.sample_idx}.png",
+        )
+        plot_triplet_alias_grid(
+            memo_alias_fits,
+            acceleration_indices,
+            acceleration_labels,
+            memo_observations,
+            trajectory_time,
+            args.memo_alias_dir
+            / f"three_pulse_acceleration_aliases_{args.sample_idx}.png",
+        )
 
     retained_triplet_time = result["time_s"][fit_velocity_keep]
     retained_triplet_velocity = result["velocity_mps"][fit_velocity_keep]
