@@ -732,7 +732,7 @@ def main() -> int:
     with h5py.File(args.prior_profile_h5, "r") as handle:
         prior_echo_keep = np.asarray(handle["result/echo_shared_inlier_mask"], dtype=bool)
     if precise_selection is not None:
-        echo_keep = np.ones(len(precise_selection), dtype=bool)
+        echo_keep = np.asarray(hypothesis["physics_keep"], dtype=bool).copy()
         covered = precise_selection < len(prior_echo_keep)
         echo_keep[covered] = prior_echo_keep[precise_selection[covered]]
     elif len(prior_echo_keep) != len(hypothesis["t_rel_s"]):
