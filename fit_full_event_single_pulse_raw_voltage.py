@@ -294,6 +294,7 @@ def main() -> int:
         native_ipp_samples,
     )
     rti_db = 10.0 * np.log10(np.maximum(rti_linear, 1e-12))
+    rti_db = np.nan_to_num(rti_db, nan=0.0, neginf=0.0, posinf=0.0)
     rti_plot_time = (
         trajectory_time[0] - time_origin + (uniform_tx_idx - measurement_tx_idx[0]) / FS_HZ
     )
@@ -342,7 +343,6 @@ def main() -> int:
 
     axis = axes[1, 0]
     rti_cmap = plt.get_cmap("plasma").copy()
-    rti_cmap.set_bad("white")
     axis.pcolormesh(rti_plot_time, rti_range_km, rti_db.T, cmap=rti_cmap, shading="auto", vmin=snr_vmin, vmax=snr_vmax)
     axis.plot(observation_time[echo_keep], precise_range_km[echo_keep], ".", color="black")
     axis.fill_between(observation_time[echo_keep], dynamics["range_interval_km"][0, echo_keep], dynamics["range_interval_km"][1, echo_keep], color="C0", alpha=0.18, linewidth=0)
