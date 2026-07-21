@@ -724,7 +724,9 @@ def main() -> int:
     with h5py.File(args.prior_profile_h5, "r") as handle:
         prior_echo_keep = np.asarray(handle["result/echo_shared_inlier_mask"], dtype=bool)
     if precise_selection is not None:
-        echo_keep = prior_echo_keep[precise_selection]
+        echo_keep = np.ones(len(precise_selection), dtype=bool)
+        covered = precise_selection < len(prior_echo_keep)
+        echo_keep[covered] = prior_echo_keep[precise_selection[covered]]
     elif len(prior_echo_keep) != len(hypothesis["t_rel_s"]):
         raise RuntimeError("prior-profile echo mask does not match the selected echo count")
     else:
