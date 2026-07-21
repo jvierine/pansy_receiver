@@ -101,6 +101,32 @@ def beam_pixmap() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     return u * 100.0, v * 100.0, bitmap
 
 
+def uniform_ipp_rti(
+    tx_idx: np.ndarray,
+    rti: np.ndarray,
+    ipp_samples: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Place RTI rows on equal-width IPP slots, leaving missing slots as NaN."""
+    tx_idx = np.asarray(tx_idx, dtype=np.int64)
+    rti = np.asarray(rti, dtype=float)
+    if tx_idx.ndim != 1 or rti.ndim != 2 or len(tx_idx) != len(rti):
+        raise ValueError("RTI times and rows must have matching leading dimensions")
+    if len(tx_idx) == 0 or ipp_samples <= 0:
+        raise ValueError("RTI requires at least one pulse and a positive IPP")
+
+    slot = np.rint((tx_idx - tx_idx[0]) / float(ipp_samples)).astype(int)
+    expected = tx_idx[0] + slot * ipp_samples
+    if np.any(np.abs(tx_idx - expected) > 1):
+        raise ValueError("RTI pulse times do not lie on the expected IPP grid")
+    if np.any(np.diff(slot) <= 0):
+        raise ValueError("RTI pulse times must be strictly increasing")
+
+    uniform_tx_idx = tx_idx[0] + np.arange(slot[-1] + 1, dtype=np.int64) * ipp_samples
+    uniform_rti = np.full((len(uniform_tx_idx), rti.shape[1]), np.nan, dtype=float)
+    uniform_rti[slot] = rti
+    return uniform_tx_idx, uniform_rti
+
+
 def valid_triplets(pairs: dict) -> list[tuple[int, int, int]]:
     previous = np.asarray(pairs["previous_index"], dtype=int)
     current = np.asarray(pairs["current_index"], dtype=int)
@@ -1212,14 +1238,25 @@ def main() -> int:
     )
     profile_probability /= max(float(np.nanmax(profile_probability)), 1e-30)
     observation_rti = recompute_cut_observables(cut, interp=1)
-    rti_time_absolute = np.asarray(observation_rti["tx_idx"], dtype=float) / FS_HZ
-    measurement_time_absolute = np.asarray(decoded["tx_idx"], dtype=float) / FS_HZ
-    rti_rows = np.asarray(
-        [np.argmin(np.abs(rti_time_absolute - value)) for value in measurement_time_absolute],
-        dtype=int,
+    rti_tx_idx = np.asarray(observation_rti["tx_idx"], dtype=np.int64)
+    measurement_tx_idx = np.asarray(decoded["tx_idx"], dtype=np.int64)
+    rti_row_by_tx_idx = {int(value): row for row, value in enumerate(rti_tx_idx)}
+    missing_rti = [int(value) for value in measurement_tx_idx if int(value) not in rti_row_by_tx_idx]
+    if missing_rti:
+        raise RuntimeError(f"RTI does not contain selected pulse indices: {missing_rti}")
+    rti_rows = np.asarray([rti_row_by_tx_idx[int(value)] for value in measurement_tx_idx], dtype=int)
+    rti_uniform_tx_idx, rti_linear = uniform_ipp_rti(
+        measurement_tx_idx,
+        np.asarray(observation_rti["rti_snr"], dtype=float)[rti_rows],
+        int(round(PAIR_SPACING_S * FS_HZ)),
     )
     rti_db = 10.0 * np.log10(
-        np.maximum(np.asarray(observation_rti["rti_snr"], dtype=float)[rti_rows], 1e-12)
+        np.maximum(rti_linear, 1e-12)
+    )
+    rti_plot_time = (
+        trajectory_time[0]
+        - time_origin
+        + (rti_uniform_tx_idx - measurement_tx_idx[0]) / FS_HZ
     )
     rti_range_km = np.asarray(observation_rti["range_grid_km"], dtype=float)
     snr_vmin = 0.0
@@ -1390,11 +1427,13 @@ def main() -> int:
     )
 
     axis = event_axes[1, 0]
+    rti_cmap = plt.get_cmap("plasma").copy()
+    rti_cmap.set_bad("white")
     axis.pcolormesh(
-        observation_time,
+        rti_plot_time,
         rti_range_km,
         rti_db.T,
-        cmap="plasma",
+        cmap=rti_cmap,
         shading="auto",
         vmin=snr_vmin,
         vmax=snr_vmax,
