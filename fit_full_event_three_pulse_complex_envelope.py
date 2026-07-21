@@ -1540,7 +1540,7 @@ def main() -> int:
         handle.create_dataset("dynamics_velocity_keep", data=fit_velocity_keep)
         handle.create_dataset("dynamics_acceleration_keep", data=fit_acceleration_keep)
         alias_group = handle.create_group("triplet_aliases")
-        alias_group.attrs["schema"] = "pansy.three_pulse_alias_likelihood.v2"
+        alias_group.attrs["schema"] = "pansy.three_pulse_alias_likelihood.v3"
         alias_group.attrs["candidate_grid"] = (
             "Cartesian product of pulse-phase velocity and acceleration aliases"
         )
@@ -1550,11 +1550,15 @@ def main() -> int:
         )
         alias_group.attrs["local_selection_is_provisional"] = True
         alias_group.attrs["resolution_stage"] = (
-            "alternating local-complex-likelihood and global event-dynamics fit"
+            "alternating hierarchical alias selection and global event-dynamics fit"
         )
         alias_group.attrs["global_objective"] = (
-            "local delta chi2 + squared global Doppler residual / common Doppler variance "
-            "+ squared global acceleration residual / common acceleration variance"
+            "profile local delta chi2 plus global acceleration residual over velocity "
+            "aliases to select acceleration branch; then add global Doppler residual "
+            "to select velocity alias within that branch"
+        )
+        alias_group.attrs["alias_selection_order"] = (
+            "acceleration branch first, velocity alias second"
         )
         alias_group.attrs["global_alias_iterations"] = alias_iterations
         alias_group.attrs["global_alias_converged"] = alias_converged
