@@ -348,6 +348,65 @@ def global_alias_scores(
     return score, local_chi2, global_chi2
 
 
+def select_global_alias(
+    alias_fits,
+    model_velocity_mps,
+    model_acceleration_mps2,
+    velocity_sigma_mps,
+    acceleration_sigma_mps2,
+):
+    """Select acceleration first, after profiling over velocity aliases.
+
+    The absolute Doppler and acceleration aliases are separate discrete
+    ambiguities.  A wrong velocity alias must therefore not force selection of
+    the wrong acceleration branch.  For every acceleration branch, profile the
+    local voltage likelihood plus global acceleration agreement over all
+    velocity aliases.  Only after choosing the acceleration branch do we use
+    the global absolute Doppler agreement to select its velocity alias.
+    """
+    score, local_chi2, global_chi2 = global_alias_scores(
+        alias_fits,
+        model_velocity_mps,
+        model_acceleration_mps2,
+        velocity_sigma_mps,
+        acceleration_sigma_mps2,
+    )
+    success = np.asarray(alias_fits["fit_success"], dtype=bool)
+    acceleration_alias = np.asarray(alias_fits["alias_number"], dtype=int)
+    acceleration_residual = (
+        np.asarray(alias_fits["fit_acceleration_mps2"], dtype=float)
+        - float(model_acceleration_mps2)
+    )
+    acceleration_score = local_chi2 + (
+        acceleration_residual / float(acceleration_sigma_mps2)
+    ) ** 2
+    acceleration_score[~success] = np.inf
+
+    branch_numbers = np.unique(acceleration_alias[success])
+    if len(branch_numbers) == 0:
+        raise RuntimeError("three-pulse alias search produced no successful fits")
+    branch_scores = np.asarray(
+        [
+            np.min(acceleration_score[acceleration_alias == branch])
+            for branch in branch_numbers
+        ],
+        dtype=float,
+    )
+    selected_acceleration_alias = int(branch_numbers[np.argmin(branch_scores)])
+    branch_candidates = np.flatnonzero(
+        success & (acceleration_alias == selected_acceleration_alias)
+    )
+    selected = int(branch_candidates[np.argmin(score[branch_candidates])])
+    return (
+        selected,
+        selected_acceleration_alias,
+        score,
+        local_chi2,
+        global_chi2,
+        acceleration_score,
+    )
+
+
 def apply_alias_choices(result, alias_fit_results, choices, wavelength_m):
     """Update the triplet measurement table from discrete alias choices."""
     selected_fits = []
@@ -1260,14 +1319,20 @@ def main() -> int:
         )
         new_choices = np.empty_like(alias_choices)
         for triplet, alias_fits in enumerate(alias_fit_results):
-            score, local_chi2, global_chi2 = global_alias_scores(
+            (
+                new_choices[triplet],
+                _selected_acceleration_alias,
+                score,
+                local_chi2,
+                global_chi2,
+                _acceleration_score,
+            ) = select_global_alias(
                 alias_fits,
                 model_velocity[triplet],
                 model_acceleration[triplet],
                 dynamics["velocity_sigma_mps"],
                 dynamics["acceleration_sigma_mps2"],
             )
-            new_choices[triplet] = int(np.nanargmin(score))
             selected_alias_local_chi2[triplet] = local_chi2[new_choices[triplet]]
             selected_alias_global_chi2[triplet] = global_chi2[new_choices[triplet]]
             selected_alias_total_chi2[triplet] = score[new_choices[triplet]]
@@ -1292,7 +1357,14 @@ def main() -> int:
         result["time_s"], trajectory_time, dynamics["acceleration_mps2"]
     )
     for triplet, alias_fits in enumerate(alias_fit_results):
-        score, local_chi2, global_chi2 = global_alias_scores(
+        (
+            _selected,
+            _selected_acceleration_alias,
+            score,
+            local_chi2,
+            global_chi2,
+            _acceleration_score,
+        ) = select_global_alias(
             alias_fits,
             model_velocity[triplet],
             model_acceleration[triplet],
