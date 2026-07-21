@@ -1311,7 +1311,6 @@ def main() -> int:
         alpha=0.18,
         linewidth=0.0,
     )
-    axis.plot(observation_time[echo_keep], precise_doppler_mps[echo_keep] / 1e3, ".", color="0.7", label="FFT")
     axis.errorbar(
         triplet_time[fit_velocity_keep],
         result["velocity_mps"][fit_velocity_keep] / 1e3,
