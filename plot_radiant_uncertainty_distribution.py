@@ -169,7 +169,6 @@ def plot_distribution(
         color="#c45a1a",
         linewidth=1.5,
     )
-    top_axis.axvline(velocity_peak_mps, color="#c45a1a", lw=1.2, ls=":")
     top_axis.set_xlabel(r"Velocity uncertainty (m s$^{-1}$)")
     top_axis.tick_params(axis="x", colors="#9f4613")
     top_axis.xaxis.label.set_color("#9f4613")
