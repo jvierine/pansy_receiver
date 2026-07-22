@@ -109,8 +109,7 @@ def plot_distribution(
     linear_xaxis: bool,
 ) -> None:
     angle = rows["initial_state_radiant_angle_sigma_deg"]
-    speed_mps = rows["speed_km_s"] * 1e3
-    reference_speed_mps = float(np.nanmedian(speed_mps[np.isfinite(speed_mps) & (speed_mps > 0.0)]))
+    velocity_sigma_mps = rows["initial_state_velocity_sigma_mps"]
     total = max(1, len(rows))
     angle_counts = threshold_counts(angle, ANGLE_THRESHOLDS_DEG)
 
@@ -145,18 +144,39 @@ def plot_distribution(
     axes[0].set_ylabel(r"Probability density (deg$^{-1}$)")
     axes[0].grid(True, which="both", alpha=0.25)
 
-    def angle_deg_to_speed_mps(angle_deg):
-        return reference_speed_mps * np.tan(np.deg2rad(angle_deg))
-
-    def speed_mps_to_angle_deg(sigma_mps):
-        return np.rad2deg(np.arctan2(sigma_mps, reference_speed_mps))
-
-    top_axis = axes[0].secondary_xaxis("top", functions=(angle_deg_to_speed_mps, speed_mps_to_angle_deg))
-    top_axis.set_xlabel(r"Velocity uncertainty (m s$^{-1}$), at median $v_g$")
+    good_velocity_sigma = velocity_sigma_mps[np.isfinite(velocity_sigma_mps) & (velocity_sigma_mps > 0.0)]
+    top_axis = axes[0].twiny()
+    if linear_xaxis:
+        velocity_bins = np.linspace(0.0, max(1.0, np.nanpercentile(good_velocity_sigma, 99.8)), 55)
+    else:
+        velocity_bins = np.geomspace(
+            max(1.0, np.nanpercentile(good_velocity_sigma, 0.1)),
+            max(2.0, np.nanpercentile(good_velocity_sigma, 99.8)),
+            70,
+        )
+        top_axis.set_xscale("log")
+    velocity_counts, velocity_edges = np.histogram(good_velocity_sigma, bins=velocity_bins)
+    velocity_widths = np.diff(velocity_edges)
+    velocity_density = velocity_counts / np.maximum(len(good_velocity_sigma) * velocity_widths, np.finfo(float).tiny)
+    velocity_peak_index = int(np.nanargmax(velocity_density)) if len(velocity_density) else 0
+    velocity_peak_mps = 0.5 * (velocity_edges[velocity_peak_index] + velocity_edges[velocity_peak_index + 1])
+    velocity_peak_density = float(velocity_density[velocity_peak_index]) if len(velocity_density) else np.nan
+    top_axis.hist(
+        good_velocity_sigma,
+        bins=velocity_bins,
+        density=True,
+        histtype="step",
+        color="#c45a1a",
+        linewidth=1.5,
+    )
+    top_axis.axvline(velocity_peak_mps, color="#c45a1a", lw=1.2, ls=":")
+    top_axis.set_xlabel(r"Velocity uncertainty (m s$^{-1}$)")
+    top_axis.tick_params(axis="x", colors="#9f4613")
+    top_axis.xaxis.label.set_color("#9f4613")
     axes[0].text(
         0.97,
         0.95,
-        f"N = {len(rows):,}\npeak = {peak_angle_deg:.2f} deg\npeak density = {peak_density:.2f} deg$^{{-1}}$\n{chosen_angle_deg:.1f} deg keeps {100.0*np.sum(angle <= chosen_angle_deg)/total:.1f}%",
+        f"N = {len(rows):,}\nangle peak = {peak_angle_deg:.2f} deg\nvelocity peak = {velocity_peak_mps:.0f} m s$^{{-1}}$\n{chosen_angle_deg:.1f} deg keeps {100.0*np.sum(angle <= chosen_angle_deg)/total:.1f}%",
         transform=axes[0].transAxes,
         ha="right",
         va="top",
