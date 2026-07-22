@@ -15,6 +15,16 @@ DEFAULT_ORBIT_METADATA_DIR = Path("/mnt/data/juha/pansy/metadata/orbit")
 DEFAULT_OUTPUT_DIR = Path("test_plots/radiant_uncertainty")
 PERCENTILES = np.asarray([1, 5, 10, 25, 50, 75, 90, 95, 99], dtype=np.float64)
 ANGLE_THRESHOLDS_DEG = np.asarray([0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 7.5, 10.0], dtype=np.float64)
+UNCERTAINTY_DTYPE = np.dtype(
+    [
+        ("combined_score", "f8"),
+        ("speed_km_s", "f8"),
+        ("n_uncertainty_samples", "i8"),
+        ("initial_state_position_sigma_m", "f8"),
+        ("initial_state_velocity_sigma_mps", "f8"),
+        ("initial_state_radiant_angle_sigma_deg", "f8"),
+    ]
+)
 
 
 def finite_quality_rows(rows: np.ndarray, max_combined_score: float, min_uncertainty_samples: int) -> np.ndarray:
@@ -29,6 +39,41 @@ def finite_quality_rows(rows: np.ndarray, max_combined_score: float, min_uncerta
 
 def threshold_counts(values: np.ndarray, thresholds: np.ndarray) -> np.ndarray:
     return np.asarray([np.sum(values <= threshold) for threshold in thresholds], dtype=np.int64)
+
+
+def rows_from_event_table(events: np.ndarray) -> np.ndarray:
+    rows = np.zeros(len(events), dtype=UNCERTAINTY_DTYPE)
+    rows["combined_score"] = np.asarray(events["combined_score"], dtype=np.float64)
+    rows["speed_km_s"] = np.asarray(events["v_g_km_s"], dtype=np.float64)
+    rows["n_uncertainty_samples"] = np.asarray(events["n_uncertainty_samples"], dtype=np.int64)
+    cov = np.asarray(events["fit_parameter_covariance"][:, :6, :6], dtype=np.float64)
+    pos_var = np.trace(cov[:, :3, :3], axis1=1, axis2=2)
+    vel_var = np.trace(cov[:, 3:6, 3:6], axis1=1, axis2=2)
+    rows["initial_state_position_sigma_m"] = np.sqrt(np.where(pos_var >= 0.0, pos_var, np.nan))
+    rows["initial_state_velocity_sigma_mps"] = np.sqrt(np.where(vel_var >= 0.0, vel_var, np.nan))
+    rows["initial_state_radiant_angle_sigma_deg"] = np.rad2deg(
+        np.arctan2(rows["initial_state_velocity_sigma_mps"], np.maximum(rows["speed_km_s"] * 1e3, 1.0))
+    )
+    return rows
+
+
+def collect_uncertainty_rows(orbit_metadata_dir: Path) -> tuple[np.ndarray, int, int]:
+    chunks = []
+    files_read = 0
+    files_skipped = 0
+    for path in sorted(orbit_metadata_dir.glob("**/orbit@*.h5")):
+        try:
+            with h5py.File(path, "r") as h:
+                if "events" not in h:
+                    files_skipped += 1
+                    continue
+                chunks.append(rows_from_event_table(h["events"][()]))
+                files_read += 1
+        except OSError:
+            files_skipped += 1
+    if chunks:
+        return np.concatenate(chunks), files_read, files_skipped
+    return np.zeros(0, dtype=UNCERTAINTY_DTYPE), files_read, files_skipped
 
 
 def write_summary_h5(path: Path, rows: np.ndarray, files_read: int, files_skipped: int, source: str) -> None:
@@ -158,10 +203,8 @@ def main() -> None:
         files_skipped = 0
         source = f"collected radiant sidecar: {args.radiants_h5}"
     else:
-        from collect_daily_radiants_from_orbit_metadata import collect
-
-        rows, files_read, files_skipped = collect(args.orbit_metadata_dir)
-        source = "compact hourly orbit metadata events tables"
+        rows, files_read, files_skipped = collect_uncertainty_rows(args.orbit_metadata_dir)
+        source = "compact hourly orbit metadata events tables, direct covariance read"
     rows = finite_quality_rows(rows, args.max_combined_score, args.min_uncertainty_samples)
     out_h5 = args.output_dir / "radiant_uncertainty_distribution.h5"
     out_png = args.output_dir / "radiant_uncertainty_distribution.png"
