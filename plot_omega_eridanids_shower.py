@@ -276,7 +276,7 @@ def draw_mean_perifocal_panel(ax, orbits: np.ndarray) -> None:
     ax.plot(mean_projected[0], mean_projected[1], color="black", lw=2.4, label=r"Mean $\omega$-Eridanid orbit")
     ax.scatter(0.0, 0.0, s=55, color="#f5b82e", edgecolor="black", linewidth=0.5, zorder=5)
     ax.set_xlim(-10.0, 5.0)
-    ax.set_ylim(-7.0, 5.0)
+    ax.set_ylim(-8.5, 6.5)
     ax.set_aspect("equal", adjustable="box")
     ax.grid(color="0.90", lw=0.6)
 
@@ -316,7 +316,7 @@ def make_figure(rows: dict[str, np.ndarray], core: np.ndarray, profile: dict[str
         rf"$\omega={MEAN_KEPLER[4]:.2f}\pm{angular_stats[2][1]:.2f}^\circ$, "
         rf"$\nu={MEAN_KEPLER[5]:.2f}\pm{angular_stats[3][1]:.2f}^\circ$"
     )
-    axes[1].text(0.02, 0.98, summary, transform=axes[1].transAxes, ha="left", va="top", fontsize=7.6)
+    axes[1].text(0.02, 0.02, summary, transform=axes[1].transAxes, ha="left", va="bottom", fontsize=7.6)
 
     ax = axes[2]
     x = profile["centers"]
