@@ -32,6 +32,7 @@ from inter_pulse_phase_deceleration import (
     diagnostic_to_raw_pulses,
     fractional_segment,
     load_selected,
+    precise_matched_filter_estimates,
 )
 from interferometer_alias_diagnostics import load_cut, recompute_cut_observables
 from pansy_coherent import (
@@ -152,7 +153,7 @@ def main() -> int:
     parser.add_argument("--sample-idx", type=int, required=True)
     parser.add_argument("--base", type=Path, required=True)
     parser.add_argument("--diagnostics-h5", type=Path, required=True)
-    parser.add_argument("--initial-fit-h5", type=Path, required=True)
+    parser.add_argument("--initial-fit-h5", type=Path)
     parser.add_argument("--prior-profile-h5", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--snr-threshold", type=float, default=7.0)
@@ -165,12 +166,18 @@ def main() -> int:
 
     cut = load_cut(args.base / "metadata/cut", args.sample_idx)
     hypothesis = load_selected(args.diagnostics_h5)
-    with h5py.File(args.initial_fit_h5, "r") as handle:
-        precise_range_km = np.asarray(handle["range_km"], dtype=float)
-        precise_doppler_mps = np.asarray(handle["doppler_mps"], dtype=float)
-        precise_raw_idx = (
-            np.asarray(handle["raw_idx"], dtype=int) if "raw_idx" in handle else None
-        )
+    if args.initial_fit_h5 is None:
+        precise = precise_matched_filter_estimates(cut, hypothesis, args.snr_threshold)
+        precise_range_km = np.asarray(precise["range_km"], dtype=float)
+        precise_doppler_mps = np.asarray(precise["doppler_mps"], dtype=float)
+        precise_raw_idx = np.asarray(precise["raw_idx"], dtype=int)
+    else:
+        with h5py.File(args.initial_fit_h5, "r") as handle:
+            precise_range_km = np.asarray(handle["range_km"], dtype=float)
+            precise_doppler_mps = np.asarray(handle["doppler_mps"], dtype=float)
+            precise_raw_idx = (
+                np.asarray(handle["raw_idx"], dtype=int) if "raw_idx" in handle else None
+            )
 
     precise_selection = None
     if precise_raw_idx is not None:

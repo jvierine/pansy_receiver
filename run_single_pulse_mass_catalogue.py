@@ -43,7 +43,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--base", type=Path, required=True)
-    parser.add_argument("--initial-fit-dir", type=Path, required=True)
+    parser.add_argument("--initial-fit-dir", type=Path)
     parser.add_argument("--prior-profile-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--worker-index", type=int, required=True)
@@ -85,11 +85,15 @@ def main() -> int:
                 continue
 
             diagnostics = diagnostic_path(args.base, sample_idx)
-            initial_fit = first_existing(
-                [
-                    args.initial_fit_dir / f"fit_observables_catalogue_{sample_idx}.h5",
-                    args.initial_fit_dir / f"highres_fft_i2_p16_{sample_idx}.h5",
-                ]
+            initial_fit = (
+                first_existing(
+                    [
+                        args.initial_fit_dir / f"fit_observables_catalogue_{sample_idx}.h5",
+                        args.initial_fit_dir / f"highres_fft_i2_p16_{sample_idx}.h5",
+                    ]
+                )
+                if args.initial_fit_dir is not None
+                else None
             )
             prior_profile = first_existing(
                 [
@@ -99,8 +103,6 @@ def main() -> int:
             )
             if not diagnostics.exists():
                 status = "diagnostics_missing"
-            elif initial_fit is None:
-                status = "initial_fit_missing"
             elif prior_profile is None:
                 status = "prior_profile_missing"
             else:
@@ -113,8 +115,6 @@ def main() -> int:
                     str(args.base),
                     "--diagnostics-h5",
                     str(diagnostics),
-                    "--initial-fit-h5",
-                    str(initial_fit),
                     "--prior-profile-h5",
                     str(prior_profile),
                     "--output-dir",
@@ -129,6 +129,8 @@ def main() -> int:
                     str(args.frequency_grid_size),
                     "--no-plot",
                 ]
+                if initial_fit is not None:
+                    command.extend(["--initial-fit-h5", str(initial_fit)])
                 try:
                     subprocess.run(command, check=True)
                     status = "ok"
