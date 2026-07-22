@@ -199,11 +199,27 @@ def main() -> int:
         precise_range_km=precise_range_km,
         precise_doppler_mps=precise_doppler_mps,
     )
+    observations, stored_fit = load_selected_fit(args.diagnostics_h5)
     with h5py.File(args.prior_profile_h5, "r") as handle:
-        prior_echo_keep = np.asarray(handle["result/echo_shared_inlier_mask"], dtype=bool)
-        position_covariance_km2 = np.asarray(
-            handle["position_residual_covariance_km2"], dtype=float
-        )
+        if "result/echo_shared_inlier_mask" in handle:
+            prior_echo_keep = np.asarray(handle["result/echo_shared_inlier_mask"], dtype=bool)
+        else:
+            prior_echo_keep = np.asarray(stored_fit["keep"], dtype=bool)
+        if "position_residual_covariance_km2" in handle:
+            position_covariance_km2 = np.asarray(
+                handle["position_residual_covariance_km2"], dtype=float
+            )
+        else:
+            residual = np.asarray(observations["points_km"], dtype=float) - np.asarray(
+                stored_fit["model_km"], dtype=float
+            )
+            covariance_keep = prior_echo_keep & np.all(np.isfinite(residual), axis=1)
+            if np.count_nonzero(covariance_keep) >= 3:
+                position_covariance_km2 = np.cov(residual[covariance_keep].T)
+            else:
+                position_covariance_km2 = np.eye(3) * 0.1**2
+            position_covariance_km2 = np.asarray(position_covariance_km2, dtype=float)
+            position_covariance_km2 += np.eye(3) * 1e-8
         delta = np.asarray(handle["profile/delta_chi2"], dtype=float)
         best_index = int(np.nanargmin(delta))
         parameters6 = np.asarray(handle["profile/parameters6"][best_index], dtype=float)
@@ -216,7 +232,6 @@ def main() -> int:
     else:
         echo_keep = prior_echo_keep.copy()
 
-    observations, stored_fit = load_selected_fit(args.diagnostics_h5)
     trajectory_time = np.asarray(observations["t_s"], dtype=float)
     import fit_best_alias_physics_models as physics
 
