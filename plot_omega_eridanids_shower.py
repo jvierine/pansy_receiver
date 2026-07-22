@@ -270,19 +270,41 @@ def draw_orbit_panel(ax, orbits: np.ndarray, coordinates: tuple[int, int], limit
     ax.grid(color="0.90", lw=0.6)
 
 
+def draw_mean_perifocal_panel(ax, orbits: np.ndarray) -> None:
+    """Project the orbit ensemble into the mean orbit's perifocal plane."""
+    theta = np.linspace(0.0, 2.0 * np.pi, 720)
+    mean_rotation = rotation_matrix(MEAN_KEPLER[3], MEAN_KEPLER[2], MEAN_KEPLER[4])
+    for radius, label, color in ((1.0, "Earth", "C0"), (5.2044, "Jupiter", "0.45")):
+        ecliptic = np.vstack((radius * np.cos(theta), radius * np.sin(theta), np.zeros_like(theta)))
+        projected = mean_rotation.T @ ecliptic
+        ax.plot(projected[0], projected[1], color=color, lw=1.0, label=f"{label} orbit")
+    for kepler in orbits:
+        xyz = orbit_xyz(kepler)
+        if xyz.shape[1]:
+            projected = mean_rotation.T @ xyz
+            ax.plot(projected[0], projected[1], color="0.55", lw=0.45, alpha=0.16)
+    mean_projected = mean_rotation.T @ orbit_xyz(MEAN_KEPLER, samples=1200)
+    ax.plot(mean_projected[0], mean_projected[1], color="black", lw=2.4, label=r"Mean $\omega$-Eridanid orbit")
+    ax.scatter(0.0, 0.0, s=55, color="#f5b82e", edgecolor="black", linewidth=0.5, zorder=5)
+    ax.set_xlim(-11.5, 2.0)
+    ax.set_ylim(-6.0, 6.0)
+    ax.set_aspect("equal", adjustable="box")
+    ax.grid(color="0.90", lw=0.6)
+
+
 def make_figure(rows: dict[str, np.ndarray], core: np.ndarray, profile: dict[str, np.ndarray], output: Path) -> None:
     if int(np.sum(core)) != 130:
         raise RuntimeError(f"omega-Eridanid selection changed: expected 130 meteors, found {int(np.sum(core))}")
     orbits = rows["kepler"][core]
     fig, axes = plt.subplots(1, 3, figsize=(14.0, 4.6), constrained_layout=True)
     draw_orbit_panel(axes[0], orbits, (0, 1), 11.5)
-    draw_orbit_panel(axes[1], orbits, (0, 2), 11.5)
+    draw_mean_perifocal_panel(axes[1], orbits)
     axes[0].set_xlabel("Ecliptic X (AU)")
     axes[0].set_ylabel("Ecliptic Y (AU)")
-    axes[1].set_xlabel("Ecliptic X (AU)")
-    axes[1].set_ylabel("Ecliptic Z (AU)")
+    axes[1].set_xlabel("Perifocal X (AU)")
+    axes[1].set_ylabel("Perifocal Y (AU)")
     axes[0].set_title("Viewed from the north ecliptic pole")
-    axes[1].set_title("Viewed in the ecliptic plane")
+    axes[1].set_title("Mean orbital plane")
     axes[0].legend(loc="lower left", frameon=False, fontsize=7.5)
 
     ra, dec = ecliptic_to_equatorial_deg(rows["ecliptic_lon"][core], rows["beta"][core])
@@ -322,6 +344,25 @@ def make_figure(rows: dict[str, np.ndarray], core: np.ndarray, profile: dict[str
     ax.set_title("Activity profile")
     ax.grid(color="0.90", lw=0.6)
     ax.legend(loc="upper right", frameon=False, fontsize=8)
+
+    count_axis = ax.twinx()
+    count_axis.plot(
+        x,
+        profile["shower_count"],
+        color="0.25",
+        marker="s",
+        markerfacecolor="none",
+        markeredgewidth=0.8,
+        ms=3.2,
+        lw=0.8,
+        ls=":",
+        alpha=0.75,
+        label="Raw count",
+    )
+    count_axis.set_ylim(bottom=0.0)
+    count_axis.set_ylabel("Raw selected count per bin", color="0.25")
+    count_axis.tick_params(axis="y", colors="0.25")
+    count_axis.spines["right"].set_color("0.25")
 
     output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output, dpi=240)
