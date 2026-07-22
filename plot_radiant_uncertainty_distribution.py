@@ -10,8 +10,6 @@ import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 
-from collect_daily_radiants_from_orbit_metadata import collect
-
 
 DEFAULT_ORBIT_METADATA_DIR = Path("/mnt/data/juha/pansy/metadata/orbit")
 DEFAULT_OUTPUT_DIR = Path("test_plots/radiant_uncertainty")
@@ -33,7 +31,7 @@ def threshold_counts(values: np.ndarray, thresholds: np.ndarray) -> np.ndarray:
     return np.asarray([np.sum(values <= threshold) for threshold in thresholds], dtype=np.int64)
 
 
-def write_summary_h5(path: Path, rows: np.ndarray, files_read: int, files_skipped: int) -> None:
+def write_summary_h5(path: Path, rows: np.ndarray, files_read: int, files_skipped: int, source: str) -> None:
     angle = rows["initial_state_radiant_angle_sigma_deg"]
     vel = rows["initial_state_velocity_sigma_mps"]
     pos = rows["initial_state_position_sigma_m"]
@@ -41,11 +39,13 @@ def write_summary_h5(path: Path, rows: np.ndarray, files_read: int, files_skippe
     path.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(path, "w") as h:
         h.attrs["script"] = Path(__file__).name
-        h.attrs["source"] = "compact hourly orbit metadata events tables"
+        h.attrs["source"] = source
         h.attrs["files_read"] = int(files_read)
         h.attrs["files_skipped"] = int(files_skipped)
         h.attrs["n_radiants"] = int(len(rows))
-        h.attrs["radiant_angle_sigma_definition"] = "atan(initial_state_velocity_sigma_mps / geocentric_speed_mps), degrees"
+        h.attrs["radiant_angle_sigma_definition"] = (
+            "conservative old definition: atan(sqrt(trace(initial-state velocity covariance)) / geocentric_speed_mps), degrees"
+        )
         h.create_dataset("percentiles", data=PERCENTILES)
         h.create_dataset("radiant_angle_sigma_deg_percentiles", data=np.nanpercentile(angle, PERCENTILES))
         h.create_dataset("initial_state_velocity_sigma_mps_percentiles", data=np.nanpercentile(vel, PERCENTILES))
@@ -55,18 +55,33 @@ def write_summary_h5(path: Path, rows: np.ndarray, files_read: int, files_skippe
         h.create_dataset("angle_threshold_counts", data=threshold_counts(angle, ANGLE_THRESHOLDS_DEG))
 
 
-def plot_distribution(rows: np.ndarray, output_png: Path, output_pdf: Path | None, chosen_angle_deg: float) -> None:
+def plot_distribution(
+    rows: np.ndarray,
+    output_png: Path,
+    output_pdf: Path | None,
+    chosen_angle_deg: float,
+    single_panel: bool,
+    linear_xaxis: bool,
+) -> None:
     angle = rows["initial_state_radiant_angle_sigma_deg"]
     total = max(1, len(rows))
     angle_counts = threshold_counts(angle, ANGLE_THRESHOLDS_DEG)
 
-    fig, axes = plt.subplots(1, 2, figsize=(9.2, 3.6), constrained_layout=True)
+    if single_panel:
+        fig, ax0 = plt.subplots(1, 1, figsize=(4.8, 3.4), constrained_layout=True)
+        axes = np.asarray([ax0])
+    else:
+        fig, axes = plt.subplots(1, 2, figsize=(9.2, 3.6), constrained_layout=True)
 
-    bins = np.geomspace(0.15, 60.0, 70)
+    if linear_xaxis:
+        bins = np.linspace(0.0, max(3.05, np.nanpercentile(angle, 99.8)), 55)
+    else:
+        bins = np.geomspace(0.15, 60.0, 70)
     axes[0].hist(angle, bins=bins, color="#3b6fb6", alpha=0.82)
     axes[0].axvline(chosen_angle_deg, color="black", lw=1.4, ls="--")
-    axes[0].set_xscale("log")
-    axes[0].set_xlabel("Radiant angular uncertainty upper bound (deg)")
+    if not linear_xaxis:
+        axes[0].set_xscale("log")
+    axes[0].set_xlabel("Velocity-vector angular uncertainty (deg)")
     axes[0].set_ylabel("Meteor count")
     axes[0].grid(True, which="both", alpha=0.25)
     axes[0].text(
@@ -79,12 +94,13 @@ def plot_distribution(rows: np.ndarray, output_png: Path, output_pdf: Path | Non
         fontsize=8.5,
     )
 
-    axes[1].plot(ANGLE_THRESHOLDS_DEG, 100.0 * angle_counts / total, "o-", color="#3b6fb6", label="angular")
-    axes[1].axvline(chosen_angle_deg, color="black", lw=1.4, ls="--")
-    axes[1].set_xlabel("Radiant angular uncertainty threshold (deg)")
-    axes[1].set_ylabel("Cumulative retained fraction (%)")
-    axes[1].set_ylim(0, 100)
-    axes[1].grid(True, alpha=0.25)
+    if not single_panel:
+        axes[1].plot(ANGLE_THRESHOLDS_DEG, 100.0 * angle_counts / total, "o-", color="#3b6fb6", label="angular")
+        axes[1].axvline(chosen_angle_deg, color="black", lw=1.4, ls="--")
+        axes[1].set_xlabel("Radiant angular uncertainty threshold (deg)")
+        axes[1].set_ylabel("Cumulative retained fraction (%)")
+        axes[1].set_ylim(0, 100)
+        axes[1].grid(True, alpha=0.25)
 
     output_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_png, dpi=220)
@@ -121,20 +137,38 @@ def write_tex_snippet(path: Path, figure_name: str, data_name: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--orbit-metadata-dir", type=Path, default=DEFAULT_ORBIT_METADATA_DIR)
+    parser.add_argument(
+        "--radiants-h5",
+        type=Path,
+        default=None,
+        help="Use a collected radiant sidecar containing a /radiants table instead of scanning orbit metadata.",
+    )
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--max-combined-score", type=float, default=1.5)
     parser.add_argument("--min-uncertainty-samples", type=int, default=3)
     parser.add_argument("--chosen-angle-deg", type=float, default=3.0)
+    parser.add_argument("--single-panel", action="store_true", help="Only plot the histogram panel.")
+    parser.add_argument("--linear-xaxis", action="store_true", help="Use a linear x-axis for the histogram.")
     args = parser.parse_args()
 
-    rows, files_read, files_skipped = collect(args.orbit_metadata_dir)
+    if args.radiants_h5 is not None:
+        with h5py.File(args.radiants_h5, "r") as h:
+            rows = h["radiants"][()]
+        files_read = 1
+        files_skipped = 0
+        source = f"collected radiant sidecar: {args.radiants_h5}"
+    else:
+        from collect_daily_radiants_from_orbit_metadata import collect
+
+        rows, files_read, files_skipped = collect(args.orbit_metadata_dir)
+        source = "compact hourly orbit metadata events tables"
     rows = finite_quality_rows(rows, args.max_combined_score, args.min_uncertainty_samples)
     out_h5 = args.output_dir / "radiant_uncertainty_distribution.h5"
     out_png = args.output_dir / "radiant_uncertainty_distribution.png"
     out_pdf = args.output_dir / "radiant_uncertainty_distribution.pdf"
     out_tex = args.output_dir / "radiant_uncertainty_distribution_snippet.tex"
-    write_summary_h5(out_h5, rows, files_read, files_skipped)
-    plot_distribution(rows, out_png, out_pdf, args.chosen_angle_deg)
+    write_summary_h5(out_h5, rows, files_read, files_skipped, source)
+    plot_distribution(rows, out_png, out_pdf, args.chosen_angle_deg, args.single_panel, args.linear_xaxis)
     write_tex_snippet(out_tex, out_png.name, out_h5.name)
 
     angle = rows["initial_state_radiant_angle_sigma_deg"]
