@@ -124,20 +124,25 @@ def plot_distribution(
         bins = np.linspace(0.0, max(3.05, np.nanpercentile(angle, 99.8)), 55)
     else:
         bins = np.geomspace(0.15, 60.0, 70)
+    hist_counts, hist_edges = np.histogram(angle, bins=bins)
+    bin_widths = np.diff(hist_edges)
+    density = hist_counts / np.maximum(total * bin_widths, np.finfo(float).tiny)
+    peak_index = int(np.nanargmax(density)) if len(density) else 0
+    peak_angle_deg = 0.5 * (hist_edges[peak_index] + hist_edges[peak_index + 1])
+    peak_density = float(density[peak_index]) if len(density) else np.nan
     counts, edges, _patches = axes[0].hist(
         angle,
         bins=bins,
+        density=True,
         histtype="step",
         color="#2f5f9f",
         linewidth=1.8,
     )
-    peak_index = int(np.nanargmax(counts)) if len(counts) else 0
-    peak_angle_deg = 0.5 * (edges[peak_index] + edges[peak_index + 1])
-    axes[0].axvline(chosen_angle_deg, color="black", lw=1.4, ls="--")
+    axes[0].axvline(peak_angle_deg, color="black", lw=1.4, ls="--")
     if not linear_xaxis:
         axes[0].set_xscale("log")
     axes[0].set_xlabel("Velocity-vector angular uncertainty (deg)")
-    axes[0].set_ylabel("Meteor count")
+    axes[0].set_ylabel(r"Probability density (deg$^{-1}$)")
     axes[0].grid(True, which="both", alpha=0.25)
 
     def angle_deg_to_speed_mps(angle_deg):
@@ -151,7 +156,7 @@ def plot_distribution(
     axes[0].text(
         0.97,
         0.95,
-        f"N = {len(rows):,}\npeak = {peak_angle_deg:.2f} deg\n{chosen_angle_deg:.1f} deg keeps {100.0*np.sum(angle <= chosen_angle_deg)/total:.1f}%",
+        f"N = {len(rows):,}\npeak = {peak_angle_deg:.2f} deg\npeak density = {peak_density:.2f} deg$^{{-1}}$\n{chosen_angle_deg:.1f} deg keeps {100.0*np.sum(angle <= chosen_angle_deg)/total:.1f}%",
         transform=axes[0].transAxes,
         ha="right",
         va="top",
