@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 import h5py
@@ -39,7 +40,111 @@ from pansy_coherent import (
     estimate_event_module_voltage_gain,
 )
 from plot_interferometric_disambiguation import refine_coherence_peak
-from run_catalogue_mass_profiles import load_selected_fit, radius_um_to_mass_kg
+from run_catalogue_mass_profiles import load_selected_fit, profile_interval, radius_um_to_mass_kg
+
+
+def write_mass_profile_compatible_h5(
+    path: Path,
+    args: argparse.Namespace,
+    observations: dict,
+    dynamics: dict,
+    echo_keep: np.ndarray,
+    fitted_points_km: np.ndarray,
+    doppler_residual: np.ndarray,
+    velocity_keep: np.ndarray,
+    position_rms: np.ndarray,
+    path_length_km: float,
+    selected_hypothesis: str,
+) -> None:
+    """Write the single-pulse refit in the catalogue mass-profile summary schema."""
+    radius_um = np.asarray(dynamics["profile_radius_um"], dtype=np.float64)
+    delta_chi2 = np.asarray(dynamics["profile_delta_chi2"], dtype=np.float64)
+    threshold = 3.841458820694124
+    lower_um, upper_um, lower_bounded, upper_bounded, lower_status, upper_status = profile_interval(
+        radius_um, delta_chi2, threshold
+    )
+    best_radius_um = float(1e6 * 10.0 ** np.asarray(dynamics["parameters"], dtype=float)[6])
+    velocity = np.asarray(dynamics["velocity_km_s"], dtype=float)
+    temporary = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with h5py.File(temporary, "w") as handle:
+        handle.attrs["schema"] = "pansy.catalogue_mass_profile.single_pulse_raw_voltage.v1"
+        handle.attrs["sample_idx"] = int(args.sample_idx)
+        handle.attrs["sample_epoch_unix"] = float(observations["sample_epoch_unix"])
+        handle.attrs["diagnostics_h5"] = str(args.diagnostics_h5)
+        handle.attrs["selected_hypothesis"] = str(selected_hypothesis)
+        handle.attrs["meteoroid_density_kg_m3"] = 3000.0
+        handle.attrs["measurement"] = "single-pulse raw-voltage Doppler refit used for Figure 3"
+        profile = handle.create_group("profile")
+        profile.create_dataset("radius_um", data=radius_um)
+        profile.create_dataset("mass_kg", data=radius_um_to_mass_kg(radius_um))
+        profile.create_dataset("chi2", data=np.asarray(dynamics["profile_chi2"], dtype=np.float64))
+        profile.create_dataset("delta_chi2", data=delta_chi2)
+        profile.create_dataset(
+            "relative_probability_density_log_radius",
+            data=np.asarray(dynamics["profile_probability_density_log_radius"], dtype=np.float64),
+        )
+        profile.create_dataset(
+            "probability_weight",
+            data=np.asarray(dynamics["profile_probability_weights"], dtype=np.float64),
+        )
+        profile.create_dataset("success", data=np.asarray(dynamics["profile_success"], dtype=bool))
+        profile.create_dataset("parameters6", data=np.asarray(dynamics["profile_parameters6"], dtype=np.float64))
+
+        result = handle.create_group("result")
+        result.create_dataset("free_best_parameters7", data=np.asarray(dynamics["parameters"], dtype=np.float64))
+        result.create_dataset("free_best_radius_um", data=best_radius_um)
+        result.create_dataset("free_best_mass_kg", data=radius_um_to_mass_kg(best_radius_um))
+        result.create_dataset("profile_grid_best_radius_um", data=float(radius_um[int(np.nanargmin(delta_chi2))]))
+        result.create_dataset("profile_grid_best_mass_kg", data=radius_um_to_mass_kg(radius_um[int(np.nanargmin(delta_chi2))]))
+        result.create_dataset("profile_ci95_lower_radius_um", data=lower_um)
+        result.create_dataset("profile_ci95_upper_radius_um", data=upper_um)
+        result.create_dataset("profile_ci95_lower_mass_kg", data=radius_um_to_mass_kg(lower_um))
+        result.create_dataset("profile_ci95_upper_mass_kg", data=radius_um_to_mass_kg(upper_um))
+        result.create_dataset("profile_ci95_lower_bounded", data=lower_bounded)
+        result.create_dataset("profile_ci95_upper_bounded", data=upper_bounded)
+        result.create_dataset("profile_ci95_delta_chi2_threshold", data=threshold)
+        result.create_dataset(
+            "marginal_radius_quantiles_um",
+            data=np.asarray(dynamics["marginal_radius_quantiles_um"], dtype=np.float64),
+        )
+        result.create_dataset(
+            "marginal_mass_quantiles_kg",
+            data=np.asarray(dynamics["marginal_mass_quantiles_kg"], dtype=np.float64),
+        )
+        result.create_dataset("minimum_chi2", data=float(np.nanmin(np.asarray(dynamics["profile_chi2"], dtype=float))))
+        result.create_dataset("free_chi2", data=float(np.nanmin(np.asarray(dynamics["profile_chi2"], dtype=float))))
+        result.attrs["profile_ci95_lower_status"] = lower_status
+        result.attrs["profile_ci95_upper_status"] = upper_status
+
+        quality = handle.create_group("quality")
+        quality.create_dataset("n_measurements", data=int(np.count_nonzero(echo_keep)))
+        quality.create_dataset(
+            "sigma_position_component_km",
+            data=float(np.sqrt(np.nanmean(np.asarray(position_rms, dtype=float) ** 2))),
+        )
+        quality.create_dataset(
+            "sigma_doppler_km_s",
+            data=float(np.sqrt(np.nanmean(np.asarray(doppler_residual[velocity_keep], dtype=float) ** 2))) / 1e3,
+        )
+        quality.create_dataset(
+            "free_position_3d_rms_km",
+            data=float(
+                np.sqrt(
+                    np.nanmean(
+                        np.sum((fitted_points_km[echo_keep] - np.asarray(dynamics["position_km"])[echo_keep]) ** 2, axis=1)
+                    )
+                )
+            ),
+        )
+        quality.create_dataset(
+            "free_doppler_rms_km_s",
+            data=float(np.sqrt(np.nanmean(np.asarray(doppler_residual[velocity_keep], dtype=float) ** 2))) / 1e3,
+        )
+        quality.create_dataset("path_length_km", data=float(path_length_km))
+        quality.create_dataset("initial_speed_km_s", data=float(np.linalg.norm(np.asarray(dynamics["parameters"])[3:6]) / 1e3))
+        quality.create_dataset("fitted_speed_mean_km_s", data=float(np.nanmean(np.linalg.norm(velocity[echo_keep], axis=1))))
+    os.replace(temporary, path)
 
 
 def main() -> int:
@@ -54,6 +159,8 @@ def main() -> int:
     parser.add_argument("--frequency-half-width-hz", type=float, default=1.5e4)
     parser.add_argument("--frequency-grid-size", type=int, default=2001)
     parser.add_argument("--refine-interferometry-subgrid", action="store_true")
+    parser.add_argument("--no-plot", action="store_true")
+    parser.add_argument("--mass-profile-output-dir", type=Path)
     args = parser.parse_args()
 
     cut = load_cut(args.base / "metadata/cut", args.sample_idx)
@@ -281,6 +388,29 @@ def main() -> int:
     snr_db = 10.0 * np.log10(
         np.maximum(np.asarray(observations["snr"], dtype=float), 1e-12)
     )
+    if args.mass_profile_output_dir is not None:
+        mass_profile_path = args.mass_profile_output_dir / f"mass_profile_{args.sample_idx}.h5"
+        write_mass_profile_compatible_h5(
+            mass_profile_path,
+            args,
+            observations,
+            dynamics,
+            echo_keep,
+            fitted_points_km,
+            doppler_residual,
+            velocity_keep,
+            position_rms,
+            path_length_km,
+            stored_fit["label"],
+        )
+    if args.no_plot:
+        print(
+            f"single_pulses={len(result)} retained={np.count_nonzero(velocity_keep)} "
+            f"doppler_rms_mps={rms(doppler_residual[velocity_keep]):.6f} "
+            f"radius_um={1e6 * 10.0 ** dynamics['parameters'][6]:.6f}",
+            flush=True,
+        )
+        return 0
 
     observation_rti = recompute_cut_observables(cut, interp=1)
     rti_tx_idx = np.asarray(observation_rti["tx_idx"], dtype=np.int64)
