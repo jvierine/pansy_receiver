@@ -109,6 +109,8 @@ def plot_distribution(
     linear_xaxis: bool,
 ) -> None:
     angle = rows["initial_state_radiant_angle_sigma_deg"]
+    speed_mps = rows["speed_km_s"] * 1e3
+    reference_speed_mps = float(np.nanmedian(speed_mps[np.isfinite(speed_mps) & (speed_mps > 0.0)]))
     total = max(1, len(rows))
     angle_counts = threshold_counts(angle, ANGLE_THRESHOLDS_DEG)
 
@@ -122,7 +124,13 @@ def plot_distribution(
         bins = np.linspace(0.0, max(3.05, np.nanpercentile(angle, 99.8)), 55)
     else:
         bins = np.geomspace(0.15, 60.0, 70)
-    counts, edges, _patches = axes[0].hist(angle, bins=bins, color="#3b6fb6", alpha=0.82)
+    counts, edges, _patches = axes[0].hist(
+        angle,
+        bins=bins,
+        histtype="step",
+        color="#2f5f9f",
+        linewidth=1.8,
+    )
     peak_index = int(np.nanargmax(counts)) if len(counts) else 0
     peak_angle_deg = 0.5 * (edges[peak_index] + edges[peak_index + 1])
     axes[0].axvline(chosen_angle_deg, color="black", lw=1.4, ls="--")
@@ -131,6 +139,15 @@ def plot_distribution(
     axes[0].set_xlabel("Velocity-vector angular uncertainty (deg)")
     axes[0].set_ylabel("Meteor count")
     axes[0].grid(True, which="both", alpha=0.25)
+
+    def angle_deg_to_speed_mps(angle_deg):
+        return reference_speed_mps * np.tan(np.deg2rad(angle_deg))
+
+    def speed_mps_to_angle_deg(sigma_mps):
+        return np.rad2deg(np.arctan2(sigma_mps, reference_speed_mps))
+
+    top_axis = axes[0].secondary_xaxis("top", functions=(angle_deg_to_speed_mps, speed_mps_to_angle_deg))
+    top_axis.set_xlabel(r"Velocity uncertainty (m s$^{-1}$), at median $v_g$")
     axes[0].text(
         0.97,
         0.95,
