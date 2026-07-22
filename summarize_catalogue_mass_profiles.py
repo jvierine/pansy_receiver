@@ -16,6 +16,10 @@ from scipy.ndimage import gaussian_filter
 
 
 METEOROID_DENSITY_KG_M3 = 3000.0
+PAPER_AXIS_LABEL_SIZE = 18
+PAPER_TICK_LABEL_SIZE = 16
+PAPER_ANNOTATION_SIZE = 15
+PAPER_CONTOUR_LABEL_SIZE = 14
 
 
 def parse_args():
@@ -183,7 +187,15 @@ def density_contours(ax, speed, mass_kg, color):
         alpha=0.95,
     )
     labels = {level: f"{100.0 * unique_levels[level]:.0f}%" for level in levels}
-    ax.clabel(contours, contours.levels, fmt=labels, inline=True, inline_spacing=2, fontsize=7, colors=[color])
+    ax.clabel(
+        contours,
+        contours.levels,
+        fmt=labels,
+        inline=True,
+        inline_spacing=2,
+        fontsize=PAPER_CONTOUR_LABEL_SIZE,
+        colors=[color],
+    )
 
 
 def save_summary(path: Path, data, analysis_mask, args):
@@ -210,7 +222,10 @@ def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
     speed = data["initial_speed_km_s"]
     mass_limits = (1e-12, 1e-5)
 
-    fig = plt.figure(figsize=(7.4, 4.8), dpi=150)
+    # This wide source image is reduced to single-column width in the paper.
+    # Use approximately twice the normal Matplotlib type sizes so the final
+    # rendered labels remain comparable to the article's 8--9 pt body text.
+    fig = plt.figure(figsize=(7.4, 4.8), dpi=200)
     grid = fig.add_gridspec(1, 2, width_ratios=(4.6, 1.25), wspace=0.04)
     ax = fig.add_subplot(grid[0, 0])
     ax_mass = fig.add_subplot(grid[0, 1], sharey=ax)
@@ -220,8 +235,9 @@ def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
     ax.set_yscale("log")
     ax.set_ylim(*mass_limits)
     ax.set_xlim(10.0, 80.0)
-    ax.set_xlabel(r"Initial fitted speed (km s$^{-1}$)")
-    ax.set_ylabel(r"Initial mass $m_0$ (kg)")
+    ax.set_xlabel(r"Initial fitted speed (km s$^{-1}$)", fontsize=PAPER_AXIS_LABEL_SIZE)
+    ax.set_ylabel(r"Initial mass $m_0$ (kg)", fontsize=PAPER_AXIS_LABEL_SIZE)
+    ax.tick_params(axis="both", which="both", labelsize=PAPER_TICK_LABEL_SIZE)
     ax.grid(alpha=0.2, which="both", linewidth=0.5)
 
     mass_bins = np.logspace(np.log10(mass_limits[0]), np.log10(mass_limits[1]), 43)
@@ -245,14 +261,18 @@ def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
     ax_mass.set_ylim(*mass_limits)
     ax_mass.set_xlim(left=0.0)
     ax_mass.xaxis.set_major_locator(MaxNLocator(nbins=3, integer=True, prune="lower"))
-    ax_mass.set_xlabel("Count")
+    ax_mass.set_xlabel("Count", fontsize=PAPER_AXIS_LABEL_SIZE)
+    ax_mass.tick_params(axis="x", which="both", labelsize=PAPER_TICK_LABEL_SIZE)
     ax_mass.tick_params(axis="y", which="both", left=False, labelleft=False)
     ax_mass.grid(alpha=0.2, which="both", linewidth=0.5)
     radius_axis = ax_mass.secondary_yaxis(
         "right", functions=(mass_kg_to_radius_um, radius_um_to_mass_kg)
     )
     radius_axis.set_yscale("log")
-    radius_axis.set_ylabel(r"Initial radius $r_0$ ($\mu$m)")
+    radius_axis.set_ylabel(
+        r"Initial radius $r_0$ ($\mu$m)", fontsize=PAPER_AXIS_LABEL_SIZE
+    )
+    radius_axis.tick_params(axis="y", which="both", labelsize=PAPER_TICK_LABEL_SIZE)
     ax.legend(
         handles=(
             Line2D([0], [0], color="C0", lw=1.3, label="95% lower bound"),
@@ -260,7 +280,7 @@ def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
         ),
         loc="lower left",
         frameon=False,
-        fontsize=8,
+        fontsize=PAPER_ANNOTATION_SIZE,
     )
     ax.text(
         0.03,
@@ -269,7 +289,7 @@ def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
         transform=ax.transAxes,
         ha="left",
         va="top",
-        fontsize=8,
+        fontsize=PAPER_ANNOTATION_SIZE,
     )
     fig.subplots_adjust(left=0.12, right=0.89, bottom=0.14, top=0.98)
     path.parent.mkdir(parents=True, exist_ok=True)
