@@ -22,6 +22,13 @@ CLUSTER_VG_RANGE = (14.26, 30.24)
 CLUSTER_E_RANGE = (0.664, 0.832)
 ORBIT_COLORS = ("#0072B2", "#D55E00")
 COMET_COLOR = "black"
+RADIANT_COLOR_SPECS = {
+    "vg": (r"Geocentric speed, $v_g$ (km s$^{-1}$)", 10.0, 75.0, "viridis"),
+    "inclination": (r"Inclination, $i$ (deg)", 0.0, 20.0, "viridis"),
+    "q": (r"Perihelion distance, $q$ (AU)", 0.4, 0.9, "viridis"),
+    "a": (r"Semimajor axis, $a$ (AU)", 1.0, 5.0, "viridis"),
+    "omega": (r"Argument of perihelion, $\omega$ (deg)", 240.0, 290.0, "viridis"),
+}
 
 
 @dataclass(frozen=True)
@@ -233,6 +240,26 @@ def load_passage_rows(data_dir: Path, passage: Passage, solar_half_width: float)
     return np.concatenate([p for p in parts if len(p)]) if any(len(p) for p in parts) else parts[0]
 
 
+def validate_passage_sources(
+    rows: np.ndarray,
+    passage: Passage,
+    required_sources: tuple[str, ...] = ("PANSY", "MAARSY"),
+) -> None:
+    """Reject incomplete exports before they can silently alter a paper figure."""
+    present = set(np.unique(rows["dataset"]))
+    missing = [source for source in required_sources if source not in present]
+    if missing:
+        source_counts = {
+            source: int(np.sum(rows["dataset"] == source)) for source in required_sources
+        }
+        raise RuntimeError(
+            f"incomplete catalogue coverage for {passage.name} at "
+            f"solar longitude {passage.solar_lon_deg:.1f} +/- "
+            f"{CLUSTER_SOLAR_WINDOW_DEG / 2.0:.1f} deg: "
+            f"missing {', '.join(missing)}; counts={source_counts}"
+        )
+
+
 def select_associated(rows: np.ndarray, passage: Passage, radius_deg: float, velocity_half_width: float) -> np.ndarray:
     sep = angular_separation_deg(rows["sun_centered_lon"], rows["beta"], passage.sun_centered_lon_deg, passage.beta_deg)
     keep = sep <= radius_deg
@@ -365,6 +392,21 @@ def mean_kepler(rows: np.ndarray) -> np.ndarray:
     return out
 
 
+def radiant_color_values(rows: np.ndarray, color_field: str) -> np.ndarray:
+    """Return the requested radiant-panel color quantity."""
+    if color_field == "vg":
+        return np.asarray(rows["vg"], dtype=np.float64)
+    kepler_column = {
+        "a": 0,
+        "inclination": 2,
+        "omega": 4,
+        "q": 6,
+    }
+    if color_field not in kepler_column:
+        raise ValueError(f"unsupported radiant color field: {color_field}")
+    return np.asarray(rows["kepler"][:, kepler_column[color_field]], dtype=np.float64)
+
+
 def pansy_display_lon(lon_minus_sun_deg: np.ndarray) -> np.ndarray:
     return wrap180(-lon_minus_sun_deg - 90.0)
 
@@ -393,18 +435,31 @@ def draw_projection_grid(ax):
         ax.plot(x[good], y[good], color="0.78", lw=0.45, alpha=0.55)
 
 
-def plot_radiant_panel(ax, rows: np.ndarray, passage: Passage, radius_deg: float, lon_zoom: float, lat_zoom: float, solar_half_width: float):
+def plot_radiant_panel(
+    ax,
+    rows: np.ndarray,
+    passage: Passage,
+    radius_deg: float,
+    lon_zoom: float,
+    lat_zoom: float,
+    solar_half_width: float,
+    color_field: str = "vg",
+    color_norm: Normalize | None = None,
+    color_cmap: str = "viridis",
+):
     xoff = wrap180(rows["sun_centered_lon"] - passage.sun_centered_lon_deg)
     x = passage.sun_centered_lon_deg + xoff
     near = (np.abs(xoff) <= lon_zoom) & (np.abs(rows["beta"] - passage.beta_deg) <= lat_zoom)
-    norm = Normalize(vmin=10.0, vmax=75.0)
+    if color_norm is None:
+        _label, vmin, vmax, _cmap = RADIANT_COLOR_SPECS[color_field]
+        color_norm = Normalize(vmin=vmin, vmax=vmax, clip=True)
     mesh = ax.scatter(
         x[near],
         rows["beta"][near],
         s=8,
-        c=rows["vg"][near],
-        cmap="viridis",
-        norm=norm,
+        c=radiant_color_values(rows, color_field)[near],
+        cmap=color_cmap,
+        norm=color_norm,
         alpha=0.62,
         linewidths=0,
     )
@@ -485,6 +540,15 @@ def main():
     parser.add_argument("--solar-half-width-deg", type=float, default=CLUSTER_SOLAR_WINDOW_DEG / 2.0)
     parser.add_argument("--radiant-radius-deg", type=float, default=5.0)
     parser.add_argument("--velocity-half-width-kms", type=float, default=10.0)
+    parser.add_argument(
+        "--radiant-color",
+        choices=tuple(RADIANT_COLOR_SPECS),
+        default="vg",
+        help="Quantity used to color the two radiant panels",
+    )
+    parser.add_argument("--color-min", type=float)
+    parser.add_argument("--color-max", type=float)
+    parser.add_argument("--radiant-cmap")
     parser.add_argument("--cluster-filter", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--vg-min", type=float, default=CLUSTER_VG_RANGE[0])
     parser.add_argument("--vg-max", type=float, default=CLUSTER_VG_RANGE[1])
@@ -493,6 +557,8 @@ def main():
     args = parser.parse_args()
 
     rows_by_passage = [(p, load_passage_rows(args.radview_data, p, args.solar_half_width_deg)) for p in PASSAGES]
+    for passage, rows in rows_by_passage:
+        validate_passage_sources(rows, passage)
     if args.cluster_filter:
         vg_range = (min(args.vg_min, args.vg_max), max(args.vg_min, args.vg_max))
         e_range = (min(args.e_min, args.e_max), max(args.e_min, args.e_max))
@@ -501,14 +567,35 @@ def main():
         plot_rows_by_passage = rows_by_passage
     selections = [(p, select_associated(rows, p, args.radiant_radius_deg, args.velocity_half_width_kms)) for p, rows in plot_rows_by_passage]
 
+    color_label, default_color_min, default_color_max, default_cmap = RADIANT_COLOR_SPECS[
+        args.radiant_color
+    ]
+    color_min = default_color_min if args.color_min is None else float(args.color_min)
+    color_max = default_color_max if args.color_max is None else float(args.color_max)
+    if color_max <= color_min:
+        parser.error("--color-max must be greater than --color-min")
+    color_norm = Normalize(vmin=color_min, vmax=color_max, clip=True)
+    color_cmap = default_cmap if args.radiant_cmap is None else args.radiant_cmap
+
     fig, axes = plt.subplots(1, 3, figsize=(14.0, 4.4), constrained_layout=True)
     sc = None
     for ax, (passage, rows), (_p, selected) in zip(axes[:2], plot_rows_by_passage, selections, strict=True):
-        sc = plot_radiant_panel(ax, rows, passage, args.radiant_radius_deg, lon_zoom=32.0, lat_zoom=24.0, solar_half_width=args.solar_half_width_deg)
+        sc = plot_radiant_panel(
+            ax,
+            rows,
+            passage,
+            args.radiant_radius_deg,
+            lon_zoom=32.0,
+            lat_zoom=24.0,
+            solar_half_width=args.solar_half_width_deg,
+            color_field=args.radiant_color,
+            color_norm=color_norm,
+            color_cmap=color_cmap,
+        )
     axes[0].set_ylabel(r"Ecliptic latitude, $\beta$ (deg)")
     if sc is not None:
         cb = fig.colorbar(sc, ax=axes[:2], orientation="horizontal", pad=0.12, fraction=0.06)
-        cb.set_label(r"Geocentric speed, $v_g$ (km s$^{-1}$)")
+        cb.set_label(color_label)
     plot_orbits(axes[2], selections, colors=list(ORBIT_COLORS))
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
