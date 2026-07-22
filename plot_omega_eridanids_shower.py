@@ -271,12 +271,12 @@ def draw_mean_perifocal_panel(ax, orbits: np.ndarray) -> None:
         xyz = orbit_xyz(kepler)
         if xyz.shape[1]:
             projected = project(xyz)
-            ax.plot(projected[0], projected[1], color="0.55", lw=0.45, alpha=0.16)
+            ax.plot(projected[0], projected[1], color="0.50", lw=0.55, alpha=0.28)
     mean_projected = project(orbit_xyz(MEAN_KEPLER, samples=1200))
     ax.plot(mean_projected[0], mean_projected[1], color="black", lw=2.4, label=r"Mean $\omega$-Eridanid orbit")
     ax.scatter(0.0, 0.0, s=55, color="#f5b82e", edgecolor="black", linewidth=0.5, zorder=5)
     ax.set_xlim(-10.0, 5.0)
-    ax.set_ylim(-8.5, 6.5)
+    ax.set_ylim(-6.5, 8.5)
     ax.set_aspect("equal", adjustable="box")
     ax.grid(color="0.90", lw=0.6)
 
