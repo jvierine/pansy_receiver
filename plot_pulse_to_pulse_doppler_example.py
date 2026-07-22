@@ -546,21 +546,6 @@ def main() -> None:
         borderaxespad=0.2,
         labelspacing=0.25,
     )
-    interval_text = (
-        rf"$({sci_tex(three_lower_mass)}$--${sci_tex(three_upper_mass)})$ kg"
-        "\n"
-        rf"${three_ci['lower_radius_um']:.0f}$--${three_ci['upper_radius_um']:.0f}\,\mu$m"
-    )
-    ax.text(
-        0.98,
-        0.08,
-        interval_text,
-        transform=ax.transAxes,
-        ha="right",
-        va="bottom",
-        fontsize=6.8,
-        color="#005A8E",
-    )
     radius_axis = ax.secondary_xaxis("top", functions=(mass_kg_to_radius_um, radius_um_to_mass_kg))
     radius_axis.set_xlabel(r"Initial radius $r_0$ ($\mu$m)")
 
