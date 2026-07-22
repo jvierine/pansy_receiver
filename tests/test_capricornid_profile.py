@@ -34,6 +34,7 @@ def test_radiant_color_values_use_documented_kepler_columns():
 
     np.testing.assert_allclose(radiant_color_values(rows, "vg"), [21.0, 25.0])
     np.testing.assert_allclose(radiant_color_values(rows, "a"), [2.5, 3.0])
+    np.testing.assert_allclose(radiant_color_values(rows, "eccentricity"), [0.74, 0.78])
     np.testing.assert_allclose(radiant_color_values(rows, "inclination"), [7.6, 9.1])
     np.testing.assert_allclose(radiant_color_values(rows, "omega"), [264.0, 266.0])
     np.testing.assert_allclose(radiant_color_values(rows, "q"), [0.63, 0.66])

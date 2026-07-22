@@ -25,6 +25,7 @@ COMET_COLOR = "black"
 RADIANT_COLOR_SPECS = {
     "vg": (r"Geocentric speed, $v_g$ (km s$^{-1}$)", 10.0, 75.0, "viridis"),
     "inclination": (r"Inclination, $i$ (deg)", 0.0, 20.0, "viridis"),
+    "eccentricity": (r"Eccentricity, $e$", 0.65, 0.85, "viridis"),
     "q": (r"Perihelion distance, $q$ (AU)", 0.4, 0.9, "viridis"),
     "a": (r"Semimajor axis, $a$ (AU)", 1.0, 5.0, "viridis"),
     "omega": (r"Argument of perihelion, $\omega$ (deg)", 240.0, 290.0, "viridis"),
@@ -398,6 +399,7 @@ def radiant_color_values(rows: np.ndarray, color_field: str) -> np.ndarray:
         return np.asarray(rows["vg"], dtype=np.float64)
     kepler_column = {
         "a": 0,
+        "eccentricity": 1,
         "inclination": 2,
         "omega": 4,
         "q": 6,
