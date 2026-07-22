@@ -452,19 +452,29 @@ def plot_radiant_panel(
     xoff = wrap180(rows["sun_centered_lon"] - passage.sun_centered_lon_deg)
     x = passage.sun_centered_lon_deg + xoff
     near = (np.abs(xoff) <= lon_zoom) & (np.abs(rows["beta"] - passage.beta_deg) <= lat_zoom)
-    if color_norm is None:
-        _label, vmin, vmax, _cmap = RADIANT_COLOR_SPECS[color_field]
-        color_norm = Normalize(vmin=vmin, vmax=vmax, clip=True)
-    mesh = ax.scatter(
-        x[near],
-        rows["beta"][near],
-        s=8,
-        c=radiant_color_values(rows, color_field)[near],
-        cmap=color_cmap,
-        norm=color_norm,
-        alpha=0.62,
-        linewidths=0,
-    )
+    if color_field == "black":
+        mesh = ax.scatter(
+            x[near],
+            rows["beta"][near],
+            s=8,
+            color="black",
+            alpha=0.62,
+            linewidths=0,
+        )
+    else:
+        if color_norm is None:
+            _label, vmin, vmax, _cmap = RADIANT_COLOR_SPECS[color_field]
+            color_norm = Normalize(vmin=vmin, vmax=vmax, clip=True)
+        mesh = ax.scatter(
+            x[near],
+            rows["beta"][near],
+            s=8,
+            c=radiant_color_values(rows, color_field)[near],
+            cmap=color_cmap,
+            norm=color_norm,
+            alpha=0.62,
+            linewidths=0,
+        )
     ax.add_patch(plt.Circle((passage.sun_centered_lon_deg, passage.beta_deg), radius_deg, fill=False, color="black", lw=0.9, ls="--"))
     ax.set_xlim(passage.sun_centered_lon_deg + lon_zoom, passage.sun_centered_lon_deg - lon_zoom)
     ax.set_ylim(passage.beta_deg - lat_zoom, passage.beta_deg + lat_zoom)
@@ -544,8 +554,8 @@ def main():
     parser.add_argument("--velocity-half-width-kms", type=float, default=10.0)
     parser.add_argument(
         "--radiant-color",
-        choices=tuple(RADIANT_COLOR_SPECS),
-        default="vg",
+        choices=("black", *RADIANT_COLOR_SPECS),
+        default="black",
         help="Quantity used to color the two radiant panels",
     )
     parser.add_argument("--color-min", type=float)
@@ -569,15 +579,20 @@ def main():
         plot_rows_by_passage = rows_by_passage
     selections = [(p, select_associated(rows, p, args.radiant_radius_deg, args.velocity_half_width_kms)) for p, rows in plot_rows_by_passage]
 
-    color_label, default_color_min, default_color_max, default_cmap = RADIANT_COLOR_SPECS[
-        args.radiant_color
-    ]
-    color_min = default_color_min if args.color_min is None else float(args.color_min)
-    color_max = default_color_max if args.color_max is None else float(args.color_max)
-    if color_max <= color_min:
-        parser.error("--color-max must be greater than --color-min")
-    color_norm = Normalize(vmin=color_min, vmax=color_max, clip=True)
-    color_cmap = default_cmap if args.radiant_cmap is None else args.radiant_cmap
+    if args.radiant_color == "black":
+        color_label = None
+        color_norm = None
+        color_cmap = "viridis"
+    else:
+        color_label, default_color_min, default_color_max, default_cmap = RADIANT_COLOR_SPECS[
+            args.radiant_color
+        ]
+        color_min = default_color_min if args.color_min is None else float(args.color_min)
+        color_max = default_color_max if args.color_max is None else float(args.color_max)
+        if color_max <= color_min:
+            parser.error("--color-max must be greater than --color-min")
+        color_norm = Normalize(vmin=color_min, vmax=color_max, clip=True)
+        color_cmap = default_cmap if args.radiant_cmap is None else args.radiant_cmap
 
     fig, axes = plt.subplots(1, 3, figsize=(14.0, 4.4), constrained_layout=True)
     sc = None
@@ -595,7 +610,7 @@ def main():
             color_cmap=color_cmap,
         )
     axes[0].set_ylabel(r"Ecliptic latitude, $\beta$ (deg)")
-    if sc is not None:
+    if sc is not None and color_label is not None:
         cb = fig.colorbar(sc, ax=axes[:2], orientation="horizontal", pad=0.12, fraction=0.06)
         cb.set_label(color_label)
     plot_orbits(axes[2], selections, colors=list(ORBIT_COLORS))
