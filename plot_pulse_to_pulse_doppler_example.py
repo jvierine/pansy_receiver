@@ -541,15 +541,15 @@ def main() -> None:
     ax.set_ylabel("Relative density")
     ax.legend(
         frameon=False,
-        loc="upper left",
+        loc="upper right",
         handlelength=1.5,
         borderaxespad=0.2,
         labelspacing=0.25,
     )
     interval_text = (
-        rf"$m_{{0,95}}=({sci_tex(three_lower_mass)}$--${sci_tex(three_upper_mass)})$ kg"
+        rf"$({sci_tex(three_lower_mass)}$--${sci_tex(three_upper_mass)})$ kg"
         "\n"
-        rf"$r_{{0,95}}={three_ci['lower_radius_um']:.0f}$--${three_ci['upper_radius_um']:.0f}\,\mu$m"
+        rf"${three_ci['lower_radius_um']:.0f}$--${three_ci['upper_radius_um']:.0f}\,\mu$m"
     )
     ax.text(
         0.98,
