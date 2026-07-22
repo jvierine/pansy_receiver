@@ -122,7 +122,9 @@ def plot_distribution(
         bins = np.linspace(0.0, max(3.05, np.nanpercentile(angle, 99.8)), 55)
     else:
         bins = np.geomspace(0.15, 60.0, 70)
-    axes[0].hist(angle, bins=bins, color="#3b6fb6", alpha=0.82)
+    counts, edges, _patches = axes[0].hist(angle, bins=bins, color="#3b6fb6", alpha=0.82)
+    peak_index = int(np.nanargmax(counts)) if len(counts) else 0
+    peak_angle_deg = 0.5 * (edges[peak_index] + edges[peak_index + 1])
     axes[0].axvline(chosen_angle_deg, color="black", lw=1.4, ls="--")
     if not linear_xaxis:
         axes[0].set_xscale("log")
@@ -132,7 +134,7 @@ def plot_distribution(
     axes[0].text(
         0.97,
         0.95,
-        f"N = {len(rows):,}\nmedian = {np.nanmedian(angle):.2f} deg\n{chosen_angle_deg:.1f} deg keeps {100.0*np.sum(angle <= chosen_angle_deg)/total:.1f}%",
+        f"N = {len(rows):,}\npeak = {peak_angle_deg:.2f} deg\n{chosen_angle_deg:.1f} deg keeps {100.0*np.sum(angle <= chosen_angle_deg)/total:.1f}%",
         transform=axes[0].transAxes,
         ha="right",
         va="top",
