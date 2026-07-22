@@ -18,39 +18,26 @@ DEFAULT_EXPOSURE = Path(__file__).parent / "figs" / "paper_refresh_20260721_curr
 DEFAULT_OUTPUT = Path.home() / "src" / "pansy_paper" / "paper_omega_eridanids.png"
 
 SOLAR_RANGE_DEG = (100.0, 120.0)
-CORE_SOLAR_RANGE_DEG = (108.0, 112.0)
-VG_RANGE_KM_S = (43.97, 55.32)
+CORE_SOLAR_RANGE_DEG = (108.2, 112.2)
+VG_RANGE_KM_S = (44.76, 55.19)
+SEMIMAJOR_AXIS_RANGE_AU = (1.90, 6.52)
 HEALPIX_NSIDE = 32
 RADIANT_PIXELS = np.asarray(
     [
-        10638, 10639, 10640, 10641, 10642, 10643, 10644,
-        10750, 10751, 10752, 10753, 10754, 10755, 10756, 10757,
-        10859, 10860, 10861, 10862, 10863, 10864, 10865, 10866,
-        10964, 10965, 10966, 10967, 10969, 10970,
+        10524, 10525, 10527,
+        10641, 10642, 10643, 10644, 10645,
+        10752, 10753, 10754, 10755, 10756, 10757,
+        10860, 10862, 10863, 10864, 10865, 10866,
+        10966, 10969,
     ],
     dtype=np.int64,
 )
-BACKGROUND_PIXELS = np.asarray(
-    [
-        10274, 10275, 10276, 10277, 10278, 10279, 10280, 10281, 10282, 10283,
-        10398, 10399, 10400, 10401, 10402, 10403, 10404, 10405, 10406, 10407,
-        10408, 10409, 10518, 10519, 10520, 10521, 10522, 10523, 10524, 10525,
-        10526, 10527, 10528, 10529, 10530, 10635, 10636, 10637, 10645, 10646,
-        10647, 10748, 10749, 10758, 10759, 10857, 10858, 10867, 10868, 10962,
-        10963, 10968, 10971, 10972, 10973, 11063, 11064, 11065, 11066, 11067,
-        11068, 11069, 11070, 11071, 11072, 11073, 11160, 11161, 11162, 11163,
-        11164, 11165, 11166, 11167, 11168, 11169, 11254, 11255, 11256, 11257,
-        11258, 11259, 11260, 11261,
-    ],
-    dtype=np.int64,
-)
-
-MEAN_RA_DEG = 53.58
-MEAN_DEC_DEG = -31.29
-MEAN_VG_KM_S = 49.30
-MEAN_KEPLER = np.asarray([6.2300, 0.7526, 91.73, 290.12, 321.51, 38.05, 0.9145])
-MEAN_SC_LON_DEG = 289.80
-MEAN_BETA_DEG = -48.60
+MEAN_RA_DEG = 54.33
+MEAN_DEC_DEG = -30.63
+MEAN_VG_KM_S = 48.65
+MEAN_KEPLER = np.asarray([3.4039, 0.7089, 91.29, 290.14, 317.33, 42.24, 0.8999])
+MEAN_SC_LON_DEG = 291.04
+MEAN_BETA_DEG = -48.21
 OBLIQUITY_DEG = 23.4392911
 
 
@@ -142,13 +129,17 @@ def load_catalogue(path: Path) -> dict[str, np.ndarray]:
         }
 
 
-def selection_masks(rows: dict[str, np.ndarray]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def selection_masks(rows: dict[str, np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
     pixel = ang2pix_ring(HEALPIX_NSIDE, rows["lon"], rows["beta"])
     velocity = (rows["vg"] >= VG_RANGE_KM_S[0]) & (rows["vg"] <= VG_RANGE_KM_S[1])
-    shower = velocity & np.isin(pixel, RADIANT_PIXELS)
-    background = velocity & np.isin(pixel, BACKGROUND_PIXELS)
+    semimajor_axis = (
+        (rows["kepler"][:, 0] >= SEMIMAJOR_AXIS_RANGE_AU[0])
+        & (rows["kepler"][:, 0] <= SEMIMAJOR_AXIS_RANGE_AU[1])
+    )
+    distribution_filter = velocity & semimajor_axis
+    shower = distribution_filter & np.isin(pixel, RADIANT_PIXELS)
     core = shower & (rows["solar"] >= CORE_SOLAR_RANGE_DEG[0]) & (rows["solar"] <= CORE_SOLAR_RANGE_DEG[1])
-    return shower, background, core
+    return shower, core
 
 
 def interpolate_observation_solar_longitude(h5: h5py.File) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -169,16 +160,12 @@ def interpolate_observation_solar_longitude(h5: h5py.File) -> tuple[np.ndarray, 
 def activity_profile(
     rows: dict[str, np.ndarray],
     shower_mask: np.ndarray,
-    background_mask: np.ndarray,
     exposure_path: Path,
     bin_width_deg: float,
 ) -> dict[str, np.ndarray]:
     edges = np.arange(SOLAR_RANGE_DEG[0], SOLAR_RANGE_DEG[1] + bin_width_deg, bin_width_deg)
     centers = 0.5 * (edges[:-1] + edges[1:])
     shower_count, _ = np.histogram(rows["solar"][shower_mask], bins=edges)
-    edge_count, _ = np.histogram(rows["solar"][background_mask], bins=edges)
-    background_scale = len(RADIANT_PIXELS) / len(BACKGROUND_PIXELS)
-    expected_background = background_scale * edge_count
 
     with h5py.File(exposure_path, "r") as h5:
         observation_epoch, observation_solar, observation_hours = interpolate_observation_solar_longitude(h5)
@@ -196,16 +183,9 @@ def activity_profile(
             )[0]
         )
 
-    signal_count = shower_count - expected_background
-    rate = np.divide(signal_count, exposure, out=np.full_like(exposure, np.nan), where=exposure > 0.0)
+    rate = np.divide(shower_count, exposure, out=np.full_like(exposure, np.nan), where=exposure > 0.0)
     uncertainty = np.divide(
-        np.sqrt(shower_count + background_scale**2 * edge_count),
-        exposure,
-        out=np.full_like(exposure, np.nan),
-        where=exposure > 0.0,
-    )
-    background_rate = np.divide(
-        expected_background,
+        np.sqrt(shower_count),
         exposure,
         out=np.full_like(exposure, np.nan),
         where=exposure > 0.0,
@@ -214,9 +194,7 @@ def activity_profile(
         "centers": centers,
         "rate": rate,
         "uncertainty": uncertainty,
-        "background_rate": background_rate,
         "shower_count": shower_count,
-        "expected_background": expected_background,
         "exposure": exposure,
     }
 
@@ -293,8 +271,8 @@ def draw_mean_perifocal_panel(ax, orbits: np.ndarray) -> None:
 
 
 def make_figure(rows: dict[str, np.ndarray], core: np.ndarray, profile: dict[str, np.ndarray], output: Path) -> None:
-    if int(np.sum(core)) != 130:
-        raise RuntimeError(f"omega-Eridanid selection changed: expected 130 meteors, found {int(np.sum(core))}")
+    if int(np.sum(core)) != 76:
+        raise RuntimeError(f"omega-Eridanid selection changed: expected 76 meteors, found {int(np.sum(core))}")
     orbits = rows["kepler"][core]
     fig, axes = plt.subplots(1, 3, figsize=(14.0, 4.6), constrained_layout=True)
     draw_orbit_panel(axes[0], orbits, (0, 1), 11.5)
@@ -315,17 +293,17 @@ def make_figure(rows: dict[str, np.ndarray], core: np.ndarray, profile: dict[str
     angular_stats = [circular_mean_std_deg(orbits[:, column]) for column in (2, 3, 4, 5)]
 
     summary = (
-        r"$N=130$" "\n"
-        rf"$\alpha_g={ra_mean:.2f}\pm{ra_std:.2f}^\circ$, "
-        rf"$\delta_g={linear_mean[0]:.2f}\pm{linear_std[0]:.2f}^\circ$" "\n"
-        rf"$v_g={linear_mean[1]:.2f}\pm{linear_std[1]:.2f}$ km s$^{{-1}}$" "\n"
-        rf"$a={linear_mean[2]:.2f}\pm{linear_std[2]:.2f}$ AU, "
-        rf"$e={linear_mean[3]:.3f}\pm{linear_std[3]:.3f}$" "\n"
-        rf"$q={linear_mean[4]:.3f}\pm{linear_std[4]:.3f}$ AU" "\n"
-        rf"$i={angular_stats[0][0]:.2f}\pm{angular_stats[0][1]:.2f}^\circ$, "
-        rf"$\Omega={angular_stats[1][0]:.2f}\pm{angular_stats[1][1]:.2f}^\circ$" "\n"
-        rf"$\omega={angular_stats[2][0]:.2f}\pm{angular_stats[2][1]:.2f}^\circ$, "
-        rf"$\nu={angular_stats[3][0]:.2f}\pm{angular_stats[3][1]:.2f}^\circ$"
+        r"$N=76$" "\n"
+        rf"$\alpha_g={MEAN_RA_DEG:.2f}\pm{ra_std:.2f}^\circ$, "
+        rf"$\delta_g={MEAN_DEC_DEG:.2f}\pm{linear_std[0]:.2f}^\circ$" "\n"
+        rf"$v_g={MEAN_VG_KM_S:.2f}\pm{linear_std[1]:.2f}$ km s$^{{-1}}$" "\n"
+        rf"$a={MEAN_KEPLER[0]:.2f}\pm{linear_std[2]:.2f}$ AU, "
+        rf"$e={MEAN_KEPLER[1]:.3f}\pm{linear_std[3]:.3f}$" "\n"
+        rf"$q={MEAN_KEPLER[6]:.3f}\pm{linear_std[4]:.3f}$ AU" "\n"
+        rf"$i={MEAN_KEPLER[2]:.2f}\pm{angular_stats[0][1]:.2f}^\circ$, "
+        rf"$\Omega={MEAN_KEPLER[3]:.2f}\pm{angular_stats[1][1]:.2f}^\circ$" "\n"
+        rf"$\omega={MEAN_KEPLER[4]:.2f}\pm{angular_stats[2][1]:.2f}^\circ$, "
+        rf"$\nu={MEAN_KEPLER[5]:.2f}\pm{angular_stats[3][1]:.2f}^\circ$"
     )
     axes[1].text(0.02, 0.98, summary, transform=axes[1].transAxes, ha="left", va="top", fontsize=7.6)
 
@@ -335,9 +313,8 @@ def make_figure(rows: dict[str, np.ndarray], core: np.ndarray, profile: dict[str
     dy = profile["uncertainty"]
     ax.axhline(0.0, color="0.5", lw=0.7)
     ax.fill_between(x, y - dy, y + dy, color="C0", alpha=0.18, linewidth=0)
-    ax.plot(x, y, color="C0", marker="o", ms=3.2, lw=1.4, label="Background-subtracted")
-    ax.plot(x, profile["background_rate"], color="0.45", ls="--", lw=1.0, label="Local background")
-    ax.axvline(110.11, color="black", ls=":", lw=1.0)
+    ax.plot(x, y, color="C0", marker="o", ms=3.2, lw=1.4, label="Selected rate")
+    ax.axvline(110.13, color="black", ls=":", lw=1.0)
     ax.set_xlim(*SOLAR_RANGE_DEG)
     ax.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)")
     ax.set_ylabel(r"Exposure-corrected detected rate (h$^{-1}$)")
@@ -378,8 +355,8 @@ def main() -> None:
     args = parser.parse_args()
 
     rows = load_catalogue(args.catalogue)
-    shower, background, core = selection_masks(rows)
-    profile = activity_profile(rows, shower, background, args.exposure, args.bin_width_deg)
+    shower, core = selection_masks(rows)
+    profile = activity_profile(rows, shower, args.exposure, args.bin_width_deg)
     make_figure(rows, core, profile, args.output)
     print(f"selected core meteors: {int(np.sum(core))}")
     print(f"selected 100-120 deg meteors: {int(np.sum(shower))}")
