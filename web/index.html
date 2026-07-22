@@ -190,6 +190,11 @@
         font-weight: bold;
     }
 
+    .critical {
+        color: #b91c1c;
+        font-weight: bold;
+    }
+
     .grid-2 {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -314,6 +319,13 @@
     <div class="card">
         <h2>Processing Status</h2>
         <img class="dashboard-image" src="processing.png">
+    </div>
+
+    <div class="card">
+        <h2>Syowa Disk Space</h2>
+        <div class="backup-summary" id="diskSummary">
+            Loading disk status...
+        </div>
     </div>
 
     <div class="card">
@@ -567,6 +579,72 @@
         }
         return `yes (${formatAge(mirror.active_age_seconds)})`;
     }
+
+    function formatBytes(bytes) {
+        if (!Number.isFinite(bytes)) {
+            return 'n/a';
+        }
+        const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
+        let value = bytes;
+        let unitIndex = 0;
+        while (value >= 1024 && unitIndex < units.length - 1) {
+            value /= 1024;
+            unitIndex += 1;
+        }
+        const digits = value >= 100 ? 0 : value >= 10 ? 1 : 2;
+        return `${value.toFixed(digits)} ${units[unitIndex]}`;
+    }
+
+    function diskLabel(path) {
+        const labels = {
+            '/media/analysis': 'Analysis',
+            '/media/old_analysis': 'Old analysis',
+            '/media/archive': 'Raw archive'
+        };
+        return labels[path] || path;
+    }
+
+    fetch('ops_status.json', {cache: 'no-store'})
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(status => {
+            const generatedMs = Date.parse(status.generated_utc);
+            const ageSeconds = Number.isFinite(generatedMs)
+                ? Math.max(0, (Date.now() - generatedMs) / 1000)
+                : null;
+            const stale = ageSeconds === null || ageSeconds > 3600;
+            const rows = (status.disks || []).map(disk => {
+                if (disk.error) {
+                    return `<tr>
+                        <td class="critical">${diskLabel(disk.path)}</td>
+                        <td colspan="3" class="critical">${disk.error}</td>
+                    </tr>`;
+                }
+                const stateClass = disk.critical ? 'critical' : disk.warning ? 'warn' : 'ok';
+                return `<tr>
+                    <td>${diskLabel(disk.path)}</td>
+                    <td class="${stateClass}">${formatBytes(disk.free_bytes)}</td>
+                    <td>${formatBytes(disk.total_bytes)}</td>
+                    <td>${disk.used_percent.toFixed(1)}%</td>
+                </tr>`;
+            }).join('');
+            document.getElementById('diskSummary').innerHTML =
+                `<table>
+                    <thead><tr><th>Filesystem</th><th>Available</th><th>Total</th><th>Used</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+                <div class="${stale ? 'warn' : ''}" style="margin-top: 8px;">
+                    Updated ${ageSeconds === null ? 'at an unknown time' : `${formatAge(ageSeconds)} ago`}
+                </div>`;
+        })
+        .catch(error => {
+            document.getElementById('diskSummary').innerHTML =
+                `<span class="critical">Could not load disk status: ${error}</span>`;
+        });
 
     fetch('status.json', {cache: 'no-store'})
         .then(response => response.json())
