@@ -249,23 +249,34 @@ def draw_orbit_panel(ax, orbits: np.ndarray, coordinates: tuple[int, int], limit
 
 
 def draw_mean_perifocal_panel(ax, orbits: np.ndarray) -> None:
-    """Project the orbit ensemble into the mean orbit's perifocal plane."""
+    """Project into the mean orbit plane with its ecliptic intersection horizontal."""
     theta = np.linspace(0.0, 2.0 * np.pi, 720)
     mean_rotation = rotation_matrix(MEAN_KEPLER[3], MEAN_KEPLER[2], MEAN_KEPLER[4])
+    argp = np.deg2rad(MEAN_KEPLER[4])
+    node_rotation = np.asarray(
+        [
+            [np.cos(argp), -np.sin(argp)],
+            [np.sin(argp), np.cos(argp)],
+        ]
+    )
+
+    def project(xyz: np.ndarray) -> np.ndarray:
+        return node_rotation @ (mean_rotation.T @ xyz)[:2]
+
     for radius, label, color in ((1.0, "Earth", "C0"), (5.2044, "Jupiter", "0.45")):
         ecliptic = np.vstack((radius * np.cos(theta), radius * np.sin(theta), np.zeros_like(theta)))
-        projected = mean_rotation.T @ ecliptic
+        projected = project(ecliptic)
         ax.plot(projected[0], projected[1], color=color, lw=1.0, label=f"{label} orbit")
     for kepler in orbits:
         xyz = orbit_xyz(kepler)
         if xyz.shape[1]:
-            projected = mean_rotation.T @ xyz
+            projected = project(xyz)
             ax.plot(projected[0], projected[1], color="0.55", lw=0.45, alpha=0.16)
-    mean_projected = mean_rotation.T @ orbit_xyz(MEAN_KEPLER, samples=1200)
+    mean_projected = project(orbit_xyz(MEAN_KEPLER, samples=1200))
     ax.plot(mean_projected[0], mean_projected[1], color="black", lw=2.4, label=r"Mean $\omega$-Eridanid orbit")
     ax.scatter(0.0, 0.0, s=55, color="#f5b82e", edgecolor="black", linewidth=0.5, zorder=5)
-    ax.set_xlim(-11.5, 2.0)
-    ax.set_ylim(-6.0, 6.0)
+    ax.set_xlim(-10.0, 5.0)
+    ax.set_ylim(-7.0, 5.0)
     ax.set_aspect("equal", adjustable="box")
     ax.grid(color="0.90", lw=0.6)
 
@@ -279,8 +290,8 @@ def make_figure(rows: dict[str, np.ndarray], core: np.ndarray, profile: dict[str
     draw_mean_perifocal_panel(axes[1], orbits)
     axes[0].set_xlabel("Ecliptic X (AU)")
     axes[0].set_ylabel("Ecliptic Y (AU)")
-    axes[1].set_xlabel("Perifocal X (AU)")
-    axes[1].set_ylabel("Perifocal Y (AU)")
+    axes[1].set_xlabel("Ecliptic line of nodes (AU)")
+    axes[1].set_ylabel("In-plane perpendicular (AU)")
     axes[0].set_title("Viewed from the north ecliptic pole")
     axes[1].set_title("Mean orbital plane")
     axes[0].legend(loc="lower left", frameon=False, fontsize=7.5)
@@ -313,14 +324,13 @@ def make_figure(rows: dict[str, np.ndarray], core: np.ndarray, profile: dict[str
     dy = profile["uncertainty"]
     ax.axhline(0.0, color="0.5", lw=0.7)
     ax.fill_between(x, y - dy, y + dy, color="C0", alpha=0.18, linewidth=0)
-    ax.plot(x, y, color="C0", marker="o", ms=3.2, lw=1.4, label="Selected rate")
+    ax.plot(x, y, color="C0", marker="o", ms=3.2, lw=1.4, label="Selected rate (left axis)")
     ax.axvline(110.13, color="black", ls=":", lw=1.0)
     ax.set_xlim(*SOLAR_RANGE_DEG)
     ax.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)")
     ax.set_ylabel(r"Exposure-corrected detected rate (h$^{-1}$)")
     ax.set_title("Activity profile")
     ax.grid(color="0.90", lw=0.6)
-    ax.legend(loc="upper right", frameon=False, fontsize=8)
 
     count_axis = ax.twinx()
     count_axis.plot(
@@ -334,12 +344,21 @@ def make_figure(rows: dict[str, np.ndarray], core: np.ndarray, profile: dict[str
         lw=0.8,
         ls=":",
         alpha=0.75,
-        label="Raw count",
+        label="Raw count (right axis)",
     )
     count_axis.set_ylim(bottom=0.0)
     count_axis.set_ylabel("Raw selected count per bin", color="0.25")
     count_axis.tick_params(axis="y", colors="0.25")
     count_axis.spines["right"].set_color("0.25")
+    rate_handles, rate_labels = ax.get_legend_handles_labels()
+    count_handles, count_labels = count_axis.get_legend_handles_labels()
+    ax.legend(
+        rate_handles + count_handles,
+        rate_labels + count_labels,
+        loc="upper right",
+        frameon=False,
+        fontsize=8,
+    )
 
     output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output, dpi=240)
