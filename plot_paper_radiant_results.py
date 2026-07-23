@@ -104,7 +104,7 @@ SNAPSHOT_WINDOWS = (
     SnapshotWindow(solar_lon_deg=78.8),
     SnapshotWindow(
         solar_lon_deg=109.2,
-        marker_sc_lon_deg=288.74,
+        marker_sc_lon_deg=292.74,
         marker_beta_deg=-48.17,
     ),
     SnapshotWindow(
