@@ -388,7 +388,9 @@ def quality_mask(
         cov = np.asarray(events["fit_parameter_covariance"], dtype=np.float64)
         vel_var = np.trace(cov[:, 3:6, 3:6], axis1=1, axis2=2)
         vel_sigma = np.sqrt(np.where(vel_var >= 0.0, vel_var, np.nan))
-        radiant_sigma = np.rad2deg(np.arctan2(vel_sigma, np.maximum(finite_field(events, "v_g_km_s") * 1e3, 1.0)))
+        radiant_sigma = np.rad2deg(
+            np.arctan2(vel_sigma, np.maximum(initial_detection_speed_km_s(events) * 1e3, 1.0))
+        )
         good &= np.isfinite(radiant_sigma) & (radiant_sigma <= float(max_radiant_sigma_deg))
     return good
 
@@ -440,7 +442,7 @@ def fit_quality_mask(
         pos_sigma = np.sqrt(np.where(pos_var >= 0.0, pos_var, np.nan))
         vel_sigma = np.sqrt(np.where(vel_var >= 0.0, vel_var, np.nan))
         angle_sigma = np.rad2deg(
-            np.arctan2(vel_sigma, np.maximum(finite_field(events, "v_g_km_s") * 1e3, 1.0))
+            np.arctan2(vel_sigma, np.maximum(initial_detection_speed_km_s(events) * 1e3, 1.0))
         )
         if max_initial_state_position_sigma_m is not None:
             good &= np.isfinite(pos_sigma) & (pos_sigma <= float(max_initial_state_position_sigma_m))

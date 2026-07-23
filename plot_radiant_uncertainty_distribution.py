@@ -18,7 +18,7 @@ ANGLE_THRESHOLDS_DEG = np.asarray([0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 7.5, 
 UNCERTAINTY_DTYPE = np.dtype(
     [
         ("combined_score", "f8"),
-        ("speed_km_s", "f8"),
+        ("initial_detection_speed_km_s", "f8"),
         ("n_uncertainty_samples", "i8"),
         ("initial_state_position_sigma_m", "f8"),
         ("initial_state_velocity_sigma_mps", "f8"),
@@ -31,7 +31,7 @@ def finite_quality_rows(rows: np.ndarray, max_combined_score: float, min_uncerta
     good = np.isfinite(rows["initial_state_radiant_angle_sigma_deg"])
     good &= np.isfinite(rows["initial_state_velocity_sigma_mps"])
     good &= np.isfinite(rows["initial_state_position_sigma_m"])
-    good &= np.isfinite(rows["speed_km_s"]) & (rows["speed_km_s"] > 0.0)
+    good &= np.isfinite(rows["initial_detection_speed_km_s"]) & (rows["initial_detection_speed_km_s"] > 0.0)
     good &= np.isfinite(rows["combined_score"]) & (rows["combined_score"] <= max_combined_score)
     good &= rows["n_uncertainty_samples"] >= int(min_uncertainty_samples)
     return rows[good]
@@ -44,7 +44,10 @@ def threshold_counts(values: np.ndarray, thresholds: np.ndarray) -> np.ndarray:
 def rows_from_event_table(events: np.ndarray) -> np.ndarray:
     rows = np.zeros(len(events), dtype=UNCERTAINTY_DTYPE)
     rows["combined_score"] = np.asarray(events["combined_score"], dtype=np.float64)
-    rows["speed_km_s"] = np.asarray(events["v_g_km_s"], dtype=np.float64)
+    rows["initial_detection_speed_km_s"] = np.linalg.norm(
+        np.asarray(events["fit_parameters"][:, 3:6], dtype=np.float64),
+        axis=1,
+    ) / 1e3
     rows["n_uncertainty_samples"] = np.asarray(events["n_uncertainty_samples"], dtype=np.int64)
     cov = np.asarray(events["fit_parameter_covariance"][:, :6, :6], dtype=np.float64)
     pos_var = np.trace(cov[:, :3, :3], axis1=1, axis2=2)
@@ -52,8 +55,34 @@ def rows_from_event_table(events: np.ndarray) -> np.ndarray:
     rows["initial_state_position_sigma_m"] = np.sqrt(np.where(pos_var >= 0.0, pos_var, np.nan))
     rows["initial_state_velocity_sigma_mps"] = np.sqrt(np.where(vel_var >= 0.0, vel_var, np.nan))
     rows["initial_state_radiant_angle_sigma_deg"] = np.rad2deg(
-        np.arctan2(rows["initial_state_velocity_sigma_mps"], np.maximum(rows["speed_km_s"] * 1e3, 1.0))
+        np.arctan2(
+            rows["initial_state_velocity_sigma_mps"],
+            np.maximum(rows["initial_detection_speed_km_s"] * 1e3, 1.0),
+        )
     )
+    return rows
+
+
+def rows_from_radiant_table(radiants: np.ndarray) -> np.ndarray:
+    """Coerce a radiant sidecar that explicitly stores the local initial speed."""
+    required = {
+        "combined_score",
+        "initial_detection_speed_km_s",
+        "n_uncertainty_samples",
+        "initial_state_position_sigma_m",
+        "initial_state_velocity_sigma_mps",
+        "initial_state_radiant_angle_sigma_deg",
+    }
+    names = set(radiants.dtype.names or ())
+    missing = sorted(required - names)
+    if missing:
+        raise ValueError(
+            "radiant sidecar predates the v0 uncertainty definition; rebuild it. "
+            f"Missing fields: {', '.join(missing)}"
+        )
+    rows = np.zeros(len(radiants), dtype=UNCERTAINTY_DTYPE)
+    for name in UNCERTAINTY_DTYPE.names:
+        rows[name] = radiants[name]
     return rows
 
 
@@ -80,7 +109,7 @@ def write_summary_h5(path: Path, rows: np.ndarray, files_read: int, files_skippe
     angle = rows["initial_state_radiant_angle_sigma_deg"]
     vel = rows["initial_state_velocity_sigma_mps"]
     pos = rows["initial_state_position_sigma_m"]
-    speed = rows["speed_km_s"]
+    speed = rows["initial_detection_speed_km_s"]
     path.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(path, "w") as h:
         h.attrs["script"] = Path(__file__).name
@@ -89,13 +118,13 @@ def write_summary_h5(path: Path, rows: np.ndarray, files_read: int, files_skippe
         h.attrs["files_skipped"] = int(files_skipped)
         h.attrs["n_radiants"] = int(len(rows))
         h.attrs["radiant_angle_sigma_definition"] = (
-            "conservative old definition: atan(sqrt(trace(initial-state velocity covariance)) / geocentric_speed_mps), degrees"
+            "atan(sqrt(trace(local initial-state velocity covariance)) / local initial-detection speed), degrees"
         )
         h.create_dataset("percentiles", data=PERCENTILES)
         h.create_dataset("radiant_angle_sigma_deg_percentiles", data=np.nanpercentile(angle, PERCENTILES))
         h.create_dataset("initial_state_velocity_sigma_mps_percentiles", data=np.nanpercentile(vel, PERCENTILES))
         h.create_dataset("initial_state_position_sigma_m_percentiles", data=np.nanpercentile(pos, PERCENTILES))
-        h.create_dataset("geocentric_speed_km_s_percentiles", data=np.nanpercentile(speed, PERCENTILES))
+        h.create_dataset("initial_detection_speed_km_s_percentiles", data=np.nanpercentile(speed, PERCENTILES))
         h.create_dataset("angle_thresholds_deg", data=ANGLE_THRESHOLDS_DEG)
         h.create_dataset("angle_threshold_counts", data=threshold_counts(angle, ANGLE_THRESHOLDS_DEG))
 
@@ -241,7 +270,7 @@ def main() -> None:
 
     if args.radiants_h5 is not None:
         with h5py.File(args.radiants_h5, "r") as h:
-            rows = h["radiants"][()]
+            rows = rows_from_radiant_table(h["radiants"][()])
         files_read = 1
         files_skipped = 0
         source = f"collected radiant sidecar: {args.radiants_h5}"

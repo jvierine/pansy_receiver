@@ -39,6 +39,7 @@ RADIANT_DTYPE = np.dtype(
         ("lambda_minus_sun_signed_deg", "f8"),
         ("plot_longitude_deg", "f8"),
         ("speed_km_s", "f8"),
+        ("initial_detection_speed_km_s", "f8"),
         ("n_uncertainty_samples", "i8"),
         ("frac_e_gt_1", "f8"),
         ("kepler_std", "f8", (7,)),
@@ -88,6 +89,10 @@ def rows_from_events(events: np.ndarray) -> np.ndarray:
     rows["lambda_minus_sun_signed_deg"] = lambda_minus_sun_signed
     rows["plot_longitude_deg"] = centered_plot_longitude_deg(lambda_minus_sun_signed)
     rows["speed_km_s"] = events["v_g_km_s"]
+    rows["initial_detection_speed_km_s"] = np.linalg.norm(
+        np.asarray(events["fit_parameters"][:, 3:6], dtype=np.float64),
+        axis=1,
+    ) / 1e3
     rows["n_uncertainty_samples"] = events["n_uncertainty_samples"]
     rows["frac_e_gt_1"] = events["frac_e_gt_1"]
     rows["kepler_std"] = events["kepler_std"]
@@ -104,7 +109,10 @@ def rows_from_events(events: np.ndarray) -> np.ndarray:
     rows["initial_state_position_sigma_m"] = np.sqrt(np.where(pos_var >= 0.0, pos_var, np.nan))
     rows["initial_state_velocity_sigma_mps"] = np.sqrt(np.where(vel_var >= 0.0, vel_var, np.nan))
     rows["initial_state_radiant_angle_sigma_deg"] = np.rad2deg(
-        np.arctan2(rows["initial_state_velocity_sigma_mps"], np.maximum(events["v_g_km_s"] * 1e3, 1.0))
+        np.arctan2(
+            rows["initial_state_velocity_sigma_mps"],
+            np.maximum(rows["initial_detection_speed_km_s"] * 1e3, 1.0),
+        )
     )
     return rows
 
