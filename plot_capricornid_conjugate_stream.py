@@ -8,10 +8,18 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import LogNorm, Normalize
 from matplotlib.ticker import FuncFormatter
+
+from plot_omega_eridanids_shower import (
+    DEFAULT_EXPOSURE,
+    ang2pix_ring,
+    interpolate_observation_solar_longitude,
+)
+from radiant_visibility import centered_plot_longitude_deg, radiant_exposure_hours_points
 
 
 RADVIEW_ROOT = Path.home() / "src" / "radview"
@@ -66,6 +74,13 @@ PASSAGES = (
 COMET_169P_NEAT = np.asarray([2.604, 0.76796, 11.285, 176.04, 218.13, np.nan, 0.604], dtype=np.float64)
 DCS_PROFILE_SOLAR_RANGE_DEG = (300.0, 330.0)
 DCS_PROFILE_BIN_WIDTH_DEG = 0.25
+DCS_ACTIVITY_SOLAR_RANGE_DEG = (305.0, 325.0)
+DCS_ACTIVITY_BIN_WIDTH_DEG = 1.0
+DCS_ACTIVITY_HEALPIX_NSIDE = 32
+DCS_ACTIVITY_HEALPIX_PIXEL = 7102
+DCS_ACTIVITY_E_RANGE = (0.734, 0.857)
+DCS_ACTIVITY_MEAN_SC_LON_DEG = -5.51
+DCS_ACTIVITY_MEAN_BETA_DEG = -8.31
 
 
 def wrap180(deg):
@@ -338,6 +353,92 @@ def plot_dcs_solar_longitude_profile(
     plt.close(fig)
 
 
+def select_dcs_activity_pixel(rows: np.ndarray) -> np.ndarray:
+    """Select the exact Radview radiant pixel and eccentricity range used for DCS."""
+    pixel = ang2pix_ring(DCS_ACTIVITY_HEALPIX_NSIDE, rows["sun_centered_lon"], rows["beta"])
+    eccentricity = rows["kepler"][:, 1]
+    keep = pixel == DCS_ACTIVITY_HEALPIX_PIXEL
+    keep &= np.isfinite(eccentricity)
+    keep &= (eccentricity >= DCS_ACTIVITY_E_RANGE[0]) & (eccentricity <= DCS_ACTIVITY_E_RANGE[1])
+    return rows[keep]
+
+
+def dcs_activity_profile(
+    rows: np.ndarray,
+    exposure_path: Path,
+    solar_range_deg: tuple[float, float] = DCS_ACTIVITY_SOLAR_RANGE_DEG,
+    bin_width_deg: float = DCS_ACTIVITY_BIN_WIDTH_DEG,
+) -> dict[str, np.ndarray]:
+    """Return exposure-corrected PANSY detections in the selected DCS radiant pixel."""
+    solar_min, solar_max = sorted(map(float, solar_range_deg))
+    edges = np.arange(solar_min, solar_max + bin_width_deg, bin_width_deg, dtype=np.float64)
+    centers = 0.5 * (edges[:-1] + edges[1:])
+    counts, _ = np.histogram(rows["solar_lon"], bins=edges)
+
+    with h5py.File(exposure_path, "r") as h5:
+        observation_epoch, observation_solar, observation_hours = interpolate_observation_solar_longitude(h5)
+    exposure = np.zeros_like(centers)
+    plot_lon = float(centered_plot_longitude_deg(DCS_ACTIVITY_MEAN_SC_LON_DEG))
+    for i, (lo, hi) in enumerate(zip(edges[:-1], edges[1:], strict=True)):
+        keep = (observation_solar >= lo) & (observation_solar < hi)
+        exposure[i] = float(
+            radiant_exposure_hours_points(
+                observation_epoch[keep],
+                observation_solar[keep],
+                observation_hours[keep],
+                np.asarray([plot_lon]),
+                np.asarray([DCS_ACTIVITY_MEAN_BETA_DEG]),
+            )[0]
+        )
+
+    rate = np.divide(counts, exposure, out=np.full_like(exposure, np.nan), where=exposure > 0.0)
+    uncertainty = np.divide(
+        np.sqrt(counts),
+        exposure,
+        out=np.full_like(exposure, np.nan),
+        where=exposure > 0.0,
+    )
+    return {
+        "centers": centers,
+        "counts": counts,
+        "exposure": exposure,
+        "rate": rate,
+        "uncertainty": uncertainty,
+    }
+
+
+def plot_dcs_activity_panel(ax, profile: dict[str, np.ndarray]) -> None:
+    """Plot the DCS activity rate and the corresponding detected counts."""
+    x = profile["centers"]
+    y = profile["rate"]
+    uncertainty = profile["uncertainty"]
+    counts = profile["counts"]
+    ax.fill_between(x, y - uncertainty, y + uncertainty, color="C0", alpha=0.20, linewidth=0)
+    ax.plot(x, y, color="C0", marker="o", ms=3.2, lw=1.4)
+    half_bin = 0.5 * float(np.median(np.diff(x))) if len(x) > 1 else 0.5
+    ax.set_xlim(float(x[0] - half_bin), float(x[-1] + half_bin))
+    ax.set_ylim(bottom=0.0)
+    ax.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)")
+    ax.set_ylabel(r"Detected rate (h$^{-1}$)")
+    ax.grid(alpha=0.22, lw=0.45)
+    ax.text(
+        0.03,
+        0.95,
+        (
+            rf"$N_{{\rm side}}={DCS_ACTIVITY_HEALPIX_NSIDE}$, pixel {DCS_ACTIVITY_HEALPIX_PIXEL}; "
+            rf"${DCS_ACTIVITY_E_RANGE[0]:.3f}\leq e\leq{DCS_ACTIVITY_E_RANGE[1]:.3f}$"
+        ),
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=9,
+    )
+    count_ax = ax.twinx()
+    count_ax.step(x, counts, where="mid", color="0.35", lw=1.0, alpha=0.75)
+    count_ax.set_ylim(bottom=0.0)
+    count_ax.set_ylabel(r"Count per $1^\circ$")
+
+
 def orbit_xy(kepler: np.ndarray, samples: int = 361) -> tuple[np.ndarray, np.ndarray]:
     a, e, inc, raan, argp = kepler[:5]
     if not np.isfinite(a) or a <= 0.0 or not np.isfinite(e) or e < 0.0 or e >= 1.0:
@@ -549,6 +650,10 @@ def main():
     parser.add_argument("--profile-solar-min-deg", type=float, default=DCS_PROFILE_SOLAR_RANGE_DEG[0])
     parser.add_argument("--profile-solar-max-deg", type=float, default=DCS_PROFILE_SOLAR_RANGE_DEG[1])
     parser.add_argument("--profile-bin-width-deg", type=float, default=DCS_PROFILE_BIN_WIDTH_DEG)
+    parser.add_argument("--activity-exposure", type=Path, default=DEFAULT_EXPOSURE)
+    parser.add_argument("--activity-solar-min-deg", type=float, default=DCS_ACTIVITY_SOLAR_RANGE_DEG[0])
+    parser.add_argument("--activity-solar-max-deg", type=float, default=DCS_ACTIVITY_SOLAR_RANGE_DEG[1])
+    parser.add_argument("--activity-bin-width-deg", type=float, default=DCS_ACTIVITY_BIN_WIDTH_DEG)
     parser.add_argument("--solar-half-width-deg", type=float, default=CLUSTER_SOLAR_WINDOW_DEG / 2.0)
     parser.add_argument("--radiant-radius-deg", type=float, default=5.0)
     parser.add_argument("--velocity-half-width-kms", type=float, default=10.0)
@@ -594,9 +699,21 @@ def main():
         color_norm = Normalize(vmin=color_min, vmax=color_max, clip=True)
         color_cmap = default_cmap if args.radiant_cmap is None else args.radiant_cmap
 
-    fig, axes = plt.subplots(1, 3, figsize=(14.0, 4.4), constrained_layout=True)
+    activity_solar_range = (args.activity_solar_min_deg, args.activity_solar_max_deg)
+    activity_center = 0.5 * sum(activity_solar_range)
+    activity_half_width = 0.5 * abs(activity_solar_range[1] - activity_solar_range[0])
+    activity_rows = load_chunk_rows(args.radview_data, "pansy", activity_center, activity_half_width)
+    activity_rows = select_dcs_activity_pixel(activity_rows)
+    activity = dcs_activity_profile(
+        activity_rows,
+        args.activity_exposure,
+        solar_range_deg=activity_solar_range,
+        bin_width_deg=args.activity_bin_width_deg,
+    )
+
+    fig, axes = plt.subplots(2, 2, figsize=(11.2, 8.2), constrained_layout=True)
     sc = None
-    for ax, (passage, rows), (_p, selected) in zip(axes[:2], plot_rows_by_passage, selections, strict=True):
+    for ax, (passage, rows), (_p, selected) in zip(axes[0], plot_rows_by_passage, selections, strict=True):
         sc = plot_radiant_panel(
             ax,
             rows,
@@ -609,11 +726,12 @@ def main():
             color_norm=color_norm,
             color_cmap=color_cmap,
         )
-    axes[0].set_ylabel(r"Ecliptic latitude, $\beta$ (deg)")
+    axes[0, 0].set_ylabel(r"Ecliptic latitude, $\beta$ (deg)")
     if sc is not None and color_label is not None:
-        cb = fig.colorbar(sc, ax=axes[:2], orientation="horizontal", pad=0.12, fraction=0.06)
+        cb = fig.colorbar(sc, ax=axes[0], orientation="horizontal", pad=0.12, fraction=0.06)
         cb.set_label(color_label)
-    plot_orbits(axes[2], selections, colors=list(ORBIT_COLORS))
+    plot_orbits(axes[1, 0], selections, colors=list(ORBIT_COLORS))
+    plot_dcs_activity_panel(axes[1, 1], activity)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(args.output, dpi=240)
@@ -641,6 +759,16 @@ def main():
         )
         print(f"DCS profile: selected {len(profile_rows)}")
         print(args.profile_output)
+    finite_rate = np.isfinite(activity["rate"])
+    if np.any(finite_rate):
+        peak_index = int(np.nanargmax(activity["rate"]))
+        print(
+            f"DCS activity: selected {len(activity_rows)}; "
+            f"peak lambda_sun={activity['centers'][peak_index]:.2f} deg, "
+            f"rate={activity['rate'][peak_index]:.3f} h^-1, "
+            f"count={activity['counts'][peak_index]}, "
+            f"exposure={activity['exposure'][peak_index]:.2f} h"
+        )
     for passage, rows in selections:
         print(f"{passage.name}: selected {len(rows)}")
         if len(rows):
