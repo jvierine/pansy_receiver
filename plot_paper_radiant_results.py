@@ -14,6 +14,7 @@ import numpy as np
 from astropy import units as u
 from astropy.coordinates import AltAz, EarthLocation, SkyCoord
 from astropy.time import Time
+from matplotlib import patheffects
 from matplotlib.ticker import FuncFormatter
 from matplotlib.colors import LogNorm, Normalize
 
@@ -57,7 +58,6 @@ class Shower:
 
 @dataclass(frozen=True)
 class SnapshotWindow:
-    label: str
     solar_lon_deg: float
     marker_sc_lon_deg: float | None = None
     marker_beta_deg: float | None = None
@@ -100,23 +100,20 @@ SHOWERS = (
 
 
 SNAPSHOT_WINDOWS = (
-    SnapshotWindow(label=r"$\lambda_\odot=38.8^\circ$", solar_lon_deg=38.8),
-    SnapshotWindow(label=r"$\lambda_\odot=78.8^\circ$", solar_lon_deg=78.8),
+    SnapshotWindow(solar_lon_deg=38.8),
+    SnapshotWindow(solar_lon_deg=78.8),
     SnapshotWindow(
-        label=r"$\omega$-Eridanids, $\lambda_\odot=109.2^\circ$",
         solar_lon_deg=109.2,
         marker_sc_lon_deg=288.74,
         marker_beta_deg=-48.17,
     ),
     SnapshotWindow(
-        label=r"CAP, $\lambda_\odot=132.3^\circ$",
         solar_lon_deg=132.3,
         marker_sc_lon_deg=177.1875,
         marker_beta_deg=10.806922874860348,
     ),
-    SnapshotWindow(label=r"$\lambda_\odot=197.0^\circ$", solar_lon_deg=197.0),
+    SnapshotWindow(solar_lon_deg=197.0),
     SnapshotWindow(
-        label=r"Daytime $\chi$ Capricornids, $\lambda_\odot=312.7^\circ$",
         solar_lon_deg=312.7,
         marker_sc_lon_deg=354.51,
         marker_beta_deg=-8.34,
@@ -656,8 +653,9 @@ def plot_snapshots(
     out: Path,
     half_width_deg: float,
 ) -> None:
-    fig = plt.figure(figsize=(8.0, 6.15), constrained_layout=True)
+    fig = plt.figure(figsize=(8.0, 5.25))
     axes = [fig.add_subplot(3, 2, i + 1, projection="hammer") for i in range(len(SNAPSHOT_WINDOWS))]
+    fig.subplots_adjust(left=0.055, right=0.995, bottom=0.075, top=0.995, wspace=0.025, hspace=0.015)
     xcenters, ycenters, _, _ = histogram_grid_centers(xedges, yedges)
     for ax, window in zip(axes, SNAPSHOT_WINDOWS, strict=True):
         window_center = window.solar_lon_deg
@@ -665,7 +663,7 @@ def plot_snapshots(
         sub = rows[solar_window_mask(rows, window_center, window_half_width)]
         obs_keep = solar_longitude_window_mask(observation_sun, window_center, window_half_width)
         if not np.any(obs_keep):
-            raise RuntimeError(f"No observing-time samples found for {window.label} snapshot")
+            raise RuntimeError(f"No observing-time samples found for solar longitude {window_center:.1f} deg")
         _, _, exposure_hours = radiant_exposure_hours_grid(
             observation_epoch[obs_keep],
             observation_sun[obs_keep],
@@ -682,7 +680,19 @@ def plot_snapshots(
         )
         render_healpix_hammer(ax, healpix_hist, SNAPSHOT_HEALPIX_NSIDE, cmap="magma", norm=norm)
         style_hammer(ax)
-        ax.set_title(rf"{window.label}$\pm{window_half_width:g}^\circ$", fontsize=10)
+        ax.set_yticklabels(["", r"$-30^\circ$", r"$0^\circ$", r"$30^\circ$", ""])
+        ax.text(
+            0.5,
+            0.965,
+            rf"$\lambda_\odot={window_center:.1f}^\circ$",
+            transform=ax.transAxes,
+            ha="center",
+            va="top",
+            color="white",
+            fontsize=10,
+            zorder=20,
+            path_effects=[patheffects.withStroke(linewidth=1.5, foreground="black")],
+        )
         add_exposure_contours(ax, exposure_hours, contour_hist, xedges, yedges)
         add_source_markers(ax)
         if window.marker_sc_lon_deg is not None and window.marker_beta_deg is not None:
@@ -698,9 +708,10 @@ def plot_snapshots(
                 zorder=10,
             )
         ax.set_xticklabels([])
-        ax.set_xlabel(r"$\lambda-\lambda_\odot$")
     for ax in axes[::2]:
         ax.set_ylabel(r"$\beta$")
+    for x in (0.285, 0.765):
+        fig.text(x, 0.018, r"$\lambda-\lambda_\odot$", ha="center", va="bottom")
     fig.savefig(out, dpi=240, bbox_inches="tight", pad_inches=0.02)
     plt.close(fig)
 
@@ -831,6 +842,21 @@ def main() -> None:
         type=Path,
         help="Reuse the filtered radiants and observing-time samples stored by an earlier run",
     )
+    parser.add_argument(
+        "--snapshot-radiants-h5",
+        type=Path,
+        help="Use the radiants dataset in this HDF5 file for the snapshot figure",
+    )
+    parser.add_argument(
+        "--snapshot-exposure-h5",
+        type=Path,
+        help="Use observation_epoch_unix and observation_hours from this HDF5 file for the snapshot figure",
+    )
+    parser.add_argument(
+        "--snapshots-only",
+        action="store_true",
+        help="Generate only paper_radiant_snapshots.png",
+    )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--min-cos-z", type=float, default=0.15)
     parser.add_argument("--mesomode-metadata-dir", type=Path)
@@ -885,6 +911,31 @@ def main() -> None:
         observation_epoch, observation_hours = observing_time_samples(intervals, cadence_seconds)
     if len(observation_epoch) == 0:
         raise RuntimeError("No observing-time samples were found for the radiant exposure calculation")
+    snapshot_rows = rows
+    if args.snapshot_radiants_h5 is not None:
+        with h5py.File(args.snapshot_radiants_h5, "r") as h5:
+            snapshot_rows = h5["radiants"][()]
+    snapshot_observation_epoch = observation_epoch
+    snapshot_observation_hours = observation_hours
+    if args.snapshot_exposure_h5 is not None:
+        with h5py.File(args.snapshot_exposure_h5, "r") as h5:
+            snapshot_observation_epoch = np.asarray(h5["observation_epoch_unix"], dtype=np.float64)
+            snapshot_observation_hours = np.asarray(h5["observation_hours"], dtype=np.float64)
+    snapshot_observation_sun = interpolate_solar_longitude(snapshot_rows, snapshot_observation_epoch)
+    if args.snapshots_only:
+        _, snapshot_xedges, snapshot_yedges = radiant_histogram(snapshot_rows)
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        plot_snapshots(
+            snapshot_rows,
+            snapshot_observation_epoch,
+            snapshot_observation_sun,
+            snapshot_observation_hours,
+            snapshot_xedges,
+            snapshot_yedges,
+            args.output_dir / "paper_radiant_snapshots.png",
+            half_width_deg=args.snapshot_half_width_deg,
+        )
+        return
     observation_sun = interpolate_solar_longitude(rows, observation_epoch)
     _, xedges, yedges = radiant_histogram(rows)
     xcenters, ycenters, _, _ = histogram_grid_centers(xedges, yedges)
@@ -957,17 +1008,17 @@ def main() -> None:
     )
     if not args.skip_secondary_plots:
         plot_snapshots(
-            rows,
-            observation_epoch,
-            observation_sun,
-            observation_hours,
+            snapshot_rows,
+            snapshot_observation_epoch,
+            snapshot_observation_sun,
+            snapshot_observation_hours,
             xedges,
             yedges,
             args.output_dir / "paper_radiant_snapshots.png",
             half_width_deg=args.snapshot_half_width_deg,
         )
         plot_candidate_showers(
-            rows,
+            snapshot_rows,
             args.output_dir / "paper_candidate_showers.png",
             half_width_deg=args.snapshot_half_width_deg,
             radius_deg=args.shower_radius_deg,
