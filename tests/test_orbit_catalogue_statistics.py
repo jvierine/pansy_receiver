@@ -95,6 +95,20 @@ def test_height_velocity_histogram_can_use_custom_height_range():
     assert counts.sum() == 2
 
 
+def test_initial_detection_speed_uses_fitted_local_velocity():
+    import orbit_metadata_table as omt
+    from plot_orbit_catalogue_statistics import initial_detection_speed_km_s
+
+    events = np.zeros(2, dtype=omt.EVENT_DTYPE)
+    events["fit_parameters"][0, 3:6] = [3_000.0, 4_000.0, 12_000.0]
+    events["fit_parameters"][1, 3:6] = [np.nan, 0.0, 0.0]
+
+    speed = initial_detection_speed_km_s(events)
+
+    np.testing.assert_allclose(speed[0], 13.0)
+    assert np.isnan(speed[1])
+
+
 def test_measurement_histogram_input_excludes_robust_fit_outliers():
     import orbit_metadata_table as omt
     from plot_orbit_catalogue_statistics import measurement_height_velocity_arrays

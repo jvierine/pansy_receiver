@@ -180,10 +180,10 @@ def load_required_sample_indices(path: Path | None) -> np.ndarray | None:
     if path is None:
         return None
     with h5py.File(path, "r") as h:
-        for name in ("sample_idx", "matched_sample_idx"):
+        for name in ("sample_idx", "matched_sample_idx", "fit_sample_idx"):
             if name in h:
                 return np.asarray(h[name], dtype=np.int64)
-    raise KeyError(f"{path} does not contain sample_idx or matched_sample_idx")
+    raise KeyError(f"{path} does not contain sample_idx, matched_sample_idx, or fit_sample_idx")
 
 
 def finite_field(events: np.ndarray, name: str) -> np.ndarray:
@@ -195,6 +195,19 @@ def finite_field(events: np.ndarray, name: str) -> np.ndarray:
     finite &= np.abs(values) <= np.finfo(np.float32).max
     out[finite] = values[finite].astype(np.float32)
     return out
+
+
+def initial_detection_speed_km_s(events: np.ndarray) -> np.ndarray:
+    """Return the fitted local speed at the first retained pulse."""
+    if events.dtype.names is None or "fit_parameters" not in events.dtype.names:
+        return np.full(len(events), np.nan, dtype=np.float32)
+    parameters = np.asarray(events["fit_parameters"], dtype=np.float64)
+    if parameters.ndim != 2 or parameters.shape[1] < 6:
+        return np.full(len(events), np.nan, dtype=np.float32)
+    velocity_mps = parameters[:, 3:6]
+    speed_km_s = np.linalg.norm(velocity_mps, axis=1) / 1e3
+    speed_km_s[~np.all(np.isfinite(velocity_mps), axis=1)] = np.nan
+    return speed_km_s.astype(np.float32)
 
 
 def selected_closest_tx_alias_sample_indices(events: np.ndarray, aliases: np.ndarray) -> np.ndarray:
@@ -461,6 +474,7 @@ def catalogue_arrays(
         "sample_idx": np.asarray(kept["sample_idx"], dtype=np.int64),
         "solar_longitude_deg": wrap360(finite_field(kept, "radiant_sun_ecliptic_lon_deg")).astype(np.float32),
         "initial_detection_height_km": finite_field(kept, "initial_detection_height_km").astype(np.float32),
+        "initial_detection_speed_km_s": initial_detection_speed_km_s(kept),
         "v_g_km_s": finite_field(kept, "v_g_km_s").astype(np.float32),
     }
     if "combined_score" in kept.dtype.names:
@@ -502,6 +516,7 @@ def fit_catalogue_arrays(
     return {
         "fit_sample_idx": np.asarray(kept["sample_idx"], dtype=np.int64),
         "fit_initial_detection_height_km": finite_field(kept, "initial_detection_height_km").astype(np.float32),
+        "fit_initial_detection_speed_km_s": initial_detection_speed_km_s(kept),
         "fit_v_g_km_s": finite_field(kept, "v_g_km_s").astype(np.float32),
     }
 
@@ -830,8 +845,15 @@ def write_statistics_h5(
     with h5py.File(path, "w") as h:
         h.attrs["script"] = Path(__file__).name
         h.attrs["source"] = "compact orbit metadata events tables"
-        h.attrs["height_velocity_source"] = "orbit metadata paths.position_enu_km[:,2] joined to events.v_g_km_s by sample_idx"
-        h.attrs["event_height_velocity_source"] = "orbit metadata events.initial_detection_height_km and events.v_g_km_s"
+        h.attrs["height_velocity_source"] = (
+            "orbit metadata events.initial_detection_height_km and "
+            "norm(events.fit_parameters[:,3:6]); both are evaluated at the first retained pulse"
+        )
+        h.attrs["event_height_velocity_source"] = h.attrs["height_velocity_source"]
+        h.attrs["height_velocity_speed_definition"] = (
+            "v0: magnitude of the fitted local ENU velocity at the first retained pulse; "
+            "not the asymptotic geocentric v_g"
+        )
         h.attrs["no_detection_metadata_used"] = True
         h.attrs["files_read"] = int(files_read)
         h.attrs["event_count"] = int(len(arrays["sample_idx"]))
@@ -960,6 +982,7 @@ def plot_height_velocity(
     ylabel: str,
     colorbar_label: str,
     height_ylim: tuple[float, float] = (70.0, 160.0),
+    xlabel: str = r"Initial detection speed, $v_0$ (km s$^{-1}$)",
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     plot_count = np.asarray(hv_counts, dtype=np.float64)
@@ -975,7 +998,7 @@ def plot_height_velocity(
         cmap=cmap,
         norm=LogNorm(vmin=1.0, vmax=max(1.0, float(np.nanmax(plot_count)) if np.any(np.isfinite(plot_count)) else 1.0)),
     )
-    ax.set_xlabel(r"Geocentric velocity, $v_g$ (km s$^{-1}$)", fontsize=20)
+    ax.set_xlabel(xlabel, fontsize=20)
     ax.set_ylabel(ylabel, fontsize=20)
     ax.set_xlim(float(speed_edges[0]), float(speed_edges[-1]))
     ax.set_ylim(*height_ylim)
@@ -1150,7 +1173,7 @@ def main() -> None:
     )
     hv_counts, height_edges, speed_edges = histogram_height_velocity(
         fit_arrays["fit_initial_detection_height_km"],
-        fit_arrays["fit_v_g_km_s"],
+        fit_arrays["fit_initial_detection_speed_km_s"],
         height_min_km=args.height_min_km,
         height_max_km=args.height_max_km,
     )
@@ -1215,6 +1238,7 @@ def main() -> None:
             speed_edges,
             "Measurement height (km)",
             "Measurement count",
+            xlabel=r"Asymptotic geocentric speed, $v_g$ (km s$^{-1}$)",
         )
     print(
         f"orbit_catalogue_statistics events={len(arrays['sample_idx'])} "
