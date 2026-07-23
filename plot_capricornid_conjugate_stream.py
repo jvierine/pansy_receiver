@@ -408,10 +408,11 @@ def dcs_activity_profile(
 
 
 def plot_dcs_activity_panel(ax, profile: dict[str, np.ndarray]) -> None:
-    """Plot the exposure-corrected DCS activity rate."""
+    """Plot the exposure-corrected DCS activity rate and detected counts."""
     x = profile["centers"]
     y = profile["rate"]
     uncertainty = profile["uncertainty"]
+    counts = profile["counts"]
     ax.fill_between(x, y - uncertainty, y + uncertainty, color="C0", alpha=0.20, linewidth=0)
     ax.plot(x, y, color="C0", marker="o", ms=3.2, lw=1.4)
     half_bin = 0.5 * float(np.median(np.diff(x))) if len(x) > 1 else 0.5
@@ -420,6 +421,10 @@ def plot_dcs_activity_panel(ax, profile: dict[str, np.ndarray]) -> None:
     ax.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)")
     ax.set_ylabel(r"Detected rate (h$^{-1}$)")
     ax.grid(alpha=0.22, lw=0.45)
+    count_ax = ax.twinx()
+    count_ax.step(x, counts, where="mid", color="0.35", lw=1.0, alpha=0.75)
+    count_ax.set_ylim(bottom=0.0)
+    count_ax.set_ylabel(r"Count per $1^\circ$")
 
 
 def orbit_xy(kepler: np.ndarray, samples: int = 361) -> tuple[np.ndarray, np.ndarray]:
@@ -614,7 +619,7 @@ def plot_orbits(
     if show_legend:
         legend = ax.legend(
             loc="upper center",
-            bbox_to_anchor=(0.5, 0.88),
+            bbox_to_anchor=(0.5, 0.91),
             fontsize=8,
             frameon=True,
             framealpha=1.0,
