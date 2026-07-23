@@ -765,14 +765,51 @@ def count_rate_from_counts_and_exposure(
     )
 
 
+def processed_hour_starts_unix_s(sample_idx: np.ndarray) -> np.ndarray:
+    """Return UTC-hour starts represented by at least one processed orbit event."""
+    epoch_s = np.asarray(sample_idx, dtype=np.float64) / 1_000_000.0
+    epoch_s = epoch_s[np.isfinite(epoch_s)]
+    if len(epoch_s) == 0:
+        return np.zeros(0, dtype=np.int64)
+    return np.unique(np.floor(epoch_s / 3600.0).astype(np.int64) * 3600)
+
+
+def intersect_intervals_with_processed_hours(
+    t0: np.ndarray,
+    t1: np.ndarray,
+    processed_hour_starts: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Intersect observing intervals with UTC hours represented in the orbit catalogue."""
+    valid_hours = set(np.asarray(processed_hour_starts, dtype=np.int64).tolist())
+    if not valid_hours:
+        return np.zeros(0, dtype=np.float64), np.zeros(0, dtype=np.float64)
+    clipped_t0: list[float] = []
+    clipped_t1: list[float] = []
+    for interval_t0, interval_t1 in zip(np.asarray(t0, dtype=np.float64), np.asarray(t1, dtype=np.float64)):
+        if not np.isfinite(interval_t0) or not np.isfinite(interval_t1) or interval_t1 <= interval_t0:
+            continue
+        first_hour = int(np.floor(interval_t0 / 3600.0) * 3600)
+        last_hour = int(np.floor(np.nextafter(interval_t1, -np.inf) / 3600.0) * 3600)
+        for hour_start in range(first_hour, last_hour + 1, 3600):
+            if hour_start not in valid_hours:
+                continue
+            overlap_t0 = max(float(interval_t0), float(hour_start))
+            overlap_t1 = min(float(interval_t1), float(hour_start + 3600))
+            if overlap_t1 > overlap_t0:
+                clipped_t0.append(overlap_t0)
+                clipped_t1.append(overlap_t1)
+    return np.asarray(clipped_t0, dtype=np.float64), np.asarray(clipped_t1, dtype=np.float64)
+
+
 def mesomode_exposure_by_solar_longitude(
     sidecar_path: Path | None,
     edges: np.ndarray,
     years: np.ndarray,
     start_unix_s: float | None = None,
     stop_unix_s: float | None = None,
+    processed_hour_starts: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Histogram mesosphere-mode observing hours by solar longitude and UTC year."""
+    """Histogram usable mesosphere-mode hours by solar longitude and UTC year."""
     n_year = len(years)
     n_bin = len(edges) - 1
     if sidecar_path is None:
@@ -786,6 +823,8 @@ def mesomode_exposure_by_solar_longitude(
         t0 = np.maximum(t0, float(start_unix_s))
     if stop_unix_s is not None:
         t1 = np.minimum(t1, float(stop_unix_s))
+    if processed_hour_starts is not None:
+        t0, t1 = intersect_intervals_with_processed_hours(t0, t1, processed_hour_starts)
     duration_h = (t1 - t0) / 3600.0
     mid_unix = 0.5 * (t0 + t1)
     good = np.isfinite(mid_unix) & np.isfinite(duration_h) & (duration_h > 0.0)
@@ -880,6 +919,9 @@ def write_statistics_h5(
         h.attrs["solar_longitude_count_rate_unit"] = "count per mesosphere-mode measurement hour in each solar-longitude bin"
         h.attrs["solar_longitude_count_rate_min_measurement_hours"] = 5.0
         h.attrs["solar_longitude_mesomode_exposure_unit"] = "mesosphere-mode measurement hours per solar-longitude bin"
+        h.attrs["solar_longitude_mesomode_exposure_processing_gate"] = (
+            "measured mesomode intervals intersected with UTC hours containing processed orbit metadata events"
+        )
         h.attrs["height_velocity_quality_filter"] = (
             "static radiant monitor high-quality gate: valid DASST winning alias, "
             "combined_score, n_uncertainty_samples, initial_state_position_sigma_m, "
@@ -1170,6 +1212,7 @@ def main() -> None:
         solar_years,
         start_unix_s=exposure_start_unix_s,
         stop_unix_s=exposure_stop_unix_s,
+        processed_hour_starts=processed_hour_starts_unix_s(events["sample_idx"]),
     )
     hv_counts, height_edges, speed_edges = histogram_height_velocity(
         fit_arrays["fit_initial_detection_height_km"],

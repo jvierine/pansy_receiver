@@ -65,6 +65,27 @@ def test_solar_longitude_exposure_is_clipped_to_catalogue_time_span(tmp_path):
     np.testing.assert_allclose(total, [150.0 / 3600.0], rtol=1e-6)
 
 
+def test_solar_longitude_exposure_excludes_unprocessed_internal_hours(tmp_path):
+    from plot_orbit_catalogue_statistics import mesomode_exposure_by_solar_longitude
+
+    base = 1_749_999_600.0
+    sidecar = tmp_path / "mesomode_intervals.h5"
+    with h5py.File(sidecar, "w") as h:
+        intervals = h.create_group("intervals")
+        intervals.create_dataset("t0_unix", data=[base])
+        intervals.create_dataset("t1_unix", data=[base + 3 * 3600.0])
+
+    by_year, total = mesomode_exposure_by_solar_longitude(
+        sidecar,
+        edges=np.asarray([0.0, 360.0]),
+        years=np.asarray([2025]),
+        processed_hour_starts=np.asarray([base, base + 2 * 3600.0], dtype=np.int64),
+    )
+
+    np.testing.assert_allclose(by_year, [[2.0]])
+    np.testing.assert_allclose(total, [2.0])
+
+
 def test_height_velocity_histogram_spans_60_to_160_km():
     from plot_orbit_catalogue_statistics import histogram_height_velocity
 
