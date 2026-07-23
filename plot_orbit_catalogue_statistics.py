@@ -959,6 +959,7 @@ def plot_height_velocity(
     speed_edges: np.ndarray,
     ylabel: str,
     colorbar_label: str,
+    height_ylim: tuple[float, float] = (70.0, 160.0),
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     plot_count = np.asarray(hv_counts, dtype=np.float64)
@@ -974,12 +975,14 @@ def plot_height_velocity(
         cmap=cmap,
         norm=LogNorm(vmin=1.0, vmax=max(1.0, float(np.nanmax(plot_count)) if np.any(np.isfinite(plot_count)) else 1.0)),
     )
-    ax.set_xlabel(r"Geocentric velocity, $v_g$ (km s$^{-1}$)")
-    ax.set_ylabel(ylabel)
+    ax.set_xlabel(r"Geocentric velocity, $v_g$ (km s$^{-1}$)", fontsize=20)
+    ax.set_ylabel(ylabel, fontsize=20)
     ax.set_xlim(float(speed_edges[0]), float(speed_edges[-1]))
-    ax.set_ylim(float(height_edges[0]), float(height_edges[-1]))
+    ax.set_ylim(*height_ylim)
+    ax.tick_params(axis="both", labelsize=16)
     cb = fig.colorbar(mesh, ax=ax)
-    cb.set_label(colorbar_label)
+    cb.set_label(colorbar_label, fontsize=20)
+    cb.ax.tick_params(labelsize=16)
     fig.savefig(path, dpi=220)
     plt.close(fig)
 

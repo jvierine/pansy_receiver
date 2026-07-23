@@ -285,6 +285,18 @@ def make_figure(rows: dict[str, np.ndarray], core: np.ndarray, profile: dict[str
     if int(np.sum(core)) != 76:
         raise RuntimeError(f"omega-Eridanid selection changed: expected 76 meteors, found {int(np.sum(core))}")
     orbits = rows["kepler"][core]
+    plt.rcParams.update(
+        {
+            "font.size": 13,
+            "axes.labelsize": 15,
+            "axes.titlesize": 15,
+            "xtick.labelsize": 12,
+            "ytick.labelsize": 12,
+            "legend.fontsize": 11,
+            "pdf.fonttype": 42,
+            "ps.fonttype": 42,
+        }
+    )
     fig, axes = plt.subplots(1, 3, figsize=(14.0, 4.6), constrained_layout=True)
     draw_orbit_panel(axes[0], orbits, (0, 1), 11.5)
     draw_mean_perifocal_panel(axes[1], orbits)
@@ -294,7 +306,7 @@ def make_figure(rows: dict[str, np.ndarray], core: np.ndarray, profile: dict[str
     axes[1].set_ylabel("In-plane perpendicular (AU)")
     axes[0].set_title("Viewed from the north ecliptic pole")
     axes[1].set_title("Mean orbital plane")
-    axes[0].legend(loc="lower left", frameon=False, fontsize=7.5)
+    axes[0].legend(loc="lower left", frameon=False, fontsize=10.5)
 
     ra, dec = ecliptic_to_equatorial_deg(rows["ecliptic_lon"][core], rows["beta"][core])
     ra_mean, ra_std = circular_mean_std_deg(ra)
@@ -316,7 +328,7 @@ def make_figure(rows: dict[str, np.ndarray], core: np.ndarray, profile: dict[str
         rf"$\omega={MEAN_KEPLER[4]:.2f}\pm{angular_stats[2][1]:.2f}^\circ$, "
         rf"$\nu={MEAN_KEPLER[5]:.2f}\pm{angular_stats[3][1]:.2f}^\circ$"
     )
-    axes[1].text(0.02, 0.02, summary, transform=axes[1].transAxes, ha="left", va="bottom", fontsize=7.6)
+    axes[1].text(0.02, 0.02, summary, transform=axes[1].transAxes, ha="left", va="bottom", fontsize=10.5)
 
     ax = axes[2]
     x = profile["centers"]
@@ -325,7 +337,20 @@ def make_figure(rows: dict[str, np.ndarray], core: np.ndarray, profile: dict[str
     ax.axhline(0.0, color="0.5", lw=0.7)
     ax.fill_between(x, y - dy, y + dy, color="C0", alpha=0.18, linewidth=0)
     ax.plot(x, y, color="C0", marker="o", ms=3.2, lw=1.4, label="Selected rate (left axis)")
-    ax.axvline(110.13, color="black", ls=":", lw=1.0)
+    finite_rate = np.isfinite(y)
+    peak_solar_longitude = float(x[np.nanargmax(np.where(finite_rate, y, -np.inf))])
+    peak_rate = float(y[np.nanargmax(np.where(finite_rate, y, -np.inf))])
+    ax.axvline(peak_solar_longitude, color="black", ls=":", lw=1.0)
+    ax.annotate(
+        rf"Peak $\lambda_\odot={peak_solar_longitude:.1f}^\circ$",
+        xy=(peak_solar_longitude, peak_rate),
+        xytext=(0.05, 0.92),
+        textcoords="axes fraction",
+        ha="left",
+        va="top",
+        fontsize=12,
+        arrowprops={"arrowstyle": "-", "color": "0.25", "lw": 0.8},
+    )
     ax.set_xlim(*SOLAR_RANGE_DEG)
     ax.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)")
     ax.set_ylabel(r"Exposure-corrected detected rate (h$^{-1}$)")
