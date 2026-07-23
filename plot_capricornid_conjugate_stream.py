@@ -408,11 +408,10 @@ def dcs_activity_profile(
 
 
 def plot_dcs_activity_panel(ax, profile: dict[str, np.ndarray]) -> None:
-    """Plot the DCS activity rate and the corresponding detected counts."""
+    """Plot the exposure-corrected DCS activity rate."""
     x = profile["centers"]
     y = profile["rate"]
     uncertainty = profile["uncertainty"]
-    counts = profile["counts"]
     ax.fill_between(x, y - uncertainty, y + uncertainty, color="C0", alpha=0.20, linewidth=0)
     ax.plot(x, y, color="C0", marker="o", ms=3.2, lw=1.4)
     half_bin = 0.5 * float(np.median(np.diff(x))) if len(x) > 1 else 0.5
@@ -421,22 +420,6 @@ def plot_dcs_activity_panel(ax, profile: dict[str, np.ndarray]) -> None:
     ax.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)")
     ax.set_ylabel(r"Detected rate (h$^{-1}$)")
     ax.grid(alpha=0.22, lw=0.45)
-    ax.text(
-        0.03,
-        0.95,
-        (
-            rf"$N_{{\rm side}}={DCS_ACTIVITY_HEALPIX_NSIDE}$, pixel {DCS_ACTIVITY_HEALPIX_PIXEL}; "
-            rf"${DCS_ACTIVITY_E_RANGE[0]:.3f}\leq e\leq{DCS_ACTIVITY_E_RANGE[1]:.3f}$"
-        ),
-        transform=ax.transAxes,
-        ha="left",
-        va="top",
-        fontsize=9,
-    )
-    count_ax = ax.twinx()
-    count_ax.step(x, counts, where="mid", color="0.35", lw=1.0, alpha=0.75)
-    count_ax.set_ylim(bottom=0.0)
-    count_ax.set_ylabel(r"Count per $1^\circ$")
 
 
 def orbit_xy(kepler: np.ndarray, samples: int = 361) -> tuple[np.ndarray, np.ndarray]:
@@ -586,7 +569,12 @@ def plot_radiant_panel(
     return mesh
 
 
-def plot_orbits(ax, selections: list[tuple[Passage, np.ndarray]], colors: list[str]):
+def plot_orbits(
+    ax,
+    selections: list[tuple[Passage, np.ndarray]],
+    colors: list[str],
+    show_legend: bool = True,
+):
     theta = np.linspace(0.0, 2.0 * np.pi, 361)
     ax.plot(np.cos(theta), np.sin(theta), color="0.35", lw=0.9, label="Earth orbit")
     ax.plot(5.204 * np.cos(theta), 5.204 * np.sin(theta), color="0.20", lw=1.0, label="Jupiter orbit")
@@ -601,8 +589,6 @@ def plot_orbits(ax, selections: list[tuple[Passage, np.ndarray]], colors: list[s
             a, e = row["kepler"][:2]
             if not np.isfinite(a) or not np.isfinite(e) or a <= 0.0 or e < 0.0 or e >= 1.0:
                 continue
-            if a * (1.0 + e) > 5.35:
-                continue
             x, y = orbit_xy(row["kepler"])
             if len(x) == 0:
                 continue
@@ -613,7 +599,8 @@ def plot_orbits(ax, selections: list[tuple[Passage, np.ndarray]], colors: list[s
             orbit_count += 1
             if orbit_count >= 160:
                 break
-        ax.plot([], [], color=color, alpha=0.75, lw=1.3, label=passage.name)
+        shower_label = "DCS" if "Daytime" in passage.name else "CAP"
+        ax.plot([], [], color=color, alpha=0.75, lw=1.3, label=shower_label)
         earth_lon = np.deg2rad(passage.solar_lon_deg + 180.0)
         ex, ey = np.cos(earth_lon), np.sin(earth_lon)
         ax.scatter([ex], [ey], marker="o", s=34, color=color, edgecolor="black", linewidth=0.35, zorder=6)
@@ -624,9 +611,16 @@ def plot_orbits(ax, selections: list[tuple[Passage, np.ndarray]], colors: list[s
     ax.set_xlabel("Ecliptic X (AU)")
     ax.set_ylabel("Ecliptic Y (AU)")
     ax.grid(alpha=0.22, lw=0.45)
-    legend = ax.legend(loc="upper right", fontsize=8, frameon=True, framealpha=1.0)
-    legend.get_frame().set_facecolor("white")
-    legend.get_frame().set_edgecolor("none")
+    if show_legend:
+        legend = ax.legend(
+            loc="upper center",
+            bbox_to_anchor=(0.5, 0.88),
+            fontsize=8,
+            frameon=True,
+            framealpha=1.0,
+        )
+        legend.get_frame().set_facecolor("white")
+        legend.get_frame().set_edgecolor("none")
 
 
 def plot_orbit_panel_figure(selections: list[tuple[Passage, np.ndarray]], out: Path):
