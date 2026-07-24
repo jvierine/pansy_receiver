@@ -230,7 +230,7 @@ def plot_distribution(
     axes[0].text(
         0.97,
         0.95,
-        f"N = {len(rows):,}\nangle peak = {peak_angle_deg:.2f} deg\n$\\sigma_v/v_0$ peak = {peak_fractional_sigma:.3f}\n{chosen_angle_deg:.1f} deg ($\\sigma_v/v_0={np.tan(np.deg2rad(chosen_angle_deg)):.3f}$) keeps {100.0*np.sum(angle <= chosen_angle_deg)/total:.1f}%",
+        f"N = {len(rows):,}\nangle peak = {peak_angle_deg:.2f} deg\n$\\sigma_v/v_0$ peak = {peak_fractional_sigma:.3f}",
         transform=axes[0].transAxes,
         ha="right",
         va="top",
