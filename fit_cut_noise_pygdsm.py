@@ -443,6 +443,7 @@ def plot_single_module_fit(
     ax.xaxis.set_major_locator(mdates.HourLocator(interval=3))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M", tz=timezone.utc))
     ax.tick_params(axis="both", labelsize=16)
+    plt.setp(ax.get_xticklabels(), rotation=30, ha="right", rotation_mode="anchor")
     start_us, end_us, _date = ppn.utc_day_bounds(day)
     ax.set_xlim(datetime.fromtimestamp(start_us / 1e6, tz=timezone.utc), datetime.fromtimestamp(end_us / 1e6, tz=timezone.utc))
 
