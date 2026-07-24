@@ -110,6 +110,7 @@ def write_summary_h5(path: Path, rows: np.ndarray, files_read: int, files_skippe
     vel = rows["initial_state_velocity_sigma_mps"]
     pos = rows["initial_state_position_sigma_m"]
     speed = rows["initial_detection_speed_km_s"]
+    fractional_velocity_sigma = vel / np.maximum(speed * 1e3, 1.0)
     path.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(path, "w") as h:
         h.attrs["script"] = Path(__file__).name
@@ -121,6 +122,9 @@ def write_summary_h5(path: Path, rows: np.ndarray, files_read: int, files_skippe
             "atan(sqrt(trace(local initial-state velocity covariance)) / local initial-detection speed), degrees"
         )
         h.attrs["velocity_sigma_definition"] = "sqrt(trace(local initial-state velocity covariance)), m/s"
+        h.attrs["fractional_velocity_sigma_definition"] = (
+            "sqrt(trace(local initial-state velocity covariance)) / local initial-detection speed"
+        )
         h.create_dataset("percentiles", data=PERCENTILES)
         h.create_dataset("radiant_angle_sigma_deg_percentiles", data=np.nanpercentile(angle, PERCENTILES))
         h.create_dataset("initial_state_velocity_sigma_mps_percentiles", data=np.nanpercentile(vel, PERCENTILES))
@@ -130,6 +134,7 @@ def write_summary_h5(path: Path, rows: np.ndarray, files_read: int, files_skippe
         h.create_dataset("angle_threshold_counts", data=threshold_counts(angle, ANGLE_THRESHOLDS_DEG))
         h.create_dataset("initial_state_velocity_sigma_mps", data=vel, compression="gzip", shuffle=True)
         h.create_dataset("initial_detection_speed_km_s", data=speed, compression="gzip", shuffle=True)
+        h.create_dataset("fractional_initial_state_velocity_sigma", data=fractional_velocity_sigma, compression="gzip", shuffle=True)
         h.create_dataset("initial_state_radiant_angle_sigma_deg", data=angle, compression="gzip", shuffle=True)
 
 
@@ -152,6 +157,8 @@ def plot_distribution(
 ) -> None:
     angle = rows["initial_state_radiant_angle_sigma_deg"]
     velocity_sigma_mps = rows["initial_state_velocity_sigma_mps"]
+    speed_mps = rows["initial_detection_speed_km_s"] * 1e3
+    fractional_velocity_sigma = velocity_sigma_mps / np.maximum(speed_mps, 1.0)
     total = max(1, len(rows))
     angle_counts = threshold_counts(angle, ANGLE_THRESHOLDS_DEG)
 
@@ -162,26 +169,28 @@ def plot_distribution(
         fig, axes = plt.subplots(1, 2, figsize=(9.2, 3.6), constrained_layout=True)
 
     if linear_xaxis:
-        bins = np.linspace(0.0, max(3.05, np.nanpercentile(angle, 99.8)), 55)
+        chosen_fractional_sigma = np.tan(np.deg2rad(chosen_angle_deg))
+        bins = np.linspace(0.0, max(chosen_fractional_sigma * 1.02, np.nanpercentile(fractional_velocity_sigma, 99.8)), 55)
     else:
-        bins = np.geomspace(0.15, 60.0, 70)
-    density, hist_edges = histogram_density(angle, bins, logarithmic=not linear_xaxis)
+        bins = np.geomspace(np.tan(np.deg2rad(0.15)), np.tan(np.deg2rad(60.0)), 70)
+    density, hist_edges = histogram_density(fractional_velocity_sigma, bins, logarithmic=not linear_xaxis)
     peak_index = int(np.nanargmax(density)) if len(density) else 0
     if linear_xaxis:
-        peak_angle_deg = 0.5 * (hist_edges[peak_index] + hist_edges[peak_index + 1])
+        peak_fractional_sigma = 0.5 * (hist_edges[peak_index] + hist_edges[peak_index + 1])
     else:
-        peak_angle_deg = np.sqrt(hist_edges[peak_index] * hist_edges[peak_index + 1])
+        peak_fractional_sigma = np.sqrt(hist_edges[peak_index] * hist_edges[peak_index + 1])
+    peak_angle_deg = np.rad2deg(np.arctan(peak_fractional_sigma))
     axes[0].stairs(
         density,
         hist_edges,
         color="#2f5f9f",
         linewidth=1.8,
     )
-    axes[0].axvline(peak_angle_deg, color="black", lw=1.4, ls="--")
+    axes[0].axvline(peak_fractional_sigma, color="black", lw=1.4, ls="--")
     if not linear_xaxis:
         axes[0].set_xscale("log")
-    axes[0].set_xlabel("Velocity-vector angular uncertainty (deg)")
-    axes[0].set_ylabel("Probability density per decade" if not linear_xaxis else r"Probability density (deg$^{-1}$)")
+    axes[0].set_xlabel(r"Fractional velocity uncertainty $\sigma_v/v_0$")
+    axes[0].set_ylabel("Probability density per decade" if not linear_xaxis else "Probability density")
     axes[0].grid(True, which="both", alpha=0.25)
 
     good_velocity_sigma = velocity_sigma_mps[np.isfinite(velocity_sigma_mps) & (velocity_sigma_mps > 0.0)]
@@ -219,7 +228,7 @@ def plot_distribution(
     axes[0].text(
         0.97,
         0.95,
-        f"N = {len(rows):,}\nangle peak = {peak_angle_deg:.2f} deg\nvelocity peak = {velocity_peak_mps:.0f} m s$^{{-1}}$\n{chosen_angle_deg:.1f} deg keeps {100.0*np.sum(angle <= chosen_angle_deg)/total:.1f}%",
+        f"N = {len(rows):,}\n$\\sigma_v/v_0$ peak = {peak_fractional_sigma:.3f} ({peak_angle_deg:.2f} deg)\nvelocity peak = {velocity_peak_mps:.0f} m s$^{{-1}}$\n{chosen_angle_deg:.1f} deg ($\\sigma_v/v_0={np.tan(np.deg2rad(chosen_angle_deg)):.3f}$) keeps {100.0*np.sum(angle <= chosen_angle_deg)/total:.1f}%",
         transform=axes[0].transAxes,
         ha="right",
         va="top",
