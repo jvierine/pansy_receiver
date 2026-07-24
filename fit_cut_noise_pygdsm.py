@@ -421,7 +421,7 @@ def plot_single_module_fit(
         err_lo = err_hi = np.nan
         trec_text = rf"Module {module_i}: $T_{{rec}}={trec:.0f}$ K"
 
-    fig, ax = plt.subplots(figsize=(7.2, 4.1), constrained_layout=True)
+    fig, ax = plt.subplots(figsize=(7.2, 4.6), constrained_layout=True)
     for beam_i, name in enumerate(ppn.BEAM_NAMES):
         good = (
             (counts[module_i, beam_i] >= min_count)
@@ -438,10 +438,11 @@ def plot_single_module_fit(
         )
         model_power = slope * (tsky[beam_i] + trec)
         ax.plot(tms, 10.0 * np.log10(np.maximum(model_power, 1.0)), "-", color=colors[beam_i], lw=1.9, label=name)
-    ax.set_ylabel("Raw noise power (dB)")
-    ax.set_xlabel("Time (UTC)")
+    ax.set_ylabel("Raw noise power (dB)", fontsize=20)
+    ax.set_xlabel("Time (UTC)", fontsize=20)
     ax.xaxis.set_major_locator(mdates.HourLocator(interval=3))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M", tz=timezone.utc))
+    ax.tick_params(axis="both", labelsize=16)
     start_us, end_us, _date = ppn.utc_day_bounds(day)
     ax.set_xlim(datetime.fromtimestamp(start_us / 1e6, tz=timezone.utc), datetime.fromtimestamp(end_us / 1e6, tz=timezone.utc))
 
@@ -452,7 +453,8 @@ def plot_single_module_fit(
         return 10.0 * np.log10(np.maximum(np.asarray(temp_k) * slope, 1.0))
 
     temp_axis = ax.secondary_yaxis("right", functions=(db_to_kelvin, kelvin_to_db))
-    temp_axis.set_ylabel(r"Equivalent $T_{\mathrm{sys}}$ (K)")
+    temp_axis.set_ylabel(r"Equivalent $T_{\mathrm{sys}}$ (K)", fontsize=20)
+    temp_axis.tick_params(axis="y", labelsize=16)
     if show_trec_annotation and trec > 0.0:
         trec_db = float(kelvin_to_db(trec))
         ax.axhline(trec_db, color="0.25", lw=1.0, alpha=0.55)
@@ -474,7 +476,15 @@ def plot_single_module_fit(
             ha="left",
             va="top",
         )
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, 1.02), ncol=5, fontsize=8, frameon=False, markerscale=2.0, handlelength=1.8)
+    ax.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.02),
+        ncol=3,
+        fontsize=14,
+        frameon=False,
+        markerscale=2.0,
+        handlelength=1.8,
+    )
     fig.savefig(output, dpi=300)
     plt.close(fig)
 
