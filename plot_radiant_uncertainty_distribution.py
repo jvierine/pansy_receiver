@@ -169,66 +169,68 @@ def plot_distribution(
         fig, axes = plt.subplots(1, 2, figsize=(9.2, 3.6), constrained_layout=True)
 
     if linear_xaxis:
-        chosen_fractional_sigma = np.tan(np.deg2rad(chosen_angle_deg))
-        bins = np.linspace(0.0, max(chosen_fractional_sigma * 1.02, np.nanpercentile(fractional_velocity_sigma, 99.8)), 55)
+        bins = np.linspace(0.0, max(3.05, np.nanpercentile(angle, 99.8)), 55)
     else:
-        bins = np.geomspace(np.tan(np.deg2rad(0.15)), np.tan(np.deg2rad(60.0)), 70)
-    density, hist_edges = histogram_density(fractional_velocity_sigma, bins, logarithmic=not linear_xaxis)
+        bins = np.geomspace(0.15, 60.0, 70)
+    density, hist_edges = histogram_density(angle, bins, logarithmic=not linear_xaxis)
     peak_index = int(np.nanargmax(density)) if len(density) else 0
     if linear_xaxis:
-        peak_fractional_sigma = 0.5 * (hist_edges[peak_index] + hist_edges[peak_index + 1])
+        peak_angle_deg = 0.5 * (hist_edges[peak_index] + hist_edges[peak_index + 1])
     else:
-        peak_fractional_sigma = np.sqrt(hist_edges[peak_index] * hist_edges[peak_index + 1])
-    peak_angle_deg = np.rad2deg(np.arctan(peak_fractional_sigma))
+        peak_angle_deg = np.sqrt(hist_edges[peak_index] * hist_edges[peak_index + 1])
     axes[0].stairs(
         density,
         hist_edges,
         color="#2f5f9f",
         linewidth=1.8,
     )
-    axes[0].axvline(peak_fractional_sigma, color="black", lw=1.4, ls="--")
+    axes[0].axvline(peak_angle_deg, color="black", lw=1.4, ls="--")
     if not linear_xaxis:
         axes[0].set_xscale("log")
-    axes[0].set_xlabel(r"Fractional velocity uncertainty $\sigma_v/v_0$")
-    axes[0].set_ylabel("Probability density per decade" if not linear_xaxis else "Probability density")
+    axes[0].set_xlabel("Velocity-vector angular uncertainty (deg)")
+    axes[0].set_ylabel("Probability density per decade" if not linear_xaxis else r"Probability density (deg$^{-1}$)")
     axes[0].grid(True, which="both", alpha=0.25)
 
-    good_velocity_sigma = velocity_sigma_mps[np.isfinite(velocity_sigma_mps) & (velocity_sigma_mps > 0.0)]
+    good_fractional_sigma = fractional_velocity_sigma[
+        np.isfinite(fractional_velocity_sigma) & (fractional_velocity_sigma > 0.0)
+    ]
     top_axis = axes[0].twiny()
     if linear_xaxis:
-        velocity_bins = np.linspace(0.0, max(1.0, np.nanpercentile(good_velocity_sigma, 99.8)), 55)
+        fractional_bins = np.linspace(0.0, max(1e-3, np.nanpercentile(good_fractional_sigma, 99.8)), 55)
     else:
-        velocity_bins = np.geomspace(
-            max(1.0, np.nanpercentile(good_velocity_sigma, 0.1)),
-            max(2.0, np.nanpercentile(good_velocity_sigma, 99.8)),
+        fractional_bins = np.geomspace(
+            max(1e-5, np.nanpercentile(good_fractional_sigma, 0.1)),
+            max(2e-5, np.nanpercentile(good_fractional_sigma, 99.8)),
             70,
         )
         top_axis.set_xscale("log")
-    velocity_density, velocity_edges = histogram_density(
-        good_velocity_sigma,
-        velocity_bins,
+    fractional_density, fractional_edges = histogram_density(
+        good_fractional_sigma,
+        fractional_bins,
         logarithmic=not linear_xaxis,
     )
-    velocity_peak_index = int(np.nanargmax(velocity_density)) if len(velocity_density) else 0
+    fractional_peak_index = int(np.nanargmax(fractional_density)) if len(fractional_density) else 0
     if linear_xaxis:
-        velocity_peak_mps = 0.5 * (velocity_edges[velocity_peak_index] + velocity_edges[velocity_peak_index + 1])
+        peak_fractional_sigma = 0.5 * (
+            fractional_edges[fractional_peak_index] + fractional_edges[fractional_peak_index + 1]
+        )
     else:
-        velocity_peak_mps = np.sqrt(
-            velocity_edges[velocity_peak_index] * velocity_edges[velocity_peak_index + 1]
+        peak_fractional_sigma = np.sqrt(
+            fractional_edges[fractional_peak_index] * fractional_edges[fractional_peak_index + 1]
         )
     top_axis.stairs(
-        velocity_density,
-        velocity_edges,
+        fractional_density,
+        fractional_edges,
         color="#c45a1a",
         linewidth=1.5,
     )
-    top_axis.set_xlabel(r"Velocity uncertainty (m s$^{-1}$)")
+    top_axis.set_xlabel(r"Fractional velocity uncertainty $\sigma_v/v_0$")
     top_axis.tick_params(axis="x", colors="#9f4613")
     top_axis.xaxis.label.set_color("#9f4613")
     axes[0].text(
         0.97,
         0.95,
-        f"N = {len(rows):,}\n$\\sigma_v/v_0$ peak = {peak_fractional_sigma:.3f} ({peak_angle_deg:.2f} deg)\nvelocity peak = {velocity_peak_mps:.0f} m s$^{{-1}}$\n{chosen_angle_deg:.1f} deg ($\\sigma_v/v_0={np.tan(np.deg2rad(chosen_angle_deg)):.3f}$) keeps {100.0*np.sum(angle <= chosen_angle_deg)/total:.1f}%",
+        f"N = {len(rows):,}\nangle peak = {peak_angle_deg:.2f} deg\n$\\sigma_v/v_0$ peak = {peak_fractional_sigma:.3f}\n{chosen_angle_deg:.1f} deg ($\\sigma_v/v_0={np.tan(np.deg2rad(chosen_angle_deg)):.3f}$) keeps {100.0*np.sum(angle <= chosen_angle_deg)/total:.1f}%",
         transform=axes[0].transAxes,
         ha="right",
         va="top",
