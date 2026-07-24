@@ -120,6 +120,7 @@ def write_summary_h5(path: Path, rows: np.ndarray, files_read: int, files_skippe
         h.attrs["radiant_angle_sigma_definition"] = (
             "atan(sqrt(trace(local initial-state velocity covariance)) / local initial-detection speed), degrees"
         )
+        h.attrs["velocity_sigma_definition"] = "sqrt(trace(local initial-state velocity covariance)), m/s"
         h.create_dataset("percentiles", data=PERCENTILES)
         h.create_dataset("radiant_angle_sigma_deg_percentiles", data=np.nanpercentile(angle, PERCENTILES))
         h.create_dataset("initial_state_velocity_sigma_mps_percentiles", data=np.nanpercentile(vel, PERCENTILES))
@@ -127,6 +128,18 @@ def write_summary_h5(path: Path, rows: np.ndarray, files_read: int, files_skippe
         h.create_dataset("initial_detection_speed_km_s_percentiles", data=np.nanpercentile(speed, PERCENTILES))
         h.create_dataset("angle_thresholds_deg", data=ANGLE_THRESHOLDS_DEG)
         h.create_dataset("angle_threshold_counts", data=threshold_counts(angle, ANGLE_THRESHOLDS_DEG))
+        h.create_dataset("initial_state_velocity_sigma_mps", data=vel, compression="gzip", shuffle=True)
+        h.create_dataset("initial_detection_speed_km_s", data=speed, compression="gzip", shuffle=True)
+        h.create_dataset("initial_state_radiant_angle_sigma_deg", data=angle, compression="gzip", shuffle=True)
+
+
+def histogram_density(values: np.ndarray, bins: np.ndarray, logarithmic: bool) -> tuple[np.ndarray, np.ndarray]:
+    """Return a unit-area density in linear units or probability per decade."""
+    counts, edges = np.histogram(values, bins=bins)
+    coordinate_edges = np.log10(edges) if logarithmic else edges
+    widths = np.diff(coordinate_edges)
+    density = counts / np.maximum(np.sum(counts) * widths, np.finfo(float).tiny)
+    return density, edges
 
 
 def plot_distribution(
@@ -152,17 +165,15 @@ def plot_distribution(
         bins = np.linspace(0.0, max(3.05, np.nanpercentile(angle, 99.8)), 55)
     else:
         bins = np.geomspace(0.15, 60.0, 70)
-    hist_counts, hist_edges = np.histogram(angle, bins=bins)
-    bin_widths = np.diff(hist_edges)
-    density = hist_counts / np.maximum(total * bin_widths, np.finfo(float).tiny)
+    density, hist_edges = histogram_density(angle, bins, logarithmic=not linear_xaxis)
     peak_index = int(np.nanargmax(density)) if len(density) else 0
-    peak_angle_deg = 0.5 * (hist_edges[peak_index] + hist_edges[peak_index + 1])
-    peak_density = float(density[peak_index]) if len(density) else np.nan
-    counts, edges, _patches = axes[0].hist(
-        angle,
-        bins=bins,
-        density=True,
-        histtype="step",
+    if linear_xaxis:
+        peak_angle_deg = 0.5 * (hist_edges[peak_index] + hist_edges[peak_index + 1])
+    else:
+        peak_angle_deg = np.sqrt(hist_edges[peak_index] * hist_edges[peak_index + 1])
+    axes[0].stairs(
+        density,
+        hist_edges,
         color="#2f5f9f",
         linewidth=1.8,
     )
@@ -170,7 +181,7 @@ def plot_distribution(
     if not linear_xaxis:
         axes[0].set_xscale("log")
     axes[0].set_xlabel("Velocity-vector angular uncertainty (deg)")
-    axes[0].set_ylabel(r"Probability density (deg$^{-1}$)")
+    axes[0].set_ylabel("Probability density per decade" if not linear_xaxis else r"Probability density (deg$^{-1}$)")
     axes[0].grid(True, which="both", alpha=0.25)
 
     good_velocity_sigma = velocity_sigma_mps[np.isfinite(velocity_sigma_mps) & (velocity_sigma_mps > 0.0)]
@@ -184,17 +195,21 @@ def plot_distribution(
             70,
         )
         top_axis.set_xscale("log")
-    velocity_counts, velocity_edges = np.histogram(good_velocity_sigma, bins=velocity_bins)
-    velocity_widths = np.diff(velocity_edges)
-    velocity_density = velocity_counts / np.maximum(len(good_velocity_sigma) * velocity_widths, np.finfo(float).tiny)
-    velocity_peak_index = int(np.nanargmax(velocity_density)) if len(velocity_density) else 0
-    velocity_peak_mps = 0.5 * (velocity_edges[velocity_peak_index] + velocity_edges[velocity_peak_index + 1])
-    velocity_peak_density = float(velocity_density[velocity_peak_index]) if len(velocity_density) else np.nan
-    top_axis.hist(
+    velocity_density, velocity_edges = histogram_density(
         good_velocity_sigma,
-        bins=velocity_bins,
-        density=True,
-        histtype="step",
+        velocity_bins,
+        logarithmic=not linear_xaxis,
+    )
+    velocity_peak_index = int(np.nanargmax(velocity_density)) if len(velocity_density) else 0
+    if linear_xaxis:
+        velocity_peak_mps = 0.5 * (velocity_edges[velocity_peak_index] + velocity_edges[velocity_peak_index + 1])
+    else:
+        velocity_peak_mps = np.sqrt(
+            velocity_edges[velocity_peak_index] * velocity_edges[velocity_peak_index + 1]
+        )
+    top_axis.stairs(
+        velocity_density,
+        velocity_edges,
         color="#c45a1a",
         linewidth=1.5,
     )
