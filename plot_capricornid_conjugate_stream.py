@@ -354,12 +354,14 @@ def plot_dcs_solar_longitude_profile(
 
 
 def select_dcs_activity_pixel(rows: np.ndarray) -> np.ndarray:
-    """Select the exact Radview radiant pixel and eccentricity range used for DCS."""
+    """Select the Radview radiant pixel, eccentricity, and velocity ranges used for DCS."""
     pixel = ang2pix_ring(DCS_ACTIVITY_HEALPIX_NSIDE, rows["sun_centered_lon"], rows["beta"])
     eccentricity = rows["kepler"][:, 1]
     keep = pixel == DCS_ACTIVITY_HEALPIX_PIXEL
     keep &= np.isfinite(eccentricity)
     keep &= (eccentricity >= DCS_ACTIVITY_E_RANGE[0]) & (eccentricity <= DCS_ACTIVITY_E_RANGE[1])
+    keep &= np.isfinite(rows["vg"])
+    keep &= (rows["vg"] >= CLUSTER_VG_RANGE[0]) & (rows["vg"] <= CLUSTER_VG_RANGE[1])
     return rows[keep]
 
 
@@ -424,7 +426,7 @@ def plot_dcs_activity_panel(ax, profile: dict[str, np.ndarray]) -> None:
     count_ax = ax.twinx()
     count_ax.step(x, counts, where="mid", color="0.35", lw=1.0, alpha=0.75)
     count_ax.set_ylim(bottom=0.0)
-    count_ax.set_ylabel(r"Count per $1^\circ$")
+    count_ax.set_ylabel("Raw count")
 
 
 def orbit_xy(kepler: np.ndarray, samples: int = 361) -> tuple[np.ndarray, np.ndarray]:
