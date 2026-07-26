@@ -32,6 +32,9 @@ from interferometer_alias_diagnostics import RangeDopplerSearch, amp_scale, load
 
 
 HEAD_ECHO_MIN_SPEED_KM_S = float(os.environ.get("PANSY_HEAD_ECHO_MIN_SPEED_KM_S", "6.0"))
+TX_BEAM_MAX_WEIGHTED_MEAN_ANGLE_DEG = float(
+    os.environ.get("PANSY_TX_BEAM_MAX_WEIGHTED_MEAN_ANGLE_DEG", "15.0")
+)
 
 
 def plot_antenna_positions(output: Path):
@@ -2416,6 +2419,7 @@ def score_combined_hypotheses(tracks):
     line_weight = 0.10
     good_fit_redchi_threshold = 1.5
     head_echo_min_speed_km_s = HEAD_ECHO_MIN_SPEED_KM_S
+    tx_beam_max_weighted_mean_angle_deg = TX_BEAM_MAX_WEIGHTED_MEAN_ANGLE_DEG
     if not scored:
         fallback = [t for t in tracks if t["reason"] == "kept" and "line_reduced_chi2" in t]
         if not fallback:
@@ -2446,6 +2450,11 @@ def score_combined_hypotheses(tracks):
     for track in scored:
         track["combined_tx_sigma_deg"] = np.nan
         tx_beam = float(track.get("tx_beam_snr_weighted_mean_dc", np.nan))
+        tx_beam_weighted_mean_deg = float(track.get("tx_beam_weighted_mean_deg", np.nan))
+        tx_beam_angle_reject = bool(
+            np.isfinite(tx_beam_weighted_mean_deg)
+            and tx_beam_weighted_mean_deg > tx_beam_max_weighted_mean_angle_deg
+        )
         tx_term = 0.0 if not np.isfinite(tx_beam) else (tx_beam / tx_beam_scale_dc) ** 2
         line_term = float(track.get("line_length_adjusted_reduced_chi2", track.get("line_reduced_chi2", 0.0)))
         line_term = min(line_term, 100.0) / 25.0 if np.isfinite(line_term) else 0.0
@@ -2488,6 +2497,7 @@ def score_combined_hypotheses(tracks):
             and not trajectory_quality_reject
             and not head_echo_speed_reject
             and not short_static_measurement_reject
+            and not tx_beam_angle_reject
             and np.isfinite(redchi)
             and redchi <= good_fit_redchi_threshold
         )
@@ -2497,6 +2507,10 @@ def score_combined_hypotheses(tracks):
         track["combined_tx_beam_weight"] = float(tx_beam_weight)
         track["combined_line_weight"] = float(line_weight)
         track["combined_good_fit_redchi_threshold"] = float(good_fit_redchi_threshold)
+        track["combined_tx_beam_max_weighted_mean_angle_deg"] = float(
+            tx_beam_max_weighted_mean_angle_deg
+        )
+        track["tx_beam_angle_reject"] = tx_beam_angle_reject
         track["head_echo_min_speed_km_s"] = float(head_echo_min_speed_km_s)
         track["selection_speed_km_s"] = float(selection_speed_km_s)
         track["selection_radiant_alt_deg"] = float(selection_radiant_alt_deg)
@@ -2536,8 +2550,37 @@ def score_combined_hypotheses(tracks):
             t["combined_score"],
         )
     )
+    provisional_winner = scored[0]
+    provisional_angle_deg = float(
+        provisional_winner.get("tx_beam_weighted_mean_deg", np.nan)
+    )
+    tx_angle_override_triggered = bool(
+        np.isfinite(provisional_angle_deg)
+        and provisional_angle_deg > tx_beam_max_weighted_mean_angle_deg
+    )
+    tx_nearest = None
+    if tx_angle_override_triggered:
+        finite_tx_angle = [
+            track
+            for track in scored
+            if np.isfinite(track.get("tx_beam_weighted_mean_deg", np.nan))
+        ]
+        if finite_tx_angle:
+            tx_nearest = min(
+                finite_tx_angle,
+                key=lambda track: float(track["tx_beam_weighted_mean_deg"]),
+            )
+            scored.remove(tx_nearest)
+            scored.insert(0, tx_nearest)
     for rank, track in enumerate(scored):
         track["combined_rank"] = rank
+        track["combined_tx_angle_override_triggered"] = tx_angle_override_triggered
+        track["combined_tx_angle_override_selected"] = bool(
+            tx_angle_override_triggered and track is tx_nearest
+        )
+        track["combined_tx_angle_provisional_winner"] = bool(
+            tx_angle_override_triggered and track is provisional_winner
+        )
         ballistic_reject_blocks = bool(track.get("ballistic_reject", False)) and not bool(track.get("combined_good_fit", False))
         if track.get("selection_model_type") == "fixed_velocity":
             ballistic_reject_blocks = False
@@ -2554,6 +2597,7 @@ def score_combined_hypotheses(tracks):
             or (bool(track.get("ballistic_low_start_altitude_reject", False)) and track.get("selection_model_type") != "fixed_velocity")
             or bool(track.get("head_echo_speed_reject", False))
             or bool(track.get("short_static_measurement_reject", False))
+            or bool(track.get("tx_beam_angle_reject", False))
         )
     if len(scored) > 1:
         delta = scored[1]["combined_score"] - scored[0]["combined_score"]
@@ -3964,6 +4008,11 @@ def write_disambiguation_diagnostics_h5(
                     "combined_good_fit": bool(track.get("combined_good_fit", False)),
                     "combined_good_fit_redchi_threshold": float(track.get("combined_good_fit_redchi_threshold", np.nan)),
                     "combined_tx_distance_dc": float(track.get("combined_tx_distance_dc", np.nan)),
+                    "combined_tx_beam_max_weighted_mean_angle_deg": float(track.get("combined_tx_beam_max_weighted_mean_angle_deg", np.nan)),
+                    "combined_tx_angle_override_triggered": bool(track.get("combined_tx_angle_override_triggered", False)),
+                    "combined_tx_angle_override_selected": bool(track.get("combined_tx_angle_override_selected", False)),
+                    "combined_tx_angle_provisional_winner": bool(track.get("combined_tx_angle_provisional_winner", False)),
+                    "tx_beam_angle_reject": bool(track.get("tx_beam_angle_reject", False)),
                     "combined_tx_metric_dc": float(track.get("combined_tx_metric_dc", np.nan)),
                     "combined_tx_metric_source": str(track.get("combined_tx_metric_source", "")),
                     "combined_completion_term": float(track.get("combined_completion_term", np.nan)),
@@ -3974,6 +4023,8 @@ def write_disambiguation_diagnostics_h5(
                     "tx_beam_rank": int(track.get("tx_beam_rank", -1)) if "tx_beam_rank" in track else -1,
                     "tx_beam_snr_weighted_mean_dc": float(track.get("tx_beam_snr_weighted_mean_dc", np.nan)),
                     "tx_beam_snr_weighted_rms_dc": float(track.get("tx_beam_snr_weighted_rms_dc", np.nan)),
+                    "tx_beam_weighted_mean_deg": float(track.get("tx_beam_weighted_mean_deg", np.nan)),
+                    "tx_beam_weighted_rms_deg": float(track.get("tx_beam_weighted_rms_deg", np.nan)),
                     "tx_lobe_snr_weighted_mean_dc": float(track.get("tx_lobe_snr_weighted_mean_dc", np.nan)),
                     "tx_lobe_snr_weighted_rms_dc": float(track.get("tx_lobe_snr_weighted_rms_dc", np.nan)),
                 },
