@@ -10,6 +10,10 @@ import healpy as hp
 from astropy.time import Time
 from astropy.coordinates import get_sun, HeliocentricTrueEcliptic
 import astropy.units as u
+from shower_radiant_overlay import active_showers, add_shower_overlay_healpy, add_source_markers_healpy
+
+
+REALTIME_LONGITUDE_OFFSET_DEG = 90.0
 
 def solar_ecliptic_longitude(unix_time):
     # Convert Unix time to Astropy Time object
@@ -95,16 +99,28 @@ def plot_latest_fits(save_png=False):
 #    180*n.angle(n.exp(-1j*n.pi*slons[gidx]/180))/n.pi
     theta = n.radians(90 - slats)  # Colatitude: 90° - latitude
     title="%s - %s"%(stuffr.unix2datestr(n.min(tv)),stuffr.unix2datestr(n.max(tv)))
-    phi = n.radians(slons+90)  # Longitude in radians
+    phi = n.radians(slons + REALTIME_LONGITUDE_OFFSET_DEG)  # Longitude in radians
     nside = 32  
     pixels = hp.ang2pix(nside, theta, phi)
     histogram = n.bincount(pixels, minlength=hp.nside2npix(nside))
     slon=solar_ecliptic_longitude(tv[0])
     hp.mollview(histogram, title=r"$\lambda_{\mathrm{sun}}=%1.1f^{\circ}$ %s"%(slon,title), unit="Counts",cmap="turbo",flip="astro",norm="linear")
 
-    hp.projtext(-90., 0., '180°', lonlat=True, coord='geo',color="white")
-    hp.projtext(0., 0., '270°', lonlat=True, coord='geo',color="white")
-    hp.projtext(90., 0., '0°', lonlat=True, coord='geo',color="white")
+    add_source_markers_healpy(REALTIME_LONGITUDE_OFFSET_DEG)
+    try:
+        showers, shower_query = active_showers(
+            [],
+            shower_solar_longitude=solar_ecliptic_longitude(n.nanmedian(tv)),
+            peak_tolerance_deg=5.0,
+        )
+        add_shower_overlay_healpy(
+            showers,
+            longitude_offset_deg=REALTIME_LONGITUDE_OFFSET_DEG,
+            label_color="white",
+        )
+        print("realtime radiant shower overlays", len(showers), "solar longitude", float(shower_query))
+    except RuntimeError as exc:
+        print("realtime radiant shower overlays unavailable:", exc)
     hp.graticule(color="white",alpha=0.2,dpar=10,verbose=True)
 
     #hp.graticule(color="white",alpha=0.1)
