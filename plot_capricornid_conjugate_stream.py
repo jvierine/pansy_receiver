@@ -383,16 +383,19 @@ def load_passage_rows(
     passage: Passage,
     solar_half_width: float,
     catalogue_path: Path | None = None,
+    source: str | None = None,
 ) -> np.ndarray:
     if catalogue_path is not None and catalogue_path.exists():
         return load_catalogue_rows(
             catalogue_path,
             passage.solar_lon_deg,
             solar_half_width,
+            source=source,
         )
+    datasets = ("pansy", "maarsy") if source is None else (source.lower(),)
     parts = [
-        load_chunk_rows(data_dir, "pansy", passage.solar_lon_deg, solar_half_width),
-        load_chunk_rows(data_dir, "maarsy", passage.solar_lon_deg, solar_half_width),
+        load_chunk_rows(data_dir, dataset, passage.solar_lon_deg, solar_half_width)
+        for dataset in datasets
     ]
     return np.concatenate([p for p in parts if len(p)]) if any(len(p) for p in parts) else parts[0]
 
@@ -1047,12 +1050,13 @@ def main():
                 p,
                 args.solar_half_width_deg,
                 catalogue_path=args.catalogue,
+                source="PANSY",
             ),
         )
         for p in PASSAGES
     ]
     for passage, rows in rows_by_passage:
-        validate_passage_sources(rows, passage)
+        validate_passage_sources(rows, passage, required_sources=("PANSY",))
     vg_range = (min(args.vg_min, args.vg_max), max(args.vg_min, args.vg_max))
     e_range = (min(args.e_min, args.e_max), max(args.e_min, args.e_max))
     if args.cluster_filter:
@@ -1075,12 +1079,12 @@ def main():
         activity_center = 0.5 * (solar_min + solar_max)
         activity_half_width = 0.5 * (solar_max - solar_min)
         if args.catalogue.exists():
-            catalogue_rows = load_catalogue_rows(
+            raw_rows = load_catalogue_rows(
                 args.catalogue,
                 activity_center,
                 activity_half_width,
+                source="PANSY",
             )
-            raw_rows = catalogue_rows[catalogue_rows["dataset"] == "PANSY"]
         else:
             raw_rows = load_chunk_rows(
                 args.radview_data,
@@ -1088,30 +1092,19 @@ def main():
                 activity_center,
                 activity_half_width,
             )
-            maarsy_rows = load_chunk_rows(
-                args.radview_data,
-                "maarsy",
-                activity_center,
-                activity_half_width,
-            )
-            catalogue_rows = np.concatenate((raw_rows, maarsy_rows))
         selected_rows = select_activity_rows(raw_rows, activity_selection)
-        combined_selected_rows = select_activity_rows(catalogue_rows, activity_selection)
         inset_rows = select_activity_rows(
-            catalogue_rows,
+            raw_rows,
             activity_selection,
             require_radiant_pixels=False,
         )
-        combined_counts = activity_selection.short_name == "CAP"
-        profile_rows = combined_selected_rows if combined_counts else selected_rows
-        profile_coverage_rows = catalogue_rows if combined_counts else raw_rows
         profile = activity_profile(
-            profile_rows,
+            selected_rows,
             args.activity_exposure,
             activity_selection,
-            coverage_rows=profile_coverage_rows,
+            coverage_rows=raw_rows,
         )
-        activity_products.append((activity_selection, profile_rows, inset_rows, profile))
+        activity_products.append((activity_selection, selected_rows, inset_rows, profile))
 
     fig, axes = plt.subplots(
         1,
@@ -1139,7 +1132,6 @@ def main():
         inset_bounds=(0.04, 0.57, 0.36, 0.39),
         label_location="right",
         color="C1",
-        raw_count_label="PANSY + MAARSY raw count",
     )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
