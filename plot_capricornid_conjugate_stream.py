@@ -20,12 +20,18 @@ from plot_omega_eridanids_shower import (
     interpolate_observation_solar_longitude,
 )
 from radiant_visibility import centered_plot_longitude_deg, radiant_exposure_hours_points
+from shower_selection_windows import WINDOWS, ShowerSelectionWindow, format_window, selection_mask
 
 
 RADVIEW_ROOT = Path.home() / "src" / "radview"
 LIVE_RADVIEW_DATA = Path("/tmp/radiantviz_live_data")
 RADVIEW_DATA = LIVE_RADVIEW_DATA if LIVE_RADVIEW_DATA.exists() else RADVIEW_ROOT / "public" / "data"
-DEFAULT_CATALOGUE = Path(__file__).resolve().parent / "figs" / "pansy_maarsy_keplerian_catalogue.h5"
+DEFAULT_CATALOGUE = (
+    Path(__file__).resolve().parent
+    / "figs"
+    / "paper_refresh_20260727_current"
+    / "pansy_keplerian_catalogue.h5"
+)
 CLUSTER_SOLAR_WINDOW_DEG = 14.0
 CLUSTER_VG_RANGE = (14.26, 30.24)
 CLUSTER_E_RANGE = (0.664, 0.832)
@@ -63,9 +69,11 @@ class ActivitySelection:
     vg_range: tuple[float, float] | None
     e_range: tuple[float, float] | None
     healpix_pixels: tuple[int, ...]
+    parameter_window: ShowerSelectionWindow | None = None
     healpix_nside: int = 32
     bin_width_deg: float = 1.0
     profile_window_deg: float = 1.0
+    minimum_exposure_hours: float = 1.0
     inset_xlim_deg: tuple[float, float] | None = None
     inset_ylim_deg: tuple[float, float] | None = None
     inset_xticks_deg: tuple[float, ...] | None = None
@@ -120,11 +128,12 @@ ACTIVITY_SELECTIONS = (
         solar_range_deg=DCS_ACTIVITY_SOLAR_RANGE_DEG,
         peak_solar_lon_deg=312.53,
         peak_window_deg=4.0,
-        sun_centered_lon_deg=354.48,
-        beta_deg=-8.40,
+        sun_centered_lon_deg=354.07,
+        beta_deg=-8.23,
         vg_range=None,
         e_range=None,
         healpix_pixels=DCS_ACTIVITY_HEALPIX_PIXELS,
+        parameter_window=WINDOWS["DCS"],
         inset_xlim_deg=(370.0, 345.0),
         inset_ylim_deg=(-14.0, 0.0),
         inset_xticks_deg=(370.0, 365.0, 360.0, 355.0, 350.0, 345.0),
@@ -139,19 +148,20 @@ ACTIVITY_SELECTIONS = (
         solar_range_deg=DCS_ACTIVITY_SOLAR_RANGE_DEG,
         peak_solar_lon_deg=294.2,
         peak_window_deg=4.0,
-        sun_centered_lon_deg=2.59,
-        beta_deg=-10.51,
+        sun_centered_lon_deg=1.63,
+        beta_deg=-10.30,
         vg_range=None,
         e_range=None,
         healpix_pixels=(7104, 7105, 7232, 7233, 7234, 7360, 7361),
+        parameter_window=WINDOWS["OES"],
     ),
     ActivitySelection(
         short_name="CAP",
         solar_range_deg=(80.0, 150.0),
         peak_solar_lon_deg=116.95,
         peak_window_deg=4.0,
-        sun_centered_lon_deg=180.34,
-        beta_deg=9.40,
+        sun_centered_lon_deg=181.25,
+        beta_deg=9.55,
         vg_range=(15.84, 28.74),
         e_range=(0.620, 0.877),
         healpix_pixels=(
@@ -172,6 +182,7 @@ ACTIVITY_SELECTIONS = (
             5375,
             5376,
         ),
+        parameter_window=WINDOWS["CAP"],
         inset_xlim_deg=(185.5, 168.0),
         inset_ylim_deg=(5.0, 20.0),
         inset_xticks_deg=(185.0, 180.0, 175.0, 170.0),
@@ -276,10 +287,13 @@ def load_catalogue_rows(
         source_id = np.asarray(h5["source_id"], dtype=np.int8)
         keep = np.abs(wrap180(solar - center)) <= half_width
         if source is not None:
-            source_lookup = {
-                str(h5.attrs[f"source_id_{value}"]).upper(): int(value)
-                for value in np.unique(source_id)
-            }
+            source_lookup = {}
+            for value in np.unique(source_id):
+                attribute = f"source_id_{value}"
+                if attribute in h5.attrs:
+                    source_lookup[str(h5.attrs[attribute]).upper()] = int(value)
+                elif len(np.unique(source_id)) == 1 and int(value) == 0:
+                    source_lookup["PANSY"] = 0
             requested = source.upper()
             if requested not in source_lookup:
                 raise ValueError(f"source {source!r} is not present in {path}")
@@ -288,10 +302,14 @@ def load_catalogue_rows(
         out = np.empty(len(index), dtype=dtype)
         if len(index) == 0:
             return out
-        source_names = {
-            int(value): str(h5.attrs[f"source_id_{value}"]).upper()
-            for value in np.unique(source_id[index])
-        }
+        source_names = {}
+        for value in np.unique(source_id[index]):
+            attribute = f"source_id_{value}"
+            source_names[int(value)] = (
+                str(h5.attrs[attribute]).upper()
+                if attribute in h5.attrs
+                else ("PANSY" if int(value) == 0 else f"SOURCE{int(value)}")
+            )
         out["dataset"] = np.asarray([source_names[int(value)] for value in source_id[index]])
         out["solar_lon"] = solar[index]
         out["sun_centered_lon"] = np.asarray(h5["sun_centered_lon_deg"][index], dtype=np.float64)
@@ -529,7 +547,18 @@ def select_activity_rows(
     *,
     require_radiant_pixels: bool = True,
 ) -> np.ndarray:
-    """Apply the documented velocity, eccentricity, and optional radiant selection."""
+    """Apply the CSV-inferred seven-parameter window or the legacy selection."""
+    if selection.parameter_window is not None:
+        ra_deg, dec_deg = ecliptic_to_equatorial_deg(rows["ecliptic_lon"], rows["beta"])
+        return rows[
+            selection_mask(
+                selection.parameter_window,
+                vg_km_s=rows["vg"],
+                kepler=rows["kepler"],
+                ra_deg=ra_deg,
+                dec_deg=dec_deg,
+            )
+        ]
     keep = np.ones(len(rows), dtype=bool)
     if selection.e_range is not None:
         eccentricity = rows["kepler"][:, 1]
@@ -589,17 +618,18 @@ def activity_profile(
             )[0]
         )
 
+    valid_exposure = exposure >= selection.minimum_exposure_hours
     rate = np.divide(
         counts,
         exposure,
         out=np.full_like(exposure, np.nan),
-        where=(exposure > 0.0) & coverage,
+        where=valid_exposure & coverage,
     )
     uncertainty = np.divide(
         np.sqrt(counts),
         exposure,
         out=np.full_like(exposure, np.nan),
-        where=(exposure > 0.0) & coverage,
+        where=valid_exposure & coverage,
     )
     return {
         "centers": centers,
@@ -1235,6 +1265,8 @@ def main():
         print(f"DCS profile: selected {len(profile_rows)}")
         print(args.profile_output)
     for activity_selection, selected_rows, _inset_rows, profile in activity_products:
+        if activity_selection.parameter_window is not None:
+            print(format_window(activity_selection.parameter_window))
         finite_rate = np.isfinite(profile["rate"])
         peak_window_count = int(
             np.sum(

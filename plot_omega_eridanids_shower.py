@@ -11,10 +11,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from radiant_visibility import centered_plot_longitude_deg, radiant_exposure_hours_points
+from shower_selection_windows import WINDOWS, format_window, selection_mask
 
 
-DEFAULT_CATALOGUE = Path(__file__).parent / "figs" / "pansy_maarsy_keplerian_catalogue.h5"
-DEFAULT_EXPOSURE = Path(__file__).parent / "figs" / "paper_refresh_20260721_current" / "paper_radiant_results.h5"
+DEFAULT_CATALOGUE = (
+    Path(__file__).parent
+    / "figs"
+    / "paper_refresh_20260727_current"
+    / "pansy_keplerian_catalogue.h5"
+)
+DEFAULT_EXPOSURE = (
+    Path(__file__).parent
+    / "figs"
+    / "paper_refresh_20260727_current"
+    / "paper_radiant_results.h5"
+)
 DEFAULT_OUTPUT = Path.home() / "src" / "pansy_paper" / "paper_omega_eridanids.png"
 
 SOLAR_RANGE_DEG = (100.0, 120.0)
@@ -36,8 +47,8 @@ MEAN_RA_DEG = 54.33
 MEAN_DEC_DEG = -30.63
 MEAN_VG_KM_S = 48.65
 MEAN_KEPLER = np.asarray([3.4039, 0.7089, 91.29, 290.14, 317.33, 42.24, 0.8999])
-MEAN_SC_LON_DEG = 291.04
-MEAN_BETA_DEG = -48.21
+MEAN_SC_LON_DEG = 292.39
+MEAN_BETA_DEG = -47.80
 OBLIQUITY_DEG = 23.4392911
 
 
@@ -137,8 +148,16 @@ def selection_masks(rows: dict[str, np.ndarray]) -> tuple[np.ndarray, np.ndarray
         & (rows["kepler"][:, 0] <= SEMIMAJOR_AXIS_RANGE_AU[1])
     )
     distribution_filter = velocity & semimajor_axis
-    shower = distribution_filter & np.isin(pixel, RADIANT_PIXELS)
-    core = shower & (rows["solar"] >= CORE_SOLAR_RANGE_DEG[0]) & (rows["solar"] <= CORE_SOLAR_RANGE_DEG[1])
+    legacy_shower = distribution_filter & np.isin(pixel, RADIANT_PIXELS)
+    core = legacy_shower & (rows["solar"] >= CORE_SOLAR_RANGE_DEG[0]) & (rows["solar"] <= CORE_SOLAR_RANGE_DEG[1])
+    ra_deg, dec_deg = ecliptic_to_equatorial_deg(rows["ecliptic_lon"], rows["beta"])
+    shower = selection_mask(
+        WINDOWS["SER"],
+        vg_km_s=rows["vg"],
+        kepler=rows["kepler"],
+        ra_deg=ra_deg,
+        dec_deg=dec_deg,
+    )
     return shower, core
 
 
@@ -190,6 +209,9 @@ def activity_profile(
         out=np.full_like(exposure, np.nan),
         where=exposure > 0.0,
     )
+    insufficient_exposure = exposure < 1.0
+    rate[insufficient_exposure] = np.nan
+    uncertainty[insufficient_exposure] = np.nan
     return {
         "centers": centers,
         "rate": rate,
@@ -403,6 +425,7 @@ def main() -> None:
     shower, core = selection_masks(rows)
     profile = activity_profile(rows, shower, args.exposure, args.bin_width_deg)
     make_figure(rows, core, profile, args.output)
+    print(format_window(WINDOWS["SER"]))
     print(f"selected core meteors: {int(np.sum(core))}")
     print(f"selected 100-120 deg meteors: {int(np.sum(shower))}")
     print(args.output)
