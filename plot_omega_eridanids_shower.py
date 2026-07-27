@@ -282,8 +282,9 @@ def draw_mean_perifocal_panel(ax, orbits: np.ndarray) -> None:
 
 
 def make_figure(rows: dict[str, np.ndarray], core: np.ndarray, profile: dict[str, np.ndarray], output: Path) -> None:
-    if int(np.sum(core)) != 76:
-        raise RuntimeError(f"omega-Eridanid selection changed: expected 76 meteors, found {int(np.sum(core))}")
+    core_count = int(np.sum(core))
+    if core_count == 0:
+        raise RuntimeError("omega-Eridanid selection is empty")
     orbits = rows["kepler"][core]
     plt.rcParams.update(
         {
@@ -316,17 +317,17 @@ def make_figure(rows: dict[str, np.ndarray], core: np.ndarray, profile: dict[str
     angular_stats = [circular_mean_std_deg(orbits[:, column]) for column in (2, 3, 4, 5)]
 
     summary = (
-        r"$N=76$" "\n"
-        rf"$\alpha_g={MEAN_RA_DEG:.2f}\pm{ra_std:.2f}^\circ$, "
-        rf"$\delta_g={MEAN_DEC_DEG:.2f}\pm{linear_std[0]:.2f}^\circ$" "\n"
-        rf"$v_g={MEAN_VG_KM_S:.2f}\pm{linear_std[1]:.2f}$ km s$^{{-1}}$" "\n"
-        rf"$a={MEAN_KEPLER[0]:.2f}\pm{linear_std[2]:.2f}$ AU, "
-        rf"$e={MEAN_KEPLER[1]:.3f}\pm{linear_std[3]:.3f}$" "\n"
-        rf"$q={MEAN_KEPLER[6]:.3f}\pm{linear_std[4]:.3f}$ AU" "\n"
-        rf"$i={MEAN_KEPLER[2]:.2f}\pm{angular_stats[0][1]:.2f}^\circ$, "
-        rf"$\Omega={MEAN_KEPLER[3]:.2f}\pm{angular_stats[1][1]:.2f}^\circ$" "\n"
-        rf"$\omega={MEAN_KEPLER[4]:.2f}\pm{angular_stats[2][1]:.2f}^\circ$, "
-        rf"$\nu={MEAN_KEPLER[5]:.2f}\pm{angular_stats[3][1]:.2f}^\circ$"
+        rf"$N={core_count}$" "\n"
+        rf"$\alpha_g={ra_mean:.2f}\pm{ra_std:.2f}^\circ$, "
+        rf"$\delta_g={linear_mean[0]:.2f}\pm{linear_std[0]:.2f}^\circ$" "\n"
+        rf"$v_g={linear_mean[1]:.2f}\pm{linear_std[1]:.2f}$ km s$^{{-1}}$" "\n"
+        rf"$a={linear_mean[2]:.2f}\pm{linear_std[2]:.2f}$ AU, "
+        rf"$e={linear_mean[3]:.3f}\pm{linear_std[3]:.3f}$" "\n"
+        rf"$q={linear_mean[4]:.3f}\pm{linear_std[4]:.3f}$ AU" "\n"
+        rf"$i={angular_stats[0][0]:.2f}\pm{angular_stats[0][1]:.2f}^\circ$, "
+        rf"$\Omega={angular_stats[1][0]:.2f}\pm{angular_stats[1][1]:.2f}^\circ$" "\n"
+        rf"$\omega={angular_stats[2][0]:.2f}\pm{angular_stats[2][1]:.2f}^\circ$, "
+        rf"$\nu={angular_stats[3][0]:.2f}\pm{angular_stats[3][1]:.2f}^\circ$"
     )
     axes[1].text(0.02, 0.02, summary, transform=axes[1].transAxes, ha="left", va="bottom", fontsize=10.5)
 
