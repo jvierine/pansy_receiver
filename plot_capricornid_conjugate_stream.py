@@ -741,6 +741,9 @@ def plot_activity_inset(
     inset.tick_params(length=2.0, pad=1.0)
     inset.set_xlabel(r"$\lambda_g-\lambda_\odot$ (deg)", fontsize=8.0, labelpad=1.0)
     inset.set_ylabel(r"$\beta_g$ (deg)", fontsize=8.0, labelpad=1.0)
+    if selection.short_name == "CAP":
+        inset.yaxis.tick_right()
+        inset.yaxis.set_label_position("right")
     inset.grid(alpha=0.16, lw=0.35)
 
 
