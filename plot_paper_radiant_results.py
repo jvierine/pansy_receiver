@@ -501,7 +501,7 @@ def right_side_contour_label_positions(
 
 def add_source_markers(ax) -> None:
     for lon_deg, marker, color, size in (
-        (0.0, "o", "#ffd21f", 22),
+        (0.0, r"$\odot$", "#ffd21f", 62),
         (-90.0, r"$\otimes$", "black", 45),
         (180.0, "o", "black", 22),
     ):
