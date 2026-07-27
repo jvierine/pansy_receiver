@@ -13,6 +13,7 @@ import numpy as np
 from matplotlib.lines import Line2D
 from matplotlib.ticker import MaxNLocator
 from scipy.ndimage import gaussian_filter
+from scipy.interpolate import UnivariateSpline
 
 
 METEOROID_DENSITY_KG_M3 = 3000.0
@@ -154,7 +155,13 @@ def radius_um_to_mass_kg(radius_um):
     return (4.0 / 3.0) * np.pi * METEOROID_DENSITY_KG_M3 * radius_m**3
 
 
-def density_contours(ax, speed, mass_kg, color):
+def density_contours(
+    ax,
+    speed,
+    mass_kg,
+    color,
+    manual_label_positions=None,
+):
     good = np.isfinite(speed) & np.isfinite(mass_kg) & (mass_kg > 0.0)
     speed = np.asarray(speed[good], dtype=np.float64)
     log_mass = np.log10(np.asarray(mass_kg[good], dtype=np.float64))
@@ -187,14 +194,73 @@ def density_contours(ax, speed, mass_kg, color):
         alpha=0.95,
     )
     labels = {level: f"{100.0 * unique_levels[level]:.0f}%" for level in levels}
-    ax.clabel(
-        contours,
-        contours.levels,
-        fmt=labels,
-        inline=True,
-        inline_spacing=2,
-        fontsize=PAPER_CONTOUR_LABEL_SIZE,
-        colors=[color],
+    manual_label_positions = manual_label_positions or {}
+    automatic_levels = []
+    for level in contours.levels:
+        fraction = unique_levels[level]
+        if fraction in manual_label_positions:
+            ax.clabel(
+                contours,
+                levels=[level],
+                fmt=labels,
+                manual=[manual_label_positions[fraction]],
+                inline=True,
+                inline_spacing=2,
+                fontsize=PAPER_CONTOUR_LABEL_SIZE,
+                colors=[color],
+            )
+        else:
+            automatic_levels.append(level)
+    if automatic_levels:
+        ax.clabel(
+            contours,
+            levels=automatic_levels,
+            fmt=labels,
+            inline=True,
+            inline_spacing=2,
+            fontsize=PAPER_CONTOUR_LABEL_SIZE,
+            colors=[color],
+        )
+    return speed_centers, mass_centers, histogram, density
+
+
+def plot_smoothed_density_peak(
+    ax,
+    speed_centers,
+    mass_centers,
+    histogram,
+    density,
+    color,
+):
+    """Plot a smooth conditional-mode ridge through a velocity--mass density."""
+    counts_per_speed = np.sum(histogram, axis=1)
+    populated = counts_per_speed >= 8
+    if np.count_nonzero(populated) < 5:
+        return
+
+    peak_indices = np.argmax(density[:, populated], axis=0)
+    peak_log_mass = np.log10(mass_centers[peak_indices])
+    peak_speed = speed_centers[populated]
+
+    # Fit in log-mass space. The smoothing target allows about 0.15 dex of
+    # bin-to-bin scatter while retaining broad changes with entry speed.
+    weights = np.sqrt(counts_per_speed[populated])
+    weights /= np.median(weights)
+    spline = UnivariateSpline(
+        peak_speed,
+        peak_log_mass,
+        w=weights,
+        k=min(3, len(peak_speed) - 1),
+        s=len(peak_speed) * 0.15**2,
+    )
+    fit_speed = np.linspace(peak_speed[0], peak_speed[-1], 400)
+    ax.plot(
+        fit_speed,
+        10.0 ** spline(fit_speed),
+        color=color,
+        linewidth=2.2,
+        linestyle="--",
+        zorder=5,
     )
 
 
@@ -230,8 +296,23 @@ def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
     ax = fig.add_subplot(grid[0, 0])
     ax_mass = fig.add_subplot(grid[0, 1], sharey=ax)
     finite_upper = analysis_mask & np.isfinite(data["upper_mass_kg"])
-    density_contours(ax, speed[analysis_mask], data["lower_mass_kg"][analysis_mask], "C0")
-    density_contours(ax, speed[finite_upper], data["upper_mass_kg"][finite_upper], "C1")
+    lower_density = density_contours(
+        ax,
+        speed[analysis_mask],
+        data["lower_mass_kg"][analysis_mask],
+        "C0",
+        manual_label_positions={0.95: (30.0, 5e-10)},
+    )
+    upper_density = density_contours(
+        ax,
+        speed[finite_upper],
+        data["upper_mass_kg"][finite_upper],
+        "C1",
+    )
+    if lower_density is not None:
+        plot_smoothed_density_peak(ax, *lower_density, "C0")
+    if upper_density is not None:
+        plot_smoothed_density_peak(ax, *upper_density, "C1")
     ax.set_yscale("log")
     ax.set_ylim(*mass_limits)
     ax.set_xlim(10.0, 80.0)
@@ -275,8 +356,22 @@ def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
     radius_axis.tick_params(axis="y", which="both", labelsize=PAPER_TICK_LABEL_SIZE)
     ax.legend(
         handles=(
-            Line2D([0], [0], color="C0", lw=1.3, label="95% lower bound"),
-            Line2D([0], [0], color="C1", lw=1.3, label="Finite 95% upper bound"),
+            Line2D(
+                [0],
+                [0],
+                color="C0",
+                lw=2.2,
+                linestyle="--",
+                label="95% lower bound",
+            ),
+            Line2D(
+                [0],
+                [0],
+                color="C1",
+                lw=2.2,
+                linestyle="--",
+                label="Finite 95% upper bound",
+            ),
         ),
         loc="lower left",
         frameon=False,
