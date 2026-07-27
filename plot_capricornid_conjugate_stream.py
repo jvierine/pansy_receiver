@@ -29,7 +29,7 @@ DEFAULT_CATALOGUE = Path(__file__).resolve().parent / "figs" / "pansy_maarsy_kep
 CLUSTER_SOLAR_WINDOW_DEG = 14.0
 CLUSTER_VG_RANGE = (14.26, 30.24)
 CLUSTER_E_RANGE = (0.664, 0.832)
-ORBIT_COLORS = ("#0072B2", "#D55E00")
+ORBIT_COLORS = ("C0", "C1", "C2")
 COMET_COLOR = "black"
 RADIANT_COLOR_SPECS = {
     "vg": (r"Geocentric speed, $v_g$ (km s$^{-1}$)", 10.0, 75.0, "viridis"),
@@ -94,12 +94,21 @@ PASSAGES = (
         n=89,
         mean_kepler=(2.5256, 0.7476, 7.58, 131.47, 264.41, 274.72, 0.6231),
     ),
+    Passage(
+        name=r"62-Sagittariids (OES)",
+        solar_lon_deg=294.2,
+        sun_centered_lon_deg=2.59,
+        beta_deg=-10.51,
+        vg_km_s=21.68,
+        n=64,
+        mean_kepler=(2.5754, 0.7533, 7.21, 113.06, 277.52, 81.53, 0.6169),
+    ),
 )
 
 COMET_169P_NEAT = np.asarray([2.604, 0.76796, 11.285, 176.04, 218.13, np.nan, 0.604], dtype=np.float64)
 DCS_PROFILE_SOLAR_RANGE_DEG = (300.0, 330.0)
 DCS_PROFILE_BIN_WIDTH_DEG = 0.25
-DCS_ACTIVITY_SOLAR_RANGE_DEG = (305.0, 335.0)
+DCS_ACTIVITY_SOLAR_RANGE_DEG = (285.0, 335.0)
 DCS_ACTIVITY_BIN_WIDTH_DEG = 1.0
 DCS_ACTIVITY_HEALPIX_NSIDE = 32
 DCS_ACTIVITY_HEALPIX_PIXELS = (6846, 6973, 6974, 7101, 7102, 7103, 7229, 7230)
@@ -116,14 +125,25 @@ ACTIVITY_SELECTIONS = (
         vg_range=None,
         e_range=None,
         healpix_pixels=DCS_ACTIVITY_HEALPIX_PIXELS,
-        inset_xlim_deg=(360.0, 345.0),
-        inset_ylim_deg=(-15.0, 0.0),
-        inset_xticks_deg=(360.0, 355.0, 350.0, 345.0),
-        inset_yticks_deg=(-15.0, -10.0, -5.0, 0.0),
+        inset_xlim_deg=(370.0, 345.0),
+        inset_ylim_deg=(-14.0, 0.0),
+        inset_xticks_deg=(370.0, 365.0, 360.0, 355.0, 350.0, 345.0),
+        inset_yticks_deg=(-14.0, -10.0, -5.0, 0.0),
         inset_solar_lon_deg=313.0,
         inset_solar_window_deg=14.0,
         inset_sun_centered_lon_deg=354.51,
         inset_beta_deg=-8.34,
+    ),
+    ActivitySelection(
+        short_name="OES",
+        solar_range_deg=DCS_ACTIVITY_SOLAR_RANGE_DEG,
+        peak_solar_lon_deg=294.2,
+        peak_window_deg=4.0,
+        sun_centered_lon_deg=2.59,
+        beta_deg=-10.51,
+        vg_range=None,
+        e_range=None,
+        healpix_pixels=(7104, 7105, 7232, 7233, 7234, 7360, 7361),
     ),
     ActivitySelection(
         short_name="CAP",
@@ -660,6 +680,7 @@ def plot_activity_inset(
     rows: np.ndarray,
     selection: ActivitySelection,
     bounds: tuple[float, float, float, float],
+    additional_markers: tuple[tuple[ActivitySelection, str], ...] = (),
 ) -> None:
     """Show all catalogue meteors within the activity interval and inset limits."""
     inset = ax.inset_axes(bounds)
@@ -706,6 +727,20 @@ def plot_activity_inset(
             ls="--",
         )
     )
+    for marker_selection, marker_color in additional_markers:
+        marker_x = inset_lon + float(
+            wrap180(marker_selection.sun_centered_lon_deg - inset_lon)
+        )
+        inset.add_patch(
+            plt.Circle(
+                (marker_x, marker_selection.beta_deg),
+                1.0,
+                fill=False,
+                color=marker_color,
+                lw=0.9,
+                ls="--",
+            )
+        )
     print(
         f"{selection.short_name} inset: {int(np.sum(visible))} contextual "
         f"meteors inside axes from {len(rows)} PANSY meteors in the solar range"
@@ -757,6 +792,22 @@ def plot_activity_inset(
     inset.grid(alpha=0.16, lw=0.35)
 
 
+def plot_activity_curve(
+    ax,
+    profile: dict[str, np.ndarray],
+    *,
+    color: str,
+    label: str | None = None,
+) -> None:
+    x = profile["centers"]
+    y = profile["rate"]
+    uncertainty = profile["uncertainty"]
+    lower = np.maximum(0.0, y - uncertainty)
+    upper = y + uncertainty
+    ax.fill_between(x, lower, upper, color=color, alpha=0.20, linewidth=0)
+    ax.plot(x, y, color=color, marker="o", ms=3.0, lw=1.35, label=label)
+
+
 def plot_activity_panel(
     ax,
     profile: dict[str, np.ndarray],
@@ -766,37 +817,23 @@ def plot_activity_panel(
     inset_bounds: tuple[float, float, float, float],
     label_location: str,
     color: str = "C0",
-    raw_count_label: str | None = None,
+    curve_label: str | None = None,
+    panel_label: str | None = None,
+    additional_inset_markers: tuple[tuple[ActivitySelection, str], ...] = (),
 ) -> None:
-    """Plot raw counts, exposure-corrected rate, and the peak radiant neighborhood."""
-    x = profile["centers"]
-    y = profile["rate"]
-    uncertainty = profile["uncertainty"]
-    counts = profile["counts"]
-    lower = np.maximum(0.0, y - uncertainty)
-    upper = y + uncertainty
-    ax.fill_between(x, lower, upper, color=color, alpha=0.20, linewidth=0)
-    ax.plot(x, y, color=color, marker="o", ms=3.0, lw=1.35)
+    """Plot an exposure-corrected activity curve and contextual radiant inset."""
+    plot_activity_curve(ax, profile, color=color, label=curve_label)
     ax.set_xlim(*selection.solar_range_deg)
     ax.set_ylim(bottom=0.0)
     ax.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)")
     ax.set_ylabel(r"Detected rate (h$^{-1}$)")
     ax.grid(alpha=0.22, lw=0.45)
 
-    count_ax = ax.twinx()
-    count_ax.step(x, counts, where="mid", color="0.35", lw=1.0, alpha=0.75)
-    count_ax.set_ylim(bottom=0.0)
-    if raw_count_label is None:
-        raw_count_label = (
-            rf"PANSY raw count (${selection.profile_window_deg:g}^\circ$ window)"
-        )
-    count_ax.set_ylabel(raw_count_label)
-
     label_x = 0.025 if label_location == "left" else 0.975
     ax.text(
         label_x,
         0.97,
-        selection.short_name,
+        selection.short_name if panel_label is None else panel_label,
         transform=ax.transAxes,
         ha=label_location,
         va="top",
@@ -805,7 +842,13 @@ def plot_activity_panel(
         color="black",
         zorder=8,
     )
-    plot_activity_inset(ax, inset_rows, selection, inset_bounds)
+    plot_activity_inset(
+        ax,
+        inset_rows,
+        selection,
+        inset_bounds,
+        additional_markers=additional_inset_markers,
+    )
 
 
 def orbit_xy(kepler: np.ndarray, samples: int = 361) -> tuple[np.ndarray, np.ndarray]:
@@ -985,7 +1028,12 @@ def plot_orbits(
             orbit_count += 1
             if orbit_count >= 160:
                 break
-        shower_label = "DCS" if "Daytime" in passage.name else "CAP"
+        if "Daytime" in passage.name:
+            shower_label = "DCS"
+        elif "alpha" in passage.name:
+            shower_label = "CAP"
+        else:
+            shower_label = "OES"
         ax.plot([], [], color=color, alpha=0.75, lw=1.3, label=shower_label)
         earth_lon = np.deg2rad(passage.solar_lon_deg + 180.0)
         ex, ey = np.cos(earth_lon), np.sin(earth_lon)
@@ -1089,26 +1137,32 @@ def main():
             bin_width_deg=args.activity_bin_width_deg,
         ),
         ACTIVITY_SELECTIONS[1],
+        ACTIVITY_SELECTIONS[2],
     ]
     activity_products = []
+    activity_row_cache: dict[tuple[float, float], np.ndarray] = {}
     for activity_selection in activity_selections:
         solar_min, solar_max = activity_selection.solar_range_deg
         activity_center = 0.5 * (solar_min + solar_max)
         activity_half_width = 0.5 * (solar_max - solar_min)
-        if args.catalogue.exists():
-            raw_rows = load_catalogue_rows(
-                args.catalogue,
-                activity_center,
-                activity_half_width,
-                source="PANSY",
-            )
-        else:
-            raw_rows = load_chunk_rows(
-                args.radview_data,
-                "pansy",
-                activity_center,
-                activity_half_width,
-            )
+        cache_key = (solar_min, solar_max)
+        raw_rows = activity_row_cache.get(cache_key)
+        if raw_rows is None:
+            if args.catalogue.exists():
+                raw_rows = load_catalogue_rows(
+                    args.catalogue,
+                    activity_center,
+                    activity_half_width,
+                    source="PANSY",
+                )
+            else:
+                raw_rows = load_chunk_rows(
+                    args.radview_data,
+                    "pansy",
+                    activity_center,
+                    activity_half_width,
+                )
+            activity_row_cache[cache_key] = raw_rows
         selected_rows = select_activity_rows(raw_rows, activity_selection)
         profile = activity_profile(
             selected_rows,
@@ -1126,7 +1180,8 @@ def main():
         gridspec_kw={"width_ratios": (1.12, 1.0, 1.12)},
     )
     dcs_selection, _dcs_rows, dcs_inset_rows, dcs_profile = activity_products[0]
-    cap_selection, _cap_rows, cap_inset_rows, cap_profile = activity_products[1]
+    oes_selection, _oes_rows, _oes_inset_rows, oes_profile = activity_products[1]
+    cap_selection, _cap_rows, cap_inset_rows, cap_profile = activity_products[2]
     plot_activity_panel(
         axes[0],
         dcs_profile,
@@ -1134,7 +1189,17 @@ def main():
         dcs_selection,
         inset_bounds=(0.61, 0.57, 0.36, 0.39),
         label_location="left",
+        curve_label="DCS",
+        panel_label="OES / DCS",
+        additional_inset_markers=((oes_selection, "C2"),),
     )
+    plot_activity_curve(axes[0], oes_profile, color="C2", label="OES")
+    combined_upper = max(
+        np.nanmax(dcs_profile["rate"] + dcs_profile["uncertainty"]),
+        np.nanmax(oes_profile["rate"] + oes_profile["uncertainty"]),
+    )
+    axes[0].set_ylim(0.0, 1.05 * combined_upper)
+    axes[0].legend(loc="lower left", frameon=False, fontsize=8)
     plot_orbits(axes[1], selections, colors=list(ORBIT_COLORS))
     plot_activity_panel(
         axes[2],
@@ -1144,6 +1209,7 @@ def main():
         inset_bounds=(0.04, 0.57, 0.36, 0.39),
         label_location="right",
         color="C1",
+        curve_label="CAP",
     )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
