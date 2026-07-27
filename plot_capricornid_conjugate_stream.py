@@ -1060,8 +1060,8 @@ def plot_orbits(
     show_legend: bool = True,
 ):
     theta = np.linspace(0.0, 2.0 * np.pi, 361)
-    ax.plot(np.cos(theta), np.sin(theta), color="0.35", lw=0.9, label="Earth orbit")
-    ax.plot(5.204 * np.cos(theta), 5.204 * np.sin(theta), color="0.20", lw=1.0, label="Jupiter orbit")
+    ax.plot(np.cos(theta), np.sin(theta), color="0.35", lw=0.9, label="Earth")
+    ax.plot(5.204 * np.cos(theta), 5.204 * np.sin(theta), color="0.20", lw=1.0, label="Jupiter")
     ax.scatter([0], [0], marker="o", s=45, color="#f5b342", edgecolor="black", linewidth=0.4, zorder=5)
     cx, cy = orbit_xy(COMET_169P_NEAT)
     comet_good = np.isfinite(cx) & np.isfinite(cy) & (np.hypot(cx, cy) < 6.0)
@@ -1102,8 +1102,11 @@ def plot_orbits(
     ax.grid(alpha=0.22, lw=0.45)
     if show_legend:
         legend = ax.legend(
-            loc="upper center",
-            bbox_to_anchor=(0.5, 0.91),
+            loc="lower center",
+            bbox_to_anchor=(0.5, 1.005),
+            ncol=2,
+            columnspacing=1.1,
+            handletextpad=0.5,
             fontsize=10.5,
             frameon=True,
             framealpha=1.0,
