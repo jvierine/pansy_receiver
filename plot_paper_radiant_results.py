@@ -679,6 +679,10 @@ def plot_snapshots(
     fig.subplots_adjust(left=0.055, right=0.925, bottom=0.075, top=0.995, wspace=0.025, hspace=0.015)
     xcenters, ycenters, _, _ = histogram_grid_centers(xedges, yedges)
     bin_area_deg2 = hp.nside2pixarea(SNAPSHOT_HEALPIX_NSIDE, degrees=True)
+    _, _, healpix_beta, healpix_plot_lon = healpix_centers(
+        SNAPSHOT_HEALPIX_NSIDE,
+        center_longitude_deg=PLOT_CENTER_LONGITUDE_DEG,
+    )
     panel_data = []
     for window in SNAPSHOT_WINDOWS:
         window_center = window.solar_lon_deg
@@ -695,17 +699,31 @@ def plot_snapshots(
             beta_deg=ycenters,
         )
         contour_hist, *_ = radiant_histogram(sub)
-        count_density = radiant_healpix_histogram(
-            sub, nside=SNAPSHOT_HEALPIX_NSIDE
-        ) / bin_area_deg2
-        panel_data.append((window, exposure_hours, contour_hist, count_density))
+        healpix_exposure_hours = radiant_exposure_hours_points(
+            observation_epoch[obs_keep],
+            observation_sun[obs_keep],
+            observation_hours[obs_keep],
+            healpix_plot_lon,
+            healpix_beta,
+        )
+        healpix_count = radiant_healpix_histogram(
+            sub,
+            nside=SNAPSHOT_HEALPIX_NSIDE,
+        )
+        rate_density = np.full_like(healpix_count, np.nan, dtype=np.float64)
+        np.divide(
+            healpix_count,
+            healpix_exposure_hours * bin_area_deg2,
+            out=rate_density,
+            where=healpix_exposure_hours > 0.0,
+        )
+        panel_data.append((window, exposure_hours, contour_hist, rate_density))
     positive = np.concatenate(
         [density[np.isfinite(density) & (density > 0.0)] for _, _, _, density in panel_data]
     )
-    norm = LogNorm(
-        vmin=1.0 / bin_area_deg2,
-        vmax=max(2.0 / bin_area_deg2, np.nanpercentile(positive, 99.4)),
-    )
+    vmin = float(np.nanpercentile(positive, 2.0))
+    vmax = float(np.nanpercentile(positive, 99.4))
+    norm = LogNorm(vmin=vmin, vmax=max(vmax, 2.0 * vmin))
     meshes = []
     for ax, (window, exposure_hours, contour_hist, count_density) in zip(
         axes, panel_data, strict=True
@@ -755,7 +773,7 @@ def plot_snapshots(
         fig.text(x, 0.018, r"$\lambda-\lambda_\odot$", ha="center", va="bottom")
     colorbar_ax = fig.add_axes([0.942, 0.13, 0.014, 0.74])
     colorbar = fig.colorbar(meshes[0], cax=colorbar_ax)
-    colorbar.set_label(r"Count density (deg$^{-2}$)")
+    colorbar.set_label(r"Count rate (h$^{-1}$ deg$^{-2}$)")
     fig.savefig(out, dpi=240, bbox_inches="tight", pad_inches=0.02)
     plt.close(fig)
 
