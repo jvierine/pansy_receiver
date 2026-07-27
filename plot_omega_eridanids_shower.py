@@ -50,6 +50,7 @@ MEAN_KEPLER = np.asarray([3.4039, 0.7089, 91.29, 290.14, 317.33, 42.24, 0.8999])
 MEAN_SC_LON_DEG = 292.39
 MEAN_BETA_DEG = -47.80
 OBLIQUITY_DEG = 23.4392911
+MINIMUM_EXPOSURE_HOURS = 2.0
 
 
 def wrap180(values):
@@ -185,6 +186,7 @@ def activity_profile(
     edges = np.arange(SOLAR_RANGE_DEG[0], SOLAR_RANGE_DEG[1] + bin_width_deg, bin_width_deg)
     centers = 0.5 * (edges[:-1] + edges[1:])
     shower_count, _ = np.histogram(rows["solar"][shower_mask], bins=edges)
+    shower_count = shower_count.astype(np.float64)
 
     with h5py.File(exposure_path, "r") as h5:
         observation_epoch, observation_solar, observation_hours = interpolate_observation_solar_longitude(h5)
@@ -202,16 +204,20 @@ def activity_profile(
             )[0]
         )
 
-    rate = np.divide(shower_count, exposure, out=np.full_like(exposure, np.nan), where=exposure > 0.0)
+    sufficient_exposure = exposure >= MINIMUM_EXPOSURE_HOURS
+    shower_count[~sufficient_exposure] = np.nan
+    rate = np.divide(
+        shower_count,
+        exposure,
+        out=np.full_like(exposure, np.nan),
+        where=sufficient_exposure,
+    )
     uncertainty = np.divide(
         np.sqrt(shower_count),
         exposure,
         out=np.full_like(exposure, np.nan),
-        where=exposure > 0.0,
+        where=sufficient_exposure,
     )
-    insufficient_exposure = exposure < 1.0
-    rate[insufficient_exposure] = np.nan
-    uncertainty[insufficient_exposure] = np.nan
     return {
         "centers": centers,
         "rate": rate,

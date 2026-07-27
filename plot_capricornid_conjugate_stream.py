@@ -73,7 +73,7 @@ class ActivitySelection:
     healpix_nside: int = 32
     bin_width_deg: float = 1.0
     profile_window_deg: float = 1.0
-    minimum_exposure_hours: float = 1.0
+    minimum_exposure_hours: float = 2.0
     inset_xlim_deg: tuple[float, float] | None = None
     inset_ylim_deg: tuple[float, float] | None = None
     inset_xticks_deg: tuple[float, ...] | None = None
@@ -267,11 +267,11 @@ def load_chunk_rows(data_dir: Path, dataset_id: str, center: float, half_width: 
 
 def load_catalogue_rows(
     path: Path,
-    center: float,
-    half_width: float,
+    center: float | None = None,
+    half_width: float | None = None,
     source: str | None = None,
 ) -> np.ndarray:
-    """Load a solar-longitude slice from the complete combined HDF5 catalogue."""
+    """Load rows from the combined HDF5 catalogue, optionally within a solar slice."""
     dtype = [
         ("dataset", "U8"),
         ("solar_lon", "f8"),
@@ -285,7 +285,11 @@ def load_catalogue_rows(
     with h5py.File(path, "r") as h5:
         solar = np.asarray(h5["solar_longitude_deg"], dtype=np.float64)
         source_id = np.asarray(h5["source_id"], dtype=np.int8)
-        keep = np.abs(wrap180(solar - center)) <= half_width
+        if (center is None) != (half_width is None):
+            raise ValueError("center and half_width must either both be set or both be omitted")
+        keep = np.ones(solar.shape, dtype=bool)
+        if center is not None and half_width is not None:
+            keep &= np.abs(wrap180(solar - center)) <= half_width
         if source is not None:
             source_lookup = {}
             for value in np.unique(source_id):
@@ -312,12 +316,14 @@ def load_catalogue_rows(
             )
         out["dataset"] = np.asarray([source_names[int(value)] for value in source_id[index]])
         out["solar_lon"] = solar[index]
-        out["sun_centered_lon"] = np.asarray(h5["sun_centered_lon_deg"][index], dtype=np.float64)
-        out["ecliptic_lon"] = np.asarray(h5["ecliptic_lon_deg"][index], dtype=np.float64)
-        out["beta"] = np.asarray(h5["ecliptic_lat_deg"][index], dtype=np.float64)
-        out["vg"] = np.asarray(h5["vg_km_s"][index], dtype=np.float64)
-        out["epoch"] = np.asarray(h5["epoch_unix"][index], dtype=np.float64)
-        out["kepler"] = np.asarray(h5["kepler"][index, :], dtype=np.float64)
+        # Contiguous HDF5 reads followed by a NumPy mask are much faster than
+        # million-row h5py fancy-index reads when the full catalogue is used.
+        out["sun_centered_lon"] = np.asarray(h5["sun_centered_lon_deg"], dtype=np.float64)[keep]
+        out["ecliptic_lon"] = np.asarray(h5["ecliptic_lon_deg"], dtype=np.float64)[keep]
+        out["beta"] = np.asarray(h5["ecliptic_lat_deg"], dtype=np.float64)[keep]
+        out["vg"] = np.asarray(h5["vg_km_s"], dtype=np.float64)[keep]
+        out["epoch"] = np.asarray(h5["epoch_unix"], dtype=np.float64)[keep]
+        out["kepler"] = np.asarray(h5["kepler"], dtype=np.float64)[keep, :]
     return out
 
 
@@ -619,17 +625,19 @@ def activity_profile(
         )
 
     valid_exposure = exposure >= selection.minimum_exposure_hours
+    valid = valid_exposure & coverage
+    counts[~valid] = np.nan
     rate = np.divide(
         counts,
         exposure,
         out=np.full_like(exposure, np.nan),
-        where=valid_exposure & coverage,
+        where=valid,
     )
     uncertainty = np.divide(
         np.sqrt(counts),
         exposure,
         out=np.full_like(exposure, np.nan),
-        where=valid_exposure & coverage,
+        where=valid,
     )
     return {
         "centers": centers,
@@ -652,6 +660,7 @@ def dcs_activity_profile(
     edges = np.arange(solar_min, solar_max + bin_width_deg, bin_width_deg, dtype=np.float64)
     centers = 0.5 * (edges[:-1] + edges[1:])
     counts, _ = np.histogram(rows["solar_lon"], bins=edges)
+    counts = counts.astype(np.float64)
 
     with h5py.File(exposure_path, "r") as h5:
         observation_epoch, observation_solar, observation_hours = interpolate_observation_solar_longitude(h5)
@@ -669,12 +678,19 @@ def dcs_activity_profile(
             )[0]
         )
 
-    rate = np.divide(counts, exposure, out=np.full_like(exposure, np.nan), where=exposure > 0.0)
+    valid_exposure = exposure >= 2.0
+    counts[~valid_exposure] = np.nan
+    rate = np.divide(
+        counts,
+        exposure,
+        out=np.full_like(exposure, np.nan),
+        where=valid_exposure,
+    )
     uncertainty = np.divide(
         np.sqrt(counts),
         exposure,
         out=np.full_like(exposure, np.nan),
-        where=exposure > 0.0,
+        where=valid_exposure,
     )
     return {
         "centers": centers,
@@ -1158,29 +1174,29 @@ def main():
         ACTIVITY_SELECTIONS[2],
     ]
     activity_products = []
+    full_catalogue_rows = (
+        load_catalogue_rows(args.catalogue, source="PANSY")
+        if args.catalogue.exists()
+        else None
+    )
     activity_row_cache: dict[tuple[float, float], np.ndarray] = {}
     for activity_selection in activity_selections:
         solar_min, solar_max = activity_selection.solar_range_deg
         activity_center = 0.5 * (solar_min + solar_max)
         activity_half_width = 0.5 * (solar_max - solar_min)
-        cache_key = (solar_min, solar_max)
-        raw_rows = activity_row_cache.get(cache_key)
-        if raw_rows is None:
-            if args.catalogue.exists():
-                raw_rows = load_catalogue_rows(
-                    args.catalogue,
-                    activity_center,
-                    activity_half_width,
-                    source="PANSY",
-                )
-            else:
+        if full_catalogue_rows is not None:
+            raw_rows = full_catalogue_rows
+        else:
+            cache_key = (solar_min, solar_max)
+            raw_rows = activity_row_cache.get(cache_key)
+            if raw_rows is None:
                 raw_rows = load_chunk_rows(
                     args.radview_data,
                     "pansy",
                     activity_center,
                     activity_half_width,
                 )
-            activity_row_cache[cache_key] = raw_rows
+                activity_row_cache[cache_key] = raw_rows
         selected_rows = select_activity_rows(raw_rows, activity_selection)
         profile = activity_profile(
             selected_rows,
