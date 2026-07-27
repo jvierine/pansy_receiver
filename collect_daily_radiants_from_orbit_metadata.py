@@ -60,6 +60,8 @@ DAILY_COUNT_DTYPE = np.dtype([("utc_day", "S10"), ("count", "i8")])
 
 
 def rows_from_events(events: np.ndarray) -> np.ndarray:
+    if len(events) == 0:
+        return np.zeros(0, dtype=RADIANT_DTYPE)
     good = np.isfinite(events["radiant_ecliptic_lon_deg"])
     good &= np.isfinite(events["radiant_ecliptic_lat_deg"])
     good &= np.isfinite(events["radiant_sun_ecliptic_lon_deg"])
