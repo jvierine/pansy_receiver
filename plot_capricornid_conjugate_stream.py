@@ -661,7 +661,7 @@ def plot_activity_inset(
     selection: ActivitySelection,
     bounds: tuple[float, float, float, float],
 ) -> None:
-    """Show the same selected meteors counted by the activity profile."""
+    """Show all catalogue meteors within the activity interval and inset limits."""
     inset = ax.inset_axes(bounds)
     inset_lon = (
         selection.sun_centered_lon_deg
@@ -673,17 +673,6 @@ def plot_activity_inset(
         rows["sun_centered_lon"] - inset_lon
     )
     y = rows["beta"]
-    inset.scatter(x, y, s=7.5, color="black", alpha=0.48, linewidths=0)
-    inset.add_patch(
-        plt.Circle(
-            (inset_lon, inset_beta),
-            1.0,
-            fill=False,
-            color="0.25",
-            lw=0.8,
-            ls="--",
-        )
-    )
     xlim = (
         selection.inset_xlim_deg
         if selection.inset_xlim_deg is not None
@@ -699,9 +688,27 @@ def plot_activity_inset(
     x_lo, x_hi = sorted(xlim)
     y_lo, y_hi = sorted(ylim)
     visible = (x >= x_lo) & (x <= x_hi) & (y >= y_lo) & (y <= y_hi)
+    inset.scatter(
+        x[visible],
+        y[visible],
+        s=7.5,
+        color="black",
+        alpha=0.48,
+        linewidths=0,
+    )
+    inset.add_patch(
+        plt.Circle(
+            (inset_lon, inset_beta),
+            1.0,
+            fill=False,
+            color="0.25",
+            lw=0.8,
+            ls="--",
+        )
+    )
     print(
-        f"{selection.short_name} inset: {int(np.sum(visible))}/{len(rows)} "
-        "selected meteors inside axes"
+        f"{selection.short_name} inset: {int(np.sum(visible))} contextual "
+        f"meteors inside axes from {len(rows)} PANSY meteors in the solar range"
     )
     if selection.inset_xticks_deg is not None:
         inset.set_xticks(selection.inset_xticks_deg)
@@ -1109,7 +1116,7 @@ def main():
             activity_selection,
             coverage_rows=raw_rows,
         )
-        activity_products.append((activity_selection, selected_rows, selected_rows, profile))
+        activity_products.append((activity_selection, selected_rows, raw_rows, profile))
 
     fig, axes = plt.subplots(
         1,
