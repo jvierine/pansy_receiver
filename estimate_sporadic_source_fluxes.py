@@ -14,6 +14,12 @@ import numpy as np
 
 DEFAULT_SIDECAR = Path("figs/paper_radiant_results_current/paper_radiant_results.h5")
 DEFAULT_REGIONS = Path("figs/sporadic_source_regions_manual.json")
+DEFAULT_FILTER_SPLIT = Path(
+    "figs/paper_radiant_results_current/radiant_spherical_harmonic_split.h5"
+)
+DEFAULT_OUTPUT = Path(
+    "figs/paper_radiant_results_current/sporadic_source_flux_estimates.h5"
+)
 PLOT_CENTER_LONGITUDE_DEG = -90.0
 
 
@@ -59,6 +65,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sidecar", type=Path, default=DEFAULT_SIDECAR)
     parser.add_argument("--regions", type=Path, default=DEFAULT_REGIONS)
+    parser.add_argument("--filter-split", type=Path, default=DEFAULT_FILTER_SPLIT)
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args()
 
     with h5py.File(args.sidecar, "r") as h5:
@@ -68,51 +76,145 @@ def main() -> None:
         exposure = np.asarray(h5["healpix_radiant_exposure_hours"], dtype=np.float64)
         nside = int(h5.attrs["healpix_nside"])
 
+    with h5py.File(args.filter_split, "r") as h5:
+        split_nside = int(h5.attrs["healpix_nside"])
+        low_frequency = np.asarray(h5["low_frequency_count"], dtype=np.float64)
+        positive_high_frequency = np.asarray(
+            h5["positive_high_frequency_count"], dtype=np.float64
+        )
+        filter_parameters = {
+            key: h5.attrs[key]
+            for key in (
+                "zonal_pass",
+                "zonal_taper",
+                "meridional_pass",
+                "meridional_taper",
+                "positive_iterations",
+                "positive_fraction",
+                "lmax",
+            )
+        }
+    if split_nside != nside or low_frequency.shape != raw.shape:
+        raise ValueError("spherical-harmonic split does not match the radiant sidecar")
+
     pixel = np.arange(hp.nside2npix(nside), dtype=np.int64)
     lon, beta = hp.pix2ang(nside, pixel, lonlat=True)
     valid = exposure > 0.0
 
-    regions_json, toroidal_region_names, _ = load_regions(args.regions)
+    regions_json, _, _ = load_regions(args.regions)
     masks = {name: region_mask(region, lon, beta) for name, region in regions_json.items()}
-    apex_remainder = masks["apex"] & ~masks["narrow_apex"]
-    toroidal = np.zeros_like(valid, dtype=bool)
-    for name in toroidal_region_names:
-        toroidal |= masks[name]
 
-    regions = [
-        ("helion", masks["helion"]),
-        ("antihelion", masks["antihelion"]),
-        ("apex_remainder", apex_remainder),
-        ("narrow_apex", masks["narrow_apex"]),
-        ("toroidal", toroidal),
-    ]
+    component_sum = low_frequency + positive_high_frequency
+    low_fraction = np.divide(
+        low_frequency,
+        component_sum,
+        out=np.ones_like(low_frequency),
+        where=component_sum > 0.0,
+    )
+    high_fraction = np.divide(
+        positive_high_frequency,
+        component_sum,
+        out=np.zeros_like(positive_high_frequency),
+        where=component_sum > 0.0,
+    )
+
+    maps = (raw, aperture_rate, velocity_rate)
     values = []
-    for name, mask in regions:
+
+    def append_components(name, mask):
         use = mask & valid
-        values.append(
+        values.extend(
             (
-                name,
-                int(np.nansum(raw[use])),
-                float(np.nansum(aperture_rate[use])),
-                float(np.nansum(velocity_rate[use])),
+                (
+                    f"{name}_smooth_lowpass",
+                    *(
+                        float(np.nansum(data[use] * low_fraction[use]))
+                        for data in maps
+                    ),
+                ),
+                (
+                    f"{name}_structured_highpass",
+                    *(
+                        float(np.nansum(data[use] * high_fraction[use]))
+                        for data in maps
+                    ),
+                ),
             )
         )
-    total_raw = sum(raw_count for _, raw_count, _, _ in values)
-    total_aperture = sum(aperture for _, _, aperture, _ in values)
-    total_velocity = sum(velocity for _, _, _, velocity in values)
-    print("region,raw_count,aperture_rate_h_inv,velocity_rate_h_inv,raw_percent,aperture_percent,velocity_percent")
-    for name, raw_count, aperture, velocity in values:
-        print(
-            f"{name},{raw_count},{aperture:.6g},{velocity:.6g},"
-            f"{100.0 * raw_count / total_raw:.3f},"
-            f"{100.0 * aperture / total_aperture:.3f},"
-            f"{100.0 * velocity / total_velocity:.3f}"
+
+    append_components("helion", masks["helion"])
+    append_components("antihelion", masks["antihelion"])
+    append_components("apex", masks["apex"])
+    append_components("southern_toroidal", masks["southern_toroidal"])
+
+    source_names = [name for name, *_ in values]
+    source_values = np.asarray([row[1:] for row in values], dtype=np.float64)
+    totals = np.sum(source_values, axis=0)
+    percentages = 100.0 * source_values / totals[np.newaxis, :]
+    helion_total = source_values[0] + source_values[1]
+    antihelion_total = source_values[2] + source_values[3]
+    antihelion_helion_ratio = antihelion_total / helion_total
+    apex_component_fraction = (
+        100.0
+        * source_values[5]
+        / (source_values[4] + source_values[5])
+    )
+
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    with h5py.File(args.output, "w") as h5:
+        h5.attrs["schema"] = "sporadic_source_flux_estimates_v2"
+        h5.attrs["source_sidecar"] = str(args.sidecar)
+        h5.attrs["source_filter_split"] = str(args.filter_split)
+        h5.attrs["source_regions"] = str(args.regions)
+        h5.attrs["apex_decomposition"] = (
+            "pixelwise normalized low-frequency and positive high-frequency "
+            "templates inside each source aperture"
         )
-    print(f"total,{total_raw},{total_aperture:.6g},{total_velocity:.6g},{100.0:.3f},{100.0:.3f},{100.0:.3f}")
-    narrow_aperture_fraction = 100.0 * values[3][2] / (values[2][2] + values[3][2])
-    narrow_velocity_fraction = 100.0 * values[3][3] / (values[2][3] + values[3][3])
-    print(f"narrow_apex_fraction_of_full_apex_aperture,{narrow_aperture_fraction:.3f}")
-    print(f"narrow_apex_fraction_of_full_apex_velocity,{narrow_velocity_fraction:.3f}")
+        for key, value in filter_parameters.items():
+            h5.attrs[key] = value
+        h5.create_dataset(
+            "source_name",
+            data=np.asarray(source_names, dtype=h5py.string_dtype("utf-8")),
+        )
+        h5.create_dataset(
+            "source_value",
+            data=source_values.astype(np.float32),
+        )
+        h5["source_value"].attrs["columns"] = (
+            "raw_count, aperture_rate_h_inv, velocity_rate_h_inv"
+        )
+        h5.create_dataset("source_percent", data=percentages.astype(np.float32))
+        h5.create_dataset(
+            "antihelion_helion_ratio",
+            data=antihelion_helion_ratio.astype(np.float32),
+        )
+        h5.create_dataset(
+            "narrow_fraction_of_full_apex_percent",
+            data=apex_component_fraction.astype(np.float32),
+        )
+
+    print(
+        f"{'Region':<25} {'Raw':>10} {'Aperture':>12} {'Aperture+vg':>14}"
+        f" {'Raw %':>8} {'Aperture %':>12} {'Aperture+vg %':>15}"
+    )
+    for row_index, (name, raw_count, aperture, velocity) in enumerate(values):
+        print(
+            f"{name:<25} {raw_count:10.1f} {aperture:12.6g} {velocity:14.6g}"
+            f" {percentages[row_index, 0]:8.3f}"
+            f" {percentages[row_index, 1]:12.3f}"
+            f" {percentages[row_index, 2]:15.3f}"
+        )
+    print(
+        f"{'total':<25} {totals[0]:10.1f} {totals[1]:12.6g} {totals[2]:14.6g}"
+        f" {100.0:8.3f} {100.0:12.3f} {100.0:15.3f}"
+    )
+    print(
+        "Narrow-apex fraction of full apex "
+        f"(raw/aperture/velocity): {apex_component_fraction[0]:.3f}% / "
+        f"{apex_component_fraction[1]:.3f}% / "
+        f"{apex_component_fraction[2]:.3f}%"
+    )
+    print(args.output)
 
 
 if __name__ == "__main__":

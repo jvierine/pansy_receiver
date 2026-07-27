@@ -78,6 +78,12 @@ pipeline. The following files are the main entry points and shared modules.
   histograms using the interferometry search grid.
 - `plot_height_band_spatial_frequency_decomposition.py`: native four-panel
   height-band and spherical-harmonic radiant figure.
+- `estimate_sporadic_source_fluxes.py`: HDF5-backed smooth/structured source
+  fractions from the spherical-harmonic radiant decomposition.
+- `match_small_body_orbits.py`: downloads MPC NEA and comet elements and
+  ranks possible parent bodies with the Jopek (1993) \(D_H\) criterion.
+- `plot_sporadic_source_annotations.py`: paper diagnostic showing the source
+  apertures used by the relative-flux table.
 - `healpix_hammer.py`: common true-boundary HEALPix renderer for Hammer
   projections.
 - `radiant_spatial_frequency_filter.py`: spherical-harmonic filtering and

@@ -24,7 +24,6 @@ REGION_COLORS = {
     "helion": ("Helion", "#00a6d6"),
     "antihelion": ("Antihelion", "#e69f00"),
     "apex": ("Apex", "#009e73"),
-    "narrow_apex": ("Narrow apex", "#d55e00"),
     "northern_toroidal": ("Northern toroidal", "#cc79a7"),
     "southern_toroidal": ("Southern toroidal", "#cc79a7"),
 }
@@ -158,6 +157,8 @@ def main() -> None:
     ax0.set_xlabel(r"Sun-centered ecliptic longitude, $\lambda-\lambda_\odot$")
     ax0.set_ylabel(r"Ecliptic latitude, $\beta$")
     for name, region in regions.items():
+        if name in {"narrow_apex", "northern_toroidal"}:
+            continue
         label, color = REGION_COLORS.get(name, (name, "white"))
         add_region_box(ax0, label, region, color)
     cb0 = fig.colorbar(mesh0, ax=ax0, orientation="horizontal", pad=0.10, fraction=0.045)
