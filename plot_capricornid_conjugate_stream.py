@@ -98,7 +98,7 @@ PASSAGES = (
 COMET_169P_NEAT = np.asarray([2.604, 0.76796, 11.285, 176.04, 218.13, np.nan, 0.604], dtype=np.float64)
 DCS_PROFILE_SOLAR_RANGE_DEG = (300.0, 330.0)
 DCS_PROFILE_BIN_WIDTH_DEG = 0.25
-DCS_ACTIVITY_SOLAR_RANGE_DEG = (305.0, 325.0)
+DCS_ACTIVITY_SOLAR_RANGE_DEG = (305.0, 335.0)
 DCS_ACTIVITY_BIN_WIDTH_DEG = 1.0
 DCS_ACTIVITY_HEALPIX_NSIDE = 32
 DCS_ACTIVITY_HEALPIX_PIXEL = 7102
@@ -108,7 +108,7 @@ DCS_ACTIVITY_MEAN_BETA_DEG = -8.31
 ACTIVITY_SELECTIONS = (
     ActivitySelection(
         short_name="DCS",
-        solar_range_deg=(305.0, 325.0),
+        solar_range_deg=DCS_ACTIVITY_SOLAR_RANGE_DEG,
         peak_solar_lon_deg=312.53,
         peak_window_deg=4.0,
         sun_centered_lon_deg=354.48,
@@ -127,7 +127,7 @@ ACTIVITY_SELECTIONS = (
     ),
     ActivitySelection(
         short_name="CAP",
-        solar_range_deg=(100.0, 145.0),
+        solar_range_deg=(90.0, 150.0),
         peak_solar_lon_deg=116.95,
         peak_window_deg=4.0,
         sun_centered_lon_deg=180.34,
