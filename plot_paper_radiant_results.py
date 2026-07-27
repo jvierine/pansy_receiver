@@ -112,7 +112,11 @@ SNAPSHOT_WINDOWS = (
         marker_sc_lon_deg=177.1875,
         marker_beta_deg=10.806922874860348,
     ),
-    SnapshotWindow(solar_lon_deg=197.0),
+    SnapshotWindow(
+        solar_lon_deg=294.2,
+        marker_sc_lon_deg=1.07,
+        marker_beta_deg=-9.82,
+    ),
     SnapshotWindow(
         solar_lon_deg=312.7,
         marker_sc_lon_deg=354.51,
