@@ -65,6 +65,8 @@ class ActivitySelection:
     healpix_pixels: tuple[int, ...]
     healpix_nside: int = 32
     bin_width_deg: float = 1.0
+    inset_xlim_deg: tuple[float, float] | None = None
+    inset_ylim_deg: tuple[float, float] | None = None
 
 
 PASSAGES = (
@@ -136,6 +138,8 @@ ACTIVITY_SELECTIONS = (
             5375,
             5376,
         ),
+        inset_xlim_deg=(185.0, 175.0),
+        inset_ylim_deg=(5.0, 20.0),
     ),
 )
 
@@ -625,7 +629,7 @@ def plot_activity_inset(
         rows["sun_centered_lon"][keep] - selection.sun_centered_lon_deg
     )
     y = rows["beta"][keep]
-    inset.scatter(x, y, s=5.5, color="black", alpha=0.55, linewidths=0)
+    inset.scatter(x, y, s=7.5, color="black", alpha=0.48, linewidths=0)
     inset.add_patch(
         plt.Circle(
             (selection.sun_centered_lon_deg, selection.beta_deg),
@@ -636,38 +640,51 @@ def plot_activity_inset(
             ls="--",
         )
     )
-    inset.set_xlim(selection.sun_centered_lon_deg + 2.3, selection.sun_centered_lon_deg - 2.3)
-    inset.set_ylim(selection.beta_deg - 2.3, selection.beta_deg + 2.3)
-    inset.set_xticks(
-        [
-            selection.sun_centered_lon_deg + 1.0,
-            selection.sun_centered_lon_deg,
-            selection.sun_centered_lon_deg - 1.0,
-        ]
+    inset.set_xlim(
+        selection.inset_xlim_deg
+        if selection.inset_xlim_deg is not None
+        else (selection.sun_centered_lon_deg + 2.3, selection.sun_centered_lon_deg - 2.3)
     )
-    inset.set_yticks(
-        [
-            selection.beta_deg - 1.0,
-            selection.beta_deg,
-            selection.beta_deg + 1.0,
-        ]
+    inset.set_ylim(
+        selection.inset_ylim_deg
+        if selection.inset_ylim_deg is not None
+        else (selection.beta_deg - 2.3, selection.beta_deg + 2.3)
     )
-    inset.set_xticklabels(
-        [
-            f"{float(wrap360(selection.sun_centered_lon_deg + 1.0)):.1f}",
-            f"{float(wrap360(selection.sun_centered_lon_deg)):.1f}",
-            f"{float(wrap360(selection.sun_centered_lon_deg - 1.0)):.1f}",
-        ],
-        fontsize=6.5,
-    )
-    inset.set_yticklabels(
-        [
-            f"{selection.beta_deg - 1.0:.1f}",
-            f"{selection.beta_deg:.1f}",
-            f"{selection.beta_deg + 1.0:.1f}",
-        ],
-        fontsize=6.5,
-    )
+    if selection.inset_xlim_deg is not None:
+        inset.set_xticks([185.0, 180.0, 175.0])
+        inset.set_yticks([5.0, 10.0, 15.0, 20.0])
+        inset.tick_params(labelsize=6.5)
+    else:
+        inset.set_xticks(
+            [
+                selection.sun_centered_lon_deg + 1.0,
+                selection.sun_centered_lon_deg,
+                selection.sun_centered_lon_deg - 1.0,
+            ]
+        )
+        inset.set_yticks(
+            [
+                selection.beta_deg - 1.0,
+                selection.beta_deg,
+                selection.beta_deg + 1.0,
+            ]
+        )
+        inset.set_xticklabels(
+            [
+                f"{float(wrap360(selection.sun_centered_lon_deg + 1.0)):.1f}",
+                f"{float(wrap360(selection.sun_centered_lon_deg)):.1f}",
+                f"{float(wrap360(selection.sun_centered_lon_deg - 1.0)):.1f}",
+            ],
+            fontsize=6.5,
+        )
+        inset.set_yticklabels(
+            [
+                f"{selection.beta_deg - 1.0:.1f}",
+                f"{selection.beta_deg:.1f}",
+                f"{selection.beta_deg + 1.0:.1f}",
+            ],
+            fontsize=6.5,
+        )
     inset.tick_params(length=2.0, pad=1.0)
     inset.grid(alpha=0.16, lw=0.35)
 
@@ -1018,11 +1035,7 @@ def main():
                 activity_half_width,
             )
         selected_rows = select_activity_rows(raw_rows, activity_selection)
-        inset_rows = select_activity_rows(
-            raw_rows,
-            activity_selection,
-            require_radiant_pixels=False,
-        )
+        inset_rows = raw_rows
         profile = activity_profile(
             selected_rows,
             args.activity_exposure,
