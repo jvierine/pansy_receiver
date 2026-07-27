@@ -127,7 +127,7 @@ ACTIVITY_SELECTIONS = (
     ),
     ActivitySelection(
         short_name="CAP",
-        solar_range_deg=(90.0, 150.0),
+        solar_range_deg=(80.0, 150.0),
         peak_solar_lon_deg=116.95,
         peak_window_deg=4.0,
         sun_centered_lon_deg=180.34,
@@ -561,12 +561,17 @@ def activity_profile(
             )[0]
         )
 
-    rate = np.divide(counts, exposure, out=np.full_like(exposure, np.nan), where=exposure > 0.0)
+    rate = np.divide(
+        counts,
+        exposure,
+        out=np.full_like(exposure, np.nan),
+        where=(exposure > 0.0) & coverage,
+    )
     uncertainty = np.divide(
         np.sqrt(counts),
         exposure,
         out=np.full_like(exposure, np.nan),
-        where=exposure > 0.0,
+        where=(exposure > 0.0) & coverage,
     )
     return {
         "centers": centers,
@@ -698,7 +703,7 @@ def plot_activity_inset(
         inset.set_xticklabels(
             [f"{float(wrap360(value)):g}" for value in selection.inset_xticks_deg]
         )
-        inset.tick_params(labelsize=6.5)
+        inset.tick_params(labelsize=8.0)
     else:
         inset.set_xticks(
             [
@@ -720,7 +725,7 @@ def plot_activity_inset(
                 f"{float(wrap360(selection.sun_centered_lon_deg)):.1f}",
                 f"{float(wrap360(selection.sun_centered_lon_deg - 1.0)):.1f}",
             ],
-            fontsize=6.5,
+            fontsize=8.0,
         )
         inset.set_yticklabels(
             [
@@ -728,9 +733,11 @@ def plot_activity_inset(
                 f"{selection.beta_deg:.1f}",
                 f"{selection.beta_deg + 1.0:.1f}",
             ],
-            fontsize=6.5,
+            fontsize=8.0,
         )
     inset.tick_params(length=2.0, pad=1.0)
+    inset.set_xlabel(r"$\lambda_g-\lambda_\odot$ (deg)", fontsize=8.0, labelpad=1.0)
+    inset.set_ylabel(r"$\beta_g$ (deg)", fontsize=8.0, labelpad=1.0)
     inset.grid(alpha=0.16, lw=0.35)
 
 
@@ -743,6 +750,7 @@ def plot_activity_panel(
     inset_bounds: tuple[float, float, float, float],
     label_location: str,
     color: str = "C0",
+    raw_count_label: str = "PANSY raw count",
 ) -> None:
     """Plot raw counts, exposure-corrected rate, and the peak radiant neighborhood."""
     x = profile["centers"]
@@ -762,7 +770,7 @@ def plot_activity_panel(
     count_ax = ax.twinx()
     count_ax.step(x, counts, where="mid", color="0.35", lw=1.0, alpha=0.75)
     count_ax.set_ylim(bottom=0.0)
-    count_ax.set_ylabel("Raw count")
+    count_ax.set_ylabel(raw_count_label)
 
     label_x = 0.025 if label_location == "left" else 0.975
     ax.text(
@@ -1088,21 +1096,22 @@ def main():
             )
             catalogue_rows = np.concatenate((raw_rows, maarsy_rows))
         selected_rows = select_activity_rows(raw_rows, activity_selection)
-        if activity_selection.short_name == "CAP":
-            inset_rows = select_activity_rows(
-                catalogue_rows,
-                activity_selection,
-                require_radiant_pixels=False,
-            )
-        else:
-            inset_rows = raw_rows
+        combined_selected_rows = select_activity_rows(catalogue_rows, activity_selection)
+        inset_rows = select_activity_rows(
+            catalogue_rows,
+            activity_selection,
+            require_radiant_pixels=False,
+        )
+        combined_counts = activity_selection.short_name == "CAP"
+        profile_rows = combined_selected_rows if combined_counts else selected_rows
+        profile_coverage_rows = catalogue_rows if combined_counts else raw_rows
         profile = activity_profile(
-            selected_rows,
+            profile_rows,
             args.activity_exposure,
             activity_selection,
-            coverage_rows=raw_rows,
+            coverage_rows=profile_coverage_rows,
         )
-        activity_products.append((activity_selection, selected_rows, inset_rows, profile))
+        activity_products.append((activity_selection, profile_rows, inset_rows, profile))
 
     fig, axes = plt.subplots(
         1,
@@ -1130,6 +1139,7 @@ def main():
         inset_bounds=(0.04, 0.57, 0.36, 0.39),
         label_location="right",
         color="C1",
+        raw_count_label="PANSY + MAARSY raw count",
     )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
