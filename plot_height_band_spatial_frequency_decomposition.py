@@ -328,6 +328,7 @@ def main() -> None:
     lowpass_density = lowpass / bin_area_deg2
     highpass_density = highpass / bin_area_deg2
     top_norm = shared_positive_log_norm(upper_density, lower_density)
+    upper_norm = LogNorm(vmin=top_norm.vmin, vmax=100.0)
 
     fig = plt.figure(figsize=(12.0, 8.8), constrained_layout=False)
     fig.subplots_adjust(
@@ -346,7 +347,7 @@ def main() -> None:
         (
             axes[0],
             upper_density,
-            top_norm,
+            upper_norm,
             f"Upper initial-height band (N={int(np.sum(upper_count)):,})",
             r"Count density (deg$^{-2}$)",
         ),
