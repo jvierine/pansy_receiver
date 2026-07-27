@@ -151,9 +151,23 @@ def main() -> None:
     source_values = np.asarray([row[1:] for row in values], dtype=np.float64)
     totals = np.sum(source_values, axis=0)
     percentages = 100.0 * source_values / totals[np.newaxis, :]
+    source_total_names = np.asarray(
+        ("helion", "antihelion", "apex", "southern_toroidal")
+    )
+    source_total_values = source_values.reshape(4, 2, 3).sum(axis=1)
+    source_total_percentages = (
+        100.0 * source_total_values / totals[np.newaxis, :]
+    )
     helion_total = source_values[0] + source_values[1]
     antihelion_total = source_values[2] + source_values[3]
     antihelion_helion_ratio = antihelion_total / helion_total
+    antihelion_helion_ratio_by_component = np.vstack(
+        (
+            source_values[2] / source_values[0],
+            source_values[3] / source_values[1],
+            antihelion_helion_ratio,
+        )
+    )
     apex_component_fraction = (
         100.0
         * source_values[5]
@@ -185,8 +199,28 @@ def main() -> None:
         )
         h5.create_dataset("source_percent", data=percentages.astype(np.float32))
         h5.create_dataset(
+            "source_total_name",
+            data=source_total_names.astype(h5py.string_dtype("utf-8")),
+        )
+        h5.create_dataset(
+            "source_total_value",
+            data=source_total_values.astype(np.float32),
+        )
+        h5.create_dataset(
+            "source_total_percent",
+            data=source_total_percentages.astype(np.float32),
+        )
+        h5.create_dataset(
             "antihelion_helion_ratio",
             data=antihelion_helion_ratio.astype(np.float32),
+        )
+        ratio_dataset = h5.create_dataset(
+            "antihelion_helion_ratio_by_component",
+            data=antihelion_helion_ratio_by_component.astype(np.float32),
+        )
+        ratio_dataset.attrs["rows"] = "smooth_lowpass, structured_highpass, all"
+        ratio_dataset.attrs["columns"] = (
+            "raw_count, aperture_rate_h_inv, velocity_rate_h_inv"
         )
         h5.create_dataset(
             "narrow_fraction_of_full_apex_percent",
@@ -214,6 +248,14 @@ def main() -> None:
         f"{apex_component_fraction[1]:.3f}% / "
         f"{apex_component_fraction[2]:.3f}%"
     )
+    for label, ratio in zip(
+        ("smooth", "structured", "all"),
+        antihelion_helion_ratio_by_component,
+    ):
+        print(
+            f"Antihelion/helion ({label}; raw/aperture/velocity): "
+            f"{ratio[0]:.3f} / {ratio[1]:.3f} / {ratio[2]:.3f}"
+        )
     print(args.output)
 
 
