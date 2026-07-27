@@ -65,6 +65,7 @@ class ActivitySelection:
     healpix_pixels: tuple[int, ...]
     healpix_nside: int = 32
     bin_width_deg: float = 1.0
+    profile_window_deg: float = 1.0
     inset_xlim_deg: tuple[float, float] | None = None
     inset_ylim_deg: tuple[float, float] | None = None
     inset_xticks_deg: tuple[float, ...] | None = None
@@ -151,7 +152,7 @@ ACTIVITY_SELECTIONS = (
             5375,
             5376,
         ),
-        inset_xlim_deg=(185.0, 168.0),
+        inset_xlim_deg=(185.5, 168.0),
         inset_ylim_deg=(5.0, 20.0),
         inset_xticks_deg=(185.0, 180.0, 175.0, 170.0),
         inset_yticks_deg=(5.0, 10.0, 15.0, 20.0),
@@ -538,7 +539,7 @@ def activity_profile(
         dtype=np.float64,
     )
     centers = 0.5 * (edges[:-1] + edges[1:])
-    half_window = 0.5 * selection.peak_window_deg
+    half_window = 0.5 * selection.profile_window_deg
     counts = np.asarray(
         [
             np.sum(np.abs(wrap180(rows["solar_lon"] - center)) <= half_window)
@@ -660,29 +661,18 @@ def plot_activity_inset(
     selection: ActivitySelection,
     bounds: tuple[float, float, float, float],
 ) -> None:
-    """Show the peak radiant neighborhood with ticks centered on its measured peak."""
+    """Show the same selected meteors counted by the activity profile."""
     inset = ax.inset_axes(bounds)
-    inset_solar_lon = (
-        selection.peak_solar_lon_deg
-        if selection.inset_solar_lon_deg is None
-        else selection.inset_solar_lon_deg
-    )
-    inset_window = (
-        selection.peak_window_deg
-        if selection.inset_solar_window_deg is None
-        else selection.inset_solar_window_deg
-    )
     inset_lon = (
         selection.sun_centered_lon_deg
         if selection.inset_sun_centered_lon_deg is None
         else selection.inset_sun_centered_lon_deg
     )
     inset_beta = selection.beta_deg if selection.inset_beta_deg is None else selection.inset_beta_deg
-    keep = np.abs(wrap180(rows["solar_lon"] - inset_solar_lon)) <= 0.5 * inset_window
     x = inset_lon + wrap180(
-        rows["sun_centered_lon"][keep] - inset_lon
+        rows["sun_centered_lon"] - inset_lon
     )
-    y = rows["beta"][keep]
+    y = rows["beta"]
     inset.scatter(x, y, s=7.5, color="black", alpha=0.48, linewidths=0)
     inset.add_patch(
         plt.Circle(
@@ -694,15 +684,24 @@ def plot_activity_inset(
             ls="--",
         )
     )
-    inset.set_xlim(
+    xlim = (
         selection.inset_xlim_deg
         if selection.inset_xlim_deg is not None
         else (selection.sun_centered_lon_deg + 2.3, selection.sun_centered_lon_deg - 2.3)
     )
-    inset.set_ylim(
+    ylim = (
         selection.inset_ylim_deg
         if selection.inset_ylim_deg is not None
         else (selection.beta_deg - 2.3, selection.beta_deg + 2.3)
+    )
+    inset.set_xlim(xlim)
+    inset.set_ylim(ylim)
+    x_lo, x_hi = sorted(xlim)
+    y_lo, y_hi = sorted(ylim)
+    visible = (x >= x_lo) & (x <= x_hi) & (y >= y_lo) & (y <= y_hi)
+    print(
+        f"{selection.short_name} inset: {int(np.sum(visible))}/{len(rows)} "
+        "selected meteors inside axes"
     )
     if selection.inset_xticks_deg is not None:
         inset.set_xticks(selection.inset_xticks_deg)
@@ -760,7 +759,7 @@ def plot_activity_panel(
     inset_bounds: tuple[float, float, float, float],
     label_location: str,
     color: str = "C0",
-    raw_count_label: str = r"PANSY raw count ($4^\circ$ window)",
+    raw_count_label: str | None = None,
 ) -> None:
     """Plot raw counts, exposure-corrected rate, and the peak radiant neighborhood."""
     x = profile["centers"]
@@ -780,6 +779,10 @@ def plot_activity_panel(
     count_ax = ax.twinx()
     count_ax.step(x, counts, where="mid", color="0.35", lw=1.0, alpha=0.75)
     count_ax.set_ylim(bottom=0.0)
+    if raw_count_label is None:
+        raw_count_label = (
+            rf"PANSY raw count (${selection.profile_window_deg:g}^\circ$ window)"
+        )
     count_ax.set_ylabel(raw_count_label)
 
     label_x = 0.025 if label_location == "left" else 0.975
@@ -1100,18 +1103,13 @@ def main():
                 activity_half_width,
             )
         selected_rows = select_activity_rows(raw_rows, activity_selection)
-        inset_rows = select_activity_rows(
-            raw_rows,
-            activity_selection,
-            require_radiant_pixels=False,
-        )
         profile = activity_profile(
             selected_rows,
             args.activity_exposure,
             activity_selection,
             coverage_rows=raw_rows,
         )
-        activity_products.append((activity_selection, selected_rows, inset_rows, profile))
+        activity_products.append((activity_selection, selected_rows, selected_rows, profile))
 
     fig, axes = plt.subplots(
         1,
