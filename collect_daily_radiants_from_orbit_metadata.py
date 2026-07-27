@@ -42,6 +42,7 @@ RADIANT_DTYPE = np.dtype(
         ("initial_detection_speed_km_s", "f8"),
         ("n_uncertainty_samples", "i8"),
         ("frac_e_gt_1", "f8"),
+        ("kepler", "f8", (7,)),
         ("kepler_std", "f8", (7,)),
         ("kepler_sigma_a_au", "f8"),
         ("kepler_sigma_e", "f8"),
@@ -97,6 +98,7 @@ def rows_from_events(events: np.ndarray) -> np.ndarray:
     ) / 1e3
     rows["n_uncertainty_samples"] = events["n_uncertainty_samples"]
     rows["frac_e_gt_1"] = events["frac_e_gt_1"]
+    rows["kepler"] = events["kepler"]
     rows["kepler_std"] = events["kepler_std"]
     rows["kepler_sigma_a_au"] = events["kepler_std"][:, 0]
     rows["kepler_sigma_e"] = events["kepler_std"][:, 1]
