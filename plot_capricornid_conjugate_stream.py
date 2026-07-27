@@ -152,9 +152,9 @@ ACTIVITY_SELECTIONS = (
             5375,
             5376,
         ),
-        inset_xlim_deg=(185.0, 175.0),
+        inset_xlim_deg=(185.0, 168.0),
         inset_ylim_deg=(5.0, 20.0),
-        inset_xticks_deg=(185.0, 180.0, 175.0),
+        inset_xticks_deg=(185.0, 180.0, 175.0, 170.0),
         inset_yticks_deg=(5.0, 10.0, 15.0, 20.0),
         inset_solar_lon_deg=133.0,
         inset_solar_window_deg=14.0,
@@ -742,6 +742,7 @@ def plot_activity_panel(
     *,
     inset_bounds: tuple[float, float, float, float],
     label_location: str,
+    color: str = "C0",
 ) -> None:
     """Plot raw counts, exposure-corrected rate, and the peak radiant neighborhood."""
     x = profile["centers"]
@@ -750,8 +751,8 @@ def plot_activity_panel(
     counts = profile["counts"]
     lower = np.maximum(0.0, y - uncertainty)
     upper = y + uncertainty
-    ax.fill_between(x, lower, upper, color="C0", alpha=0.20, linewidth=0)
-    ax.plot(x, y, color="C0", marker="o", ms=3.0, lw=1.35)
+    ax.fill_between(x, lower, upper, color=color, alpha=0.20, linewidth=0)
+    ax.plot(x, y, color=color, marker="o", ms=3.0, lw=1.35)
     ax.set_xlim(*selection.solar_range_deg)
     ax.set_ylim(bottom=0.0)
     ax.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)")
@@ -1128,6 +1129,7 @@ def main():
         cap_selection,
         inset_bounds=(0.04, 0.57, 0.36, 0.39),
         label_location="right",
+        color="C1",
     )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
