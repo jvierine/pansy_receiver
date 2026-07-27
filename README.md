@@ -20,9 +20,92 @@ https://github.com/user-attachments/assets/849bf707-b011-4c54-bbf1-1a141d7f4ec6
 
 ## Instructions
 
-To run the python signal processing, use the standard environment, instead of the conda environment of SanDRA.  
+Run project Python programs in the base conda environment:
 
-> conda deactivate
+```bash
+conda run -n base python PROGRAM.py
+```
+
+Runtime analysis overrides belong in
+`~/.config/pansy-receiver/pansy-analysis.env`, or in the file selected by
+`PANSY_ANALYSIS_CONFIG`.
+
+## Important programs
+
+This repository contains experimental studies alongside the operational
+pipeline. The following files are the main entry points and shared modules.
+
+### Receiver and detection chain
+
+- `find_mode_starts.py`: identifies PANSY experiment modes from transmit
+  pulses and writes transmit-mode metadata.
+- `mesomode_boundary.py`: converts transmit-mode records into mesosphere-mode
+  observing intervals.
+- `tx_xphase.py`: estimates and monitors transmit-pulse cross-phase alignment.
+- `quick_search_meteor.py`: performs the first range-Doppler meteor search over
+  mesosphere-mode data.
+- `cluster_mf.py`: clusters matched-filter detections into candidate events.
+- `cut_meteors.py`: writes complex-voltage event cuts around clustered
+  detections.
+- `process_cut_meteor.py`: performs the initial per-cut measurement extraction.
+- `receiver/systemd/`: user services for the continuously running receiver
+  processing chain.
+- `receiver/README.md`: deployment, configuration, and service-operation notes.
+
+### Trajectory and orbit analysis
+
+- `run_meteor_analysis_pipeline.py`: standard science-quality post-cut analysis
+  entry point; supports MPI event parallelism.
+- `plot_interferometric_disambiguation.py`: interferometric alias generation,
+  constant-velocity trajectory ranking, event diagnostics, and event plots.
+- `pansy_orbit.py`: orbit determination and DASST integration for the winning
+  trajectory.
+- `orbit_metadata_table.py`: canonical compact HDF5 schemas and conversion
+  helpers for event, path, and alias catalogue metadata.
+- `pansy_interferometry.py`: shared interferometric response and direction
+  calculations.
+- `pansy_ballistic.py`: ballistic and atmospheric trajectory model helpers.
+
+### Catalogue and paper figures
+
+- `plot_orbit_catalogue_statistics.py`: catalogue count, height, velocity, and
+  uncertainty statistics used by the paper.
+- `plot_paper_radiant_results.py`: aggregate, corrected, snapshot, and
+  shower-radiant paper products.
+- `plot_fitted_radiant_distribution.py`: static and HEALPix radiant
+  distributions from orbit metadata.
+- `plot_meteor_position_histograms.py`: beam-centered meteor-position
+  histograms using the interferometry search grid.
+- `plot_height_band_spatial_frequency_decomposition.py`: native four-panel
+  height-band and spherical-harmonic radiant figure.
+- `healpix_hammer.py`: common true-boundary HEALPix renderer for Hammer
+  projections.
+- `radiant_spatial_frequency_filter.py`: spherical-harmonic filtering and
+  iterative positive-residual extraction.
+
+### Interactive review tools
+
+- `annotate_event_plot_issues.py`: fast keyboard-driven event-plot quality
+  annotation.
+- `height_band_web_gui.py`: browser interface for selecting height-velocity
+  populations.
+- `select_height_bands.py`: Matplotlib height-band selection and comparison
+  utilities.
+- `interactive_radiant_frequency_filter.py`: Mac-first Qt GUI for tuning the
+  spherical-harmonic decomposition; filtering runs only when **Recompute** is
+  pressed.
+
+### Monitoring and operations
+
+- `status_plot.py`: builds receiver, processing, radiant, and operations status
+  products for the PANSY web monitor.
+- `receiver/install_user_service.sh`: installs and updates the user systemd
+  services.
+- `receiver/scripts/`: service launchers, wait helpers, watchdog, and raw-data
+  retention scripts.
+
+Scientific and intermediate data products are HDF5. Do not use CSV or NPZ for
+project data.
 
 ## Meteor cut analysis
 
