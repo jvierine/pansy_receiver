@@ -69,6 +69,10 @@ class ActivitySelection:
     inset_ylim_deg: tuple[float, float] | None = None
     inset_xticks_deg: tuple[float, ...] | None = None
     inset_yticks_deg: tuple[float, ...] | None = None
+    inset_solar_lon_deg: float | None = None
+    inset_solar_window_deg: float | None = None
+    inset_sun_centered_lon_deg: float | None = None
+    inset_beta_deg: float | None = None
 
 
 PASSAGES = (
@@ -112,10 +116,14 @@ ACTIVITY_SELECTIONS = (
         vg_range=CLUSTER_VG_RANGE,
         e_range=DCS_ACTIVITY_E_RANGE,
         healpix_pixels=(DCS_ACTIVITY_HEALPIX_PIXEL,),
-        inset_xlim_deg=(360.0, 355.0),
+        inset_xlim_deg=(360.0, 345.0),
         inset_ylim_deg=(-15.0, 0.0),
-        inset_xticks_deg=(360.0, 357.5, 355.0),
+        inset_xticks_deg=(360.0, 355.0, 350.0, 345.0),
         inset_yticks_deg=(-15.0, -10.0, -5.0, 0.0),
+        inset_solar_lon_deg=313.0,
+        inset_solar_window_deg=14.0,
+        inset_sun_centered_lon_deg=354.51,
+        inset_beta_deg=-8.34,
     ),
     ActivitySelection(
         short_name="CAP",
@@ -148,6 +156,10 @@ ACTIVITY_SELECTIONS = (
         inset_ylim_deg=(5.0, 20.0),
         inset_xticks_deg=(185.0, 180.0, 175.0),
         inset_yticks_deg=(5.0, 10.0, 15.0, 20.0),
+        inset_solar_lon_deg=133.0,
+        inset_solar_window_deg=14.0,
+        inset_sun_centered_lon_deg=177.48,
+        inset_beta_deg=10.88,
     ),
 )
 
@@ -638,16 +650,31 @@ def plot_activity_inset(
 ) -> None:
     """Show the peak radiant neighborhood with ticks centered on its measured peak."""
     inset = ax.inset_axes(bounds)
-    peak_half_width = 0.5 * selection.peak_window_deg
-    keep = np.abs(wrap180(rows["solar_lon"] - selection.peak_solar_lon_deg)) <= peak_half_width
-    x = selection.sun_centered_lon_deg + wrap180(
-        rows["sun_centered_lon"][keep] - selection.sun_centered_lon_deg
+    inset_solar_lon = (
+        selection.peak_solar_lon_deg
+        if selection.inset_solar_lon_deg is None
+        else selection.inset_solar_lon_deg
+    )
+    inset_window = (
+        selection.peak_window_deg
+        if selection.inset_solar_window_deg is None
+        else selection.inset_solar_window_deg
+    )
+    inset_lon = (
+        selection.sun_centered_lon_deg
+        if selection.inset_sun_centered_lon_deg is None
+        else selection.inset_sun_centered_lon_deg
+    )
+    inset_beta = selection.beta_deg if selection.inset_beta_deg is None else selection.inset_beta_deg
+    keep = np.abs(wrap180(rows["solar_lon"] - inset_solar_lon)) <= 0.5 * inset_window
+    x = inset_lon + wrap180(
+        rows["sun_centered_lon"][keep] - inset_lon
     )
     y = rows["beta"][keep]
     inset.scatter(x, y, s=7.5, color="black", alpha=0.48, linewidths=0)
     inset.add_patch(
         plt.Circle(
-            (selection.sun_centered_lon_deg, selection.beta_deg),
+            (inset_lon, inset_beta),
             1.0,
             fill=False,
             color="0.25",
