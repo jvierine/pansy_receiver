@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import fcntl
+import tempfile
 import warnings
 from pathlib import Path
 
@@ -37,6 +39,10 @@ def _parse_time_us(value: str | None) -> int | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=dt.timezone.utc)
     return int(parsed.timestamp() * 1e6)
+
+
+def _sample_to_utc(sample: int) -> str:
+    return dt.datetime.fromtimestamp(int(sample) / 1e6, tz=dt.timezone.utc).isoformat()
 
 
 def circular_median(phases_rad: np.ndarray, axis: int = 0) -> np.ndarray:
@@ -352,29 +358,37 @@ def write_quality_h5(
         min_valid_channels=min_valid_channels,
     )
     output_h5.parent.mkdir(parents=True, exist_ok=True)
-    tmp = output_h5.with_suffix(output_h5.suffix + ".tmp")
-    if tmp.exists():
-        tmp.unlink()
-    with h5py.File(tmp, "w") as h5:
-        h5.attrs["schema_version"] = "pansy_tx_phase_quality_v1"
-        h5.attrs["source_program"] = "tx_phase_quality.py"
-        h5.attrs["phase_dir"] = str(phase_dir)
-        h5.attrs["phase_source"] = phase_source
-        h5.attrs["phase_source_kind"] = phase_source_kind
-        h5.attrs["threshold_deg"] = float(threshold_deg)
-        h5.attrs["max_nearest_age_s"] = float(max_nearest_age_s)
-        h5.attrs["min_valid_channels"] = int(min_valid_channels)
-        h5.attrs["reference_latest_days"] = float(reference_latest_days)
-        ref_samples = sample_idx[reference_mask]
-        h5.attrs["reference_start_sample_idx"] = int(ref_samples[0])
-        h5.attrs["reference_end_sample_idx"] = int(ref_samples[-1])
-        h5.attrs["reference_sample_count"] = int(ref_samples.size)
-        h5.attrs["reference_start_utc"] = str(_sample_to_datetime64(int(ref_samples[0])))
-        h5.attrs["reference_end_utc"] = str(_sample_to_datetime64(int(ref_samples[-1])))
-        h5.create_dataset("reference_phase_rad", data=reference_rad)
-        for key, value in table.items():
-            h5.create_dataset(key, data=value)
-    tmp.replace(output_h5)
+    with tempfile.NamedTemporaryFile(
+        dir=output_h5.parent,
+        prefix=f".{output_h5.name}.",
+        suffix=".tmp",
+        delete=False,
+    ) as tmp_file:
+        tmp = Path(tmp_file.name)
+    try:
+        with h5py.File(tmp, "w") as h5:
+            h5.attrs["schema_version"] = "pansy_tx_phase_quality_v1"
+            h5.attrs["source_program"] = "tx_phase_quality.py"
+            h5.attrs["phase_dir"] = str(phase_dir)
+            h5.attrs["phase_source"] = phase_source
+            h5.attrs["phase_source_kind"] = phase_source_kind
+            h5.attrs["threshold_deg"] = float(threshold_deg)
+            h5.attrs["max_nearest_age_s"] = float(max_nearest_age_s)
+            h5.attrs["min_valid_channels"] = int(min_valid_channels)
+            h5.attrs["reference_latest_days"] = float(reference_latest_days)
+            ref_samples = sample_idx[reference_mask]
+            h5.attrs["reference_start_sample_idx"] = int(ref_samples[0])
+            h5.attrs["reference_end_sample_idx"] = int(ref_samples[-1])
+            h5.attrs["reference_sample_count"] = int(ref_samples.size)
+            h5.attrs["reference_start_utc"] = str(_sample_to_datetime64(int(ref_samples[0])))
+            h5.attrs["reference_end_utc"] = str(_sample_to_datetime64(int(ref_samples[-1])))
+            h5.create_dataset("reference_phase_rad", data=reference_rad)
+            for key, value in table.items():
+                h5.create_dataset(key, data=value)
+        tmp.replace(output_h5)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
     return {
         "phase_samples": int(sample_idx.size),
         "reference_samples": int(np.count_nonzero(reference_mask)),
@@ -382,6 +396,127 @@ def write_quality_h5(
         "bad_samples": int(np.count_nonzero(~table["good"])),
         "threshold_deg": float(threshold_deg),
     }
+
+
+def quality_table_coverage(quality_h5: Path) -> dict[str, float | int | str]:
+    """Return the sample coverage and persisted build settings for a quality table."""
+    with h5py.File(quality_h5, "r") as h5:
+        samples = np.asarray(h5["sample_idx"], dtype=np.int64)
+        if samples.size == 0:
+            raise ValueError(f"{quality_h5} contains no TX phase quality samples")
+        return {
+            "first_sample_idx": int(samples[0]),
+            "last_sample_idx": int(samples[-1]),
+            "max_nearest_age_s": float(h5.attrs.get("max_nearest_age_s", DEFAULT_MAX_NEAREST_AGE_S)),
+            "threshold_deg": float(h5.attrs.get("threshold_deg", DEFAULT_THRESHOLD_DEG)),
+            "min_valid_channels": int(h5.attrs.get("min_valid_channels", DEFAULT_MIN_VALID_CHANNELS)),
+            "reference_latest_days": float(h5.attrs.get("reference_latest_days", 30.0)),
+            "phase_dir": str(h5.attrs.get("phase_dir", "")),
+            "phase_source": str(h5.attrs.get("phase_source", "")),
+            "phase_source_kind": str(h5.attrs.get("phase_source_kind", "")),
+        }
+
+
+def quality_table_covers(
+    coverage: dict[str, float | int | str],
+    required_min_sample_idx: int,
+    required_max_sample_idx: int,
+    max_age_s: float | None = None,
+) -> bool:
+    limit_s = float(
+        max_age_s if max_age_s is not None else coverage.get("max_nearest_age_s", DEFAULT_MAX_NEAREST_AGE_S)
+    )
+    margin = int(round(limit_s * 1e6))
+    return (
+        int(coverage["first_sample_idx"]) <= int(required_min_sample_idx) + margin
+        and int(coverage["last_sample_idx"]) >= int(required_max_sample_idx) - margin
+    )
+
+
+def ensure_quality_table(
+    quality_h5: Path,
+    required_min_sample_idx: int,
+    required_max_sample_idx: int,
+    phase_dir: Path | None = None,
+    phase_cache_dir: Path | None = None,
+    max_age_s: float | None = None,
+) -> dict[str, float | int | str]:
+    """Build or refresh a TX phase table before analysis and verify requested coverage.
+
+    A sidecar lock serializes refreshes from concurrent batch jobs. The table is
+    rechecked after acquiring the lock because another job may have refreshed it
+    while this process was waiting.
+    """
+    quality_h5 = Path(quality_h5)
+    required_min_sample_idx = int(required_min_sample_idx)
+    required_max_sample_idx = int(required_max_sample_idx)
+    if required_min_sample_idx > required_max_sample_idx:
+        raise ValueError("required TX phase quality sample interval is reversed")
+    quality_h5.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = quality_h5.with_suffix(quality_h5.suffix + ".lock")
+    with lock_path.open("a+") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        existing: dict[str, float | int | str] | None = None
+        if quality_h5.exists():
+            try:
+                existing = quality_table_coverage(quality_h5)
+            except (OSError, KeyError, ValueError):
+                existing = None
+        if existing is not None and quality_table_covers(
+            existing,
+            required_min_sample_idx,
+            required_max_sample_idx,
+            max_age_s=max_age_s,
+        ):
+            return {**existing, "action": "current"}
+
+        if phase_dir is None:
+            stored_phase_dir = str((existing or {}).get("phase_dir", "")).strip()
+            phase_dir = Path(stored_phase_dir) if stored_phase_dir else quality_h5.parent / "phase"
+        phase_dir = Path(phase_dir)
+        if not phase_dir.is_dir():
+            raise RuntimeError(f"TX phase metadata directory does not exist: {phase_dir}")
+
+        if phase_cache_dir is None and existing is not None:
+            source_kind = str(existing.get("phase_source_kind", ""))
+            stored_source = str(existing.get("phase_source", "")).strip()
+            if "cache" in source_kind and stored_source:
+                candidate = Path(stored_source)
+                if candidate.is_dir():
+                    phase_cache_dir = candidate
+
+        threshold_deg = float((existing or {}).get("threshold_deg", DEFAULT_THRESHOLD_DEG))
+        limit_s = float(
+            max_age_s
+            if max_age_s is not None
+            else (existing or {}).get("max_nearest_age_s", DEFAULT_MAX_NEAREST_AGE_S)
+        )
+        min_valid_channels = int((existing or {}).get("min_valid_channels", DEFAULT_MIN_VALID_CHANNELS))
+        reference_latest_days = float((existing or {}).get("reference_latest_days", 30.0))
+        write_quality_h5(
+            phase_dir,
+            quality_h5,
+            threshold_deg=threshold_deg,
+            max_nearest_age_s=limit_s,
+            min_valid_channels=min_valid_channels,
+            reference_latest_days=reference_latest_days,
+            phase_cache_dir=phase_cache_dir,
+        )
+        refreshed = quality_table_coverage(quality_h5)
+        if not quality_table_covers(
+            refreshed,
+            required_min_sample_idx,
+            required_max_sample_idx,
+            max_age_s=limit_s,
+        ):
+            raise RuntimeError(
+                "TX phase quality refresh did not cover the requested analysis interval: "
+                f"quality={_sample_to_utc(int(refreshed['first_sample_idx']))}.."
+                f"{_sample_to_utc(int(refreshed['last_sample_idx']))}, "
+                f"required={_sample_to_utc(required_min_sample_idx)}.."
+                f"{_sample_to_utc(required_max_sample_idx)}, max_age_s={limit_s:.1f}"
+            )
+        return {**refreshed, "action": "refreshed"}
 
 
 def quality_for_sample(

@@ -17,6 +17,7 @@ import numpy as np
 from mpi4py import MPI
 
 import orbit_metadata_table
+import tx_phase_quality as txpq
 
 
 def discover_cut_sample_indices(cut_dir: Path, day: str | None = None) -> list[int]:
@@ -191,6 +192,8 @@ def main() -> None:
     parser.add_argument("--run-dasst", action="store_true", help="Run DASST for the winning hypothesis when the local DASST module is available.")
     parser.add_argument("--recompute-cut-observables", action="store_true", help="Recompute full per-pulse range-Doppler observables instead of using cached cut detections.")
     parser.add_argument("--tx-phase-quality-h5", type=Path, default=None, help="HDF5 TX cross-phase quality table produced by tx_phase_quality.py.")
+    parser.add_argument("--tx-phase-dir", type=Path, default=None, help="TX phase metadata used to populate or refresh the quality table before analysis.")
+    parser.add_argument("--tx-phase-cache-dir", type=Path, default=None, help="Optional historical TX phase cache used when refreshing the quality table.")
     parser.add_argument("--require-good-tx-phase", action="store_true", help="Reject events whose nearest TX cross-phase sample is missing or misaligned.")
     parser.add_argument("--tx-phase-max-age-s", type=float, default=None, help="Override maximum nearest TX phase sample age in seconds.")
     parser.add_argument("--compute-missing-tx-phase", action="store_true", help="Compute TX cross-phase from raw voltage when no nearby txphase metadata exists.")
@@ -210,6 +213,36 @@ def main() -> None:
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     size = comm.Get_size()
+
+    def preflight_tx_phase(sample_indices: list[int] | None) -> None:
+        error = None
+        if rank == 0 and args.require_good_tx_phase and sample_indices:
+            if args.tx_phase_quality_h5 is None:
+                error = "--require-good-tx-phase requires --tx-phase-quality-h5"
+            else:
+                try:
+                    coverage = txpq.ensure_quality_table(
+                        args.tx_phase_quality_h5,
+                        min(sample_indices),
+                        max(sample_indices),
+                        phase_dir=args.tx_phase_dir,
+                        phase_cache_dir=args.tx_phase_cache_dir,
+                        max_age_s=args.tx_phase_max_age_s,
+                    )
+                    print(
+                        "tx_phase_preflight "
+                        f"action {coverage['action']} "
+                        f"first_sample_idx {coverage['first_sample_idx']} "
+                        f"last_sample_idx {coverage['last_sample_idx']} "
+                        f"required_first_sample_idx {min(sample_indices)} "
+                        f"required_last_sample_idx {max(sample_indices)}",
+                        flush=True,
+                    )
+                except Exception as exc:
+                    error = f"TX phase quality preflight failed: {type(exc).__name__}: {exc}"
+        error = comm.bcast(error, root=0)
+        if error is not None:
+            raise RuntimeError(error)
 
     def run_sample_indices(sample_indices: list[int], label: str) -> tuple[int, int]:
         sample_indices = comm.bcast(sample_indices if rank == 0 else None, root=0)
@@ -258,6 +291,22 @@ def main() -> None:
         else:
             days = None
         days = comm.bcast(days, root=0)
+        if rank == 0:
+            boundary_samples: list[int] = []
+            for day in days:
+                samples = discover_cut_sample_indices(args.cut_dir, day=day)
+                if samples:
+                    boundary_samples.append(samples[0])
+                    break
+            for day in reversed(days):
+                samples = discover_cut_sample_indices(args.cut_dir, day=day)
+                if samples:
+                    boundary_samples.append(samples[-1])
+                    break
+        else:
+            boundary_samples = None
+        boundary_samples = comm.bcast(boundary_samples, root=0)
+        preflight_tx_phase(boundary_samples)
         remaining_limit = args.limit
         for day in days:
             if rank == 0:
@@ -287,6 +336,7 @@ def main() -> None:
             print(f"discovered_events {len(sample_indices)}", flush=True)
         else:
             sample_indices = None
+        preflight_tx_phase(sample_indices)
         total_ok, total_fail = run_sample_indices(sample_indices, "all")
 
     if rank == 0:
