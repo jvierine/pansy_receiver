@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plot the omega-Eridanid orbit ensemble and solar-longitude activity."""
+"""Plot the Southern Eridanid orbit ensemble and solar-longitude activity."""
 
 from __future__ import annotations
 
@@ -240,7 +240,7 @@ def draw_orbit_panel(ax, orbits: np.ndarray, coordinates: tuple[int, int], limit
         if xyz.shape[1]:
             ax.plot(xyz[ix], xyz[iy], color="0.55", lw=0.45, alpha=0.16)
     mean_xyz = orbit_xyz(MEAN_KEPLER, samples=1200)
-    ax.plot(mean_xyz[ix], mean_xyz[iy], color="black", lw=2.4, label=r"Mean $\omega$-Eridanid orbit")
+    ax.plot(mean_xyz[ix], mean_xyz[iy], color="black", lw=2.4, label="Mean SER orbit")
     ax.scatter(0.0, 0.0, s=55, color="#f5b82e", edgecolor="black", linewidth=0.5, zorder=5)
     ax.set_xlim(-limit_au, limit_au)
     ax.set_ylim(-limit_au, limit_au)
@@ -273,7 +273,7 @@ def draw_mean_perifocal_panel(ax, orbits: np.ndarray) -> None:
             projected = project(xyz)
             ax.plot(projected[0], projected[1], color="0.50", lw=0.55, alpha=0.28)
     mean_projected = project(orbit_xyz(MEAN_KEPLER, samples=1200))
-    ax.plot(mean_projected[0], mean_projected[1], color="black", lw=2.4, label=r"Mean $\omega$-Eridanid orbit")
+    ax.plot(mean_projected[0], mean_projected[1], color="black", lw=2.4, label="Mean SER orbit")
     ax.scatter(0.0, 0.0, s=55, color="#f5b82e", edgecolor="black", linewidth=0.5, zorder=5)
     ax.set_xlim(-10.0, 5.0)
     ax.set_ylim(-6.5, 8.5)
@@ -284,7 +284,7 @@ def draw_mean_perifocal_panel(ax, orbits: np.ndarray) -> None:
 def make_figure(rows: dict[str, np.ndarray], core: np.ndarray, profile: dict[str, np.ndarray], output: Path) -> None:
     core_count = int(np.sum(core))
     if core_count == 0:
-        raise RuntimeError("omega-Eridanid selection is empty")
+        raise RuntimeError("Southern Eridanid selection is empty")
     orbits = rows["kepler"][core]
     plt.rcParams.update(
         {
