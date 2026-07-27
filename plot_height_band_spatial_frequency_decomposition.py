@@ -323,8 +323,8 @@ def main() -> None:
         )
 
     bin_area_deg2 = hp.nside2pixarea(nside, degrees=True)
-    upper_density = upper_count / (np.sum(upper_count) * bin_area_deg2)
-    lower_density = lower_count / (np.sum(lower_count) * bin_area_deg2)
+    upper_density = upper_count / bin_area_deg2
+    lower_density = lower_count / bin_area_deg2
     lowpass_density = lowpass / bin_area_deg2
     highpass_density = highpass / bin_area_deg2
     top_norm = shared_positive_log_norm(upper_density, lower_density)
@@ -348,14 +348,14 @@ def main() -> None:
             upper_density,
             top_norm,
             f"Upper initial-height band (N={int(np.sum(upper_count)):,})",
-            r"Normalized count density (deg$^{-2}$)",
+            r"Count density (deg$^{-2}$)",
         ),
         (
             axes[1],
             lower_density,
             top_norm,
             f"Lower initial-height band (N={int(np.sum(lower_count)):,})",
-            r"Normalized count density (deg$^{-2}$)",
+            r"Count density (deg$^{-2}$)",
         ),
         (
             axes[2],
