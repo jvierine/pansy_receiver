@@ -500,8 +500,18 @@ def right_side_contour_label_positions(
 
 
 def add_source_markers(ax) -> None:
+    helion_x = np.deg2rad(centered_plot_longitude_deg(0.0))
+    ax.text(
+        helion_x,
+        0.0,
+        r"$\odot$",
+        color="#ffd21f",
+        fontsize=8,
+        ha="center",
+        va="center",
+        zorder=12,
+    )
     for lon_deg, marker, color, size in (
-        (0.0, r"$\odot$", "#ffd21f", 62),
         (-90.0, r"$\otimes$", "black", 45),
         (180.0, "o", "black", 22),
     ):
