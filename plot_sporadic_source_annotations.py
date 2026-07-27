@@ -18,14 +18,15 @@ SIDECAR = Path("figs/paper_radiant_results_current/paper_radiant_results.h5")
 REGION_JSON = Path("figs/sporadic_source_regions_manual.json")
 OUTPUT = Path("/Users/j/src/pansy_paper/paper_radiant_distribution_sources.png")
 PLOT_CENTER_LONGITUDE_DEG = -90.0
+EXPECTED_NSIDE = 64
 
 
 REGION_COLORS = {
-    "helion": ("Helion", "#00a6d6"),
-    "antihelion": ("Antihelion", "#e69f00"),
-    "apex": ("Apex", "#009e73"),
-    "northern_toroidal": ("Northern toroidal", "#cc79a7"),
-    "southern_toroidal": ("Southern toroidal", "#cc79a7"),
+    "helion": "#00a6d6",
+    "antihelion": "#e69f00",
+    "apex": "#009e73",
+    "northern_toroidal": "#cc79a7",
+    "southern_toroidal": "#cc79a7",
 }
 
 
@@ -65,10 +66,9 @@ def style_hammer(ax):
     ax.grid(True, alpha=0.25, lw=0.45)
 
 
-def plot_healpix(ax, values, nside, title, norm):
+def plot_healpix(ax, values, nside, norm):
     mesh = render_healpix_hammer(ax, values, nside, cmap="magma", norm=norm)
     style_hammer(ax)
-    ax.set_title(title, fontsize=10)
     return mesh
 
 
@@ -99,7 +99,7 @@ def add_source_markers(ax) -> None:
         )
 
 
-def add_region_box(ax, label, region, color):
+def add_region_box(ax, region, color):
     center_lon = region["center_lon_deg"]
     half_width = region["half_lon_deg"]
     beta_min = region["beta_min_deg"]
@@ -112,34 +112,11 @@ def add_region_box(ax, label, region, color):
     x_bottom = centered_plot_longitude_deg(lon_edge)
     x_left = centered_plot_longitude_deg(np.full_like(beta_edge, lon1))
     x_right = centered_plot_longitude_deg(np.full_like(beta_edge, lon2))
-    ax.plot(np.deg2rad(x_top), np.deg2rad(np.full_like(x_top, beta_max)), color=color, lw=1.2, alpha=0.95)
-    ax.plot(np.deg2rad(x_bottom), np.deg2rad(np.full_like(x_bottom, beta_min)), color=color, lw=1.2, alpha=0.95)
-    ax.plot(np.deg2rad(x_left), np.deg2rad(beta_edge), color=color, lw=1.2, alpha=0.95)
-    ax.plot(np.deg2rad(x_right), np.deg2rad(beta_edge), color=color, lw=1.2, alpha=0.95)
-    label_x = centered_plot_longitude_deg(center_lon)
-    if label == "Apex":
-        label_y = beta_min - 5.0
-    elif label == "Narrow apex":
-        label_y = beta_max + 5.0
-    else:
-        label_y = beta_max + 4.0 if beta_max <= 25.0 else beta_max - 4.0
-    if beta_max < 0.0:
-        label_y = beta_min - 4.0
-    font_size = 7.5
-    y_offset_points = -0.5 * font_size if label == "Narrow apex" else 0.0
-    ax.annotate(
-        label,
-        xy=(np.deg2rad(label_x), np.deg2rad(label_y)),
-        xytext=(0.0, y_offset_points),
-        textcoords="offset points",
-        color=color,
-        ha="center",
-        va="center",
-        fontsize=font_size,
-        weight="bold",
-        bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.72, "pad": 1.8},
-        zorder=20,
-    )
+    style = {"color": color, "lw": 0.75, "alpha": 0.95}
+    ax.plot(np.deg2rad(x_top), np.deg2rad(np.full_like(x_top, beta_max)), **style)
+    ax.plot(np.deg2rad(x_bottom), np.deg2rad(np.full_like(x_bottom, beta_min)), **style)
+    ax.plot(np.deg2rad(x_left), np.deg2rad(beta_edge), **style)
+    ax.plot(np.deg2rad(x_right), np.deg2rad(beta_edge), **style)
 
 
 def main() -> None:
@@ -152,7 +129,11 @@ def main() -> None:
     with h5py.File(args.sidecar, "r") as h5:
         raw = np.asarray(h5["healpix_raw_count"], dtype=np.float64)
         nside = int(h5.attrs["healpix_nside"])
-        n_rows = len(h5["radiants"])
+    if nside != EXPECTED_NSIDE:
+        raise ValueError(
+            f"Figure 13 requires HEALPix N_side={EXPECTED_NSIDE}, "
+            f"but {args.sidecar} contains N_side={nside}"
+        )
     regions = load_regions(args.regions)
 
     bin_area_deg2 = 4.0 * np.pi * (180.0 / np.pi) ** 2 / len(raw)
@@ -163,14 +144,20 @@ def main() -> None:
         vmax=max(2.0 / bin_area_deg2, float(np.nanmax(raw_positive))),
     )
 
-    fig = plt.figure(figsize=(7.2, 4.8), constrained_layout=True)
+    fig = plt.figure(figsize=(7.2, 4.2), constrained_layout=True)
     ax0 = fig.add_subplot(111, projection="hammer")
     mesh0 = plot_healpix(
         ax0,
         count_density,
         nside,
-        f"Observed high-quality radiants (N={n_rows:,})",
         raw_norm,
+    )
+    ticks = np.asarray(ax0.get_xticks(), dtype=np.float64)
+    labels = [label.get_text() for label in ax0.get_xticklabels()]
+    keep = ~np.isclose(ticks, 0.0)
+    ax0.set_xticks(
+        ticks[keep],
+        [label for label, retain in zip(labels, keep, strict=True) if retain],
     )
     ax0.set_xticklabels([])
     add_source_markers(ax0)
@@ -179,9 +166,15 @@ def main() -> None:
     for name, region in regions.items():
         if name in {"narrow_apex", "northern_toroidal"}:
             continue
-        label, color = REGION_COLORS.get(name, (name, "white"))
-        add_region_box(ax0, label, region, color)
-    cb0 = fig.colorbar(mesh0, ax=ax0, orientation="horizontal", pad=0.10, fraction=0.045)
+        color = REGION_COLORS.get(name, "white")
+        add_region_box(ax0, region, color)
+    cb0 = fig.colorbar(
+        mesh0,
+        ax=ax0,
+        orientation="vertical",
+        pad=0.02,
+        fraction=0.045,
+    )
     cb0.set_label(r"Count density (deg$^{-2}$)")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(args.output, dpi=240)
