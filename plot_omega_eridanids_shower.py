@@ -205,6 +205,16 @@ def activity_profile(
         )
 
     sufficient_exposure = exposure >= MINIMUM_EXPOSURE_HOURS
+    adjacent_to_gap = np.zeros_like(sufficient_exposure)
+    adjacent_to_gap[1:] |= ~sufficient_exposure[:-1]
+    adjacent_to_gap[:-1] |= ~sufficient_exposure[1:]
+    sufficient_exposure &= ~adjacent_to_gap
+    padded = np.concatenate(([False], sufficient_exposure, [False]))
+    starts = np.flatnonzero(~padded[:-1] & padded[1:])
+    stops = np.flatnonzero(padded[:-1] & ~padded[1:])
+    for start, stop in zip(starts, stops, strict=True):
+        if stop - start < 3:
+            sufficient_exposure[start:stop] = False
     shower_count[~sufficient_exposure] = np.nan
     rate = np.divide(
         shower_count,

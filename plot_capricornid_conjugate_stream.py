@@ -579,6 +579,26 @@ def select_activity_rows(
     return rows[keep]
 
 
+def guarded_exposure_mask(
+    exposure: np.ndarray,
+    minimum_exposure_hours: float,
+    minimum_contiguous_bins: int = 3,
+) -> np.ndarray:
+    """Return conservative exposure support for an activity curve."""
+    sufficient = np.asarray(exposure, dtype=np.float64) >= minimum_exposure_hours
+    adjacent_to_gap = np.zeros_like(sufficient)
+    adjacent_to_gap[1:] |= ~sufficient[:-1]
+    adjacent_to_gap[:-1] |= ~sufficient[1:]
+    valid = sufficient & ~adjacent_to_gap
+    padded = np.concatenate(([False], valid, [False]))
+    starts = np.flatnonzero(~padded[:-1] & padded[1:])
+    stops = np.flatnonzero(padded[:-1] & ~padded[1:])
+    for start, stop in zip(starts, stops, strict=True):
+        if stop - start < minimum_contiguous_bins:
+            valid[start:stop] = False
+    return valid
+
+
 def activity_profile(
     rows: np.ndarray,
     exposure_path: Path,
@@ -624,7 +644,7 @@ def activity_profile(
             )[0]
         )
 
-    valid_exposure = exposure >= selection.minimum_exposure_hours
+    valid_exposure = guarded_exposure_mask(exposure, selection.minimum_exposure_hours)
     valid = valid_exposure & coverage
     counts[~valid] = np.nan
     rate = np.divide(
@@ -646,6 +666,7 @@ def activity_profile(
         "rate": rate,
         "uncertainty": uncertainty,
         "coverage": coverage,
+        "valid_exposure": valid_exposure,
     }
 
 
@@ -678,7 +699,7 @@ def dcs_activity_profile(
             )[0]
         )
 
-    valid_exposure = exposure >= 6.0
+    valid_exposure = guarded_exposure_mask(exposure, 6.0)
     counts[~valid_exposure] = np.nan
     rate = np.divide(
         counts,
