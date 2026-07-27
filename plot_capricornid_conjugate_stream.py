@@ -60,8 +60,8 @@ class ActivitySelection:
     peak_window_deg: float
     sun_centered_lon_deg: float
     beta_deg: float
-    vg_range: tuple[float, float]
-    e_range: tuple[float, float]
+    vg_range: tuple[float, float] | None
+    e_range: tuple[float, float] | None
     healpix_pixels: tuple[int, ...]
     healpix_nside: int = 32
     bin_width_deg: float = 1.0
@@ -101,8 +101,7 @@ DCS_PROFILE_BIN_WIDTH_DEG = 0.25
 DCS_ACTIVITY_SOLAR_RANGE_DEG = (305.0, 335.0)
 DCS_ACTIVITY_BIN_WIDTH_DEG = 1.0
 DCS_ACTIVITY_HEALPIX_NSIDE = 32
-DCS_ACTIVITY_HEALPIX_PIXEL = 7102
-DCS_ACTIVITY_E_RANGE = (0.734, 0.857)
+DCS_ACTIVITY_HEALPIX_PIXELS = (6846, 6973, 6974, 7101, 7102, 7103, 7229, 7230)
 DCS_ACTIVITY_MEAN_SC_LON_DEG = -5.51
 DCS_ACTIVITY_MEAN_BETA_DEG = -8.31
 ACTIVITY_SELECTIONS = (
@@ -113,9 +112,9 @@ ACTIVITY_SELECTIONS = (
         peak_window_deg=4.0,
         sun_centered_lon_deg=354.48,
         beta_deg=-8.40,
-        vg_range=CLUSTER_VG_RANGE,
-        e_range=DCS_ACTIVITY_E_RANGE,
-        healpix_pixels=(DCS_ACTIVITY_HEALPIX_PIXEL,),
+        vg_range=None,
+        e_range=None,
+        healpix_pixels=DCS_ACTIVITY_HEALPIX_PIXELS,
         inset_xlim_deg=(360.0, 345.0),
         inset_ylim_deg=(-15.0, 0.0),
         inset_xticks_deg=(360.0, 355.0, 350.0, 345.0),
@@ -498,15 +497,9 @@ def plot_dcs_solar_longitude_profile(
 
 
 def select_dcs_activity_pixel(rows: np.ndarray) -> np.ndarray:
-    """Select the Radview radiant pixel, eccentricity, and velocity ranges used for DCS."""
+    """Select the Radview radiant pixels used for the DCS activity profile."""
     pixel = ang2pix_ring(DCS_ACTIVITY_HEALPIX_NSIDE, rows["sun_centered_lon"], rows["beta"])
-    eccentricity = rows["kepler"][:, 1]
-    keep = pixel == DCS_ACTIVITY_HEALPIX_PIXEL
-    keep &= np.isfinite(eccentricity)
-    keep &= (eccentricity >= DCS_ACTIVITY_E_RANGE[0]) & (eccentricity <= DCS_ACTIVITY_E_RANGE[1])
-    keep &= np.isfinite(rows["vg"])
-    keep &= (rows["vg"] >= CLUSTER_VG_RANGE[0]) & (rows["vg"] <= CLUSTER_VG_RANGE[1])
-    return rows[keep]
+    return rows[np.isin(pixel, DCS_ACTIVITY_HEALPIX_PIXELS)]
 
 
 def select_activity_rows(
@@ -516,10 +509,14 @@ def select_activity_rows(
     require_radiant_pixels: bool = True,
 ) -> np.ndarray:
     """Apply the documented velocity, eccentricity, and optional radiant selection."""
-    eccentricity = rows["kepler"][:, 1]
-    keep = np.isfinite(eccentricity) & np.isfinite(rows["vg"])
-    keep &= (eccentricity >= selection.e_range[0]) & (eccentricity <= selection.e_range[1])
-    keep &= (rows["vg"] >= selection.vg_range[0]) & (rows["vg"] <= selection.vg_range[1])
+    keep = np.ones(len(rows), dtype=bool)
+    if selection.e_range is not None:
+        eccentricity = rows["kepler"][:, 1]
+        keep &= np.isfinite(eccentricity)
+        keep &= (eccentricity >= selection.e_range[0]) & (eccentricity <= selection.e_range[1])
+    if selection.vg_range is not None:
+        keep &= np.isfinite(rows["vg"])
+        keep &= (rows["vg"] >= selection.vg_range[0]) & (rows["vg"] <= selection.vg_range[1])
     if require_radiant_pixels:
         pixels = ang2pix_ring(selection.healpix_nside, rows["sun_centered_lon"], rows["beta"])
         keep &= np.isin(pixels, selection.healpix_pixels)
@@ -532,7 +529,7 @@ def activity_profile(
     selection: ActivitySelection,
     coverage_rows: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
-    """Return raw and exposure-corrected counts for one shower selection."""
+    """Return sliding-window raw counts and exposure-corrected rates."""
     solar_min, solar_max = selection.solar_range_deg
     edges = np.arange(
         solar_min,
@@ -541,7 +538,14 @@ def activity_profile(
         dtype=np.float64,
     )
     centers = 0.5 * (edges[:-1] + edges[1:])
-    counts = np.asarray(np.histogram(rows["solar_lon"], bins=edges)[0], dtype=np.float64)
+    half_window = 0.5 * selection.peak_window_deg
+    counts = np.asarray(
+        [
+            np.sum(np.abs(wrap180(rows["solar_lon"] - center)) <= half_window)
+            for center in centers
+        ],
+        dtype=np.float64,
+    )
     coverage = np.ones_like(counts, dtype=bool)
     if coverage_rows is not None:
         coverage_counts, _ = np.histogram(coverage_rows["solar_lon"], bins=edges)
@@ -552,8 +556,8 @@ def activity_profile(
         observation_epoch, observation_solar, observation_hours = interpolate_observation_solar_longitude(h5)
     exposure = np.zeros_like(centers)
     plot_lon = float(centered_plot_longitude_deg(selection.sun_centered_lon_deg))
-    for i, (lo, hi) in enumerate(zip(edges[:-1], edges[1:], strict=True)):
-        keep = (observation_solar >= lo) & (observation_solar < hi)
+    for i, center in enumerate(centers):
+        keep = np.abs(wrap180(observation_solar - center)) <= half_window
         exposure[i] = float(
             radiant_exposure_hours_points(
                 observation_epoch[keep],
@@ -756,7 +760,7 @@ def plot_activity_panel(
     inset_bounds: tuple[float, float, float, float],
     label_location: str,
     color: str = "C0",
-    raw_count_label: str = "PANSY raw count",
+    raw_count_label: str = r"PANSY raw count ($4^\circ$ window)",
 ) -> None:
     """Plot raw counts, exposure-corrected rate, and the peak radiant neighborhood."""
     x = profile["centers"]
