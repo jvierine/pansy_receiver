@@ -78,7 +78,7 @@ class ActivitySelection:
 
 PASSAGES = (
     Passage(
-        name=r"Daytime $\chi$ Capricornids (DCS)",
+        name="Daytime Capricornids-Sagittariids (DCS)",
         solar_lon_deg=313.0,
         sun_centered_lon_deg=354.51,
         beta_deg=-8.34,
