@@ -811,17 +811,14 @@ def plot_activity_curve(
 def plot_activity_panel(
     ax,
     profile: dict[str, np.ndarray],
-    inset_rows: np.ndarray,
     selection: ActivitySelection,
     *,
-    inset_bounds: tuple[float, float, float, float],
     label_location: str,
     color: str = "C0",
     curve_label: str | None = None,
     panel_label: str | None = None,
-    additional_inset_markers: tuple[tuple[ActivitySelection, str], ...] = (),
 ) -> None:
-    """Plot an exposure-corrected activity curve and contextual radiant inset."""
+    """Plot an exposure-corrected activity curve."""
     plot_activity_curve(ax, profile, color=color, label=curve_label)
     ax.set_xlim(*selection.solar_range_deg)
     ax.set_ylim(bottom=0.0)
@@ -842,15 +839,6 @@ def plot_activity_panel(
         color="black",
         zorder=8,
     )
-    plot_activity_inset(
-        ax,
-        inset_rows,
-        selection,
-        inset_bounds,
-        additional_markers=additional_inset_markers,
-    )
-
-
 def orbit_xy(kepler: np.ndarray, samples: int = 361) -> tuple[np.ndarray, np.ndarray]:
     a, e, inc, raan, argp = kepler[:5]
     if not np.isfinite(a) or a <= 0.0 or not np.isfinite(e) or e < 0.0 or e >= 1.0:
@@ -1179,19 +1167,16 @@ def main():
         constrained_layout=True,
         gridspec_kw={"width_ratios": (1.12, 1.0, 1.12)},
     )
-    dcs_selection, _dcs_rows, dcs_inset_rows, dcs_profile = activity_products[0]
+    dcs_selection, _dcs_rows, _dcs_inset_rows, dcs_profile = activity_products[0]
     oes_selection, _oes_rows, _oes_inset_rows, oes_profile = activity_products[1]
-    cap_selection, _cap_rows, cap_inset_rows, cap_profile = activity_products[2]
+    cap_selection, _cap_rows, _cap_inset_rows, cap_profile = activity_products[2]
     plot_activity_panel(
         axes[0],
         dcs_profile,
-        dcs_inset_rows,
         dcs_selection,
-        inset_bounds=(0.61, 0.57, 0.36, 0.39),
         label_location="left",
         curve_label="DCS",
         panel_label="OES / DCS",
-        additional_inset_markers=((oes_selection, "C2"),),
     )
     plot_activity_curve(axes[0], oes_profile, color="C2", label="OES")
     combined_upper = max(
@@ -1204,9 +1189,7 @@ def main():
     plot_activity_panel(
         axes[2],
         cap_profile,
-        cap_inset_rows,
         cap_selection,
-        inset_bounds=(0.04, 0.57, 0.36, 0.39),
         label_location="right",
         color="C1",
         curve_label="CAP",
