@@ -73,7 +73,7 @@ class ActivitySelection:
     healpix_nside: int = 32
     bin_width_deg: float = 1.0
     profile_window_deg: float = 1.0
-    minimum_exposure_hours: float = 2.0
+    minimum_exposure_hours: float = 6.0
     inset_xlim_deg: tuple[float, float] | None = None
     inset_ylim_deg: tuple[float, float] | None = None
     inset_xticks_deg: tuple[float, ...] | None = None
@@ -678,7 +678,7 @@ def dcs_activity_profile(
             )[0]
         )
 
-    valid_exposure = exposure >= 2.0
+    valid_exposure = exposure >= 6.0
     counts[~valid_exposure] = np.nan
     rate = np.divide(
         counts,
