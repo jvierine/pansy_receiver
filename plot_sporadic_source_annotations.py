@@ -73,8 +73,17 @@ def plot_healpix(ax, values, nside, title, norm):
 
 
 def add_source_markers(ax) -> None:
+    ax.text(
+        np.deg2rad(centered_plot_longitude_deg(0.0)),
+        0.0,
+        r"$\odot$",
+        color="#ffd21f",
+        fontsize=8,
+        ha="center",
+        va="center",
+        zorder=12,
+    )
     for lon_deg, marker, color, size in (
-        (0.0, "o", "#ffd21f", 22),
         (-90.0, r"$\otimes$", "black", 45),
         (180.0, "o", "black", 22),
     ):
@@ -146,12 +155,23 @@ def main() -> None:
         n_rows = len(h5["radiants"])
     regions = load_regions(args.regions)
 
-    raw_positive = raw[np.isfinite(raw) & (raw > 0.0)]
-    raw_norm = LogNorm(vmin=1.0, vmax=max(2.0, float(np.nanmax(raw_positive))))
+    bin_area_deg2 = 4.0 * np.pi * (180.0 / np.pi) ** 2 / len(raw)
+    count_density = raw / bin_area_deg2
+    raw_positive = count_density[np.isfinite(count_density) & (count_density > 0.0)]
+    raw_norm = LogNorm(
+        vmin=1.0 / bin_area_deg2,
+        vmax=max(2.0 / bin_area_deg2, float(np.nanmax(raw_positive))),
+    )
 
     fig = plt.figure(figsize=(7.2, 4.8), constrained_layout=True)
     ax0 = fig.add_subplot(111, projection="hammer")
-    mesh0 = plot_healpix(ax0, raw, nside, f"Observed high-quality radiants (N={n_rows:,})", raw_norm)
+    mesh0 = plot_healpix(
+        ax0,
+        count_density,
+        nside,
+        f"Observed high-quality radiants (N={n_rows:,})",
+        raw_norm,
+    )
     ax0.set_xticklabels([])
     add_source_markers(ax0)
     ax0.set_xlabel(r"Sun-centered ecliptic longitude, $\lambda-\lambda_\odot$")
@@ -162,7 +182,7 @@ def main() -> None:
         label, color = REGION_COLORS.get(name, (name, "white"))
         add_region_box(ax0, label, region, color)
     cb0 = fig.colorbar(mesh0, ax=ax0, orientation="horizontal", pad=0.10, fraction=0.045)
-    cb0.set_label("Count per HEALPix pixel")
+    cb0.set_label(r"Count density (deg$^{-2}$)")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(args.output, dpi=240)
     plt.close(fig)

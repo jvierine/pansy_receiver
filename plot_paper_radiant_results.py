@@ -602,12 +602,19 @@ def plot_all_radiants(
     speed_vmax: float | None = None,
 ) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
-    positive_zenith = healpix_zenith_flux[np.isfinite(healpix_zenith_flux) & (healpix_zenith_flux > 0.0)]
+    bin_area_deg2 = hp.nside2pixarea(int(healpix_nside), degrees=True)
+    zenith_density = healpix_zenith_flux / bin_area_deg2
+    flux_density = healpix_flux / bin_area_deg2
+    if zenith_vmax is not None:
+        zenith_vmax /= bin_area_deg2
+    if speed_vmax is not None:
+        speed_vmax /= bin_area_deg2
+    positive_zenith = zenith_density[np.isfinite(zenith_density) & (zenith_density > 0.0)]
     zenith_norm = LogNorm(
         vmin=np.nanpercentile(positive_zenith, 5.0),
         vmax=float(zenith_vmax) if zenith_vmax is not None else np.nanpercentile(positive_zenith, 99.5),
     )
-    positive_flux = healpix_flux[np.isfinite(healpix_flux) & (healpix_flux > 0.0)]
+    positive_flux = flux_density[np.isfinite(flux_density) & (flux_density > 0.0)]
     flux_norm = LogNorm(
         vmin=np.nanpercentile(positive_flux, 5.0),
         vmax=float(speed_vmax) if speed_vmax is not None else np.nanpercentile(positive_flux, 99.5),
@@ -617,14 +624,14 @@ def plot_all_radiants(
     ax1 = fig.add_subplot(122, projection="hammer")
     mesh0 = render_healpix_hammer(
         ax0,
-        healpix_zenith_flux,
+        zenith_density,
         healpix_nside,
         cmap="magma",
         norm=zenith_norm,
     )
     mesh1 = render_healpix_hammer(
         ax1,
-        healpix_flux,
+        flux_density,
         healpix_nside,
         cmap="magma",
         norm=flux_norm,
@@ -642,9 +649,9 @@ def plot_all_radiants(
         ax.set_xlabel(r"Sun-centered ecliptic longitude, $\lambda-\lambda_\odot$")
         ax.set_ylabel(r"Ecliptic latitude, $\beta$")
     cb0 = fig.colorbar(mesh0, ax=ax0, orientation="horizontal", pad=0.10, fraction=0.045)
-    cb0.set_label(r"Radiant rate (h$^{-1}$ per HEALPix pixel)")
+    cb0.set_label(r"Radiant rate (h$^{-1}$ deg$^{-2}$)")
     cb1 = fig.colorbar(mesh1, ax=ax1, orientation="horizontal", pad=0.10, fraction=0.045)
-    cb1.set_label(r"Speed-weighted radiant rate (h$^{-1}$ per HEALPix pixel)")
+    cb1.set_label(r"Speed-weighted radiant rate (h$^{-1}$ deg$^{-2}$)")
     fig.savefig(out, dpi=240)
     plt.close(fig)
 
@@ -669,9 +676,11 @@ def plot_snapshots(
 ) -> None:
     fig = plt.figure(figsize=(8.0, 5.25))
     axes = [fig.add_subplot(3, 2, i + 1, projection="hammer") for i in range(len(SNAPSHOT_WINDOWS))]
-    fig.subplots_adjust(left=0.055, right=0.995, bottom=0.075, top=0.995, wspace=0.025, hspace=0.015)
+    fig.subplots_adjust(left=0.055, right=0.925, bottom=0.075, top=0.995, wspace=0.025, hspace=0.015)
     xcenters, ycenters, _, _ = histogram_grid_centers(xedges, yedges)
-    for ax, window in zip(axes, SNAPSHOT_WINDOWS, strict=True):
+    bin_area_deg2 = hp.nside2pixarea(SNAPSHOT_HEALPIX_NSIDE, degrees=True)
+    panel_data = []
+    for window in SNAPSHOT_WINDOWS:
         window_center = window.solar_lon_deg
         window_half_width = half_width_deg
         sub = rows[solar_window_mask(rows, window_center, window_half_width)]
@@ -686,13 +695,31 @@ def plot_snapshots(
             beta_deg=ycenters,
         )
         contour_hist, *_ = radiant_histogram(sub)
-        healpix_hist = radiant_healpix_histogram(sub, nside=SNAPSHOT_HEALPIX_NSIDE)
-        norm = (
-            LogNorm(vmin=1.0, vmax=max(2.0, np.nanpercentile(healpix_hist[healpix_hist > 0], 99.4)))
-            if np.any(healpix_hist > 0)
-            else None
+        count_density = radiant_healpix_histogram(
+            sub, nside=SNAPSHOT_HEALPIX_NSIDE
+        ) / bin_area_deg2
+        panel_data.append((window, exposure_hours, contour_hist, count_density))
+    positive = np.concatenate(
+        [density[np.isfinite(density) & (density > 0.0)] for _, _, _, density in panel_data]
+    )
+    norm = LogNorm(
+        vmin=1.0 / bin_area_deg2,
+        vmax=max(2.0 / bin_area_deg2, np.nanpercentile(positive, 99.4)),
+    )
+    meshes = []
+    for ax, (window, exposure_hours, contour_hist, count_density) in zip(
+        axes, panel_data, strict=True
+    ):
+        window_center = window.solar_lon_deg
+        meshes.append(
+            render_healpix_hammer(
+                ax,
+                count_density,
+                SNAPSHOT_HEALPIX_NSIDE,
+                cmap="magma",
+                norm=norm,
+            )
         )
-        render_healpix_hammer(ax, healpix_hist, SNAPSHOT_HEALPIX_NSIDE, cmap="magma", norm=norm)
         style_hammer(ax)
         ax.set_yticklabels(["", r"$-30^\circ$", r"$0^\circ$", r"$30^\circ$", ""])
         ax.text(
@@ -726,6 +753,9 @@ def plot_snapshots(
         ax.set_ylabel(r"$\beta$")
     for x in (0.285, 0.765):
         fig.text(x, 0.018, r"$\lambda-\lambda_\odot$", ha="center", va="bottom")
+    colorbar_ax = fig.add_axes([0.942, 0.13, 0.014, 0.74])
+    colorbar = fig.colorbar(meshes[0], cax=colorbar_ax)
+    colorbar.set_label(r"Count density (deg$^{-2}$)")
     fig.savefig(out, dpi=240, bbox_inches="tight", pad_inches=0.02)
     plt.close(fig)
 

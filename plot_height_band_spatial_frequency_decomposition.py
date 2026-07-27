@@ -31,8 +31,17 @@ LOWER_BAND_COUNT = 805_800
 
 
 def add_source_markers(ax) -> None:
+    ax.text(
+        np.deg2rad(centered_plot_longitude_deg(0.0, PLOT_CENTER_LONGITUDE_DEG)),
+        0.0,
+        r"$\odot$",
+        color="#ffd21f",
+        fontsize=8,
+        ha="center",
+        va="center",
+        zorder=12,
+    )
     for lon_deg, marker, color, edgecolor, linewidth, size in (
-        (0.0, "o", "#ffd21f", "black", 0.3, 22),
         (270.0, r"$\otimes$", "black", "none", 0.0, 45),
         (180.0, "o", "black", "white", 0.8, 22),
     ):
@@ -136,6 +145,17 @@ def load_or_create_height_band_maps(path: Path, rows: np.ndarray, nside: int):
                 return (
                     np.asarray(h5["upper_healpix_count"], dtype=np.float64),
                     np.asarray(h5["lower_healpix_count"], dtype=np.float64),
+                )
+            if "upper/radiants" in h5 and "lower/radiants" in h5:
+                upper_rows = h5["upper/radiants"][()]
+                lower_rows = h5["lower/radiants"][()]
+                return (
+                    healpix_counts(
+                        upper_rows, np.ones(len(upper_rows), dtype=bool), nside
+                    ),
+                    healpix_counts(
+                        lower_rows, np.ones(len(lower_rows), dtype=bool), nside
+                    ),
                 )
 
     (
@@ -247,6 +267,11 @@ def main() -> None:
     parser.add_argument("--positive-iterations", type=int, default=12)
     parser.add_argument("--positive-fraction", type=float, default=0.5)
     parser.add_argument("--lmax", type=int)
+    parser.add_argument(
+        "--reuse-filter-output",
+        action="store_true",
+        help="Reuse the low/high-frequency maps in --filter-output instead of recomputing them",
+    )
     args = parser.parse_args()
 
     with h5py.File(args.sidecar, "r") as h5:
@@ -257,39 +282,51 @@ def main() -> None:
         args.selection_h5, rows, nside
     )
 
-    lmax = int(args.lmax) if args.lmax is not None else required_lmax(
-        nside,
-        args.zonal_pass,
-        args.zonal_taper,
-        args.meridional_pass,
-        args.meridional_taper,
-    )
-    lowpass, highpass, weights, history = iterative_positive_spherical_harmonic_split(
-        raw,
-        nside,
-        args.zonal_pass,
-        args.zonal_taper,
-        args.meridional_pass,
-        args.meridional_taper,
-        lmax=lmax,
-        iterations=args.positive_iterations,
-        positive_fraction=args.positive_fraction,
-    )
-    save_filter_product(
-        args.filter_output,
-        args,
-        raw,
-        lowpass,
-        highpass,
-        weights,
-        history,
-        nside,
-        lmax,
-    )
+    if args.reuse_filter_output:
+        with h5py.File(args.filter_output, "r") as h5:
+            lowpass = np.asarray(h5["low_frequency_count"], dtype=np.float64)
+            highpass = np.asarray(
+                h5["positive_high_frequency_count"], dtype=np.float64
+            )
+            weights = np.asarray(h5["alm_lowpass_weight"], dtype=np.float64)
+            history = np.asarray(h5["iteration_diagnostics"], dtype=np.float64)
+            lmax = int(h5.attrs["lmax"])
+    else:
+        lmax = int(args.lmax) if args.lmax is not None else required_lmax(
+            nside,
+            args.zonal_pass,
+            args.zonal_taper,
+            args.meridional_pass,
+            args.meridional_taper,
+        )
+        lowpass, highpass, weights, history = iterative_positive_spherical_harmonic_split(
+            raw,
+            nside,
+            args.zonal_pass,
+            args.zonal_taper,
+            args.meridional_pass,
+            args.meridional_taper,
+            lmax=lmax,
+            iterations=args.positive_iterations,
+            positive_fraction=args.positive_fraction,
+        )
+        save_filter_product(
+            args.filter_output,
+            args,
+            raw,
+            lowpass,
+            highpass,
+            weights,
+            history,
+            nside,
+            lmax,
+        )
 
-    pixel_area_sr = hp.nside2pixarea(nside)
-    upper_density = upper_count / (np.sum(upper_count) * pixel_area_sr)
-    lower_density = lower_count / (np.sum(lower_count) * pixel_area_sr)
+    bin_area_deg2 = hp.nside2pixarea(nside, degrees=True)
+    upper_density = upper_count / (np.sum(upper_count) * bin_area_deg2)
+    lower_density = lower_count / (np.sum(lower_count) * bin_area_deg2)
+    lowpass_density = lowpass / bin_area_deg2
+    highpass_density = highpass / bin_area_deg2
     top_norm = shared_positive_log_norm(upper_density, lower_density)
 
     fig = plt.figure(figsize=(12.0, 8.8), constrained_layout=False)
@@ -311,28 +348,28 @@ def main() -> None:
             upper_density,
             top_norm,
             f"Upper initial-height band (N={int(np.sum(upper_count)):,})",
-            r"Normalized count (sr$^{-1}$)",
+            r"Normalized count density (deg$^{-2}$)",
         ),
         (
             axes[1],
             lower_density,
             top_norm,
             f"Lower initial-height band (N={int(np.sum(lower_count)):,})",
-            r"Normalized count (sr$^{-1}$)",
+            r"Normalized count density (deg$^{-2}$)",
         ),
         (
             axes[2],
-            np.where(lowpass > 0.0, lowpass, np.nan),
-            positive_log_norm(lowpass),
+            np.where(lowpass_density > 0.0, lowpass_density, np.nan),
+            positive_log_norm(lowpass_density),
             "Low spherical-harmonic frequencies",
-            "Model count per HEALPix pixel",
+            r"Model count density (deg$^{-2}$)",
         ),
         (
             axes[3],
-            highpass,
-            positive_log_norm(highpass),
+            highpass_density,
+            positive_log_norm(highpass_density),
             "Positive high-frequency excess",
-            "Positive excess per HEALPix pixel",
+            r"Positive excess density (deg$^{-2}$)",
         ),
     )
     for panel_label, (ax, values, norm, title, colorbar_label) in zip(
