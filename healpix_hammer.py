@@ -55,13 +55,16 @@ def render_healpix_hammer(
     cmap="magma",
     norm=None,
     center_longitude_deg: float = -90.0,
+    positive_only: bool = True,
 ):
-    """Draw finite positive HEALPix cells as their true spherical boundaries."""
+    """Draw HEALPix cells as their true spherical boundaries."""
     values = np.asarray(values, dtype=np.float64)
     expected = hp.nside2npix(int(nside))
     if values.shape != (expected,):
         raise ValueError(f"expected {expected} HEALPix values for nside={nside}, got {values.shape}")
-    keep = np.isfinite(values) & (values > 0.0)
+    keep = np.isfinite(values)
+    if positive_only:
+        keep &= values > 0.0
     pixels = np.flatnonzero(keep)
     polygons, source_indices = _pixel_polygons(int(nside), pixels, float(center_longitude_deg))
     collection = PolyCollection(
