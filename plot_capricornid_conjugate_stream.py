@@ -67,6 +67,8 @@ class ActivitySelection:
     bin_width_deg: float = 1.0
     inset_xlim_deg: tuple[float, float] | None = None
     inset_ylim_deg: tuple[float, float] | None = None
+    inset_xticks_deg: tuple[float, ...] | None = None
+    inset_yticks_deg: tuple[float, ...] | None = None
 
 
 PASSAGES = (
@@ -110,6 +112,10 @@ ACTIVITY_SELECTIONS = (
         vg_range=CLUSTER_VG_RANGE,
         e_range=DCS_ACTIVITY_E_RANGE,
         healpix_pixels=(DCS_ACTIVITY_HEALPIX_PIXEL,),
+        inset_xlim_deg=(360.0, 355.0),
+        inset_ylim_deg=(-15.0, 0.0),
+        inset_xticks_deg=(360.0, 357.5, 355.0),
+        inset_yticks_deg=(-15.0, -10.0, -5.0, 0.0),
     ),
     ActivitySelection(
         short_name="CAP",
@@ -140,6 +146,8 @@ ACTIVITY_SELECTIONS = (
         ),
         inset_xlim_deg=(185.0, 175.0),
         inset_ylim_deg=(5.0, 20.0),
+        inset_xticks_deg=(185.0, 180.0, 175.0),
+        inset_yticks_deg=(5.0, 10.0, 15.0, 20.0),
     ),
 )
 
@@ -507,6 +515,7 @@ def activity_profile(
     rows: np.ndarray,
     exposure_path: Path,
     selection: ActivitySelection,
+    coverage_rows: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
     """Return raw and exposure-corrected counts for one shower selection."""
     solar_min, solar_max = selection.solar_range_deg
@@ -517,7 +526,12 @@ def activity_profile(
         dtype=np.float64,
     )
     centers = 0.5 * (edges[:-1] + edges[1:])
-    counts, _ = np.histogram(rows["solar_lon"], bins=edges)
+    counts = np.asarray(np.histogram(rows["solar_lon"], bins=edges)[0], dtype=np.float64)
+    coverage = np.ones_like(counts, dtype=bool)
+    if coverage_rows is not None:
+        coverage_counts, _ = np.histogram(coverage_rows["solar_lon"], bins=edges)
+        coverage = coverage_counts > 0
+        counts[~coverage] = np.nan
 
     with h5py.File(exposure_path, "r") as h5:
         observation_epoch, observation_solar, observation_hours = interpolate_observation_solar_longitude(h5)
@@ -548,6 +562,7 @@ def activity_profile(
         "exposure": exposure,
         "rate": rate,
         "uncertainty": uncertainty,
+        "coverage": coverage,
     }
 
 
@@ -650,9 +665,12 @@ def plot_activity_inset(
         if selection.inset_ylim_deg is not None
         else (selection.beta_deg - 2.3, selection.beta_deg + 2.3)
     )
-    if selection.inset_xlim_deg is not None:
-        inset.set_xticks([185.0, 180.0, 175.0])
-        inset.set_yticks([5.0, 10.0, 15.0, 20.0])
+    if selection.inset_xticks_deg is not None:
+        inset.set_xticks(selection.inset_xticks_deg)
+        inset.set_yticks(selection.inset_yticks_deg)
+        inset.set_xticklabels(
+            [f"{float(wrap360(value)):g}" for value in selection.inset_xticks_deg]
+        )
         inset.tick_params(labelsize=6.5)
     else:
         inset.set_xticks(
@@ -1021,12 +1039,12 @@ def main():
         activity_center = 0.5 * (solar_min + solar_max)
         activity_half_width = 0.5 * (solar_max - solar_min)
         if args.catalogue.exists():
-            raw_rows = load_catalogue_rows(
+            catalogue_rows = load_catalogue_rows(
                 args.catalogue,
                 activity_center,
                 activity_half_width,
-                source="PANSY",
             )
+            raw_rows = catalogue_rows[catalogue_rows["dataset"] == "PANSY"]
         else:
             raw_rows = load_chunk_rows(
                 args.radview_data,
@@ -1034,12 +1052,27 @@ def main():
                 activity_center,
                 activity_half_width,
             )
+            maarsy_rows = load_chunk_rows(
+                args.radview_data,
+                "maarsy",
+                activity_center,
+                activity_half_width,
+            )
+            catalogue_rows = np.concatenate((raw_rows, maarsy_rows))
         selected_rows = select_activity_rows(raw_rows, activity_selection)
-        inset_rows = raw_rows
+        if activity_selection.short_name == "CAP":
+            inset_rows = select_activity_rows(
+                catalogue_rows,
+                activity_selection,
+                require_radiant_pixels=False,
+            )
+        else:
+            inset_rows = raw_rows
         profile = activity_profile(
             selected_rows,
             args.activity_exposure,
             activity_selection,
+            coverage_rows=raw_rows,
         )
         activity_products.append((activity_selection, selected_rows, inset_rows, profile))
 
