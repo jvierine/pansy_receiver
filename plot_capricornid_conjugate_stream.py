@@ -73,7 +73,7 @@ class ActivitySelection:
     healpix_nside: int = 32
     bin_width_deg: float = 1.0
     profile_window_deg: float = 1.0
-    minimum_exposure_hours: float = 6.0
+    minimum_exposure_hours: float = 3.0
     inset_xlim_deg: tuple[float, float] | None = None
     inset_ylim_deg: tuple[float, float] | None = None
     inset_xticks_deg: tuple[float, ...] | None = None
@@ -699,7 +699,7 @@ def dcs_activity_profile(
             )[0]
         )
 
-    valid_exposure = guarded_exposure_mask(exposure, 6.0)
+    valid_exposure = guarded_exposure_mask(exposure, 3.0)
     counts[~valid_exposure] = np.nan
     rate = np.divide(
         counts,
@@ -1104,7 +1104,7 @@ def plot_orbits(
         legend = ax.legend(
             loc="upper center",
             bbox_to_anchor=(0.5, 0.91),
-            fontsize=8,
+            fontsize=10.5,
             frameon=True,
             framealpha=1.0,
         )
@@ -1227,10 +1227,22 @@ def main():
         )
         activity_products.append((activity_selection, selected_rows, raw_rows, profile))
 
+    plt.rcParams.update(
+        {
+            "font.size": 13,
+            "axes.labelsize": 15,
+            "axes.titlesize": 15,
+            "xtick.labelsize": 12,
+            "ytick.labelsize": 12,
+            "legend.fontsize": 11,
+            "pdf.fonttype": 42,
+            "ps.fonttype": 42,
+        }
+    )
     fig, axes = plt.subplots(
         1,
         3,
-        figsize=(15.6, 4.9),
+        figsize=(14.0, 4.6),
         constrained_layout=True,
         gridspec_kw={"width_ratios": (1.12, 1.0, 1.12)},
     )
@@ -1251,7 +1263,7 @@ def main():
         np.nanmax(oes_profile["rate"] + oes_profile["uncertainty"]),
     )
     axes[0].set_ylim(0.0, 1.05 * combined_upper)
-    axes[0].legend(loc="lower left", frameon=False, fontsize=8)
+    axes[0].legend(loc="lower left", frameon=False, fontsize=11)
     plot_orbits(axes[1], selections, colors=list(ORBIT_COLORS))
     plot_activity_panel(
         axes[2],
