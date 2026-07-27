@@ -5,3 +5,5 @@ astropy
 h5py
 pymsis
 digital-rf
+rebound
+reboundx
