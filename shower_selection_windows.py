@@ -29,9 +29,9 @@ class ShowerSelectionWindow:
 
 
 WINDOWS = {
-    "SER": ShowerSelectionWindow(
-        code="SER",
-        csv_name="-1_SER_pansy01.csv",
+    "JUE": ShowerSelectionWindow(
+        code="JUE",
+        csv_name="-1_JUE_pansy01.csv",
         csv_count=83,
         vg_range_km_s=(45.5, 52.5),
         e_range=(0.625, 0.830),

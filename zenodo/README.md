@@ -7,7 +7,7 @@ article.
 
 | File | Shower | IAU number | Selected meteors |
 |---|---|---:|---:|
-| `-1_SER_pansy01.csv` | Southern Eridanids (SER), candidate | -1 | 83 |
+| `-1_JUE_pansy01.csv` | July Eridanids (JUE), candidate | -1 | 83 |
 | `001_CAP_pansy01.csv` | alpha Capricornids (CAP) | 1 | 283 |
 | `115_DCS_pansy01.csv` | Daytime Capricornids-Sagittariids (DCS) | 115 | 249 |
 | `1208_OES_pansy01.csv` | 62-Sagittariids (OES) | 1208 | 186 |
@@ -33,7 +33,7 @@ Validated on 2026-07-27 against the selected-event records in
 
 | Shower | Solar longitude (deg) | Sun-centered ecliptic longitude (deg) | Ecliptic latitude (deg) | Geocentric speed (km/s) |
 |---|---:|---:|---:|---:|
-| SER | 0.0304 | 0.0397 | 0.0201 | 0.0191 |
+| JUE | 0.0304 | 0.0397 | 0.0201 | 0.0191 |
 | CAP | 0.0589 | 0.1552 | 0.0085 | 0.0117 |
 | DCS | 0.1250 | 0.2494 | 0.0085 | 0.0121 |
 | OES | 0.1250 | 0.2225 | 0.0084 | 0.0115 |
@@ -53,7 +53,7 @@ half-width.
 
 | Shower | \(v_g\) (km/s) | \(e\) | \(a\) (AU) | \(i\) (deg) | \(q\) (AU) | RA center +/- half-width (deg) | Dec (deg) |
 |---|---|---|---|---|---|---|---|
-| SER | 45.5--52.5 | 0.625--0.830 | 2.2--4.8 | 84.0--99.0 | 0.79--0.96 | 54 +/- 9 | -34.5 to -25.5 |
+| JUE | 45.5--52.5 | 0.625--0.830 | 2.2--4.8 | 84.0--99.0 | 0.79--0.96 | 54 +/- 9 | -34.5 to -25.5 |
 | CAP | 19.5--27.0 | 0.690--0.830 | 1.6--3.0 | 4.0--12.0 | 0.40--0.69 | 301 +/- 17 | -15.5 to -5.0 |
 | DCS | 22.0--28.5 | 0.725--0.845 | 1.7--3.0 | 4.0--10.5 | 0.40--0.56 | 312 +/- 11 | -30.5 to -22.0 |
 | OES | 18.5--25.5 | 0.660--0.825 | 1.6--3.6 | 5.0--10.5 | 0.50--0.68 | 301 +/- 14 | -36.5 to -27.5 |
@@ -61,7 +61,7 @@ half-width.
 ## SHA-256 checksums
 
 ```text
-04570fc978bbb39d12d4e88044426cbb2efa0ce19e37edfd4402fcdf6b219591  -1_SER_pansy01.csv
+4436153b2f3f2018bc30a870e9a74f91b493fc036352bd795eb4527cac642a15  -1_JUE_pansy01.csv
 a59e49f9f4c9a654da44d8828d33672d1be2a6dea09d95105954cf41c4225c1f  001_CAP_pansy01.csv
 bd77b5844aab35ec1b9f53b700a625dd8ff31b36ea85667297eec0059879f50e  115_DCS_pansy01.csv
 ffcf4ec9dbef9a60aba53b9814b74c36969368fe069ca7d44bf22e645137e7c5  1208_OES_pansy01.csv

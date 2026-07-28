@@ -65,7 +65,7 @@ class SnapshotWindow:
 
 SHOWERS = (
     Shower(
-        name="Southern Eridanids (SER)",
+        name="July Eridanids (JUE)",
         solar_lon_deg=109.24,
         snapshot_solar_lon_deg=None,
         snapshot_half_width_deg=None,
