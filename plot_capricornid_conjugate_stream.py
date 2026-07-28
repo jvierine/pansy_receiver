@@ -926,7 +926,16 @@ def plot_activity_curve(
     lower = np.maximum(0.0, y - uncertainty)
     upper = y + uncertainty
     ax.fill_between(x, lower, upper, color=color, alpha=0.20, linewidth=0)
-    ax.plot(x, y, color=color, marker="o", ms=3.0, lw=1.35, label=label)
+    measured = np.isfinite(x) & np.isfinite(y)
+    ax.plot(
+        x[measured],
+        y[measured],
+        color=color,
+        marker="o",
+        ms=3.0,
+        lw=1.35,
+        label=label,
+    )
 
 
 def plot_activity_panel(
