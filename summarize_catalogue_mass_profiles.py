@@ -392,7 +392,9 @@ def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
         labelsize=13,
         labelbottom=False,
     )
-    ax_speed.yaxis.set_major_locator(MaxNLocator(nbins=3, integer=True))
+    ax_speed.yaxis.set_major_locator(
+        MaxNLocator(nbins=3, integer=True, prune="lower")
+    )
     ax_speed.grid(alpha=0.2, linewidth=0.5)
     ax_speed_debiased = ax_speed.twinx()
     debiased_line = ax_speed_debiased.stairs(
@@ -407,13 +409,17 @@ def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
         colors="C2",
         labelsize=13,
     )
-    ax_speed_debiased.yaxis.set_major_locator(MaxNLocator(nbins=3))
+    ax_speed_debiased.yaxis.set_major_locator(
+        MaxNLocator(nbins=3, prune="lower")
+    )
     ax_speed_debiased.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
     ax_speed_debiased.yaxis.get_offset_text().set_color("C2")
     ax_speed_debiased.yaxis.get_offset_text().set_fontsize(11)
     ax_speed.legend(
         handles=(raw_line, debiased_line),
         loc="upper left",
+        bbox_to_anchor=(1.02, 1.0),
+        borderaxespad=0.0,
         frameon=False,
         fontsize=12,
     )
