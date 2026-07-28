@@ -385,11 +385,11 @@ def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
         linewidth=1.3,
         label="Raw count",
     )
-    ax_speed.set_ylabel("Raw count", fontsize=PAPER_AXIS_LABEL_SIZE)
+    ax_speed.set_ylabel("Raw count", fontsize=14)
     ax_speed.tick_params(
         axis="both",
         which="both",
-        labelsize=PAPER_TICK_LABEL_SIZE,
+        labelsize=13,
         labelbottom=False,
     )
     ax_speed.yaxis.set_major_locator(MaxNLocator(nbins=3, integer=True))
@@ -402,23 +402,20 @@ def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
         linewidth=1.3,
         label=r"$\sum_i w_{z,i}w_{v,i}$",
     )
-    ax_speed_debiased.set_ylabel(
-        r"$\sum_i w_{z,i}w_{v,i}$",
-        color="C2",
-        fontsize=PAPER_AXIS_LABEL_SIZE,
-    )
     ax_speed_debiased.tick_params(
         axis="y",
         colors="C2",
-        labelsize=PAPER_TICK_LABEL_SIZE,
+        labelsize=13,
     )
     ax_speed_debiased.yaxis.set_major_locator(MaxNLocator(nbins=3))
     ax_speed_debiased.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
+    ax_speed_debiased.yaxis.get_offset_text().set_color("C2")
+    ax_speed_debiased.yaxis.get_offset_text().set_fontsize(11)
     ax_speed.legend(
         handles=(raw_line, debiased_line),
         loc="upper left",
         frameon=False,
-        fontsize=PAPER_ANNOTATION_SIZE,
+        fontsize=12,
     )
 
     mass_bins = np.logspace(np.log10(mass_limits[0]), np.log10(mass_limits[1]), 43)
