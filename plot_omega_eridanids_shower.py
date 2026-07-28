@@ -9,6 +9,7 @@ from pathlib import Path
 import h5py
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.stats import norm, poisson
 
 from radiant_visibility import centered_plot_longitude_deg, radiant_exposure_hours_points
 from shower_selection_windows import WINDOWS, format_window, selection_mask
@@ -51,6 +52,9 @@ MEAN_SC_LON_DEG = 292.39
 MEAN_BETA_DEG = -47.80
 OBLIQUITY_DEG = 23.4392911
 MINIMUM_EXPOSURE_HOURS = 3.0
+SIGNAL_SOLAR_RANGE_DEG = (108.0, 112.0)
+PRE_EVENT_BACKGROUND_RANGE_DEG = (100.0, 108.0)
+POST_EVENT_BACKGROUND_RANGE_DEG = (112.0, 120.0)
 
 
 def wrap180(values):
@@ -234,6 +238,62 @@ def activity_profile(
         "uncertainty": uncertainty,
         "shower_count": shower_count,
         "exposure": exposure,
+    }
+
+
+def poisson_activity_significance(profile: dict[str, np.ndarray]) -> dict[str, float]:
+    """Compare the SER peak with the adjacent pre- and post-event background."""
+    centers = np.asarray(profile["centers"], dtype=np.float64)
+    counts = np.asarray(profile["shower_count"], dtype=np.float64)
+    exposure = np.asarray(profile["exposure"], dtype=np.float64)
+
+    def integrate(window: tuple[float, float]) -> tuple[float, float]:
+        keep = (
+            (centers >= window[0])
+            & (centers < window[1])
+            & np.isfinite(counts)
+            & np.isfinite(exposure)
+        )
+        return float(np.sum(counts[keep])), float(np.sum(exposure[keep]))
+
+    on_count, on_exposure = integrate(SIGNAL_SOLAR_RANGE_DEG)
+    pre_count, pre_exposure = integrate(PRE_EVENT_BACKGROUND_RANGE_DEG)
+    post_count, post_exposure = integrate(POST_EVENT_BACKGROUND_RANGE_DEG)
+    off_count = pre_count + post_count
+    off_exposure = pre_exposure + post_exposure
+    alpha = on_exposure / off_exposure
+    expected_background = alpha * off_count
+    poisson_tail = float(poisson.sf(on_count - 1.0, expected_background))
+    fixed_background_sigma = float(norm.isf(poisson_tail))
+
+    total_count = on_count + off_count
+    on_term = on_count * np.log(
+        ((1.0 + alpha) / alpha) * (on_count / total_count)
+    )
+    off_term = off_count * np.log(
+        (1.0 + alpha) * (off_count / total_count)
+    )
+    on_off_sigma = float(np.sqrt(2.0 * (on_term + off_term)))
+    return {
+        "on_count": on_count,
+        "on_exposure_h": on_exposure,
+        "on_rate_h_inv": on_count / on_exposure,
+        "on_rate_sigma_h_inv": np.sqrt(on_count) / on_exposure,
+        "pre_count": pre_count,
+        "pre_exposure_h": pre_exposure,
+        "pre_rate_h_inv": pre_count / pre_exposure,
+        "pre_rate_sigma_h_inv": np.sqrt(pre_count) / pre_exposure,
+        "post_count": post_count,
+        "post_exposure_h": post_exposure,
+        "post_rate_h_inv": post_count / post_exposure,
+        "post_rate_sigma_h_inv": np.sqrt(post_count) / post_exposure,
+        "off_count": off_count,
+        "off_exposure_h": off_exposure,
+        "expected_background_count": expected_background,
+        "rate_ratio": (on_count / on_exposure) / (off_count / off_exposure),
+        "poisson_tail_probability": poisson_tail,
+        "fixed_background_sigma": fixed_background_sigma,
+        "on_off_sigma": on_off_sigma,
     }
 
 
@@ -440,10 +500,13 @@ def main() -> None:
     rows = load_catalogue(args.catalogue)
     shower, core = selection_masks(rows)
     profile = activity_profile(rows, shower, args.exposure, args.bin_width_deg)
+    significance = poisson_activity_significance(profile)
     make_figure(rows, core, profile, args.output)
     print(format_window(WINDOWS["SER"]))
     print(f"selected core meteors: {int(np.sum(core))}")
     print(f"selected 100-120 deg meteors: {int(np.sum(shower))}")
+    for name, value in significance.items():
+        print(f"{name}: {value}")
     print(args.output)
 
 
