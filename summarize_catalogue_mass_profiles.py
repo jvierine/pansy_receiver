@@ -418,7 +418,7 @@ def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
     ax_speed.legend(
         handles=(raw_line, debiased_line),
         loc="upper left",
-        bbox_to_anchor=(1.02, 1.0),
+        bbox_to_anchor=(1.10, 1.0),
         borderaxespad=0.0,
         frameon=False,
         fontsize=12,
