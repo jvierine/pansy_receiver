@@ -1004,10 +1004,26 @@ def plot_solar_counts(
         plotted_by_year = counts_by_year
         plotted_all = all_counts
         count_ylabel = "Catalogue count"
-    ax.step(centers, plotted_all, where="mid", color="black", linewidth=1.8, label="All")
     colors = ("#2f5f8f", "#c04b37", "#4f7f3f")
+    ax.step(
+        centers,
+        plotted_all,
+        where="mid",
+        color="black",
+        linewidth=1.8,
+        label="All",
+        zorder=3,
+    )
     for year, values, color in zip(years, plotted_by_year, colors):
-        ax.step(centers, values, where="mid", color=color, linewidth=1.4, label=str(int(year)))
+        ax.step(
+            centers,
+            values,
+            where="mid",
+            color=color,
+            linewidth=1.4,
+            label=str(int(year)),
+            zorder=2,
+        )
     ax.set_xlim(0, 360)
     finite_density = np.concatenate((np.ravel(plotted_all), np.ravel(plotted_by_year)))
     finite_density = finite_density[np.isfinite(finite_density)]
@@ -1028,9 +1044,25 @@ def plot_solar_counts(
             if observed_mesomode_hours_by_year is not None
             else mesomode_hours_by_year
         )
-        ax_exp.step(centers, plotted_hours, where="mid", color="black", linewidth=1.8, label="All")
+        ax_exp.step(
+            centers,
+            plotted_hours,
+            where="mid",
+            color="black",
+            linewidth=1.8,
+            label="All",
+            zorder=3,
+        )
         for year, hours, color in zip(years, plotted_hours_by_year, colors):
-            ax_exp.step(centers, hours, where="mid", color=color, linewidth=1.4, label=str(int(year)))
+            ax_exp.step(
+                centers,
+                hours,
+                where="mid",
+                color=color,
+                linewidth=1.4,
+                label=str(int(year)),
+                zorder=2,
+            )
         finite_hours = np.concatenate((np.ravel(plotted_hours), np.ravel(plotted_hours_by_year)))
         finite_hours = finite_hours[np.isfinite(finite_hours)]
         ax_exp.set_ylim(0, max(0.1, float(np.max(finite_hours)) if len(finite_hours) else 0.1) * 1.10)
