@@ -17,6 +17,9 @@ from scipy.interpolate import UnivariateSpline
 
 
 METEOROID_DENSITY_KG_M3 = 3000.0
+DEFAULT_ZENITH_WEIGHT_ALPHA = 2.095
+DEFAULT_MINIMUM_COS_ZENITH = 0.15
+DEFAULT_VELOCITY_REFERENCE_KM_S = 73.0
 PAPER_AXIS_LABEL_SIZE = 18
 PAPER_TICK_LABEL_SIZE = 16
 PAPER_ANNOTATION_SIZE = 15
@@ -36,6 +39,21 @@ def parse_args():
     parser.add_argument("--minimum-path-km", type=float, default=15.0)
     parser.add_argument("--minimum-speed-km-s", type=float, default=10.0)
     parser.add_argument("--maximum-speed-km-s", type=float, default=80.0)
+    parser.add_argument(
+        "--zenith-weight-alpha",
+        type=float,
+        default=DEFAULT_ZENITH_WEIGHT_ALPHA,
+    )
+    parser.add_argument(
+        "--minimum-cos-zenith",
+        type=float,
+        default=DEFAULT_MINIMUM_COS_ZENITH,
+    )
+    parser.add_argument(
+        "--velocity-reference-km-s",
+        type=float,
+        default=DEFAULT_VELOCITY_REFERENCE_KM_S,
+    )
     return parser.parse_args()
 
 
@@ -88,6 +106,17 @@ def load_profiles(profiles_dir: Path, baseline_profiles_dir: Path | None = None)
                 marginal_mass = radius_um_to_mass_kg(marginal_radius)
                 lower_status = str(result.attrs["ci95_lower_status"])
                 upper_status = str(result.attrs["ci95_upper_status"])
+            free_parameters = np.asarray(
+                metadata["result"]["free_best_parameters7"],
+                dtype=np.float64,
+            )
+            initial_velocity_enu_mps = free_parameters[3:6]
+            initial_speed_mps = float(np.linalg.norm(initial_velocity_enu_mps))
+            radiant_cos_zenith = (
+                -float(initial_velocity_enu_mps[2]) / initial_speed_mps
+                if initial_speed_mps > 0.0
+                else np.nan
+            )
             rows.append(
                 (
                     sample_idx,
@@ -106,6 +135,7 @@ def load_profiles(profiles_dir: Path, baseline_profiles_dir: Path | None = None)
                     scalar(quality, "free_position_3d_rms_km"),
                     scalar(quality, "free_doppler_rms_km_s"),
                     int(quality["n_measurements"][()]),
+                    radiant_cos_zenith,
                 )
             )
             lower_statuses.append(lower_status)
@@ -135,6 +165,7 @@ def load_profiles(profiles_dir: Path, baseline_profiles_dir: Path | None = None)
         "position_rms_km",
         "doppler_rms_km_s",
         "n_measurements",
+        "radiant_cos_zenith",
     )
     columns = np.asarray(rows, dtype=np.float64).T
     data = {name: values for name, values in zip(names, columns, strict=True)}
@@ -273,6 +304,17 @@ def save_summary(path: Path, data, analysis_mask, args):
         handle.attrs["minimum_path_km"] = float(args.minimum_path_km)
         handle.attrs["minimum_speed_km_s"] = float(args.minimum_speed_km_s)
         handle.attrs["maximum_speed_km_s"] = float(args.maximum_speed_km_s)
+        handle.attrs["zenith_weight_alpha"] = float(args.zenith_weight_alpha)
+        handle.attrs["minimum_cos_zenith"] = float(args.minimum_cos_zenith)
+        handle.attrs["velocity_reference_km_s"] = float(
+            args.velocity_reference_km_s
+        )
+        handle.attrs["zenith_weight"] = (
+            "max(radiant_cos_zenith, minimum_cos_zenith)^(-zenith_weight_alpha)"
+        )
+        handle.attrs["velocity_weight"] = (
+            "(velocity_reference_km_s / initial_speed_km_s)^3"
+        )
         handle.attrs["total_profiles"] = len(analysis_mask)
         handle.attrs["analysis_profiles"] = int(np.count_nonzero(analysis_mask))
         for name, values in data.items():
@@ -291,10 +333,18 @@ def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
     # This wide source image is reduced to single-column width in the paper.
     # Use approximately twice the normal Matplotlib type sizes so the final
     # rendered labels remain comparable to the article's 8--9 pt body text.
-    fig = plt.figure(figsize=(7.4, 4.8), dpi=200)
-    grid = fig.add_gridspec(1, 2, width_ratios=(4.6, 1.25), wspace=0.04)
-    ax = fig.add_subplot(grid[0, 0])
-    ax_mass = fig.add_subplot(grid[0, 1], sharey=ax)
+    fig = plt.figure(figsize=(7.4, 6.0), dpi=200)
+    grid = fig.add_gridspec(
+        2,
+        2,
+        width_ratios=(4.6, 1.25),
+        height_ratios=(1.15, 4.6),
+        wspace=0.04,
+        hspace=0.04,
+    )
+    ax = fig.add_subplot(grid[1, 0])
+    ax_mass = fig.add_subplot(grid[1, 1], sharey=ax)
+    ax_speed = fig.add_subplot(grid[0, 0], sharex=ax)
     finite_upper = analysis_mask & np.isfinite(data["upper_mass_kg"])
     lower_density = density_contours(
         ax,
@@ -320,6 +370,56 @@ def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
     ax.set_ylabel(r"Initial mass $m_0$ (kg)", fontsize=PAPER_AXIS_LABEL_SIZE)
     ax.tick_params(axis="both", which="both", labelsize=PAPER_TICK_LABEL_SIZE)
     ax.grid(alpha=0.2, which="both", linewidth=0.5)
+
+    speed_bins = np.linspace(10.0, 80.0, 36)
+    raw_speed_count, _ = np.histogram(speed[analysis_mask], bins=speed_bins)
+    debiased_speed_count, _ = np.histogram(
+        speed[analysis_mask],
+        bins=speed_bins,
+        weights=data["debiased_weight"][analysis_mask],
+    )
+    raw_line = ax_speed.stairs(
+        raw_speed_count,
+        speed_bins,
+        color="0.2",
+        linewidth=1.3,
+        label="Raw count",
+    )
+    ax_speed.set_ylabel("Raw count", fontsize=PAPER_AXIS_LABEL_SIZE)
+    ax_speed.tick_params(
+        axis="both",
+        which="both",
+        labelsize=PAPER_TICK_LABEL_SIZE,
+        labelbottom=False,
+    )
+    ax_speed.yaxis.set_major_locator(MaxNLocator(nbins=3, integer=True))
+    ax_speed.grid(alpha=0.2, linewidth=0.5)
+    ax_speed_debiased = ax_speed.twinx()
+    debiased_line = ax_speed_debiased.stairs(
+        debiased_speed_count,
+        speed_bins,
+        color="C2",
+        linewidth=1.3,
+        label=r"$\sum_i w_{z,i}w_{v,i}$",
+    )
+    ax_speed_debiased.set_ylabel(
+        r"$\sum_i w_{z,i}w_{v,i}$",
+        color="C2",
+        fontsize=PAPER_AXIS_LABEL_SIZE,
+    )
+    ax_speed_debiased.tick_params(
+        axis="y",
+        colors="C2",
+        labelsize=PAPER_TICK_LABEL_SIZE,
+    )
+    ax_speed_debiased.yaxis.set_major_locator(MaxNLocator(nbins=3))
+    ax_speed_debiased.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
+    ax_speed.legend(
+        handles=(raw_line, debiased_line),
+        loc="upper left",
+        frameon=False,
+        fontsize=PAPER_ANNOTATION_SIZE,
+    )
 
     mass_bins = np.logspace(np.log10(mass_limits[0]), np.log10(mass_limits[1]), 43)
     ax_mass.hist(
@@ -386,7 +486,7 @@ def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
         va="top",
         fontsize=PAPER_ANNOTATION_SIZE,
     )
-    fig.subplots_adjust(left=0.12, right=0.89, bottom=0.14, top=0.98)
+    fig.subplots_adjust(left=0.12, right=0.89, bottom=0.11, top=0.98)
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, bbox_inches="tight", pad_inches=0.03)
     plt.close(fig)
@@ -395,6 +495,25 @@ def plot_summary(path: Path, data, analysis_mask, minimum_path_km: float):
 def main():
     args = parse_args()
     data = load_profiles(args.profiles_dir, args.baseline_profiles_dir)
+    cos_zenith = np.asarray(data["radiant_cos_zenith"], dtype=np.float64)
+    zenith_weight = np.maximum(
+        cos_zenith,
+        float(args.minimum_cos_zenith),
+    ) ** (-float(args.zenith_weight_alpha))
+    velocity_weight = (
+        float(args.velocity_reference_km_s)
+        / np.asarray(data["initial_speed_km_s"], dtype=np.float64)
+    ) ** 3
+    valid_weight = (
+        np.isfinite(zenith_weight)
+        & np.isfinite(velocity_weight)
+        & (cos_zenith > 0.0)
+    )
+    zenith_weight[~valid_weight] = np.nan
+    velocity_weight[~valid_weight] = np.nan
+    data["zenith_weight"] = zenith_weight
+    data["velocity_weight"] = velocity_weight
+    data["debiased_weight"] = zenith_weight * velocity_weight
     analysis_mask = (
         (data["path_length_km"] >= args.minimum_path_km)
         & (data["initial_speed_km_s"] >= args.minimum_speed_km_s)
@@ -404,6 +523,7 @@ def main():
         & np.isfinite(data["best_mass_kg"])
         & np.isfinite(data["lower_mass_kg"])
         & (data["lower_mass_kg"] > 0.0)
+        & np.isfinite(data["debiased_weight"])
     )
     save_summary(args.output_h5, data, analysis_mask, args)
     plot_summary(args.output_plot, data, analysis_mask, args.minimum_path_km)
