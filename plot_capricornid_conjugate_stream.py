@@ -19,7 +19,11 @@ from plot_omega_eridanids_shower import (
     ang2pix_ring,
     interpolate_observation_solar_longitude,
 )
-from radiant_visibility import centered_plot_longitude_deg, radiant_exposure_hours_points
+from radiant_visibility import (
+    centered_plot_longitude_deg,
+    radiant_altitude_deg,
+    radiant_exposure_hours_points,
+)
 from shower_selection_windows import WINDOWS, ShowerSelectionWindow, format_window, selection_mask
 
 
@@ -31,6 +35,12 @@ DEFAULT_CATALOGUE = (
     / "figs"
     / "paper_refresh_20260727_current"
     / "pansy_keplerian_catalogue.h5"
+)
+DEFAULT_ZENITH_SIDECAR = (
+    Path(__file__).resolve().parent
+    / "figs"
+    / "paper_refresh_20260721_current"
+    / "paper_radiant_results.h5"
 )
 CLUSTER_SOLAR_WINDOW_DEG = 14.0
 CLUSTER_VG_RANGE = (14.26, 30.24)
@@ -599,13 +609,40 @@ def guarded_exposure_mask(
     return valid
 
 
+def zenith_correction_weights(
+    rows: np.ndarray,
+    *,
+    min_cos_z: float,
+    alpha: float,
+) -> np.ndarray:
+    """Return the fitted zenith-angle correction for every detected meteor."""
+    ra_deg, dec_deg = ecliptic_to_equatorial_deg(rows["ecliptic_lon"], rows["beta"])
+    altitude_deg = radiant_altitude_deg(ra_deg, dec_deg, rows["epoch"])
+    cos_z = np.sin(np.deg2rad(altitude_deg))
+    weights = np.zeros(len(rows), dtype=np.float64)
+    visible = np.isfinite(cos_z) & (cos_z > 0.0)
+    weights[visible] = np.maximum(cos_z[visible], float(min_cos_z)) ** (-float(alpha))
+    return weights
+
+
+def load_zenith_correction_parameters(path: Path) -> tuple[float, float]:
+    """Read the correction fitted for the paper radiant-distribution analysis."""
+    with h5py.File(path, "r") as h5:
+        alpha = float(h5.attrs["fitted_zenith_exponent_alpha"])
+        min_cos_z = float(h5.attrs["min_cos_z"])
+    return alpha, min_cos_z
+
+
 def activity_profile(
     rows: np.ndarray,
     exposure_path: Path,
     selection: ActivitySelection,
     coverage_rows: np.ndarray | None = None,
+    *,
+    zenith_alpha: float,
+    min_cos_z: float,
 ) -> dict[str, np.ndarray]:
-    """Return sliding-window raw counts and exposure-corrected rates."""
+    """Return raw counts and exposure-plus-zenith-corrected sliding rates."""
     solar_min, solar_max = selection.solar_range_deg
     edges = np.arange(
         solar_min,
@@ -615,11 +652,25 @@ def activity_profile(
     )
     centers = 0.5 * (edges[:-1] + edges[1:])
     half_window = 0.5 * selection.profile_window_deg
+    zenith_weights = zenith_correction_weights(
+        rows,
+        min_cos_z=min_cos_z,
+        alpha=zenith_alpha,
+    )
+    window_masks = [
+        np.abs(wrap180(rows["solar_lon"] - center)) <= half_window
+        for center in centers
+    ]
     counts = np.asarray(
-        [
-            np.sum(np.abs(wrap180(rows["solar_lon"] - center)) <= half_window)
-            for center in centers
-        ],
+        [np.sum(keep) for keep in window_masks],
+        dtype=np.float64,
+    )
+    zenith_weighted_counts = np.asarray(
+        [np.sum(zenith_weights[keep]) for keep in window_masks],
+        dtype=np.float64,
+    )
+    zenith_weighted_variance = np.asarray(
+        [np.sum(np.square(zenith_weights[keep])) for keep in window_masks],
         dtype=np.float64,
     )
     coverage = np.ones_like(counts, dtype=bool)
@@ -647,14 +698,16 @@ def activity_profile(
     valid_exposure = guarded_exposure_mask(exposure, selection.minimum_exposure_hours)
     valid = valid_exposure & coverage
     counts[~valid] = np.nan
+    zenith_weighted_counts[~valid] = np.nan
+    zenith_weighted_variance[~valid] = np.nan
     rate = np.divide(
-        counts,
+        zenith_weighted_counts,
         exposure,
         out=np.full_like(exposure, np.nan),
         where=valid,
     )
     uncertainty = np.divide(
-        np.sqrt(counts),
+        np.sqrt(zenith_weighted_variance),
         exposure,
         out=np.full_like(exposure, np.nan),
         where=valid,
@@ -662,6 +715,7 @@ def activity_profile(
     return {
         "centers": centers,
         "counts": counts,
+        "zenith_weighted_counts": zenith_weighted_counts,
         "exposure": exposure,
         "rate": rate,
         "uncertainty": uncertainty,
@@ -885,12 +939,12 @@ def plot_activity_panel(
     curve_label: str | None = None,
     panel_label: str | None = None,
 ) -> None:
-    """Plot an exposure-corrected activity curve."""
+    """Plot an exposure-plus-zenith-corrected activity curve."""
     plot_activity_curve(ax, profile, color=color, label=curve_label)
     ax.set_xlim(*selection.solar_range_deg)
     ax.set_ylim(bottom=0.0)
     ax.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)")
-    ax.set_ylabel(r"Detected rate (h$^{-1}$)")
+    ax.set_ylabel(r"Zenithal hourly rate (h$^{-1}$)")
     ax.grid(alpha=0.22, lw=0.45)
 
     label_x = 0.025 if label_location == "left" else 0.975
@@ -1143,6 +1197,22 @@ def main():
     parser.add_argument("--profile-solar-max-deg", type=float, default=DCS_PROFILE_SOLAR_RANGE_DEG[1])
     parser.add_argument("--profile-bin-width-deg", type=float, default=DCS_PROFILE_BIN_WIDTH_DEG)
     parser.add_argument("--activity-exposure", type=Path, default=DEFAULT_EXPOSURE)
+    parser.add_argument(
+        "--zenith-correction-sidecar",
+        type=Path,
+        default=DEFAULT_ZENITH_SIDECAR,
+        help="Paper radiant sidecar supplying the fitted zenith exponent and cosine floor.",
+    )
+    parser.add_argument(
+        "--zenith-alpha",
+        type=float,
+        help="Override the fitted zenith-angle exponent from --zenith-correction-sidecar.",
+    )
+    parser.add_argument(
+        "--min-cos-z",
+        type=float,
+        help="Override the zenith-correction cosine floor from --zenith-correction-sidecar.",
+    )
     parser.add_argument("--activity-solar-min-deg", type=float, default=DCS_ACTIVITY_SOLAR_RANGE_DEG[0])
     parser.add_argument("--activity-solar-max-deg", type=float, default=DCS_ACTIVITY_SOLAR_RANGE_DEG[1])
     parser.add_argument("--activity-bin-width-deg", type=float, default=DCS_ACTIVITY_BIN_WIDTH_DEG)
@@ -1164,6 +1234,13 @@ def main():
     parser.add_argument("--e-min", type=float, default=CLUSTER_E_RANGE[0])
     parser.add_argument("--e-max", type=float, default=CLUSTER_E_RANGE[1])
     args = parser.parse_args()
+    fitted_zenith_alpha, fitted_min_cos_z = load_zenith_correction_parameters(
+        args.zenith_correction_sidecar
+    )
+    zenith_alpha = (
+        fitted_zenith_alpha if args.zenith_alpha is None else float(args.zenith_alpha)
+    )
+    min_cos_z = fitted_min_cos_z if args.min_cos_z is None else float(args.min_cos_z)
 
     rows_by_passage = [
         (
@@ -1227,6 +1304,8 @@ def main():
             args.activity_exposure,
             activity_selection,
             coverage_rows=raw_rows,
+            zenith_alpha=zenith_alpha,
+            min_cos_z=min_cos_z,
         )
         activity_products.append((activity_selection, selected_rows, raw_rows, profile))
 
@@ -1339,6 +1418,10 @@ def main():
                 f"count={profile['counts'][peak_index]}, "
                 f"exposure={profile['exposure'][peak_index]:.2f} h"
             )
+    print(
+        f"activity zenith correction: alpha={zenith_alpha:.6g}, "
+        f"min_cos_z={min_cos_z:.6g}, source={args.zenith_correction_sidecar}"
+    )
     for passage, rows in selections:
         print(f"{passage.name}: selected {len(rows)}")
         if len(rows):

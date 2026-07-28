@@ -6,6 +6,7 @@ from plot_capricornid_conjugate_stream import (
     ecliptic_to_equatorial_deg,
     radiant_color_values,
     validate_passage_sources,
+    zenith_correction_weights,
 )
 
 
@@ -53,3 +54,23 @@ def test_passage_source_validation_accepts_combined_catalogue():
     rows["dataset"] = ["PANSY", "MAARSY", "PANSY"]
 
     validate_passage_sources(rows, PASSAGES[1])
+
+
+def test_zenith_correction_uses_each_event_altitude(monkeypatch):
+    rows = np.zeros(
+        3,
+        dtype=[
+            ("ecliptic_lon", "f8"),
+            ("beta", "f8"),
+            ("epoch", "f8"),
+        ],
+    )
+    rows["epoch"] = [1.0, 2.0, 3.0]
+    monkeypatch.setattr(
+        "plot_capricornid_conjugate_stream.radiant_altitude_deg",
+        lambda ra, dec, epoch: np.asarray([90.0, 30.0, -5.0]),
+    )
+
+    weights = zenith_correction_weights(rows, min_cos_z=0.15, alpha=2.0)
+
+    np.testing.assert_allclose(weights, [1.0, 4.0, 0.0], atol=1e-12)
