@@ -136,6 +136,7 @@ def main():
         )
         print("event_id                 RMS  quantity       Level2 fit    Level3")
         shown = 0
+        differences = []
         for event_id, start, count in zip(event_ids, starts, counts):
             event_id, start, count = int(event_id), int(start), int(count)
             if count < 20 or event_id not in level3_row:
@@ -157,9 +158,9 @@ def main():
                 position_gcrs, velocity_gcrs, epoch
             )
             elements = kepler_elements(position_helio, velocity_helio)
-            # Near-parabolic orbits make a extremely sensitive to tiny velocity
-            # differences; use ordinary bound cases for this compact check.
-            if not (0.0 < elements[0] < 10.0):
+            # Avoid near-parabolic cases, where a is singularly sensitive to
+            # the zenith-attraction correction intentionally omitted here.
+            if not (0.0 < elements[0] < 3.0 and elements[1] < 0.9):
                 continue
             j = level3_row[event_id]
             level3_elements = np.array(
@@ -183,9 +184,27 @@ def main():
                 level3_elements,
             ):
                 print(f"{'':29s}  {name:11s} {fit_value:11.4f} {catalogue_value:9.4f}")
+            differences.append(
+                [
+                    abs(speed - level3["events/v0_km_s"][j]),
+                    abs(elements[0] - level3_elements[0]) / abs(level3_elements[0]),
+                    abs(elements[1] - level3_elements[1]),
+                    abs(elements[2] - level3_elements[2]),
+                    abs(elements[6] - level3_elements[6]),
+                ]
+            )
             shown += 1
             if shown == args.count:
                 break
+        median = np.median(differences, axis=0)
+        print(
+            "\nmedian absolute differences: "
+            f"v0={median[0]:.3f} km/s, "
+            f"a={100.0 * median[1]:.1f}%, "
+            f"e={median[2]:.3f}, "
+            f"i={median[3]:.2f} deg, "
+            f"q={median[4]:.3f} AU"
+        )
 
 
 if __name__ == "__main__":
