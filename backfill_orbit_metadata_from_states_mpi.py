@@ -32,7 +32,7 @@ def day_from_sample_idx(sample_idx: int) -> str:
 
 def discover_state_paths(events_dir: Path, start_day: str | None, end_day: str | None) -> list[Path]:
     paths: list[Path] = []
-    for day_dir in sorted(events_dir.glob("2025-*")):
+    for day_dir in sorted(events_dir.glob("20??-*")):
         if not day_dir.is_dir():
             continue
         day = day_dir.name[:10]
