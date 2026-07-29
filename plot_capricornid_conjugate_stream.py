@@ -1206,21 +1206,26 @@ def plot_orbits_side_view(
     reference_rows = [row for _passage, rows in selections for row in rows]
     if reference_rows:
         reference_kepler = mean_kepler(np.asarray(reference_rows, dtype=selections[0][1].dtype))
-        node_deg = float(reference_kepler[3])
+        reference_xyz = orbit_xyz(reference_kepler, samples=1440)
+        radius = np.linalg.norm(reference_xyz, axis=0)
+        aphelion = reference_xyz[:, int(np.nanargmax(radius))]
+        aphelion[2] = 0.0
+        if np.linalg.norm(aphelion[:2]) > 0.0:
+            x_unit = aphelion / np.linalg.norm(aphelion)
+        else:
+            x_unit = np.asarray([1.0, 0.0, 0.0])
     else:
-        node_deg = float(COMET_169P_NEAT[3])
-    node = np.deg2rad(node_deg)
-    node_unit = np.asarray([np.cos(node), np.sin(node), 0.0])
+        x_unit = np.asarray([1.0, 0.0, 0.0])
     z_unit = np.asarray([0.0, 0.0, 1.0])
 
     def project(xyz: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        return node_unit @ xyz, z_unit @ xyz
+        return x_unit @ xyz, z_unit @ xyz
 
     theta = np.linspace(0.0, 2.0 * np.pi, 361)
-    for radius, label, color in ((1.0, "Earth", "0.35"), (5.204, "Jupiter", "0.20")):
+    for radius, label, color, lw in ((1.0, "Earth", "0.35", 0.9), (5.204, "Jupiter", "0.12", 1.4)):
         xyz = np.vstack((radius * np.cos(theta), radius * np.sin(theta), np.zeros_like(theta)))
         x, z = project(xyz)
-        ax.plot(x, z, color=color, lw=0.9 if radius == 1.0 else 1.0, label=label)
+        ax.plot(x, z, color=color, lw=lw, label=label)
     for (passage, rows), color in zip(selections, colors, strict=True):
         if len(rows) == 0:
             continue
@@ -1257,7 +1262,7 @@ def plot_orbits_side_view(
     ax.set_aspect("equal", adjustable="box")
     ax.set_xlim(-5.35, 5.35)
     ax.set_ylim(-5.35, 5.35)
-    ax.set_xlabel("Mean line of nodes (AU)")
+    ax.set_xlabel("Mean aphelion direction (AU)")
     ax.set_ylabel("Ecliptic Z (AU)")
     ax.grid(alpha=0.22, lw=0.45)
     if show_legend:
