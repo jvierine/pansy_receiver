@@ -22,7 +22,7 @@ from shower_selection_windows import WINDOWS, format_window, selection_mask
 DEFAULT_CATALOGUE = (
     Path(__file__).parent
     / "figs"
-    / "paper_refresh_20260727_current"
+    / "paper_refresh_20260729_current"
     / "pansy_keplerian_catalogue.h5"
 )
 DEFAULT_EXPOSURE = (
@@ -48,12 +48,12 @@ RADIANT_PIXELS = np.asarray(
     ],
     dtype=np.int64,
 )
-MEAN_RA_DEG = 54.33
+MEAN_RA_DEG = 54.39
 MEAN_DEC_DEG = -30.63
 MEAN_VG_KM_S = 48.65
-MEAN_KEPLER = np.asarray([3.4039, 0.7089, 91.29, 290.14, 317.33, 42.24, 0.8999])
-MEAN_SC_LON_DEG = 292.39
-MEAN_BETA_DEG = -47.80
+MEAN_KEPLER = np.asarray([3.4207, 0.7099, 91.27, 290.01, 316.86, 42.71, 0.8982])
+MEAN_SC_LON_DEG = 291.24
+MEAN_BETA_DEG = -48.17
 OBLIQUITY_DEG = 23.4392911
 MINIMUM_EXPOSURE_HOURS = 3.0
 SIGNAL_SOLAR_RANGE_DEG = (108.0, 112.0)
