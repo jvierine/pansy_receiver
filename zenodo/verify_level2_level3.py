@@ -114,6 +114,7 @@ def main():
     parser.add_argument("release", type=Path)
     parser.add_argument("--month", default="2025-07")
     parser.add_argument("--count", type=int, default=5)
+    parser.add_argument("--all", action="store_true", help="check all fit-able events; print summary only")
     args = parser.parse_args()
     level2_name = args.release / "level2" / f"pansy_level2_{args.month}.h5"
     level3_name = args.release / "level3" / f"pansy_level3_{args.month}.h5"
@@ -137,19 +138,23 @@ def main():
         print("event_id                 RMS  quantity       Level2 fit    Level3")
         shown = 0
         differences = []
+        skipped = 0
         for event_id, start, count in zip(event_ids, starts, counts):
             event_id, start, count = int(event_id), int(start), int(count)
-            if count < 20 or event_id not in level3_row:
+            minimum_points = 3 if args.all else 20
+            if count < minimum_points or event_id not in level3_row:
+                skipped += 1
                 continue
             rows = slice(start, start + count)
             keep = keep_all[rows]
-            if np.count_nonzero(keep) < 20:
+            if np.count_nonzero(keep) < minimum_points:
+                skipped += 1
                 continue
             time_s = time_all[rows][keep]
             position = position_all[rows][keep]
             position0, velocity0, rms_km = fit_state(time_s, position)
             speed = np.linalg.norm(velocity0)
-            if not (45.0 <= speed <= 75.0 and rms_km < 0.25):
+            if not args.all and not (45.0 <= speed <= 75.0 and rms_km < 0.25):
                 continue
 
             epoch = Time(event_id / 1e6, format="unix", scale="utc")
@@ -160,7 +165,7 @@ def main():
             elements = kepler_elements(position_helio, velocity_helio)
             # Avoid near-parabolic cases, where a is singularly sensitive to
             # the zenith-attraction correction intentionally omitted here.
-            if not (0.0 < elements[0] < 3.0 and elements[1] < 0.9):
+            if not args.all and not (0.0 < elements[0] < 3.0 and elements[1] < 0.9):
                 continue
             j = level3_row[event_id]
             level3_elements = np.array(
@@ -177,13 +182,14 @@ def main():
                     )
                 ]
             )
-            print(f"{event_id:22d} {rms_km:5.3f}  v0 (km/s)   {speed:11.4f} {level3['events/v0_km_s'][j]:9.4f}")
-            for name, fit_value, catalogue_value in zip(
-                ("a (AU)", "e", "i (deg)", "Omega", "omega", "nu", "q (AU)"),
-                elements,
-                level3_elements,
-            ):
-                print(f"{'':29s}  {name:11s} {fit_value:11.4f} {catalogue_value:9.4f}")
+            if not args.all:
+                print(f"{event_id:22d} {rms_km:5.3f}  v0 (km/s)   {speed:11.4f} {level3['events/v0_km_s'][j]:9.4f}")
+                for name, fit_value, catalogue_value in zip(
+                    ("a (AU)", "e", "i (deg)", "Omega", "omega", "nu", "q (AU)"),
+                    elements,
+                    level3_elements,
+                ):
+                    print(f"{'':29s}  {name:11s} {fit_value:11.4f} {catalogue_value:9.4f}")
             differences.append(
                 [
                     abs(speed - level3["events/v0_km_s"][j]),
@@ -194,11 +200,15 @@ def main():
                 ]
             )
             shown += 1
-            if shown == args.count:
+            if args.all and shown % 1000 == 0:
+                print(f"processed {shown}", flush=True)
+            if not args.all and shown == args.count:
                 break
-        median = np.median(differences, axis=0)
+        differences = np.asarray(differences)
+        median = np.nanmedian(differences, axis=0)
         print(
-            "\nmedian absolute differences: "
+            f"\ncompared {shown} events; skipped {skipped}\n"
+            "median absolute differences: "
             f"v0={median[0]:.3f} km/s, "
             f"a={100.0 * median[1]:.1f}%, "
             f"e={median[2]:.3f}, "
