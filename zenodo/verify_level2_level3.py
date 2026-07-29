@@ -2,6 +2,8 @@
 """Derive GCRS states and heliocentric orbits from exported Level 2 data."""
 
 import argparse
+import multiprocessing
+import os
 from pathlib import Path
 
 import h5py
@@ -26,6 +28,7 @@ SITE = EarthLocation(
     lon=39.599722 * u.deg,
     height=100.0 * u.m,
 )
+ALL_DATA = {}
 
 
 def fit_state(time_s, position_enu_km):
@@ -109,12 +112,52 @@ def kepler_elements(position_km, velocity_km_s):
     )
 
 
+def check_one(index):
+    event_id = int(ALL_DATA["event_ids"][index])
+    start = int(ALL_DATA["starts"][index])
+    count = int(ALL_DATA["counts"][index])
+    if count < 3:
+        return None
+    rows = slice(start, start + count)
+    keep = ALL_DATA["keep"][rows]
+    if np.count_nonzero(keep) < 3:
+        return None
+    time_s = ALL_DATA["time"][rows][keep]
+    position = ALL_DATA["position"][rows][keep]
+    position0, velocity0, _ = fit_state(time_s, position)
+    speed = np.linalg.norm(velocity0)
+    epoch = Time(event_id / 1e6, format="unix", scale="utc")
+    try:
+        position_gcrs, velocity_gcrs = enu_to_gcrs(position0, velocity0, epoch)
+        position_helio, velocity_helio = heliocentric_ecliptic_state(
+            position_gcrs, velocity_gcrs, epoch
+        )
+        elements = kepler_elements(position_helio, velocity_helio)
+    except (ValueError, FloatingPointError):
+        return None
+    j = ALL_DATA["level3_row"].get(event_id)
+    if j is None:
+        return None
+    level3_elements = ALL_DATA["level3_elements"][j]
+    difference = np.array(
+        [
+            abs(speed - ALL_DATA["level3_v0"][j]),
+            abs(elements[0] - level3_elements[0]) / abs(level3_elements[0]),
+            abs(elements[1] - level3_elements[1]),
+            abs(elements[2] - level3_elements[2]),
+            abs(elements[6] - level3_elements[6]),
+        ]
+    )
+    return difference if np.all(np.isfinite(difference)) else None
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("release", type=Path)
     parser.add_argument("--month", default="2025-07")
     parser.add_argument("--count", type=int, default=5)
     parser.add_argument("--all", action="store_true", help="check all fit-able events; print summary only")
+    parser.add_argument("--workers", type=int, default=min(16, os.cpu_count() or 1))
     args = parser.parse_args()
     level2_name = args.release / "level2" / f"pansy_level2_{args.month}.h5"
     level3_name = args.release / "level3" / f"pansy_level3_{args.month}.h5"
@@ -135,6 +178,55 @@ def main():
                 for axis in ("east", "north", "up")
             ]
         )
+        level3_elements_all = np.column_stack(
+            [
+                level3[f"events/{name}"][()]
+                for name in (
+                    "semi_major_axis_AU",
+                    "eccentricity",
+                    "inclination_deg",
+                    "longitude_ascending_node_deg",
+                    "argument_perihelion_deg",
+                    "true_anomaly_deg",
+                    "perihelion_distance_AU",
+                )
+            ]
+        )
+        if args.all:
+            ALL_DATA.update(
+                event_ids=event_ids,
+                starts=starts,
+                counts=counts,
+                keep=keep_all,
+                time=time_all,
+                position=position_all,
+                level3_row=level3_row,
+                level3_v0=level3["events/v0_km_s"][()],
+                level3_elements=level3_elements_all,
+            )
+            differences = []
+            context = multiprocessing.get_context("fork")
+            with context.Pool(args.workers) as pool:
+                for index, result in enumerate(
+                    pool.imap_unordered(check_one, range(len(event_ids)), chunksize=20),
+                    start=1,
+                ):
+                    if result is not None:
+                        differences.append(result)
+                    if index % 5000 == 0:
+                        print(f"processed {index}/{len(event_ids)}", flush=True)
+            differences = np.asarray(differences)
+            median = np.nanmedian(differences, axis=0)
+            print(
+                f"\ncompared {len(differences)} of {len(event_ids)} events\n"
+                "median absolute differences: "
+                f"v0={median[0]:.3f} km/s, "
+                f"a={100.0 * median[1]:.1f}%, "
+                f"e={median[2]:.3f}, "
+                f"i={median[3]:.2f} deg, "
+                f"q={median[4]:.3f} AU"
+            )
+            return
         print("event_id                 RMS  quantity       Level2 fit    Level3")
         shown = 0
         differences = []
