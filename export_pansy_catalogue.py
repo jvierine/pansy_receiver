@@ -518,6 +518,8 @@ def build_release(args: argparse.Namespace) -> Path:
 
     readme_source = Path(__file__).resolve().parent / "zenodo" / "catalogue_v1" / "README.md"
     shutil.copy2(readme_source, staging / "README.md")
+    verifier_source = Path(__file__).resolve().parent / "zenodo" / "verify_level2_level3.py"
+    shutil.copy2(verifier_source, staging / "verify_level2_level3.py")
     release_files = sorted(path for path in staging.rglob("*") if path.is_file())
     checksum_lines = [f"{sha256(path)}  {path.relative_to(staging)}" for path in release_files]
     (staging / "SHA256SUMS").write_text("\n".join(checksum_lines) + "\n")

@@ -13,6 +13,7 @@ schema version, release version, and processing commit.
 | `level3/pansy_level3_YYYY-MM.h5` | Radiants and orbits |
 | `release_summary.json` | Coverage and row counts |
 | `SHA256SUMS` | File checksums |
+| `verify_level2_level3.py` | Independent Level 2 orbit check |
 
 Level 1 voltage is stored as separate real and imaginary signed ADC counts.
 It is an event cut, not continuous voltage, and is not calibrated to volts.
@@ -54,6 +55,17 @@ The local ENU fit covariance is not a covariance of either GCRS state. A
 zenith-attraction-corrected Cartesian-state covariance is unavailable in the
 compact source catalogue. The Kepler covariance comes from the orbit
 uncertainty ensemble.
+
+## Independent check
+
+Requires Python, NumPy, h5py, and Astropy:
+
+```sh
+python verify_level2_level3.py . --month 2025-07
+```
+
+The script fits Level 2 positions, transforms the state to GCRS, and calculates
+heliocentric Keplerian elements without zenith-attraction correction.
 
 ## Deposit metadata
 
