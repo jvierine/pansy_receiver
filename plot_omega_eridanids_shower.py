@@ -140,6 +140,7 @@ def load_catalogue(path: Path) -> dict[str, np.ndarray]:
         index = np.flatnonzero(preselect)
         return {
             "index": index,
+            "epoch": np.asarray(h5["epoch_unix"][index], dtype=np.float64),
             "solar": solar[index],
             "vg": np.asarray(h5["vg_km_s"][index], dtype=np.float64),
             "lon": np.asarray(h5["sun_centered_lon_deg"][index], dtype=np.float64),
