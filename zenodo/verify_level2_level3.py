@@ -4,6 +4,7 @@
 import argparse
 import multiprocessing
 import os
+import warnings
 from pathlib import Path
 
 import h5py
@@ -21,6 +22,7 @@ from astropy.coordinates import (
 from astropy.time import Time
 import astropy.units as u
 from astropy.utils import iers
+from astropy.utils.exceptions import AstropyWarning
 
 
 SITE = EarthLocation(
@@ -158,6 +160,7 @@ def main():
     parser.add_argument("--count", type=int, default=5)
     parser.add_argument("--all", action="store_true", help="check all fit-able events; print summary only")
     parser.add_argument("--workers", type=int, default=min(16, os.cpu_count() or 1))
+    parser.add_argument("--limit", type=int, default=0, help="maximum events examined with --all")
     args = parser.parse_args()
     level2_name = args.release / "level2" / f"pansy_level2_{args.month}.h5"
     level3_name = args.release / "level3" / f"pansy_level3_{args.month}.h5"
@@ -193,6 +196,7 @@ def main():
             ]
         )
         if args.all:
+            warnings.simplefilter("ignore", AstropyWarning)
             ALL_DATA.update(
                 event_ids=event_ids,
                 starts=starts,
@@ -205,20 +209,21 @@ def main():
                 level3_elements=level3_elements_all,
             )
             differences = []
+            event_count = min(len(event_ids), args.limit) if args.limit else len(event_ids)
             context = multiprocessing.get_context("fork")
             with context.Pool(args.workers) as pool:
                 for index, result in enumerate(
-                    pool.imap_unordered(check_one, range(len(event_ids)), chunksize=20),
+                    pool.imap_unordered(check_one, range(event_count), chunksize=20),
                     start=1,
                 ):
                     if result is not None:
                         differences.append(result)
                     if index % 5000 == 0:
-                        print(f"processed {index}/{len(event_ids)}", flush=True)
+                        print(f"processed {index}/{event_count}", flush=True)
             differences = np.asarray(differences)
             median = np.nanmedian(differences, axis=0)
             print(
-                f"\ncompared {len(differences)} of {len(event_ids)} events\n"
+                f"\ncompared {len(differences)} of {event_count} examined events\n"
                 "median absolute differences: "
                 f"v0={median[0]:.3f} km/s, "
                 f"a={100.0 * median[1]:.1f}%, "
