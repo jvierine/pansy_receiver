@@ -11,7 +11,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import norm, poisson
 
-from radiant_visibility import centered_plot_longitude_deg, radiant_exposure_hours_points
+from radiant_visibility import (
+    centered_plot_longitude_deg,
+    radiant_altitude_deg,
+    radiant_exposure_hours_points,
+)
 from shower_selection_windows import WINDOWS, format_window, selection_mask
 
 
@@ -187,6 +191,7 @@ def activity_profile(
     exposure_path: Path,
     bin_width_deg: float,
 ) -> dict[str, np.ndarray]:
+    """Return raw counts and exposure-plus-zenith-corrected rates."""
     edges = np.arange(SOLAR_RANGE_DEG[0], SOLAR_RANGE_DEG[1] + bin_width_deg, bin_width_deg)
     centers = 0.5 * (edges[:-1] + edges[1:])
     shower_count, _ = np.histogram(rows["solar"][shower_mask], bins=edges)
@@ -194,6 +199,36 @@ def activity_profile(
 
     with h5py.File(exposure_path, "r") as h5:
         observation_epoch, observation_solar, observation_hours = interpolate_observation_solar_longitude(h5)
+        zenith_alpha = float(h5.attrs["fitted_zenith_exponent_alpha"])
+        min_cos_z = float(h5.attrs["min_cos_z"])
+
+    shower_ra, shower_dec = ecliptic_to_equatorial_deg(
+        rows["ecliptic_lon"][shower_mask],
+        rows["beta"][shower_mask],
+    )
+    shower_altitude_deg = radiant_altitude_deg(
+        shower_ra,
+        shower_dec,
+        rows["epoch"][shower_mask],
+    )
+    shower_cos_z = np.sin(np.deg2rad(shower_altitude_deg))
+    shower_zenith_weight = np.zeros(np.sum(shower_mask), dtype=np.float64)
+    visible = np.isfinite(shower_cos_z) & (shower_cos_z > 0.0)
+    shower_zenith_weight[visible] = np.maximum(
+        shower_cos_z[visible],
+        min_cos_z,
+    ) ** (-zenith_alpha)
+    zenith_weighted_count, _ = np.histogram(
+        rows["solar"][shower_mask],
+        bins=edges,
+        weights=shower_zenith_weight,
+    )
+    zenith_weighted_variance, _ = np.histogram(
+        rows["solar"][shower_mask],
+        bins=edges,
+        weights=np.square(shower_zenith_weight),
+    )
+
     exposure = np.zeros_like(centers)
     plot_lon = float(centered_plot_longitude_deg(MEAN_SC_LON_DEG))
     for i, (lo, hi) in enumerate(zip(edges[:-1], edges[1:], strict=True)):
@@ -220,14 +255,16 @@ def activity_profile(
         if stop - start < 3:
             sufficient_exposure[start:stop] = False
     shower_count[~sufficient_exposure] = np.nan
+    zenith_weighted_count[~sufficient_exposure] = np.nan
+    zenith_weighted_variance[~sufficient_exposure] = np.nan
     rate = np.divide(
-        shower_count,
+        zenith_weighted_count,
         exposure,
         out=np.full_like(exposure, np.nan),
         where=sufficient_exposure,
     )
     uncertainty = np.divide(
-        np.sqrt(shower_count),
+        np.sqrt(zenith_weighted_variance),
         exposure,
         out=np.full_like(exposure, np.nan),
         where=sufficient_exposure,
@@ -237,7 +274,11 @@ def activity_profile(
         "rate": rate,
         "uncertainty": uncertainty,
         "shower_count": shower_count,
+        "zenith_weighted_count": zenith_weighted_count,
+        "zenith_weighted_variance": zenith_weighted_variance,
         "exposure": exposure,
+        "zenith_alpha": zenith_alpha,
+        "min_cos_z": min_cos_z,
     }
 
 
@@ -435,7 +476,7 @@ def make_figure(rows: dict[str, np.ndarray], core: np.ndarray, profile: dict[str
     dy = profile["uncertainty"]
     ax.axhline(0.0, color="0.5", lw=0.7)
     ax.fill_between(x, y - dy, y + dy, color="C0", alpha=0.18, linewidth=0)
-    ax.plot(x, y, color="C0", marker="o", ms=3.2, lw=1.4, label="Selected rate (left axis)")
+    ax.plot(x, y, color="C0", marker="o", ms=3.2, lw=1.4, label="Zenithal hourly rate")
     finite_rate = np.isfinite(y)
     peak_solar_longitude = float(x[np.nanargmax(np.where(finite_rate, y, -np.inf))])
     peak_rate = float(y[np.nanargmax(np.where(finite_rate, y, -np.inf))])
@@ -452,7 +493,7 @@ def make_figure(rows: dict[str, np.ndarray], core: np.ndarray, profile: dict[str
     )
     ax.set_xlim(*SOLAR_RANGE_DEG)
     ax.set_xlabel(r"Solar longitude, $\lambda_\odot$ (deg)")
-    ax.set_ylabel(r"Exposure-corrected detected rate (h$^{-1}$)")
+    ax.set_ylabel(r"Zenithal hourly rate (h$^{-1}$)")
     ax.set_title("Activity profile")
     ax.grid(color="0.90", lw=0.6)
 
@@ -505,6 +546,12 @@ def main() -> None:
     print(format_window(WINDOWS["JUE"]))
     print(f"selected core meteors: {int(np.sum(core))}")
     print(f"selected 100-120 deg meteors: {int(np.sum(shower))}")
+    print(
+        "activity zenith correction: "
+        f"alpha={profile['zenith_alpha']:.6g}, "
+        f"min_cos_z={profile['min_cos_z']:.6g}, "
+        f"source={args.exposure}"
+    )
     for name, value in significance.items():
         print(f"{name}: {value}")
     print(args.output)
