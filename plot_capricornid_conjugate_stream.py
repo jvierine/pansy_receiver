@@ -987,6 +987,25 @@ def orbit_xy(kepler: np.ndarray, samples: int = 361) -> tuple[np.ndarray, np.nda
     return x, y
 
 
+def orbit_xyz(kepler: np.ndarray, samples: int = 361) -> np.ndarray:
+    a, e, inc, raan, argp = kepler[:5]
+    if not np.isfinite(a) or a <= 0.0 or not np.isfinite(e) or e < 0.0 or e >= 1.0:
+        return np.empty((3, 0))
+    ecc_anom = np.linspace(0.0, 2.0 * np.pi, max(samples, int(360 + 720 * e)) + 1)
+    x_pf = a * (np.cos(ecc_anom) - e)
+    y_pf = a * np.sqrt(max(0.0, 1.0 - e * e)) * np.sin(ecc_anom)
+    inc = np.deg2rad(inc)
+    raan = np.deg2rad(raan)
+    argp = np.deg2rad(argp)
+    cos_o, sin_o = np.cos(raan), np.sin(raan)
+    cos_w, sin_w = np.cos(argp), np.sin(argp)
+    cos_i, sin_i = np.cos(inc), np.sin(inc)
+    x = (cos_o * cos_w - sin_o * sin_w * cos_i) * x_pf + (-cos_o * sin_w - sin_o * cos_w * cos_i) * y_pf
+    y = (sin_o * cos_w + cos_o * sin_w * cos_i) * x_pf + (-sin_o * sin_w + cos_o * cos_w * cos_i) * y_pf
+    z = (sin_w * sin_i) * x_pf + (cos_w * sin_i) * y_pf
+    return np.vstack((x, y, z))
+
+
 def node_markers(kepler: np.ndarray) -> list[dict]:
     a, e, _inc, raan, argp = kepler[:5]
     out = []
@@ -1178,6 +1197,83 @@ def plot_orbits(
         legend.get_frame().set_edgecolor("none")
 
 
+def plot_orbits_side_view(
+    ax,
+    selections: list[tuple[Passage, np.ndarray]],
+    colors: list[str],
+    show_legend: bool = True,
+):
+    reference_rows = [row for _passage, rows in selections for row in rows]
+    if reference_rows:
+        reference_kepler = mean_kepler(np.asarray(reference_rows, dtype=selections[0][1].dtype))
+        node_deg = float(reference_kepler[3])
+    else:
+        node_deg = float(COMET_169P_NEAT[3])
+    node = np.deg2rad(node_deg)
+    node_unit = np.asarray([np.cos(node), np.sin(node), 0.0])
+    z_unit = np.asarray([0.0, 0.0, 1.0])
+
+    def project(xyz: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        return node_unit @ xyz, z_unit @ xyz
+
+    theta = np.linspace(0.0, 2.0 * np.pi, 361)
+    for radius, label, color in ((1.0, "Earth", "0.35"), (5.204, "Jupiter", "0.20")):
+        xyz = np.vstack((radius * np.cos(theta), radius * np.sin(theta), np.zeros_like(theta)))
+        x, z = project(xyz)
+        ax.plot(x, z, color=color, lw=0.9 if radius == 1.0 else 1.0, label=label)
+    for (passage, rows), color in zip(selections, colors, strict=True):
+        if len(rows) == 0:
+            continue
+        orbit_count = 0
+        for row in rows:
+            a, e = row["kepler"][:2]
+            if not np.isfinite(a) or not np.isfinite(e) or a <= 0.0 or e < 0.0 or e >= 1.0:
+                continue
+            xyz = orbit_xyz(row["kepler"])
+            if xyz.shape[1] == 0:
+                continue
+            x, z = project(xyz)
+            ax.plot(x, z, color=color, alpha=0.12, lw=0.7)
+            orbit_count += 1
+            if orbit_count >= 160:
+                break
+        if "Daytime" in passage.name:
+            shower_label = "DCS"
+        elif "alpha" in passage.name:
+            shower_label = "CAP"
+        else:
+            shower_label = "OES"
+        ax.plot([], [], color=color, alpha=0.75, lw=1.3, label=shower_label)
+        earth_lon = np.deg2rad(passage.solar_lon_deg + 180.0)
+        earth_xyz = np.asarray([[np.cos(earth_lon)], [np.sin(earth_lon)], [0.0]])
+        ex, ez = project(earth_xyz)
+        ax.scatter(ex, ez, marker="o", s=34, color=color, edgecolor="black", linewidth=0.35, zorder=6)
+    comet_xyz = orbit_xyz(COMET_169P_NEAT)
+    cx, cz = project(comet_xyz)
+    comet_good = np.isfinite(cx) & np.isfinite(cz) & (np.hypot(cx, cz) < 6.0)
+    ax.plot(cx[comet_good], cz[comet_good], color=COMET_COLOR, lw=3.0, label="169P/NEAT")
+    ax.axhline(0.0, color="0.75", lw=0.85)
+    ax.scatter([0], [0], marker="o", s=45, color="#f5b342", edgecolor="black", linewidth=0.4, zorder=5)
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_xlim(-5.35, 5.35)
+    ax.set_ylim(-5.35, 5.35)
+    ax.set_xlabel("Mean line of nodes (AU)")
+    ax.set_ylabel("Ecliptic Z (AU)")
+    ax.grid(alpha=0.22, lw=0.45)
+    if show_legend:
+        legend = ax.legend(
+            loc="upper right",
+            ncol=2,
+            columnspacing=0.9,
+            handletextpad=0.45,
+            fontsize=10.5,
+            frameon=True,
+            framealpha=1.0,
+        )
+        legend.get_frame().set_facecolor("white")
+        legend.get_frame().set_edgecolor("none")
+
+
 def plot_orbit_panel_figure(selections: list[tuple[Passage, np.ndarray]], out: Path):
     fig, ax = plt.subplots(figsize=(5.4, 5.4), constrained_layout=True)
     plot_orbits(ax, selections, colors=list(ORBIT_COLORS))
@@ -1330,40 +1426,37 @@ def main():
             "ps.fonttype": 42,
         }
     )
-    fig, axes = plt.subplots(
-        1,
-        3,
-        figsize=(14.0, 4.6),
-        constrained_layout=True,
-        gridspec_kw={"width_ratios": (1.12, 1.0, 1.12)},
-    )
+    fig, axes = plt.subplots(2, 2, figsize=(12.0, 9.2), constrained_layout=True)
     dcs_selection, _dcs_rows, _dcs_inset_rows, dcs_profile = activity_products[0]
     oes_selection, _oes_rows, _oes_inset_rows, oes_profile = activity_products[1]
     cap_selection, _cap_rows, _cap_inset_rows, cap_profile = activity_products[2]
     plot_activity_panel(
-        axes[0],
+        axes[0, 0],
         dcs_profile,
         dcs_selection,
         label_location="left",
         curve_label="DCS",
         panel_label="OES / DCS",
     )
-    plot_activity_curve(axes[0], oes_profile, color="C2", label="OES")
+    plot_activity_curve(axes[0, 0], oes_profile, color="C2", label="OES")
     combined_upper = max(
         np.nanmax(dcs_profile["rate"] + dcs_profile["uncertainty"]),
         np.nanmax(oes_profile["rate"] + oes_profile["uncertainty"]),
     )
-    axes[0].set_ylim(0.0, 1.05 * combined_upper)
-    axes[0].legend(loc="lower left", frameon=False, fontsize=11)
-    plot_orbits(axes[1], selections, colors=list(ORBIT_COLORS))
+    axes[0, 0].set_ylim(0.0, 1.05 * combined_upper)
+    axes[0, 0].legend(loc="lower left", frameon=False, fontsize=11)
     plot_activity_panel(
-        axes[2],
+        axes[0, 1],
         cap_profile,
         cap_selection,
         label_location="right",
         color="C1",
         curve_label="CAP",
     )
+    plot_orbits(axes[1, 0], selections, colors=list(ORBIT_COLORS), show_legend=False)
+    plot_orbits_side_view(axes[1, 1], selections, colors=list(ORBIT_COLORS), show_legend=True)
+    axes[1, 0].set_title("North ecliptic view")
+    axes[1, 1].set_title("Ecliptic side view")
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(args.output, dpi=240)
