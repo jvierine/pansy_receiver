@@ -167,6 +167,15 @@ def _init_level3(path: Path, release_version: str, commit: str) -> h5py.File:
     h.attrs["fit_parameter_covariance_frame"] = "local ENU"
     h.attrs["fit_parameter_covariance_order"] = ",".join(FIT_PARAMETER_NAMES)
     h.attrs["kepler_order"] = ",".join(KEPLER_NAMES)
+    h.attrs["orbital_uncertainty_method"] = (
+        "Nominal state and joint draws from the seven-parameter local trajectory covariance "
+        "are propagated through the geocentric and heliocentric transformations; only "
+        "Kepler standard deviations and covariance are retained."
+    )
+    h.attrs["orbital_uncertainty_interpretation"] = (
+        "First-order covariance summary, not a sampled posterior distribution or a precise "
+        "estimate of tail probabilities."
+    )
     h.attrs["covariance_caveat"] = (
         "fit_parameter_covariance is the covariance of the local ENU trajectory fit; "
         "it has not been transformed into a covariance of initial_state_gcrs_m_mps"
@@ -189,7 +198,12 @@ def _init_level3(path: Path, release_version: str, commit: str) -> h5py.File:
         ("initial_position_std_m", "<f4", "m", "sqrt(trace(C_position)) in the local fit frame"),
         ("initial_velocity_std_mps", "<f4", "m s-1", "sqrt(trace(C_velocity)) in the local fit frame"),
         ("combined_fit_score", "<f4", "", ""),
-        ("n_uncertainty_samples", "<i4", "count", ""),
+        (
+            "n_uncertainty_samples",
+            "<i4",
+            "count",
+            "Number of jointly propagated states used to estimate the Kepler uncertainty summary",
+        ),
         ("fraction_eccentricity_gt_1", "<f4", "", ""),
         ("candidate_number", "<i4", "index", ""),
         ("combined_rank", "<i4", "rank", ""),
@@ -211,7 +225,14 @@ def _init_level3(path: Path, release_version: str, commit: str) -> h5py.File:
     )
     _create_dataset(g, "fit_parameters_enu", (0, 7), "<f4", "m, m s-1, and log10(kg m-2)")
     _create_dataset(g, "fit_parameter_covariance_enu", (0, 7, 7), "<f4", "mixed; see parameter order")
-    _create_dataset(g, "kepler_covariance", (0, 7, 7), "<f4", "mixed; see Kepler order")
+    _create_dataset(
+        g,
+        "kepler_covariance",
+        (0, 7, 7),
+        "<f4",
+        "mixed; see Kepler order",
+        "Sample covariance of the jointly propagated Kepler elements",
+    )
     string_dtype = h5py.string_dtype("utf-8")
     _create_dataset(g, "selected_hypothesis", (0,), string_dtype)
     _create_dataset(g, "selection_model_type", (0,), string_dtype)
