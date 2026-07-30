@@ -522,6 +522,8 @@ def build_release(args: argparse.Namespace) -> Path:
     shutil.copy2(verifier_source, staging / "verify_level2_level3.py")
     example_source = Path(__file__).resolve().parent / "zenodo" / "example_level2_radiant.py"
     shutil.copy2(example_source, staging / "example_level2_radiant.py")
+    metadata_source = Path(__file__).resolve().parent / "zenodo" / "catalogue_v1" / "zenodo_metadata.json"
+    shutil.copy2(metadata_source, staging / "zenodo_metadata.json")
     release_files = sorted(path for path in staging.rglob("*") if path.is_file())
     checksum_lines = [f"{sha256(path)}  {path.relative_to(staging)}" for path in release_files]
     (staging / "SHA256SUMS").write_text("\n".join(checksum_lines) + "\n")

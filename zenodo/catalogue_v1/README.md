@@ -13,6 +13,7 @@ schema version, release version, and processing commit.
 | `level3/pansy_level3_YYYY-MM.h5` | Radiants and orbits |
 | `release_summary.json` | Coverage and row counts |
 | `SHA256SUMS` | File checksums |
+| `zenodo_metadata.json` | Zenodo deposit metadata |
 | `example_level2_radiant.py` | Straight-line Level 2 radiant example |
 | `verify_level2_level3.py` | Independent Level 2 orbit check |
 

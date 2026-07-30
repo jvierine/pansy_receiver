@@ -1,0 +1,66 @@
+{
+  "metadata": {
+    "title": "PANSY Meteor Head-Echo Catalogue, Version 1",
+    "upload_type": "dataset",
+    "description": "PANSY meteor head-echo catalogue from Syowa Station, Antarctica. Level 1 contains one raw complex-voltage example cut, Level 2 contains pulse-resolved trajectory measurements, and Level 3 contains event radiants, states, covariances, and heliocentric orbital elements.",
+    "creators": [
+      {
+        "name": "Vierinen, Juha",
+        "affiliation": "UiT The Arctic University of Norway",
+        "orcid": "0000-0001-7651-708X"
+      },
+      {
+        "name": "Chau, Jorge L.",
+        "affiliation": "Leibniz Institute of Atmospheric Physics"
+      },
+      {
+        "name": "Nishimura, Koji",
+        "affiliation": "Kyoto University"
+      },
+      {
+        "name": "Mushiake, Kohei",
+        "affiliation": "National Institute of Polar Research"
+      },
+      {
+        "name": "Hashimoto, Takashi",
+        "affiliation": "National Institute of Polar Research"
+      },
+      {
+        "name": "Pfeffer, Nicolas",
+        "affiliation": "Leibniz Institute of Atmospheric Physics"
+      },
+      {
+        "name": "Kastinen, Daniel",
+        "affiliation": "Swedish Institute of Space Physics"
+      },
+      {
+        "name": "Huyghebaert, Damien",
+        "affiliation": "Leibniz Institute of Atmospheric Physics"
+      },
+      {
+        "name": "Kero, Johan",
+        "affiliation": "Swedish Institute of Space Physics"
+      },
+      {
+        "name": "Tsutsumi, Masaki",
+        "affiliation": "National Institute of Polar Research"
+      },
+      {
+        "name": "Sato, Kaoru",
+        "affiliation": "The University of Tokyo"
+      }
+    ],
+    "keywords": [
+      "meteors",
+      "meteoroids",
+      "meteor radar",
+      "head echoes",
+      "radiants",
+      "orbits",
+      "PANSY",
+      "Antarctica"
+    ],
+    "license": "cc-by-4.0",
+    "version": "1"
+  }
+}
