@@ -66,15 +66,9 @@ radiant velocity after zenith-attraction correction.
 
 The local ENU fit covariance is not a covariance of either GCRS state. A
 zenith-attraction-corrected Cartesian-state covariance is unavailable in the
-compact source catalogue. The Kepler covariance comes from the orbit
-uncertainty ensemble. `n_uncertainty_samples` gives the number of jointly
-propagated states used for that event. Version 1 uses 10 states for 2,094,914
-events and 64 for 273 events. Current production uses the nominal state and up
-to nine draws from the seven-parameter local trajectory covariance. The
-resulting Kepler standard deviations and covariance are first-order
-uncertainty summaries. The propagated states are not included, and these
-summaries should not be treated as sampled posterior distributions or used to
-estimate precise tail probabilities.
+compact source catalogue. The Kepler covariance is estimated by Monte Carlo
+sampling of the fitted trajectory covariance and propagating the sampled
+states through the geocentric and heliocentric transformations.
 
 ## Independent check
 

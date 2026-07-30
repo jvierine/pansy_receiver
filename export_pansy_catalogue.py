@@ -168,9 +168,9 @@ def _init_level3(path: Path, release_version: str, commit: str) -> h5py.File:
     h.attrs["fit_parameter_covariance_order"] = ",".join(FIT_PARAMETER_NAMES)
     h.attrs["kepler_order"] = ",".join(KEPLER_NAMES)
     h.attrs["orbital_uncertainty_method"] = (
-        "Nominal state and joint draws from the seven-parameter local trajectory covariance "
-        "are propagated through the geocentric and heliocentric transformations; only "
-        "Kepler standard deviations and covariance are retained."
+        "The Kepler covariance is estimated by Monte Carlo sampling of the fitted trajectory "
+        "covariance and propagating the sampled states through the geocentric and heliocentric "
+        "transformations."
     )
     h.attrs["orbital_uncertainty_interpretation"] = (
         "First-order covariance summary, not a sampled posterior distribution or a precise "
