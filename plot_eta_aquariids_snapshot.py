@@ -10,6 +10,7 @@ from pathlib import Path
 import h5py
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
+from matplotlib.ticker import LogFormatterMathtext
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import numpy as np
 
@@ -126,7 +127,8 @@ def plot_snapshot(
     vmax = max(1.0, float(np.nanpercentile(positive, 99.5))) if len(positive) else 1.0
     cmap = plt.get_cmap("magma").copy()
     cmap.set_bad("black")
-    fig, ax = plt.subplots(figsize=(6.7, 4.8), constrained_layout=True)
+    fig, ax = plt.subplots(figsize=(6.7, 4.8))
+    fig.subplots_adjust(left=0.12, right=0.84, bottom=0.16, top=0.96)
     mesh = ax.pcolormesh(
         xedges,
         yedges,
@@ -156,9 +158,12 @@ def plot_snapshot(
         fontsize=9,
     )
     divider = make_axes_locatable(ax)
-    cax = divider.append_axes("right", size="4%", pad=0.08)
+    cax = divider.append_axes("right", size="5%", pad=0.08)
     cbar = fig.colorbar(mesh, cax=cax)
     cbar.set_label(rf"Raw count per {bin_width_deg:g}$^\circ$ bin")
+    cbar.set_ticks([1, 3, 10, 30])
+    cbar.ax.yaxis.set_major_formatter(LogFormatterMathtext())
+    cbar.ax.tick_params(labelsize=9, pad=2)
     fig.savefig(output_png, dpi=260)
     fig.savefig(output_pdf)
     plt.close(fig)
