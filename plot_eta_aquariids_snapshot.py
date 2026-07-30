@@ -14,12 +14,13 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 import numpy as np
 
 
-ETA_SOLAR_LON_DEG = 46.30500110534005
+# IAU MDC shower 31, AdNo 011: Jenniskens (2023).
+ETA_SOLAR_LON_DEG = 45.7
 ETA_SOLAR_LON_BEGIN_DEG = 14.0
 ETA_SOLAR_LON_END_DEG = 100.0
-ETA_SC_LON_DEG = 293.26403668019924
-ETA_BETA_DEG = 7.607000000000001
-ETA_VG_KM_S = 65.63000000000001
+ETA_SC_LON_DEG = 293.3
+ETA_BETA_DEG = 7.9
+ETA_VG_KM_S = 66.3
 
 
 def wrap180(deg: np.ndarray | float) -> np.ndarray:
