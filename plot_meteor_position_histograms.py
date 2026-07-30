@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 from pathlib import Path
 
 import h5py
@@ -16,6 +17,32 @@ import plot_interferometric_disambiguation as disamb
 
 TX_BEAM_COUNT = len(disamb.tx_beam_unit_vectors())
 TWO_WAY_GAIN_LABEL = "two-way antenna gain"
+
+
+def parse_utc_date(value: str | None) -> tuple[int | None, np.datetime64 | None]:
+    if value is None:
+        return None, None
+    text = value.strip()
+    if len(text) == 10:
+        dt = datetime.strptime(text, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    else:
+        dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)
+    return int(dt.timestamp() * 1_000_000), np.datetime64(dt.replace(tzinfo=None), "D")
+
+
+def diagnostic_sample_idx_from_name(path: Path) -> int | None:
+    stem = path.stem
+    prefix = "pansy_disambiguation_diagnostics_"
+    if not stem.startswith(prefix):
+        return None
+    try:
+        return int(stem[len(prefix) :])
+    except ValueError:
+        return None
 
 
 def direction_cosines_to_offsets_deg(uvw: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -73,8 +100,15 @@ def read_selected_grid_cells(path: Path, use_selection_keep: bool = True) -> dic
         return None
 
 
-def collect_grid_counts(diagnostics_dir: Path, grid_n: int, use_selection_keep: bool = True) -> dict:
+def collect_grid_counts(
+    diagnostics_dir: Path,
+    grid_n: int,
+    use_selection_keep: bool = True,
+    start_sample_idx: int | None = None,
+) -> dict:
     files = sorted(diagnostics_dir.glob("pansy_disambiguation_diagnostics_*.h5"))
+    if start_sample_idx is not None:
+        files = [path for path in files if (diagnostic_sample_idx_from_name(path) or -1) >= start_sample_idx]
     zenith_counts = np.zeros((grid_n, grid_n), dtype=np.int64)
     all_counts = np.zeros((grid_n, grid_n), dtype=np.int64)
     event_count = 0
@@ -203,7 +237,7 @@ def plot_position_histograms(
     format_direction_axis(axes[0], extent_deg)
 
     gain = two_way_gain_maps_grid(u, v, valid_grid)[0]
-    im1 = axes[1].pcolormesh(east_plot, north_plot, gain[rs, cs], shading="auto", cmap="viridis", vmin=-30.0, vmax=0.0)
+    im1 = axes[1].pcolormesh(east_plot, north_plot, gain[rs, cs], shading="auto", cmap="viridis", vmin=-50.0, vmax=0.0)
     axes[1].set_title("Two-way antenna gain")
     cb1 = fig.colorbar(im1, ax=axes[1], shrink=0.82)
     cb1.set_label("Relative gain (dB)")
@@ -279,7 +313,7 @@ def plot_gain_histogram_pair(
             gain_db[rs, cs],
             shading="auto",
             cmap="viridis",
-            vmin=-30.0,
+            vmin=-50.0,
             vmax=0.0,
         )
         axes[0].set_title(gain_title)
@@ -309,6 +343,7 @@ def plot_stacked_position_histogram(
     extent_deg: float,
     zenith_output: Path | None = None,
     all_output: Path | None = None,
+    start_day: np.datetime64 | None = None,
 ):
     """Plot current position histograms and TX gain maps from a daily histogram stack."""
     with h5py.File(input_h5, "r") as h:
@@ -318,6 +353,13 @@ def plot_stacked_position_histogram(
         east_grid = np.asarray(h["east_grid_deg"], dtype=np.float64)
         north_grid = np.asarray(h["north_grid_deg"], dtype=np.float64)
         metrics = h["metrics"][()] if "metrics" in h else np.zeros(0, dtype=[])
+    if start_day is not None:
+        day_values = np.asarray([np.datetime64((d.decode() if isinstance(d, bytes) else str(d)), "D") for d in days])
+        keep_days = day_values >= start_day
+        counts = counts[keep_days]
+        beam_counts = beam_counts[keep_days] if beam_counts is not None else None
+        days = days[keep_days]
+        metrics = metrics[keep_days] if len(metrics) else metrics
     if counts.ndim != 3:
         raise ValueError(f"{input_h5} all_counts must have shape (day, row, col)")
     if beam_counts is None:
@@ -388,15 +430,24 @@ def main() -> None:
     parser.add_argument("--all-output", type=Path, default=None, help="Output PNG for all-TX-beam composite gain plus all-beam trajectory histogram. Defaults to --output.")
     parser.add_argument("--extent-deg", type=float, default=15.0)
     parser.add_argument("--grid-n", type=int, default=501, help="Interferometry search grid size used to form grid_row/grid_col.")
+    parser.add_argument("--start-date", default=None, help="Ignore diagnostics or daily stack rows before this UTC date, e.g. 2025-03-15.")
     parser.add_argument(
         "--include-clipped",
         action="store_true",
         help="Use all selected-hypothesis points instead of only trajectory-fit kept points.",
     )
     args = parser.parse_args()
+    start_sample_idx, start_day = parse_utc_date(args.start_date)
 
     if args.input_h5 is not None:
-        stats = plot_stacked_position_histogram(args.input_h5, args.output, args.extent_deg, args.zenith_output, args.all_output)
+        stats = plot_stacked_position_histogram(
+            args.input_h5,
+            args.output,
+            args.extent_deg,
+            args.zenith_output,
+            args.all_output,
+            start_day=start_day,
+        )
         print(stats["zenith_output"])
         print(stats["all_output"])
         print(f"daily_histogram_days {stats['days']}")
@@ -404,7 +455,12 @@ def main() -> None:
         print(f"points_in_view {stats['points_in_view']}")
         return
 
-    grid_counts = collect_grid_counts(args.diagnostics_dir, args.grid_n, use_selection_keep=not args.include_clipped)
+    grid_counts = collect_grid_counts(
+        args.diagnostics_dir,
+        args.grid_n,
+        use_selection_keep=not args.include_clipped,
+        start_sample_idx=start_sample_idx,
+    )
     stats = plot_position_histograms(grid_counts, args.output, args.extent_deg, args.grid_n)
     print(args.output)
     print(f"diagnostic_files {grid_counts['file_count']}")
