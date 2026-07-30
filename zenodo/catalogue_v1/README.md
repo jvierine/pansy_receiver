@@ -13,6 +13,7 @@ schema version, release version, and processing commit.
 | `level3/pansy_level3_YYYY-MM.h5` | Radiants and orbits |
 | `release_summary.json` | Coverage and row counts |
 | `SHA256SUMS` | File checksums |
+| `example_level2_radiant.py` | Straight-line Level 2 radiant example |
 | `verify_level2_level3.py` | Independent Level 2 orbit check |
 
 Level 1 voltage is stored as separate real and imaginary signed ADC counts.
@@ -34,6 +35,17 @@ rows in `/measurements`.
 | `selection_keep` | boolean |
 
 Position is local east-north-up at PANSY.
+
+## Level 2 example
+
+Requires Python, NumPy, h5py, and Astropy:
+
+```sh
+python example_level2_radiant.py level2/pansy_level2_2025-07.h5
+```
+
+The script reads one event, fits a constant-velocity straight line to retained
+ENU positions, and prints its apparent GCRS radiant.
 
 ## Level 3
 
