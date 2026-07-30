@@ -16,6 +16,7 @@ import numpy as np
 
 ETA_SC_LON_DEG = 293.3
 ETA_BETA_DEG = 7.9
+ETA_BETA_CROP_MARGIN_DEG = 0.5
 
 
 def histogram_density(values: np.ndarray, bins: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -127,13 +128,17 @@ def plot_figure(
         ax1.scatter(ETA_SC_LON_DEG, ETA_BETA_DEG, marker="+", s=140, color="cyan", linewidth=1.5)
         ax1.set_aspect("equal", adjustable="box")
         ax1.set_xlim(xedges[-1], xedges[0])
-        ax1.set_ylim(yedges[0], yedges[-1])
+        beta_min = float(yedges[0] + ETA_BETA_CROP_MARGIN_DEG)
+        beta_max = float(yedges[-1] - ETA_BETA_CROP_MARGIN_DEG)
+        visible_beta = (yedges[:-1] >= beta_min) & (yedges[1:] <= beta_max)
+        visible_count = int(np.nansum(count[visible_beta, :]))
+        ax1.set_ylim(beta_min, beta_max)
         ax1.set_xlabel(r"Sun-centered ecliptic longitude, $\lambda_g-\lambda_\odot$ (deg)")
         ax1.set_ylabel(r"Ecliptic latitude, $\beta_g$ (deg)")
         ax1.text(
             0.03,
             0.04,
-            f"0.1 deg bins; N={int(np.nansum(count))}",
+            f"0.1 deg bins; N={visible_count}",
             transform=ax1.transAxes,
             ha="left",
             va="bottom",
