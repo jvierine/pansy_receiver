@@ -18,11 +18,18 @@ DEFAULT_RADIUS_APHELION_OUTPUT = FIGURE_DIR / "cap_dcs_radius_vs_aphelion_bounds
 DEFAULT_RADIUS_ECCENTRICITY_OUTPUT = FIGURE_DIR / "cap_dcs_radius_vs_eccentricity_bounds.png"
 
 
-GROUPS = (
-    (0, "DCS, late interval", "C0", "o"),
-    (1, "CAP", "C1", "o"),
-    (2, "DCS, early interval", "C0", "s"),
-)
+def plot_groups(passage_names: list[str]) -> tuple[tuple[int, str, str, str], ...]:
+    if len(passage_names) == 3 and "DCS" in passage_names[0] and "CAP" in passage_names[1]:
+        return (
+            (0, "DCS, late interval", "C0", "o"),
+            (1, "CAP", "C1", "o"),
+            (2, "DCS, early interval", "C0", "s"),
+        )
+    markers = ("o", "s", "^", "D", "v")
+    return tuple(
+        (index, name, f"C{index % 10}", markers[index % len(markers)])
+        for index, name in enumerate(passage_names)
+    )
 
 
 def plot_constraint_triptych(
@@ -31,6 +38,7 @@ def plot_constraint_triptych(
     y: np.ndarray,
     orbit_valid: np.ndarray,
     passage_index: np.ndarray,
+    groups: tuple[tuple[int, str, str, str], ...],
     maximum_at_bound: np.ndarray,
     upper_constrained: np.ndarray,
     xlabel: str,
@@ -46,7 +54,7 @@ def plot_constraint_triptych(
     )
     for ax, (x, title, flagged) in zip(axes, panels, strict=True):
         valid = orbit_valid & np.isfinite(x) & (x > 0.0) & np.isfinite(y)
-        for index, label, color, marker in GROUPS:
+        for index, label, color, marker in groups:
             selected = valid & (passage_index == index) & ~flagged
             ax.scatter(
                 x[selected],
@@ -119,6 +127,7 @@ def main() -> int:
         kepler = np.asarray(handle["kepler"], dtype=float)
         passage_index = np.asarray(handle["passage_index"], dtype=np.int8)
         status = np.asarray(handle["status"], dtype=np.int8)
+        passage_names = list(handle["passage_names"].asstr()[()])
 
     semimajor_axis = kepler[:, 0]
     eccentricity = kepler[:, 1]
@@ -129,6 +138,7 @@ def main() -> int:
         & (aphelion > 0.0)
     )
     maximum_at_bound = orbit_valid & (radius >= 9999.0)
+    groups = plot_groups(passage_names)
 
     plot_constraint_triptych(
         args.mass_aphelion_output,
@@ -136,6 +146,7 @@ def main() -> int:
         aphelion,
         orbit_valid,
         passage_index,
+        groups,
         maximum_at_bound,
         upper_constrained,
         r"Initial mass, $m_0$ (kg)",
@@ -152,6 +163,7 @@ def main() -> int:
         aphelion,
         orbit_valid,
         passage_index,
+        groups,
         maximum_at_bound,
         upper_constrained,
         r"Initial radius, $r_0$ ($\mu$m)",
@@ -163,6 +175,7 @@ def main() -> int:
         eccentricity,
         orbit_valid,
         passage_index,
+        groups,
         maximum_at_bound,
         upper_constrained,
         r"Initial radius, $r_0$ ($\mu$m)",
