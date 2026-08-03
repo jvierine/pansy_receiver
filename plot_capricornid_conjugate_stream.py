@@ -1251,9 +1251,6 @@ def plot_orbits(
         else:
             shower_label = "OES"
         ax.plot([], [], color=color, alpha=0.75, lw=1.3, label=shower_label)
-        earth_lon = np.deg2rad(passage.solar_lon_deg + 180.0)
-        ex, ey = np.cos(earth_lon), np.sin(earth_lon)
-        ax.scatter([ex], [ey], marker="o", s=34, color=color, edgecolor="black", linewidth=0.35, zorder=6)
     ax.plot(cx[comet_good], cy[comet_good], color=COMET_COLOR, lw=3.0, label="169P/NEAT")
     ax.set_aspect("equal", adjustable="box")
     ax.set_xlim(-5.35, 5.35)
@@ -1332,10 +1329,6 @@ def plot_orbits_side_view(
         else:
             shower_label = "OES"
         ax.plot([], [], color=color, alpha=0.75, lw=1.3, label=shower_label)
-        earth_lon = np.deg2rad(passage.solar_lon_deg + 180.0)
-        earth_xyz = np.asarray([[np.cos(earth_lon)], [np.sin(earth_lon)], [0.0]])
-        ex, ez = project(earth_xyz)
-        ax.scatter(ex, ez, marker="o", s=34, color=color, edgecolor="black", linewidth=0.35, zorder=6)
     comet_xyz = orbit_xyz(COMET_169P_NEAT)
     cx, cz = project(comet_xyz)
     comet_good = np.isfinite(cx) & np.isfinite(cz) & (np.hypot(cx, cz) < 6.0)

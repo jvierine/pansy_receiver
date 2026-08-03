@@ -1,10 +1,8 @@
 """Ceplecha-style meteoroid drag and ablation trajectory model.
 
-This module is based on the coupled drag/ablation prototype in
-``/Users/jvi019/src/meteor/alpha_beta_est.py``.  The old implementation used a
-first-order Euler loop.  This package version keeps the same physical model but
-uses :func:`scipy.integrate.solve_ivp` so catalogue projects can share one
-well-defined implementation.
+This is the production implementation of the single-body drag and mass-loss
+equations (1) and (2) in Ceplecha et al. (1998), specialized to a compact
+sphere, free-molecular drag coefficient Gamma=1, and a fixed bulk density.
 """
 
 from __future__ import annotations
@@ -101,7 +99,6 @@ def integrate_ceplecha(
         Output sampling interval.
     height_function
         Callable mapping position vector to height in meters.
-
     Notes
     -----
     The model equations use the molecular free-flow drag convention
@@ -110,7 +107,12 @@ def integrate_ceplecha(
 
     and
 
-    ``dm/dt = -(1/2) rho_a(h) pi r^2 sigma |v|^3``.
+    ``dm/dt = -rho_a(h) pi r^2 sigma |v|^3``.
+
+    Here ``sigma = Lambda / (2 xi Gamma)`` is the apparent ablation
+    coefficient of Ceplecha et al. (1998), and ``Gamma=1``.  Consequently
+    Equation (2) has no additional factor of one half when written in terms of
+    ``sigma``.
 
     The acceleration expression is the vector form of the original scalar-speed
     update, with the direction allowed to follow the velocity vector.
@@ -128,6 +130,13 @@ def integrate_ceplecha(
 
     mass0 = spherical_mass(radius0, meteoroid_density_kg_m3)
     y0 = np.concatenate([position0, velocity0, [mass0]])
+    # Position/velocity and mass differ by roughly twenty orders of magnitude
+    # for micrometeoroids.  A scalar absolute tolerance would let the mass
+    # state drift substantially (or even change sign) before solve_ivp regards
+    # its local error as significant.  Scale the mass tolerance to m0 while
+    # retaining the public atol for the six Cartesian state components.
+    mass_atol = max(mass0 * rtol * 1e-3, np.finfo(np.float64).tiny)
+    state_atol = np.r_[np.full(6, float(atol)), mass_atol]
     t0, t1 = map(float, t_span_s)
     n_samples = max(2, int(np.floor(abs(t1 - t0) / sample_dt_s)) + 1)
     t_eval = np.linspace(t0, t1, n_samples)
@@ -145,7 +154,7 @@ def integrate_ceplecha(
         rho_air = max(float(atmosphere_density(height)), 0.0)
 
         accel = -(3.0 / 4.0) * rho_air / (meteoroid_density_kg_m3 * radius) * speed * vel
-        dm_dt = -0.5 * rho_air * np.pi * radius**2 * ablation_sigma_kg_j * speed**3
+        dm_dt = -rho_air * np.pi * radius**2 * ablation_sigma_kg_j * speed**3
         return np.concatenate([vel, accel, [dm_dt]])
 
     def mass_depleted(_t: float, y: np.ndarray) -> float:
@@ -161,7 +170,7 @@ def integrate_ceplecha(
         t_eval=t_eval,
         events=mass_depleted,
         rtol=rtol,
-        atol=atol,
+        atol=state_atol,
     )
 
     state = solution.y.T

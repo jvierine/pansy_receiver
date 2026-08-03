@@ -123,10 +123,14 @@ def decoded_pulse_responses(
     snr_threshold: float,
     precise_range_km: np.ndarray,
     precise_doppler_mps: np.ndarray,
+    raw_idx_override: np.ndarray | None = None,
 ) -> dict:
     """Range-align and decode retained meteor pulses while preserving phase."""
     clock = diagnostic_measurement_clock(cut, hyp, snr_threshold)
-    raw_idx = diagnostic_to_raw_pulses(cut, clock, hyp["t_rel_s"])
+    if raw_idx_override is None:
+        raw_idx = diagnostic_to_raw_pulses(cut, clock, hyp["t_rel_s"])
+    else:
+        raw_idx = np.asarray(raw_idx_override, dtype=int)
     absolute_tx = float(np.asarray(clock["tx_idx"])[0]) + np.asarray(hyp["t_rel_s"]) * FS_HZ
     clock_tx = np.asarray(clock["tx_idx"], dtype=float)
     clock_idx = np.asarray([np.argmin(np.abs(clock_tx - value)) for value in absolute_tx], dtype=int)

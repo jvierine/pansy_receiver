@@ -716,6 +716,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sample-idx", type=int, required=True)
     parser.add_argument("--base", type=Path, required=True)
+    parser.add_argument(
+        "--cut-h5",
+        type=Path,
+        help="Read the cached single-cut HDF5 record instead of Digital RF cut metadata.",
+    )
     parser.add_argument("--diagnostics-h5", type=Path, required=True)
     parser.add_argument("--initial-fit-h5", type=Path, required=True)
     parser.add_argument("--prior-profile-h5", type=Path, required=True)
@@ -742,7 +747,11 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    cut = load_cut(args.base / "metadata/cut", args.sample_idx)
+    if args.cut_h5 is not None:
+        with h5py.File(args.cut_h5, "r") as handle:
+            cut = {name: np.asarray(values) for name, values in handle.items()}
+    else:
+        cut = load_cut(args.base / "metadata/cut", args.sample_idx)
     hypothesis = load_selected(args.diagnostics_h5)
     with h5py.File(args.initial_fit_h5, "r") as handle:
         precise_range_km = np.asarray(handle["range_km"], dtype=float)
@@ -751,7 +760,10 @@ def main() -> int:
 
     precise_selection = None
     target_raw_idx = None
-    if precise_raw_idx is not None:
+    if args.cut_h5 is not None and precise_raw_idx is not None:
+        precise_selection = np.arange(len(precise_raw_idx), dtype=int)
+        target_raw_idx = np.asarray(precise_raw_idx, dtype=int)
+    elif precise_raw_idx is not None:
         clock = diagnostic_measurement_clock(cut, hypothesis, args.snr_threshold)
         target_raw_idx = diagnostic_to_raw_pulses(cut, clock, hypothesis["t_rel_s"])
         raw_to_precise = {int(raw): i for i, raw in enumerate(precise_raw_idx)}
@@ -774,6 +786,7 @@ def main() -> int:
         args.snr_threshold,
         precise_range_km=precise_range_km,
         precise_doppler_mps=precise_doppler_mps,
+        raw_idx_override=target_raw_idx,
     )
     pairs = baud_averaged_beat_pairs(decoded, same_beam=True)
     triplets = valid_triplets(pairs)
