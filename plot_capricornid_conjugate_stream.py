@@ -1219,6 +1219,7 @@ def plot_orbits(
     selections: list[tuple[Passage, np.ndarray]],
     colors: list[str],
     show_legend: bool = True,
+    maximum_likelihood_mass_kg: dict[int, float] | None = None,
 ):
     theta = np.linspace(0.0, 2.0 * np.pi, 361)
     ax.plot(np.cos(theta), np.sin(theta), color="0.35", lw=0.9, label="Earth")
@@ -1226,6 +1227,22 @@ def plot_orbits(
     ax.scatter([0], [0], marker="o", s=45, color="#f5b342", edgecolor="black", linewidth=0.4, zorder=5)
     cx, cy = orbit_xy(COMET_169P_NEAT)
     comet_good = np.isfinite(cx) & np.isfinite(cy) & (np.hypot(cx, cy) < 6.0)
+    mass_cmap = plt.get_cmap("viridis")
+    mass_norm = None
+    if maximum_likelihood_mass_kg:
+        finite_mass = np.asarray(
+            [
+                mass
+                for mass in maximum_likelihood_mass_kg.values()
+                if np.isfinite(mass) and mass > 0.0
+            ]
+        )
+        if len(finite_mass):
+            mass_min = float(np.min(finite_mass))
+            mass_max = float(np.max(finite_mass))
+            if mass_max <= mass_min:
+                mass_max = mass_min * 1.01
+            mass_norm = LogNorm(vmin=mass_min, vmax=mass_max)
     for (passage, rows), color in zip(selections, colors, strict=True):
         if len(rows) == 0:
             continue
@@ -1237,10 +1254,21 @@ def plot_orbits(
             x, y = orbit_xy(row["kepler"])
             if len(x) == 0:
                 continue
-            ax.plot(x, y, color=color, alpha=0.12, lw=0.7)
+            orbit_color = color
+            orbit_alpha = 0.12
+            if mass_norm is not None:
+                sample_idx = int(np.rint(float(row["epoch"]) * 1e6))
+                mass_kg = maximum_likelihood_mass_kg.get(sample_idx, np.nan)
+                if np.isfinite(mass_kg) and mass_kg > 0.0:
+                    orbit_color = mass_cmap(mass_norm(mass_kg))
+                    orbit_alpha = 0.42
+                else:
+                    orbit_color = "0.82"
+                    orbit_alpha = 0.20
+            ax.plot(x, y, color=orbit_color, alpha=orbit_alpha, lw=0.7)
             nodes = node_markers(row["kepler"])
             node = min(nodes, key=lambda item: abs(wrap180(item["solar"] - passage.solar_lon_deg)))
-            ax.scatter([node["x"]], [node["y"]], marker=".", s=9, color=color, alpha=0.26, linewidths=0, zorder=4)
+            ax.scatter([node["x"]], [node["y"]], marker=".", s=9, color=orbit_color, alpha=max(orbit_alpha, 0.26), linewidths=0, zorder=4)
             orbit_count += 1
             if orbit_count >= 160:
                 break
@@ -1258,6 +1286,12 @@ def plot_orbits(
     ax.set_xlabel("Ecliptic X (AU)")
     ax.set_ylabel("Ecliptic Y (AU)")
     ax.grid(alpha=0.22, lw=0.45)
+    if mass_norm is not None:
+        scalar_mappable = plt.cm.ScalarMappable(norm=mass_norm, cmap=mass_cmap)
+        colorbar_axis = ax.inset_axes([0.91, 0.58, 0.025, 0.30])
+        colorbar = ax.figure.colorbar(scalar_mappable, cax=colorbar_axis)
+        colorbar.set_label(r"ML initial mass $m_0$ (kg)", fontsize=9)
+        colorbar.ax.tick_params(labelsize=8)
     if show_legend:
         handles, labels = ax.get_legend_handles_labels()
         unique = dict(zip(labels, handles, strict=True))
@@ -1378,6 +1412,11 @@ def main():
     )
     parser.add_argument("--output", type=Path, default=Path.home() / "src" / "pansy_paper" / "paper_capricornid_conjugate_stream.png")
     parser.add_argument("--orbit-output", type=Path)
+    parser.add_argument(
+        "--mass-summary",
+        type=Path,
+        help="Optional CAP/DCS three-pulse mass summary used to color the north-ecliptic orbit panel.",
+    )
     parser.add_argument(
         "--profile-output",
         type=Path,
@@ -1569,7 +1608,25 @@ def main():
             frameon=False,
             fontsize=9.5,
         )
-    plot_orbits(axes[1, 0], selections, colors=list(ORBIT_COLORS), show_legend=False)
+    maximum_likelihood_mass_kg = None
+    if args.mass_summary is not None:
+        with h5py.File(args.mass_summary, "r") as handle:
+            samples = np.asarray(handle["sample_idx"], dtype=np.int64)
+            masses = np.asarray(
+                handle["maximum_likelihood_initial_mass_kg"], dtype=float
+            )
+        maximum_likelihood_mass_kg = {
+            int(sample): float(mass)
+            for sample, mass in zip(samples, masses, strict=True)
+            if np.isfinite(mass) and mass > 0.0
+        }
+    plot_orbits(
+        axes[1, 0],
+        selections,
+        colors=list(ORBIT_COLORS),
+        show_legend=False,
+        maximum_likelihood_mass_kg=maximum_likelihood_mass_kg,
+    )
     plot_orbits_side_view(axes[1, 1], selections, colors=list(ORBIT_COLORS), show_legend=True)
     axes[1, 0].set_title("North ecliptic view")
     axes[1, 1].set_title("Ecliptic side view")
