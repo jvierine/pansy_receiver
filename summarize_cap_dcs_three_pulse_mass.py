@@ -39,6 +39,9 @@ def main() -> int:
     status = np.zeros(n_events, dtype=np.int8)
     radius_um = np.full(n_events, np.nan)
     mass_kg = np.full(n_events, np.nan)
+    marginal_radius_quantiles_um = np.full((n_events, 3), np.nan)
+    marginal_mass_quantiles_kg = np.full((n_events, 3), np.nan)
+    radius_upper_limit_data_constrained = np.zeros(n_events, dtype=bool)
     profile_grid_radius_um = np.full(n_events, np.nan)
     quality_names = (
         "ew_rms_km",
@@ -69,6 +72,15 @@ def main() -> int:
                     continue
                 radius_um[index] = event_radius_m[0] * 1e6
                 mass_kg[index] = event_mass_kg[0]
+                marginal_radius_quantiles_um[index] = np.asarray(
+                    fit["marginal_radius_quantiles_um"], dtype=float
+                )
+                marginal_mass_quantiles_kg[index] = np.asarray(
+                    fit["marginal_mass_quantiles_kg"], dtype=float
+                )
+                radius_upper_limit_data_constrained[index] = bool(
+                    fit.attrs.get("radius_upper_limit_data_constrained", False)
+                )
                 profile_grid_radius_um[index] = profile_radius[np.nanargmin(profile_chi2)]
                 for name in quality_names:
                     quality[name][index] = float(handle["quality"].attrs[name])
@@ -96,6 +108,18 @@ def main() -> int:
         output.create_dataset("status", data=status)
         output.create_dataset("maximum_likelihood_initial_radius_um", data=radius_um)
         output.create_dataset("maximum_likelihood_initial_mass_kg", data=mass_kg)
+        output.create_dataset(
+            "marginal_radius_quantiles_um", data=marginal_radius_quantiles_um
+        )
+        output.create_dataset(
+            "marginal_mass_quantiles_kg", data=marginal_mass_quantiles_kg
+        )
+        output.create_dataset(
+            "radius_upper_limit_data_constrained",
+            data=radius_upper_limit_data_constrained,
+        )
+        output["marginal_radius_quantiles_um"].attrs["quantiles"] = "0.025,0.5,0.975"
+        output["marginal_mass_quantiles_kg"].attrs["quantiles"] = "0.025,0.5,0.975"
         output.create_dataset("profile_grid_minimum_radius_um", data=profile_grid_radius_um)
         output.create_dataset(
             "passage_names", data=np.asarray(passage_names, dtype=object), dtype=string_dtype
