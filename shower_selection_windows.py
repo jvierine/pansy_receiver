@@ -81,6 +81,19 @@ WINDOWS = {
         ra_half_width_deg=14.0,
         dec_range_deg=(-36.5, -27.5),
     ),
+    "OES_DCS": ShowerSelectionWindow(
+        code="OES_DCS",
+        csv_name="",
+        csv_count=0,
+        vg_range_km_s=(18.5, 28.5),
+        e_range=(0.660, 0.845),
+        a_range_au=(1.6, 3.6),
+        i_range_deg=(4.0, 10.5),
+        q_range_au=(0.40, 0.68),
+        ra_center_deg=305.0,
+        ra_half_width_deg=18.0,
+        dec_range_deg=(-36.5, -22.0),
+    ),
 }
 
 

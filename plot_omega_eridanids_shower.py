@@ -16,6 +16,7 @@ from radiant_visibility import (
     radiant_altitude_deg,
     radiant_exposure_hours_points,
 )
+from saamer_activity import DEFAULT_ARCHIVES, DEFAULT_CACHE, load_selected, sliding_counts
 from shower_selection_windows import WINDOWS, format_window, selection_mask
 
 
@@ -421,7 +422,13 @@ def draw_mean_perifocal_panel(ax, orbits: np.ndarray) -> None:
     ax.grid(color="0.90", lw=0.6)
 
 
-def make_figure(rows: dict[str, np.ndarray], core: np.ndarray, profile: dict[str, np.ndarray], output: Path) -> None:
+def make_figure(
+    rows: dict[str, np.ndarray],
+    core: np.ndarray,
+    profile: dict[str, np.ndarray],
+    saamer_profile: dict[str, np.ndarray] | None,
+    output: Path,
+) -> None:
     core_count = int(np.sum(core))
     if core_count == 0:
         raise RuntimeError("July Eridanid selection is empty")
@@ -499,23 +506,42 @@ def make_figure(rows: dict[str, np.ndarray], core: np.ndarray, profile: dict[str
     ax.grid(color="0.90", lw=0.6)
 
     count_axis = ax.twinx()
-    count_axis.plot(
-        x,
-        profile["shower_count"],
-        color="0.25",
-        marker="s",
-        markerfacecolor="none",
-        markeredgewidth=0.8,
-        ms=3.2,
-        lw=0.8,
-        ls=":",
-        alpha=0.75,
-        label="Raw count (right axis)",
-    )
+    if saamer_profile is not None:
+        saamer_count = sliding_counts(saamer_profile["solar"], x, x[1] - x[0])
+        count_axis.plot(
+            x,
+            saamer_count,
+            color="0.35",
+            marker="s",
+            markerfacecolor="none",
+            markeredgewidth=0.8,
+            ms=3.2,
+            lw=1.0,
+            ls=":",
+            label="SAAMER selected count",
+        )
+        count_label = "SAAMER selected count per bin"
+        count_color = "0.35"
+    else:
+        count_axis.plot(
+            x,
+            profile["shower_count"],
+            color="0.25",
+            marker="s",
+            markerfacecolor="none",
+            markeredgewidth=0.8,
+            ms=3.2,
+            lw=0.8,
+            ls=":",
+            alpha=0.75,
+            label="PANSY raw count",
+        )
+        count_label = "PANSY raw selected count per bin"
+        count_color = "0.25"
     count_axis.set_ylim(bottom=0.0)
-    count_axis.set_ylabel("Raw selected count per bin", color="0.25")
-    count_axis.tick_params(axis="y", colors="0.25")
-    count_axis.spines["right"].set_color("0.25")
+    count_axis.set_ylabel(count_label, color=count_color)
+    count_axis.tick_params(axis="y", colors=count_color)
+    count_axis.spines["right"].set_color(count_color)
     rate_handles, rate_labels = ax.get_legend_handles_labels()
     count_handles, count_labels = count_axis.get_legend_handles_labels()
     ax.legend(
@@ -537,13 +563,20 @@ def main() -> None:
     parser.add_argument("--exposure", type=Path, default=DEFAULT_EXPOSURE)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--bin-width-deg", type=float, default=1.0)
+    parser.add_argument("--saamer", type=Path, action="append", default=None)
+    parser.add_argument("--saamer-cache", type=Path, default=DEFAULT_CACHE)
+    parser.add_argument("--no-saamer", action="store_true")
     args = parser.parse_args()
 
     rows = load_catalogue(args.catalogue)
     shower, core = selection_masks(rows)
     profile = activity_profile(rows, shower, args.exposure, args.bin_width_deg)
+    saamer_paths = [] if args.no_saamer else (args.saamer or DEFAULT_ARCHIVES)
+    saamer_profile = (
+        load_selected("JUE", saamer_paths, args.saamer_cache) if saamer_paths else None
+    )
     significance = poisson_activity_significance(profile)
-    make_figure(rows, core, profile, args.output)
+    make_figure(rows, core, profile, saamer_profile, args.output)
     print(format_window(WINDOWS["JUE"]))
     print(f"selected core meteors: {int(np.sum(core))}")
     print(f"selected 100-120 deg meteors: {int(np.sum(shower))}")
@@ -555,6 +588,22 @@ def main() -> None:
     )
     for name, value in significance.items():
         print(f"{name}: {value}")
+    if saamer_profile is not None:
+        centers = np.asarray(profile["centers"])
+        saamer_count = sliding_counts(saamer_profile["solar"], centers, args.bin_width_deg)
+        peak_index = int(np.nanargmax(saamer_count))
+        in_plot = (
+            (saamer_profile["solar"] >= SOLAR_RANGE_DEG[0])
+            & (saamer_profile["solar"] <= SOLAR_RANGE_DEG[1])
+        )
+        print(f"SAAMER selected JUE-like meteors in plot interval: {int(np.sum(in_plot))}")
+        print(f"SAAMER selected-count peak: {centers[peak_index]:.1f} deg")
+        print(
+            "SAAMER selected mean RA/Dec/vg: "
+            f"{circular_mean_std_deg(saamer_profile['ra'][in_plot])[0]:.2f} deg, "
+            f"{np.mean(saamer_profile['dec'][in_plot]):.2f} deg, "
+            f"{np.mean(saamer_profile['vg'][in_plot]):.2f} km/s"
+        )
     print(args.output)
 
 

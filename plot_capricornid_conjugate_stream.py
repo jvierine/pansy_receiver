@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from pathlib import Path
 
 import h5py
@@ -24,6 +25,7 @@ from radiant_visibility import (
     radiant_altitude_deg,
     radiant_exposure_hours_points,
 )
+from saamer_activity import DEFAULT_ARCHIVES, DEFAULT_CACHE, load_selected, sliding_counts
 from shower_selection_windows import WINDOWS, ShowerSelectionWindow, format_window, selection_mask
 
 
@@ -45,7 +47,7 @@ DEFAULT_ZENITH_SIDECAR = (
 CLUSTER_SOLAR_WINDOW_DEG = 14.0
 CLUSTER_VG_RANGE = (14.26, 30.24)
 CLUSTER_E_RANGE = (0.664, 0.832)
-ORBIT_COLORS = ("C0", "C1", "C2")
+ORBIT_COLORS = ("C0", "C1", "C0")
 COMET_COLOR = "black"
 RADIANT_COLOR_SPECS = {
     "vg": (r"Geocentric speed, $v_g$ (km s$^{-1}$)", 10.0, 75.0, "viridis"),
@@ -113,7 +115,7 @@ PASSAGES = (
         mean_kepler=(2.5256, 0.7476, 7.58, 131.47, 264.41, 274.72, 0.6231),
     ),
     Passage(
-        name=r"62-Sagittariids (OES)",
+        name="Daytime Capricornids-Sagittariids (DCS), early activity",
         solar_lon_deg=294.2,
         sun_centered_lon_deg=2.59,
         beta_deg=-10.51,
@@ -204,6 +206,19 @@ ACTIVITY_SELECTIONS = (
     ),
 )
 
+OES_DCS_COMMON_ACTIVITY_SELECTION = ActivitySelection(
+    short_name="DCS",
+    solar_range_deg=DCS_ACTIVITY_SOLAR_RANGE_DEG,
+    peak_solar_lon_deg=303.0,
+    peak_window_deg=32.0,
+    sun_centered_lon_deg=357.85,
+    beta_deg=-9.27,
+    vg_range=None,
+    e_range=None,
+    healpix_pixels=(),
+    parameter_window=WINDOWS["OES_DCS"],
+)
+
 
 def wrap180(deg):
     return (np.asarray(deg, dtype=np.float64) + 180.0) % 360.0 - 180.0
@@ -222,12 +237,18 @@ def angular_separation_deg(lon1, lat1, lon2, lat2):
     return np.rad2deg(np.arccos(np.clip(s, -1.0, 1.0)))
 
 
-def decode_half_column(buffer: bytes, col: dict, count: int) -> np.ndarray:
+def decode_chunk_column(buffer: bytes, col: dict, count: int) -> np.ndarray:
     width = int(col.get("width", 1))
     start = int(col.get("offset", 0))
     nbytes = int(col.get("bytes", 0))
-    raw = np.frombuffer(buffer[start : start + nbytes], dtype="<f2")
-    return raw.astype(np.float64).reshape(count, width)
+    dtype = str(col.get("dtype", "float16"))
+    if dtype == "float16":
+        raw = np.frombuffer(buffer[start : start + nbytes], dtype="<f2").astype(np.float64)
+    elif dtype == "uint64":
+        raw = np.frombuffer(buffer[start : start + nbytes], dtype="<u8")
+    else:
+        raise ValueError(f"unsupported Radview chunk dtype {dtype!r}")
+    return raw.reshape(count, width)
 
 
 def load_chunk_rows(data_dir: Path, dataset_id: str, center: float, half_width: float) -> np.ndarray:
@@ -252,7 +273,7 @@ def load_chunk_rows(data_dir: Path, dataset_id: str, center: float, half_width: 
             continue
         buffer = (chunk_dir / chunk["url"]).read_bytes()
         count = int(chunk["count"])
-        cols = {col["name"]: decode_half_column(buffer, col, count) for col in chunk["columns"]}
+        cols = {col["name"]: decode_chunk_column(buffer, col, count) for col in chunk["columns"]}
         solar = cols["solarLongitude"][:, 0] % 360.0
         keep = np.abs(wrap180(solar - center)) <= half_width
         if not np.any(keep):
@@ -724,6 +745,25 @@ def activity_profile(
     }
 
 
+def meteor_mode_hours(
+    exposure_path: Path,
+    solar_range_deg: tuple[float, float],
+) -> tuple[float, dict[int, float]]:
+    """Return PANSY meteor-mode hours in a solar-longitude interval."""
+    with h5py.File(exposure_path, "r") as h5:
+        epoch, solar, hours = interpolate_observation_solar_longitude(h5)
+    lo, hi = solar_range_deg
+    keep = np.isfinite(hours) & (hours > 0.0) & (solar >= lo) & (solar < hi)
+    by_year: dict[int, float] = {}
+    years = np.asarray(
+        [datetime.fromtimestamp(float(value), tz=timezone.utc).year for value in epoch[keep]],
+        dtype=int,
+    )
+    for year in np.unique(years):
+        by_year[int(year)] = float(np.sum(hours[keep][years == year]))
+    return float(np.sum(hours[keep])), by_year
+
+
 def dcs_activity_profile(
     rows: np.ndarray,
     exposure_path: Path,
@@ -926,10 +966,9 @@ def plot_activity_curve(
     lower = np.maximum(0.0, y - uncertainty)
     upper = y + uncertainty
     ax.fill_between(x, lower, upper, color=color, alpha=0.20, linewidth=0)
-    measured = np.isfinite(x) & np.isfinite(y)
     ax.plot(
-        x[measured],
-        y[measured],
+        x,
+        y,
         color=color,
         marker="o",
         ms=3.0,
@@ -969,6 +1008,46 @@ def plot_activity_panel(
         color="black",
         zorder=8,
     )
+
+
+def plot_saamer_counts(
+    ax,
+    profiles: tuple[tuple[str, dict[str, np.ndarray], str], ...],
+    archives: list[Path],
+    cache_path: Path,
+):
+    """Add independently selected SAAMER counts on a gray secondary axis."""
+    count_ax = ax.twinx()
+    handles = []
+    labels = []
+    for code, pansy_profile, linestyle in profiles:
+        rows = load_selected(code, archives, cache_path)
+        display_code = "common aperture" if code == "OES_DCS" else code
+        centers = np.asarray(pansy_profile["centers"], dtype=np.float64)
+        window_deg = float(np.median(np.diff(centers))) if centers.size > 1 else 1.0
+        counts = sliding_counts(rows["solar"], centers, window_deg)
+        (handle,) = count_ax.plot(
+            centers,
+            counts,
+            color="0.35",
+            linestyle=linestyle,
+            marker="s",
+            markerfacecolor="none",
+            markeredgewidth=0.7,
+            markersize=2.8,
+            linewidth=1.0,
+            alpha=0.85,
+            label=f"SAAMER {display_code}",
+        )
+        handles.append(handle)
+        labels.append(f"SAAMER {display_code}")
+    count_ax.set_ylim(bottom=0.0)
+    count_ax.set_ylabel("SAAMER selected count per bin", color="0.35")
+    count_ax.tick_params(axis="y", colors="0.35")
+    count_ax.spines["right"].set_color("0.35")
+    return count_ax, handles, labels
+
+
 def orbit_xy(kepler: np.ndarray, samples: int = 361) -> tuple[np.ndarray, np.ndarray]:
     a, e, inc, raan, argp = kepler[:5]
     if not np.isfinite(a) or a <= 0.0 or not np.isfinite(e) or e < 0.0 or e >= 1.0:
@@ -1183,7 +1262,11 @@ def plot_orbits(
     ax.set_ylabel("Ecliptic Y (AU)")
     ax.grid(alpha=0.22, lw=0.45)
     if show_legend:
+        handles, labels = ax.get_legend_handles_labels()
+        unique = dict(zip(labels, handles, strict=True))
         legend = ax.legend(
+            unique.values(),
+            unique.keys(),
             loc="lower center",
             bbox_to_anchor=(0.5, 1.005),
             ncol=2,
@@ -1266,7 +1349,11 @@ def plot_orbits_side_view(
     ax.set_ylabel("Ecliptic Z (AU)")
     ax.grid(alpha=0.22, lw=0.45)
     if show_legend:
+        handles, labels = ax.get_legend_handles_labels()
+        unique = dict(zip(labels, handles, strict=True))
         legend = ax.legend(
+            unique.values(),
+            unique.keys(),
             loc="upper right",
             ncol=2,
             columnspacing=0.9,
@@ -1326,6 +1413,9 @@ def main():
     parser.add_argument("--activity-solar-min-deg", type=float, default=DCS_ACTIVITY_SOLAR_RANGE_DEG[0])
     parser.add_argument("--activity-solar-max-deg", type=float, default=DCS_ACTIVITY_SOLAR_RANGE_DEG[1])
     parser.add_argument("--activity-bin-width-deg", type=float, default=DCS_ACTIVITY_BIN_WIDTH_DEG)
+    parser.add_argument("--saamer", type=Path, action="append", default=None)
+    parser.add_argument("--saamer-cache", type=Path, default=DEFAULT_CACHE)
+    parser.add_argument("--no-saamer", action="store_true")
     parser.add_argument("--solar-half-width-deg", type=float, default=CLUSTER_SOLAR_WINDOW_DEG / 2.0)
     parser.add_argument("--radiant-radius-deg", type=float, default=5.0)
     parser.add_argument("--velocity-half-width-kms", type=float, default=10.0)
@@ -1377,11 +1467,10 @@ def main():
 
     activity_selections = [
         replace(
-            ACTIVITY_SELECTIONS[0],
+            OES_DCS_COMMON_ACTIVITY_SELECTION,
             solar_range_deg=(args.activity_solar_min_deg, args.activity_solar_max_deg),
             bin_width_deg=args.activity_bin_width_deg,
         ),
-        ACTIVITY_SELECTIONS[1],
         ACTIVITY_SELECTIONS[2],
     ]
     activity_products = []
@@ -1432,24 +1521,38 @@ def main():
         }
     )
     fig, axes = plt.subplots(2, 2, figsize=(12.0, 9.2), constrained_layout=True)
-    dcs_selection, _dcs_rows, _dcs_inset_rows, dcs_profile = activity_products[0]
-    oes_selection, _oes_rows, _oes_inset_rows, oes_profile = activity_products[1]
-    cap_selection, _cap_rows, _cap_inset_rows, cap_profile = activity_products[2]
+    common_selection, _common_rows, _common_inset_rows, common_profile = activity_products[0]
+    cap_selection, _cap_rows, _cap_inset_rows, cap_profile = activity_products[1]
     plot_activity_panel(
         axes[0, 0],
-        dcs_profile,
-        dcs_selection,
+        common_profile,
+        common_selection,
         label_location="left",
         curve_label="DCS",
-        panel_label="OES / DCS",
+        panel_label="DCS",
     )
-    plot_activity_curve(axes[0, 0], oes_profile, color="C2", label="OES")
-    combined_upper = max(
-        np.nanmax(dcs_profile["rate"] + dcs_profile["uncertainty"]),
-        np.nanmax(oes_profile["rate"] + oes_profile["uncertainty"]),
+    axes[0, 0].set_ylim(
+        0.0,
+        1.05 * np.nanmax(common_profile["rate"] + common_profile["uncertainty"]),
     )
-    axes[0, 0].set_ylim(0.0, 1.05 * combined_upper)
-    axes[0, 0].legend(loc="lower left", frameon=False, fontsize=11)
+    saamer_archives = [] if args.no_saamer else (args.saamer or DEFAULT_ARCHIVES)
+    left_saamer_handles: list = []
+    left_saamer_labels: list[str] = []
+    if saamer_archives:
+        _, left_saamer_handles, left_saamer_labels = plot_saamer_counts(
+            axes[0, 0],
+            (("OES_DCS", common_profile, "-"),),
+            saamer_archives,
+            args.saamer_cache,
+        )
+    pansy_handles, pansy_labels = axes[0, 0].get_legend_handles_labels()
+    axes[0, 0].legend(
+        pansy_handles + left_saamer_handles,
+        pansy_labels + left_saamer_labels,
+        loc="upper right",
+        frameon=False,
+        fontsize=9.5,
+    )
     plot_activity_panel(
         axes[0, 1],
         cap_profile,
@@ -1458,6 +1561,21 @@ def main():
         color="C1",
         curve_label="CAP",
     )
+    if saamer_archives:
+        _, cap_saamer_handles, cap_saamer_labels = plot_saamer_counts(
+            axes[0, 1],
+            (("CAP", cap_profile, "-"),),
+            saamer_archives,
+            args.saamer_cache,
+        )
+        cap_handles, cap_labels = axes[0, 1].get_legend_handles_labels()
+        axes[0, 1].legend(
+            cap_handles + cap_saamer_handles,
+            cap_labels + cap_saamer_labels,
+            loc="lower right",
+            frameon=False,
+            fontsize=9.5,
+        )
     plot_orbits(axes[1, 0], selections, colors=list(ORBIT_COLORS), show_legend=False)
     plot_orbits_side_view(axes[1, 1], selections, colors=list(ORBIT_COLORS), show_legend=True)
     axes[1, 0].set_title("North ecliptic view")
@@ -1525,6 +1643,19 @@ def main():
                 f"count={profile['counts'][peak_index]}, "
                 f"exposure={profile['exposure'][peak_index]:.2f} h"
             )
+    dcs_hours, dcs_hours_by_year = meteor_mode_hours(
+        args.activity_exposure,
+        common_selection.solar_range_deg,
+    )
+    years_text = ", ".join(
+        f"{year}: {hours:.2f} h" for year, hours in sorted(dcs_hours_by_year.items())
+    )
+    print(
+        f"DCS meteor-mode operation over "
+        f"{common_selection.solar_range_deg[0]:.1f}-"
+        f"{common_selection.solar_range_deg[1]:.1f} deg: "
+        f"{dcs_hours:.2f} h ({years_text})"
+    )
     print(
         f"activity zenith correction: alpha={zenith_alpha:.6g}, "
         f"min_cos_z={min_cos_z:.6g}, source={args.zenith_correction_sidecar}"

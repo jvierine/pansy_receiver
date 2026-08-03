@@ -3,11 +3,32 @@ import pytest
 
 from plot_capricornid_conjugate_stream import (
     PASSAGES,
+    decode_chunk_column,
     ecliptic_to_equatorial_deg,
     radiant_color_values,
     validate_passage_sources,
     zenith_correction_weights,
 )
+
+
+def test_decode_chunk_column_respects_manifest_dtype():
+    half = np.asarray([1.5, -2.0], dtype="<f2").tobytes()
+    identifiers = np.asarray([2**53 + 1, 2**53 + 3], dtype="<u8").tobytes()
+    buffer = half + identifiers
+
+    half_column = decode_chunk_column(
+        buffer,
+        {"dtype": "float16", "width": 1, "offset": 0, "bytes": len(half)},
+        2,
+    )
+    identifier_column = decode_chunk_column(
+        buffer,
+        {"dtype": "uint64", "width": 1, "offset": len(half), "bytes": len(identifiers)},
+        2,
+    )
+
+    np.testing.assert_allclose(half_column[:, 0], [1.5, -2.0])
+    np.testing.assert_array_equal(identifier_column[:, 0], [2**53 + 1, 2**53 + 3])
 
 
 def test_ecliptic_to_equatorial_cardinal_directions():
