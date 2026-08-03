@@ -63,17 +63,41 @@ def main() -> int:
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--base", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--worker-index", type=int, required=True)
-    parser.add_argument("--worker-count", type=int, required=True)
+    parser.add_argument(
+        "--worker-index",
+        type=int,
+        help="Worker index; defaults to the Open MPI or PMI rank.",
+    )
+    parser.add_argument(
+        "--worker-count",
+        type=int,
+        help="Worker count; defaults to the Open MPI or PMI world size.",
+    )
     parser.add_argument("--snr-threshold", type=float, default=7.0)
     parser.add_argument("--max-events", type=int)
     args = parser.parse_args()
-    if args.worker_count < 1 or not 0 <= args.worker_index < args.worker_count:
+    worker_index = args.worker_index
+    worker_count = args.worker_count
+    if worker_index is None:
+        for name in ("OMPI_COMM_WORLD_RANK", "PMI_RANK", "SLURM_PROCID"):
+            if name in os.environ:
+                worker_index = int(os.environ[name])
+                break
+    if worker_count is None:
+        for name in ("OMPI_COMM_WORLD_SIZE", "PMI_SIZE", "SLURM_NTASKS"):
+            if name in os.environ:
+                worker_count = int(os.environ[name])
+                break
+    if worker_index is None or worker_count is None:
+        parser.error(
+            "worker index/count are required outside an MPI or scheduler launch"
+        )
+    if worker_count < 1 or not 0 <= worker_index < worker_count:
         parser.error("worker-index must satisfy 0 <= worker-index < worker-count")
 
     with h5py.File(args.manifest, "r") as handle:
         samples = np.asarray(handle["sample_idx"], dtype=np.int64)
-    assigned = np.arange(args.worker_index, len(samples), args.worker_count)
+    assigned = np.arange(worker_index, len(samples), worker_count)
     if args.max_events is not None:
         assigned = assigned[: args.max_events]
 
@@ -93,7 +117,7 @@ def main() -> int:
     ):
         directory.mkdir(parents=True, exist_ok=True)
 
-    log_path = log_dir / f"worker_{args.worker_index:03d}.tsv"
+    log_path = log_dir / f"worker_{worker_index:03d}.tsv"
     if not log_path.exists():
         log_path.write_text("manifest_index\tsample_idx\tstatus\n")
 
@@ -104,8 +128,8 @@ def main() -> int:
             phase = phase_dir / f"mass_profile_phase_aware_{sample_idx}.h5"
             initial = initial_dir / f"highres_fft_i2_p16_{sample_idx}.h5"
             output = fit_dir / f"three_pulse_full_event_{sample_idx}.h5"
-            observables_h5 = scratch_dir / f"fit_observables_{args.worker_index:03d}.h5"
-            phase_partial = scratch_dir / f"phase_profile_{args.worker_index:03d}.h5"
+            observables_h5 = scratch_dir / f"fit_observables_{worker_index:03d}.h5"
+            phase_partial = scratch_dir / f"phase_profile_{worker_index:03d}.h5"
             diagnostics = diagnostic_path(args.base, sample_idx)
             try:
                 if valid_h5(
@@ -195,7 +219,7 @@ def main() -> int:
             timestamp = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
             print(
                 timestamp,
-                f"worker={args.worker_index:03d}",
+                f"worker={worker_index:03d}",
                 f"index={manifest_index}",
                 f"sample={sample_idx}",
                 status,
@@ -203,7 +227,7 @@ def main() -> int:
             )
             log.write(f"{manifest_index}\t{sample_idx}\t{status}\n")
 
-    (log_dir / f"worker_{args.worker_index:03d}.done").write_text(
+    (log_dir / f"worker_{worker_index:03d}.done").write_text(
         dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds") + "\n"
     )
     return 0
