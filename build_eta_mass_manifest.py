@@ -11,13 +11,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from plot_eta_aquariids_snapshot import (
-    ETA_BETA_DEG,
-    ETA_SC_LON_DEG,
-    ETA_SOLAR_LON_DEG,
-    ETA_VG_KM_S,
-    eta_candidate_mask,
-)
+from plot_omega_eridanids_shower import ang2pix_ring
 
 
 DEFAULT_CATALOGUE = (
@@ -26,6 +20,26 @@ DEFAULT_CATALOGUE = (
     / "paper_refresh_20260729_current"
     / "pansy_keplerian_catalogue.h5"
 )
+ETA_SELECTION_SOLAR_CENTER_DEG = 71.20
+ETA_SELECTION_SOLAR_WINDOW_DEG = 53.93
+ETA_SELECTION_NSIDE = 64
+ETA_SELECTION_PIXELS = np.asarray(
+    (
+        20045, 20046, 20047, 20301, 20302, 20303, 20304, 20305,
+        20556, 20557, 20558, 20559, 20560, 20561, 20562, 20813,
+        20814, 20815, 20816, 20817, 20818, 20819, 21068, 21069,
+        21070, 21071, 21072, 21073, 21074, 21075, 21325, 21326,
+        21327, 21328, 21329, 21330, 21331, 21332, 21581, 21582,
+        21583, 21584, 21585, 21586, 21587, 21838, 21839, 21840,
+        21841, 21842, 21843, 21844, 22095, 22096, 22097, 22098,
+        22099, 22354, 22355, 22356, 22611, 22612,
+    ),
+    dtype=np.int64,
+)
+
+
+def wrap180(degrees: np.ndarray) -> np.ndarray:
+    return (np.asarray(degrees, dtype=float) + 180.0) % 360.0 - 180.0
 
 
 def diagnostics_path(events_dir: Path, sample_idx: int) -> Path:
@@ -39,8 +53,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--catalogue", type=Path, default=DEFAULT_CATALOGUE)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--radiant-radius-deg", type=float, default=5.0)
-    parser.add_argument("--speed-half-width-kms", type=float, default=10.0)
     parser.add_argument(
         "--events-dir",
         type=Path,
@@ -61,8 +73,21 @@ def main() -> int:
         }
         kepler = np.asarray(handle["kepler"], dtype=np.float64)
 
-    selected = eta_candidate_mask(
-        data, args.radiant_radius_deg, args.speed_half_width_kms
+    radiant_pixel = ang2pix_ring(
+        ETA_SELECTION_NSIDE,
+        data["sun_centered_lon_deg"],
+        data["ecliptic_lat_deg"],
+    )
+    selected = (
+        np.isin(radiant_pixel, ETA_SELECTION_PIXELS)
+        & (
+            np.abs(
+                wrap180(
+                    data["solar_longitude_deg"] - ETA_SELECTION_SOLAR_CENTER_DEG
+                )
+            )
+            <= ETA_SELECTION_SOLAR_WINDOW_DEG
+        )
     )
     sample_idx = np.rint(data["epoch_unix"][selected] * 1e6).astype(np.int64)
     if len(np.unique(sample_idx)) != len(sample_idx):
@@ -93,19 +118,17 @@ def main() -> int:
         output.attrs["created_utc"] = dt.datetime.now(dt.timezone.utc).isoformat()
         output.attrs["catalogue"] = str(args.catalogue)
         output.attrs["selection_source"] = (
-            "unchanged eta_candidate_mask selection in plot_eta_aquariids_snapshot.py"
+            "user-supplied fixed nside=64 HEALPix radiant pixels and solar-longitude window"
         )
         output.attrs["mass_blinding"] = (
             "selection is fixed before mass fitting; no fitted mass or orbital trend "
             "is used for membership or acceptance"
         )
-        output.attrs["selection_solar_center_deg"] = ETA_SOLAR_LON_DEG
-        output.attrs["selection_solar_half_width_deg"] = 12.0
-        output.attrs["selection_sun_centered_lon_deg"] = ETA_SC_LON_DEG
-        output.attrs["selection_ecliptic_latitude_deg"] = ETA_BETA_DEG
-        output.attrs["selection_radiant_radius_deg"] = args.radiant_radius_deg
-        output.attrs["selection_geocentric_speed_km_s"] = ETA_VG_KM_S
-        output.attrs["selection_speed_half_width_kms"] = args.speed_half_width_kms
+        output.attrs["selection_solar_center_deg"] = ETA_SELECTION_SOLAR_CENTER_DEG
+        output.attrs["selection_solar_half_width_deg"] = ETA_SELECTION_SOLAR_WINDOW_DEG
+        output.attrs["selection_healpix_ordering"] = "RING"
+        output.attrs["selection_healpix_nside"] = ETA_SELECTION_NSIDE
+        output.create_dataset("selection_healpix_pixel_ids", data=ETA_SELECTION_PIXELS)
         output.create_dataset("sample_idx", data=sample_idx)
         output.create_dataset(
             "passage_index", data=np.zeros(len(sample_idx), dtype=np.int8)
