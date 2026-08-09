@@ -7,6 +7,7 @@ import signal
 import subprocess
 import sys
 import time
+import warnings
 from pathlib import Path
 
 import h5py
@@ -48,6 +49,11 @@ def config():
         "phase_min_baseline": int(get("PANSY_PHASE_MIN_BASELINE", "10")),
         "phase_check_timeout_seconds": float(get("PANSY_PHASE_CHECK_TIMEOUT_SECONDS", "1200")),
         "phase_max_restarts": int(get("PANSY_PHASE_MAX_RESTARTS", "3")),
+        "phase_check_seconds": float(get("PANSY_PHASE_CHECK_SECONDS", "60")),
+        "phase_raw_search_samples": int(get("PANSY_PHASE_RAW_SEARCH_SAMPLES", "500000")),
+        "phase_raw_pulse_samples": int(get("PANSY_PHASE_RAW_PULSE_SAMPLES", "100")),
+        "phase_min_valid_channels": int(get("PANSY_PHASE_MIN_VALID_CHANNELS", "7")),
+        "phase_min_mean_amplitude": float(get("PANSY_PHASE_MIN_MEAN_AMPLITUDE", "1e7")),
     }
 
 
@@ -213,6 +219,117 @@ def angular_diff_deg(a, b):
     return np.rad2deg(np.angle(np.exp(1j * (a - b))))
 
 
+def historical_phase_reference(phase_root, lookback_days, min_baseline):
+    records = []
+    for path in phase_files(phase_root, lookback_days):
+        records.extend(read_phase_file(path))
+    if not records:
+        return None, 0
+    records.sort(key=lambda item: item[0])
+    cutoff = records[-1][0] - dt.timedelta(days=lookback_days)
+    baseline = np.asarray([phase for timestamp, phase in records if timestamp >= cutoff])
+    if baseline.shape[0] < min_baseline:
+        return None, int(baseline.shape[0])
+    return circular_median(baseline), int(baseline.shape[0])
+
+
+def classify_phase_vector(phase, amplitude, reference, threshold_deg, min_valid_channels):
+    phase = np.asarray(phase, dtype=np.float64)
+    amplitude = np.asarray(amplitude, dtype=np.float64)
+    reference = np.asarray(reference, dtype=np.float64)
+    n = min(phase.size, amplitude.size, reference.size)
+    valid = (
+        np.isfinite(phase[:n])
+        & np.isfinite(amplitude[:n])
+        & (amplitude[:n] > 0.0)
+        & np.isfinite(reference[:n])
+    )
+    valid_count = int(np.count_nonzero(valid))
+    if valid_count < min_valid_channels:
+        return {
+            "ok": None,
+            "valid_channel_count": valid_count,
+            "reason": f"only {valid_count} valid raw TX phase channels",
+        }
+    diff = angular_diff_deg(phase[:n], reference[:n])
+    max_abs = float(np.nanmax(np.where(valid, np.abs(diff), np.nan)))
+    channel = int(np.nanargmax(np.where(valid, np.abs(diff), np.nan)))
+    return {
+        "ok": max_abs <= threshold_deg,
+        "valid_channel_count": valid_count,
+        "max_abs_deg": max_abs,
+        "channel": channel,
+        "phase_deg": np.rad2deg(phase[:n]),
+        "diff_deg": diff,
+        "reason": f"raw TX phase differs from reference by {max_abs:.1f} deg on {channel}",
+    }
+
+
+def latest_raw_phase_status(
+    raw_root,
+    channels,
+    reference,
+    threshold_deg,
+    search_samples,
+    pulse_samples,
+    min_valid_channels,
+    min_mean_amplitude,
+):
+    import digital_rf as drf
+
+    reader = drf.DigitalRFReader(str(raw_root))
+    bounds = [reader.get_bounds(channel) for channel in channels]
+    start_bound = max(bound[0] for bound in bounds)
+    end = min(bound[1] for bound in bounds) - pulse_samples - 1
+    start = max(start_bound, end - search_samples)
+    if end <= start or end - start < pulse_samples:
+        return {"ok": None, "reason": "insufficient common raw-voltage samples"}
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="The read_vector_c81d method is deprecated.*")
+        z0 = reader.read_vector_c81d(start, end - start, channels[0])
+    power = np.abs(z0) ** 2
+    finite_power = np.where(np.isfinite(power), power, 0.0)
+    cumulative = np.concatenate(([0.0], np.cumsum(finite_power, dtype=np.float64)))
+    window_power = cumulative[pulse_samples:] - cumulative[:-pulse_samples]
+    pulse_start = int(start + np.argmax(window_power))
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="The read_vector_c81d method is deprecated.*")
+        reference_voltage = reader.read_vector_c81d(pulse_start, pulse_samples, channels[0])
+        xphase = np.full(len(channels), np.nan + 1j * np.nan, dtype=np.complex128)
+        for index, channel in enumerate(channels):
+            voltage = reader.read_vector_c81d(pulse_start, pulse_samples, channel)
+            xphase[index] = np.mean(reference_voltage * np.conj(voltage))
+
+    amplitude = np.abs(xphase)
+    mean_amplitude = float(np.nanmean(amplitude))
+    if not np.isfinite(mean_amplitude) or mean_amplitude < min_mean_amplitude:
+        return {
+            "ok": None,
+            "sample_idx": pulse_start,
+            "latest_time": sample_to_datetime(pulse_start),
+            "mean_amplitude": mean_amplitude,
+            "reason": f"raw TX pulse amplitude too small ({mean_amplitude:.3g})",
+        }
+
+    status = classify_phase_vector(
+        np.angle(xphase),
+        amplitude,
+        reference,
+        threshold_deg,
+        min_valid_channels,
+    )
+    status.update(
+        {
+            "sample_idx": pulse_start,
+            "latest_time": sample_to_datetime(pulse_start),
+            "mean_amplitude": mean_amplitude,
+        }
+    )
+    return status
+
+
 def latest_phase_status(phase_root, lookback_days, min_baseline):
     records = []
     for path in phase_files(phase_root, lookback_days):
@@ -257,8 +374,22 @@ def main():
     )
 
     last_restart = 0.0
-    pending_phase_restart_time = None
     phase_restart_count = 0
+    last_phase_check = 0.0
+    last_phase_sample = None
+    phase_reference, reference_count = historical_phase_reference(
+        cfg["phase_root"],
+        cfg["phase_lookback_days"],
+        cfg["phase_min_baseline"],
+    )
+    if phase_reference is None:
+        log(f"raw phase watchdog disabled: only {reference_count} historical phase samples")
+    else:
+        log(
+            f"raw phase reference from {reference_count} historical samples: "
+            + " ".join(f"{value:.1f}" for value in np.rad2deg(phase_reference))
+            + " deg"
+        )
 
     while True:
         try:
@@ -270,48 +401,42 @@ def main():
                 )
                 clean_restart(cfg["service"], cfg["stop_timeout_seconds"], f"stale raw-voltage data: {reason}")
                 last_restart = time.time()
-                pending_phase_restart_time = dt.datetime.now(dt.timezone.utc)
-                phase_restart_count = 0
             elif stale:
                 log("stale data detected during restart cooldown: " + ", ".join(ch for ch, _, _ in stale))
 
-            if pending_phase_restart_time is not None:
-                status = latest_phase_status(
-                    cfg["phase_root"],
-                    cfg["phase_lookback_days"],
-                    cfg["phase_min_baseline"],
+            if phase_reference is not None and time.time() - last_phase_check >= cfg["phase_check_seconds"]:
+                last_phase_check = time.time()
+                status = latest_raw_phase_status(
+                    cfg["raw_root"],
+                    cfg["channels"],
+                    phase_reference,
+                    threshold,
+                    cfg["phase_raw_search_samples"],
+                    cfg["phase_raw_pulse_samples"],
+                    cfg["phase_min_valid_channels"],
+                    cfg["phase_min_mean_amplitude"],
                 )
-                now = dt.datetime.now(dt.timezone.utc)
-                if status is None:
-                    if (now - pending_phase_restart_time).total_seconds() > cfg["phase_check_timeout_seconds"]:
-                        log("phase check timed out: no phase metadata found")
-                        pending_phase_restart_time = None
-                elif status["latest_time"] <= pending_phase_restart_time:
-                    if (now - pending_phase_restart_time).total_seconds() > cfg["phase_check_timeout_seconds"]:
-                        log("phase check timed out: no new phase metadata after restart")
-                        pending_phase_restart_time = None
+                sample_idx = status.get("sample_idx")
+                if sample_idx is not None and sample_idx == last_phase_sample:
+                    log("raw phase check skipped: no new raw TX pulse")
                 elif status["ok"] is None:
-                    log("phase check skipped: " + status["reason"])
-                    pending_phase_restart_time = None
+                    log("raw phase check skipped: " + status["reason"])
+                elif status["ok"]:
+                    log("raw phase check ok: " + status["reason"])
+                    phase_restart_count = 0
+                elif time.time() - last_restart < cfg["cooldown_seconds"]:
+                    log("bad raw TX phase detected during restart cooldown: " + status["reason"])
+                elif phase_restart_count < cfg["phase_max_restarts"]:
+                    phase_restart_count += 1
+                    clean_restart(
+                        cfg["service"],
+                        cfg["stop_timeout_seconds"],
+                        f"bad raw TX phase ({phase_restart_count}/{cfg['phase_max_restarts']}): {status['reason']}",
+                    )
+                    last_restart = time.time()
                 else:
-                    max_abs = float(status["max_abs_deg"])
-                    ok = max_abs <= threshold
-                    if ok:
-                        log("phase check ok: " + status["reason"])
-                        pending_phase_restart_time = None
-                        phase_restart_count = 0
-                    elif phase_restart_count < cfg["phase_max_restarts"]:
-                        phase_restart_count += 1
-                        clean_restart(
-                            cfg["service"],
-                            cfg["stop_timeout_seconds"],
-                            f"bad phasecal after restart: {status['reason']}",
-                        )
-                        last_restart = time.time()
-                        pending_phase_restart_time = dt.datetime.now(dt.timezone.utc)
-                    else:
-                        log("phase check failed but restart limit reached: " + status["reason"])
-                        pending_phase_restart_time = None
+                    log("raw phase check failed but restart limit reached: " + status["reason"])
+                last_phase_sample = sample_idx
 
         except Exception as exc:
             log(f"watchdog error: {exc}")
