@@ -54,6 +54,7 @@ def config():
         "phase_raw_pulse_samples": int(get("PANSY_PHASE_RAW_PULSE_SAMPLES", "100")),
         "phase_min_valid_channels": int(get("PANSY_PHASE_MIN_VALID_CHANNELS", "7")),
         "phase_min_mean_amplitude": float(get("PANSY_PHASE_MIN_MEAN_AMPLITUDE", "1e7")),
+        "phase_reference_deg": get("PANSY_PHASE_REFERENCE_DEG", ""),
     }
 
 
@@ -377,16 +378,23 @@ def main():
     phase_restart_count = 0
     last_phase_check = 0.0
     last_phase_sample = None
-    phase_reference, reference_count = historical_phase_reference(
-        cfg["phase_root"],
-        cfg["phase_lookback_days"],
-        cfg["phase_min_baseline"],
-    )
+    configured_reference = np.fromstring(cfg["phase_reference_deg"], sep=",")
+    if configured_reference.size == len(cfg["channels"]):
+        phase_reference = np.deg2rad(configured_reference)
+        reference_count = 0
+        reference_description = "configured known-good raw TX phase"
+    else:
+        phase_reference, reference_count = historical_phase_reference(
+            cfg["phase_root"],
+            cfg["phase_lookback_days"],
+            cfg["phase_min_baseline"],
+        )
+        reference_description = f"{reference_count} historical samples"
     if phase_reference is None:
         log(f"raw phase watchdog disabled: only {reference_count} historical phase samples")
     else:
         log(
-            f"raw phase reference from {reference_count} historical samples: "
+            f"raw phase reference from {reference_description}: "
             + " ".join(f"{value:.1f}" for value in np.rad2deg(phase_reference))
             + " deg"
         )
