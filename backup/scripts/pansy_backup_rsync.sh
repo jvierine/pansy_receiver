@@ -54,6 +54,8 @@ sync_channel() {
   local bwlimit_kb
   local lock_file
   local rc
+  local remote_source
+  local -a recent_phase_filters=()
 
   mkdir -p "$LOCAL_METADATA_ROOT/$channel"
   mkdir -p "$LOCK_DIR"
@@ -72,13 +74,24 @@ sync_channel() {
   printf "%s\t%s\t%s\n" "$channel" "$channel_started" "$BASHPID" >"$active_file"
   echo "[$channel_started] syncing $channel with --bwlimit=$bwlimit_kb" | tee -a "$LOG_FILE"
 
+  remote_source="radar@127.0.0.1:${REMOTE_METADATA_ROOT}/${channel}/20*"
+  if [ "$channel" = "phase" ]; then
+    remote_source="radar@127.0.0.1:${REMOTE_METADATA_ROOT}/${channel}/"
+    for hour_offset in $(seq 0 $((${PHASE_SYNC_LOOKBACK_HOURS:-72} - 1))); do
+      hour_dir="$(date -u -d "-$hour_offset hour" +%Y-%m-%dT%H-00-00)"
+      recent_phase_filters+=(--include="/$hour_dir/***")
+    done
+    recent_phase_filters+=(--exclude="*")
+  fi
+
   set +e
   rsync -avz \
     --bwlimit="$bwlimit_kb" \
     --partial \
     --timeout=120 \
+    "${recent_phase_filters[@]}" \
     -e "$(rsync_ssh_cmd)" \
-    "radar@127.0.0.1:${REMOTE_METADATA_ROOT}/${channel}/20*" \
+    "$remote_source" \
     "$LOCAL_METADATA_ROOT/$channel/" >>"$LOG_FILE" 2>&1
   rc=$?
   set -e
