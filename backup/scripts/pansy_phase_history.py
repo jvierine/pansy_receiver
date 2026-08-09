@@ -203,11 +203,19 @@ def phase_warning(times, phases):
 def plot_phase_history(times, phases, output_path):
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    fig, ax = plt.subplots(figsize=(12, 5.6), constrained_layout=True)
+    fig, (ax, recent_ax) = plt.subplots(
+        2,
+        1,
+        figsize=(12, 8.0),
+        gridspec_kw={"height_ratios": (2.0, 1.0)},
+        constrained_layout=True,
+    )
     warning = phase_warning(times, phases)
 
     if times.size:
         x = times.astype("datetime64[ms]").astype(object)
+        recent_start = times.max() - np.timedelta64(7, "D")
+        recent = times >= recent_start
         for i in range(min(8, phases.shape[1])):
             ax.scatter(
                 x,
@@ -218,19 +226,35 @@ def plot_phase_history(times, phases, output_path):
                 rasterized=True,
                 label=f"TX {i + 1}",
             )
+            recent_ax.scatter(
+                x[recent],
+                np.rad2deg(phases[recent, i]),
+                s=4,
+                alpha=0.65,
+                linewidths=0,
+                rasterized=True,
+            )
         ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4, maxticks=9))
         ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax.xaxis.get_major_locator()))
-        ax.set_ylim(-190, 190)
+        recent_ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4, maxticks=9))
+        recent_ax.xaxis.set_major_formatter(
+            mdates.ConciseDateFormatter(recent_ax.xaxis.get_major_locator())
+        )
     else:
         ax.text(0.5, 0.5, "No phase calibration data found", ha="center", va="center", transform=ax.transAxes)
+        recent_ax.text(0.5, 0.5, "No recent phase data found", ha="center", va="center", transform=recent_ax.transAxes)
 
     title = f"PANSY transmitter phase calibration: {times.size:,} samples"
     if warning:
         title = f"{title}\n{warning}"
-    ax.set_title(title)
-    ax.set_xlabel("Date (UTC)")
-    ax.set_ylabel("Transmitter phase (deg)")
-    ax.grid(True, color="#cbd5e1", linewidth=0.7, alpha=0.8)
+    fig.suptitle(title)
+    ax.set_title("Full history", loc="left", fontsize=10)
+    recent_ax.set_title("Latest seven days", loc="left", fontsize=10)
+    recent_ax.set_xlabel("Date (UTC)")
+    for axis in (ax, recent_ax):
+        axis.set_ylim(-190, 190)
+        axis.set_ylabel("Transmitter phase (deg)")
+        axis.grid(True, color="#cbd5e1", linewidth=0.7, alpha=0.8)
     ax.legend(loc="upper right", ncol=4, fontsize=8, frameon=False)
 
     fig.savefig(output_path, dpi=150)
