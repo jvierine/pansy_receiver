@@ -97,6 +97,7 @@ def tx_xphase():
 
 
 if __name__ == "__main__":
+    sleep_seconds = float(os.environ.get("PANSY_TX_XPHASE_SLEEP_SECONDS", "60"))
     while True:
         tx_xphase()
-        time.sleep(3600)
+        time.sleep(sleep_seconds)
