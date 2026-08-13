@@ -36,6 +36,19 @@ def save_progress(next_sample, path=PROGRESS_PATH):
     temporary.write_text(json.dumps({"next_sample": int(next_sample)}, indent=2) + "\n")
     temporary.replace(path)
 
+
+def write_mode_metadata(writer, start_indices, idx0, idx1, mode_id):
+    in_window = n.asarray(start_indices)[
+        (n.asarray(start_indices) >= idx0) & (n.asarray(start_indices) < idx1)
+    ]
+    if in_window.size == 0:
+        return 0
+    writer.write(
+        in_window,
+        {"id": n.full(in_window.size, mode_id, dtype=n.uint8)},
+    )
+    return int(in_window.size)
+
 def update_tx_pulses():
     """
     Find transmit pulses for the mesosphere mode.
@@ -100,71 +113,33 @@ def update_tx_pulses():
         idx1=i0+i*dt+dt
 
 
-        start_idx=pd.find_b13_mode_start(d,
-                                         i0=idx0,
-                                         i1=idx1)
-        
-        print("%s found %d pulses b13 mode"%(stuffr.unix2datestr((i0+i*dt)/1e6),len(start_idx)))
-
-        if len(start_idx) > 0:
-            data_dict={}
-            # let's use 3 as id of standard barker13 4 ms ipp-mode
-            mode_id=n.repeat(3,len(start_idx))
-            gidx=n.where( (start_idx >= idx0) & (start_idx < idx1) )[0]
-            mean_ipp=n.mean(n.diff(start_idx[gidx]))
-            print("mean_ipp=%d"%(mean_ipp))
-            if len(gidx)>0:
-                try:
-                    data_dict["id"]=mode_id[gidx]
-                    dmw.write(start_idx[gidx],data_dict)
-                except Exception:
-                    traceback.print_exc()
-
-        if ENABLE_ISR_MODE:
-            # find 7-bit Barker codes associated with ISR mode
-            start_idx=pd.find_isr_mode_start(d,
-                                             i0=idx0,
-                                             i1=idx1)
-            
-            print("%s found %d pulses isr mode"%(stuffr.unix2datestr((i0+i*dt)/1e6),20*len(start_idx)))
-
-            if len(start_idx) > 0:
-                data_dict={}
-                # let's use 2 as id of standard isr-mode
-                mode_id=n.repeat(2,len(start_idx))
-                gidx=n.where( (start_idx >= idx0) & (start_idx < idx1) )[0]
-                
-                if len(gidx)>0:
-                    try:
-                        data_dict["id"]=mode_id[gidx]
-                        dmw.write(start_idx[gidx],data_dict)
-                    except Exception:
-                        traceback.print_exc()
-
-
         # search for the start of a continuous 20 IPP sequence
-        start_idx=pd.find_m_mode_start(d,
-                                       i0=idx0,
-                                       i1=idx1,
-                                       debug=False)
+        mesosphere_starts=pd.find_m_mode_start(d,
+                                               i0=idx0,
+                                               i1=idx1,
+                                               debug=False)
         
-        print("%s found %d pulses mesosphere mode"%(stuffr.unix2datestr((i0+i*dt)/1e6),20*len(start_idx)))
+        print("%s found %d pulses mesosphere mode"%(stuffr.unix2datestr(idx0/1e6),20*len(mesosphere_starts)))
+        mesosphere_count = write_mode_metadata(dmw, mesosphere_starts, idx0, idx1, 1)
+        if mesosphere_count:
+            print("%d in range"%(20*mesosphere_count))
+        else:
+            # Barker-13 and mesosphere modes are mutually exclusive on this
+            # time scale. Avoid its expensive FFT scan when M-mode is present.
+            b13_starts=pd.find_b13_mode_start(d, i0=idx0, i1=idx1)
+            print("%s found %d pulses b13 mode"%(stuffr.unix2datestr(idx0/1e6),len(b13_starts)))
+            write_mode_metadata(dmw, b13_starts, idx0, idx1, 3)
 
-        if len(start_idx)>0:
-            data_dict={}
-            # let's use 1 as id of standard M-mode
-            mode_id=n.array(n.repeat(1,len(start_idx)),dtype=n.uint8)
-            gidx=n.where( (start_idx >= idx0) & (start_idx < idx1) )[0]
-            if len(gidx)>0:
-                print("%d in range"%(20*len(gidx)))
-                try:
-                    data_dict["id"]=mode_id[gidx]
-                    dmw.write(start_idx[gidx],data_dict)
-                except Exception:
-                    traceback.print_exc()
+            if ENABLE_ISR_MODE and len(b13_starts) == 0:
+                isr_starts=pd.find_isr_mode_start(d, i0=idx0, i1=idx1)
+                print("%s found %d pulses isr mode"%(stuffr.unix2datestr(idx0/1e6),20*len(isr_starts)))
+                write_mode_metadata(dmw, isr_starts, idx0, idx1, 2)
+
+        # Persist each completed window so a service restart never recreates a
+        # long scan backlog.
+        save_progress(idx1)
     next_sample = i0 + n_windows * dt
     if n_windows > 0:
-        save_progress(next_sample)
         print(
             "mode scan progress %s; lag %.1f s"
             % (stuffr.unix2datestr(next_sample/1e6), max(0, b[1]-next_sample)/1e6)
