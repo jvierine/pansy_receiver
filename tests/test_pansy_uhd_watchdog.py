@@ -1,4 +1,5 @@
 import importlib.util
+import datetime as dt
 from pathlib import Path
 
 import numpy as np
@@ -38,3 +39,17 @@ def test_phase_vector_rejects_half_cycle_usrp_offset():
     )
     assert status["ok"] is False
     assert status["max_abs_deg"] > 160.0
+
+
+def test_restart_state_round_trip(tmp_path):
+    path = tmp_path / "receiver_restart.json"
+    timestamp = dt.datetime(2026, 8, 13, 6, 22, 27, tzinfo=dt.timezone.utc)
+    watchdog.write_restart_state(path, timestamp, "phase test")
+
+    assert watchdog.read_restart_state(path) == timestamp
+
+
+def test_metadata_mode_id_handles_scalar_and_array_values():
+    assert watchdog.metadata_mode_id(np.uint8(1)) == 1
+    assert watchdog.metadata_mode_id(np.array([1], dtype=np.uint8)) == 1
+    assert watchdog.metadata_mode_id(np.array([], dtype=np.uint8)) is None

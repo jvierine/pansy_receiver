@@ -42,12 +42,26 @@ The installer also writes log rotation config to:
 ```
 
 The watchdog checks `ch000` through `ch007` under `/media/archive` every
-10 seconds. If any channel is stale for more than 60 seconds, it stops
-`pansy-uhd-rx.service`, waits for `pansy_uhd_rx` to exit, and starts the
-service again. After a data-stall restart it also waits for the next phase
-metadata sample in `/media/analysis/metadata/phase` and compares it with the
-recent circular median. A phase jump larger than the configured threshold
-causes another clean receiver restart.
+10 seconds. One `pansy_uhd_rx` process owns all four USRPs and all eight
+channels. If any channel is stale, the watchdog stops that combined receiver,
+verifies that it has exited, waits 15 seconds for every UHD device session to
+close, and then starts all receivers together. It measures transmit-pulse
+cross-phase only at sample indices identified as mesosphere mode (`id=1`) in
+the TX metadata. A phase jump larger than the configured threshold triggers
+the same full receiver restart. Every
+watchdog restart is recorded in
+`~/.local/state/pansy-receiver/receiver_restart.json`; phase validation waits
+90 seconds and only accepts a mesosphere-mode transmit pulse whose TX metadata
+and raw voltage were both captured after that timestamp.
+
+The mode finder keeps its independent raw-voltage scan cursor in
+`~/.local/state/pansy-receiver/find_mode_starts.json`. The cursor advances for
+every completed window, including windows with no recognized transmit mode,
+so transmitter-off intervals do not create an ever-growing rescan backlog.
+The cross-phase monitor similarly tracks progress in
+`~/.local/state/pansy-receiver/tx_xphase.json`, stays behind the TX metadata
+writer, and computes one cross-phase sample only from a confirmed mesosphere
+mode (`id=1`) pulse.
 
 Useful commands:
 

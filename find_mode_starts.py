@@ -3,12 +3,38 @@ import pansy_detect as pd
 import matplotlib.pyplot as plt
 import digital_rf as drf
 import os
+import json
+from pathlib import Path
 import stuffr
 import time
 import pansy_config as pc
 import traceback
 
 ENABLE_ISR_MODE = os.environ.get("PANSY_ENABLE_ISR_MODE", "0") == "1"
+PROGRESS_PATH = Path(
+    os.environ.get(
+        "PANSY_FIND_MODE_PROGRESS_PATH",
+        Path.home() / ".local/state/pansy-receiver/find_mode_starts.json",
+    )
+)
+WINDOW_SAMPLES = int(os.environ.get("PANSY_FIND_MODE_WINDOW_SAMPLES", "10000000"))
+RAW_LAG_SAMPLES = int(float(os.environ.get("PANSY_FIND_MODE_RAW_LAG_SECONDS", "5")) * 1e6)
+MAX_WINDOWS_PER_PASS = int(os.environ.get("PANSY_FIND_MODE_MAX_WINDOWS_PER_PASS", "360"))
+IDLE_SLEEP_SECONDS = float(os.environ.get("PANSY_FIND_MODE_IDLE_SLEEP_SECONDS", "10"))
+
+
+def load_progress(path=PROGRESS_PATH):
+    try:
+        return int(json.loads(path.read_text())["next_sample"])
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def save_progress(next_sample, path=PROGRESS_PATH):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps({"next_sample": int(next_sample)}, indent=2) + "\n")
+    temporary.replace(path)
 
 def update_tx_pulses():
     """
@@ -55,14 +81,18 @@ def update_tx_pulses():
     b=d.get_bounds("ch007")
 
 
-    i0=b[0]
-    if db[1] != -1:
-        # start where we left off, instead of the start
-        i0=db[1]+10*1600
+    i0 = load_progress()
+    if i0 is None or i0 < b[0] or i0 > b[1]:
+        i0=b[0]
+        if db[1] != -1:
+            # Bootstrap old installations from the latest output metadata.
+            i0=db[1]+10*1600
     print("starting at %s"%(stuffr.unix2datestr(i0/1e6)))
 
-    dt=10000000
-    n_windows = int(n.floor(((b[1]-1000000)-i0)/dt))
+    dt=WINDOW_SAMPLES
+    safe_end = b[1] - RAW_LAG_SAMPLES
+    n_windows = max(0, int(n.floor((safe_end-i0)/dt)))
+    n_windows = min(n_windows, MAX_WINDOWS_PER_PASS)
     
 
     for i in range(n_windows):
@@ -132,10 +162,18 @@ def update_tx_pulses():
                     dmw.write(start_idx[gidx],data_dict)
                 except Exception:
                     traceback.print_exc()
-    
+    next_sample = i0 + n_windows * dt
+    if n_windows > 0:
+        save_progress(next_sample)
+        print(
+            "mode scan progress %s; lag %.1f s"
+            % (stuffr.unix2datestr(next_sample/1e6), max(0, b[1]-next_sample)/1e6)
+        )
+    return n_windows
 
 if __name__ == "__main__":
     while True:
         print("looking for new tx pulses")
-        update_tx_pulses()
-        time.sleep(10)
+        n_processed = update_tx_pulses()
+        if n_processed == 0:
+            time.sleep(IDLE_SLEEP_SECONDS)

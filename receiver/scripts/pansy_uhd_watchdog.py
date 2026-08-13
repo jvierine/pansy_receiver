@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Restart pansy_uhd_rx when raw-voltage output or phasecal goes bad."""
 import datetime as dt
+import json
 import math
 import os
 import signal
@@ -43,15 +44,27 @@ def config():
         "check_seconds": float(get("PANSY_CHECK_SECONDS", "10")),
         "cooldown_seconds": float(get("PANSY_RESTART_COOLDOWN_SECONDS", "120")),
         "stop_timeout_seconds": float(get("PANSY_STOP_TIMEOUT_SECONDS", "45")),
+        "restart_settle_seconds": float(get("PANSY_RESTART_SETTLE_SECONDS", "15")),
+        "restart_state_path": Path(
+            get(
+                "PANSY_RESTART_STATE_PATH",
+                Path.home() / ".local/state/pansy-receiver/receiver_restart.json",
+            )
+        ),
         "phase_root": Path(get("PANSY_PHASE_ROOT", "/media/analysis/metadata/phase")),
+        "tx_metadata_root": Path(get("PANSY_TX_METADATA_ROOT", "/media/analysis/metadata/tx")),
         "phase_max_jump_deg": float(get("PANSY_PHASE_MAX_JUMP_DEG", "30")),
         "phase_lookback_days": float(get("PANSY_PHASE_LOOKBACK_DAYS", "30")),
         "phase_min_baseline": int(get("PANSY_PHASE_MIN_BASELINE", "10")),
         "phase_check_timeout_seconds": float(get("PANSY_PHASE_CHECK_TIMEOUT_SECONDS", "1200")),
         "phase_max_restarts": int(get("PANSY_PHASE_MAX_RESTARTS", "3")),
         "phase_check_seconds": float(get("PANSY_PHASE_CHECK_SECONDS", "60")),
+        "phase_post_restart_wait_seconds": float(
+            get("PANSY_PHASE_POST_RESTART_WAIT_SECONDS", "90")
+        ),
         "phase_raw_search_samples": int(get("PANSY_PHASE_RAW_SEARCH_SAMPLES", "500000")),
         "phase_raw_pulse_samples": int(get("PANSY_PHASE_RAW_PULSE_SAMPLES", "100")),
+        "phase_tx_lookback_seconds": float(get("PANSY_PHASE_TX_LOOKBACK_SECONDS", "600")),
         "phase_min_valid_channels": int(get("PANSY_PHASE_MIN_VALID_CHANNELS", "7")),
         "phase_min_mean_amplitude": float(get("PANSY_PHASE_MIN_MEAN_AMPLITUDE", "1e7")),
         "phase_reference_deg": get("PANSY_PHASE_REFERENCE_DEG", ""),
@@ -66,6 +79,33 @@ def log(msg):
 def run(cmd, check=False):
     log("+ " + " ".join(cmd))
     return subprocess.run(cmd, check=check, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+
+def write_restart_state(path, timestamp, reason):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(
+            {
+                "receiver_started_utc": timestamp.isoformat(),
+                "reason": reason,
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    temporary.replace(path)
+
+
+def read_restart_state(path):
+    try:
+        value = json.loads(path.read_text())["receiver_started_utc"]
+        timestamp = dt.datetime.fromisoformat(value)
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=dt.timezone.utc)
+        return timestamp.astimezone(dt.timezone.utc)
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return None
 
 
 def pids_for(name):
@@ -84,7 +124,7 @@ def wait_no_pansy_uhd(timeout):
     return not pids_for("pansy_uhd_rx")
 
 
-def clean_restart(service, stop_timeout, reason):
+def clean_restart(service, stop_timeout, settle_seconds, state_path, reason):
     log(f"Restart requested: {reason}")
     run(["systemctl", "--user", "stop", service])
     if not wait_no_pansy_uhd(stop_timeout):
@@ -102,10 +142,19 @@ def clean_restart(service, stop_timeout, reason):
                 except ProcessLookupError:
                     pass
             wait_no_pansy_uhd(10)
+    if pids_for("pansy_uhd_rx"):
+        raise RuntimeError("refusing to start a second receiver while pansy_uhd_rx is still alive")
+    if settle_seconds > 0:
+        log(f"all receiver processes stopped; waiting {settle_seconds:g}s for UHD devices to settle")
+        time.sleep(settle_seconds)
     result = run(["systemctl", "--user", "start", service])
     if result.returncode != 0:
         log(result.stdout.strip())
         raise RuntimeError(f"failed to start {service}")
+    started_at = dt.datetime.now(dt.timezone.utc)
+    write_restart_state(state_path, started_at, reason)
+    log(f"all receivers started; restart recorded at {started_at.isoformat()}")
+    return started_at
 
 
 def scan_h5_mtime(root, max_recent_dirs=6):
@@ -266,34 +315,63 @@ def classify_phase_vector(phase, amplitude, reference, threshold_deg, min_valid_
     }
 
 
-def latest_raw_phase_status(
+def metadata_mode_id(value):
+    values = np.asarray(value).reshape(-1)
+    if values.size == 0:
+        return None
+    try:
+        return int(values[0])
+    except (TypeError, ValueError):
+        return None
+
+
+def latest_mesosphere_phase_status(
     raw_root,
+    tx_metadata_root,
     channels,
     reference,
     threshold_deg,
-    search_samples,
+    tx_lookback_seconds,
     pulse_samples,
     min_valid_channels,
     min_mean_amplitude,
+    after_time=None,
 ):
     import digital_rf as drf
 
     reader = drf.DigitalRFReader(str(raw_root))
     bounds = [reader.get_bounds(channel) for channel in channels]
     start_bound = max(bound[0] for bound in bounds)
-    end = min(bound[1] for bound in bounds) - pulse_samples - 1
-    start = max(start_bound, end - search_samples)
-    if end <= start or end - start < pulse_samples:
+    raw_end = min(bound[1] for bound in bounds) - pulse_samples - 1
+    if raw_end <= start_bound:
         return {"ok": None, "reason": "insufficient common raw-voltage samples"}
 
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message="The read_vector_c81d method is deprecated.*")
-        z0 = reader.read_vector_c81d(start, end - start, channels[0])
-    power = np.abs(z0) ** 2
-    finite_power = np.where(np.isfinite(power), power, 0.0)
-    cumulative = np.concatenate(([0.0], np.cumsum(finite_power, dtype=np.float64)))
-    window_power = cumulative[pulse_samples:] - cumulative[:-pulse_samples]
-    pulse_start = int(start + np.argmax(window_power))
+    try:
+        metadata = drf.DigitalMetadataReader(str(tx_metadata_root))
+        tx_start, tx_end = metadata.get_bounds()
+    except Exception as exc:
+        return {"ok": None, "reason": f"TX metadata unavailable ({exc})"}
+
+    search_start = max(tx_start, tx_end - int(tx_lookback_seconds * 1e6))
+    if after_time is not None:
+        search_start = max(search_start, int(after_time.timestamp() * 1e6) + 1)
+    if tx_end < search_start:
+        return {"ok": None, "reason": "no post-restart mesosphere TX metadata yet"}
+
+    try:
+        records = metadata.read(search_start, tx_end, "id")
+    except Exception as exc:
+        return {"ok": None, "reason": f"could not read TX metadata ({exc})"}
+    candidates = sorted(
+        int(sample)
+        for sample, mode_id in records.items()
+        if metadata_mode_id(mode_id) == 1
+        and start_bound <= int(sample) <= raw_end
+    )
+    if not candidates:
+        qualifier = " post-restart" if after_time is not None else ""
+        return {"ok": None, "reason": f"no{qualifier} mesosphere-mode TX pulse available"}
+    pulse_start = candidates[-1]
 
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="The read_vector_c81d method is deprecated.*")
@@ -375,6 +453,7 @@ def main():
     )
 
     last_restart = 0.0
+    last_receiver_restart = read_restart_state(cfg["restart_state_path"])
     phase_restart_count = 0
     last_phase_check = 0.0
     last_phase_sample = None
@@ -407,25 +486,49 @@ def main():
                     f"{ch} age={'missing' if math.isinf(age) else f'{age:.1f}s'}"
                     for ch, age, _ in stale
                 )
-                clean_restart(cfg["service"], cfg["stop_timeout_seconds"], f"stale raw-voltage data: {reason}")
+                last_receiver_restart = clean_restart(
+                    cfg["service"],
+                    cfg["stop_timeout_seconds"],
+                    cfg["restart_settle_seconds"],
+                    cfg["restart_state_path"],
+                    f"stale raw-voltage data: {reason}",
+                )
                 last_restart = time.time()
             elif stale:
                 log("stale data detected during restart cooldown: " + ", ".join(ch for ch, _, _ in stale))
 
             if phase_reference is not None and time.time() - last_phase_check >= cfg["phase_check_seconds"]:
                 last_phase_check = time.time()
-                status = latest_raw_phase_status(
+                now = dt.datetime.now(dt.timezone.utc)
+                if last_receiver_restart is not None:
+                    wait_until = last_receiver_restart + dt.timedelta(
+                        seconds=cfg["phase_post_restart_wait_seconds"]
+                    )
+                    if now < wait_until:
+                        remaining = (wait_until - now).total_seconds()
+                        log(f"raw phase check waiting {remaining:.0f}s for post-restart TX pulses")
+                        time.sleep(cfg["check_seconds"])
+                        continue
+                status = latest_mesosphere_phase_status(
                     cfg["raw_root"],
+                    cfg["tx_metadata_root"],
                     cfg["channels"],
                     phase_reference,
                     threshold,
-                    cfg["phase_raw_search_samples"],
+                    cfg["phase_tx_lookback_seconds"],
                     cfg["phase_raw_pulse_samples"],
                     cfg["phase_min_valid_channels"],
                     cfg["phase_min_mean_amplitude"],
+                    after_time=last_receiver_restart,
                 )
                 sample_idx = status.get("sample_idx")
-                if sample_idx is not None and sample_idx == last_phase_sample:
+                if (
+                    last_receiver_restart is not None
+                    and status.get("latest_time") is not None
+                    and status["latest_time"] <= last_receiver_restart
+                ):
+                    log("raw phase check skipped: newest TX pulse predates receiver restart")
+                elif sample_idx is not None and sample_idx == last_phase_sample:
                     log("raw phase check skipped: no new raw TX pulse")
                 elif status["ok"] is None:
                     log("raw phase check skipped: " + status["reason"])
@@ -436,9 +539,11 @@ def main():
                     log("bad raw TX phase detected during restart cooldown: " + status["reason"])
                 elif phase_restart_count < cfg["phase_max_restarts"]:
                     phase_restart_count += 1
-                    clean_restart(
+                    last_receiver_restart = clean_restart(
                         cfg["service"],
                         cfg["stop_timeout_seconds"],
+                        cfg["restart_settle_seconds"],
+                        cfg["restart_state_path"],
                         f"bad raw TX phase ({phase_restart_count}/{cfg['phase_max_restarts']}): {status['reason']}",
                     )
                     last_restart = time.time()
