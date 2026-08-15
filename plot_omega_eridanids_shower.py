@@ -7,8 +7,12 @@ import argparse
 from pathlib import Path
 
 import h5py
+import healpy as hp
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib import patheffects
+from matplotlib.collections import PolyCollection
+from matplotlib.colors import LogNorm
 from scipy.stats import norm, poisson
 
 from radiant_visibility import (
@@ -23,13 +27,12 @@ from shower_selection_windows import WINDOWS, format_window, selection_mask
 DEFAULT_CATALOGUE = (
     Path(__file__).parent
     / "figs"
-    / "paper_refresh_20260729_current"
-    / "pansy_keplerian_catalogue.h5"
+    / "zenodo_catalogue_v1_level3_subset"
 )
 DEFAULT_EXPOSURE = (
     Path(__file__).parent
     / "figs"
-    / "paper_refresh_20260727_current"
+    / "paper_radiant_results_current"
     / "paper_radiant_results.h5"
 )
 DEFAULT_OUTPUT = Path.home() / "src" / "pansy_paper" / "paper_omega_eridanids.png"
@@ -60,6 +63,14 @@ MINIMUM_EXPOSURE_HOURS = 3.0
 SIGNAL_SOLAR_RANGE_DEG = (108.0, 112.0)
 PRE_EVENT_BACKGROUND_RANGE_DEG = (100.0, 108.0)
 POST_EVENT_BACKGROUND_RANGE_DEG = (112.0, 120.0)
+RADIANT_PANEL_SOLAR_RANGE_DEG = (106.0, 114.0)
+RADIANT_PANEL_LONGITUDE_RANGE_DEG = (230.0, 330.0)
+RADIANT_PANEL_LATITUDE_RANGE_DEG = (-65.0, 5.0)
+RADIANT_PANEL_NSIDE = 32
+SHOWER_PEAK_HALF_WIDTH_DEG = 10.0
+MDC_BASE_URL = "https://www.ta3.sk/IAUC22DB/MDC2022/Etc"
+MDC_ESTABLISHED_NAME = "streamestablisheddata2026.txt"
+MDC_WORKING_NAME = "streamworkingdata2026.txt"
 
 
 def wrap180(values):
@@ -134,7 +145,58 @@ def ang2pix_ring(nside: int, lon_deg, lat_deg) -> np.ndarray:
 
 
 def load_catalogue(path: Path) -> dict[str, np.ndarray]:
+    if path.is_dir():
+        chunks = []
+        kepler_names = (
+            "semi_major_axis_AU",
+            "eccentricity",
+            "inclination_deg",
+            "longitude_ascending_node_deg",
+            "argument_perihelion_deg",
+            "true_anomaly_deg",
+            "perihelion_distance_AU",
+        )
+        for monthly_path in sorted(path.glob("pansy_level3_*.h5")):
+            with h5py.File(monthly_path, "r") as h5:
+                events = h5["events"]
+                solar = np.asarray(events["sun_ecliptic_longitude_deg"], dtype=np.float64)
+                keep = (solar >= SOLAR_RANGE_DEG[0]) & (solar <= SOLAR_RANGE_DEG[1])
+                if not np.any(keep):
+                    continue
+                chunks.append(
+                    {
+                        "index": np.asarray(events["event_id"][keep], dtype=np.int64),
+                        "epoch": np.asarray(events["epoch_unix_s"][keep], dtype=np.float64),
+                        "solar": solar[keep],
+                        "vg": np.asarray(events["geocentric_speed_km_s"][keep], dtype=np.float64),
+                        "lon": np.asarray(events["sun_centered_ecliptic_longitude_deg"][keep], dtype=np.float64),
+                        "ecliptic_lon": np.asarray(events["radiant_ecliptic_longitude_deg"][keep], dtype=np.float64),
+                        "beta": np.asarray(events["radiant_ecliptic_latitude_deg"][keep], dtype=np.float64),
+                        "kepler": np.column_stack(
+                            [np.asarray(events[name][keep], dtype=np.float64) for name in kepler_names]
+                        ),
+                    }
+                )
+        if not chunks:
+            raise RuntimeError(f"no Level 3 catalogue events in {SOLAR_RANGE_DEG} found under {path}")
+        return {name: np.concatenate([chunk[name] for chunk in chunks]) for name in chunks[0]}
+
     with h5py.File(path, "r") as h5:
+        if "radiants" in h5:
+            rows = h5["radiants"]
+            solar = np.asarray(rows["sun_lambda_ecliptic_deg"], dtype=np.float64)
+            preselect = (solar >= SOLAR_RANGE_DEG[0]) & (solar <= SOLAR_RANGE_DEG[1])
+            index = np.flatnonzero(preselect)
+            return {
+                "index": index,
+                "epoch": np.asarray(rows["epoch_unix"][index], dtype=np.float64),
+                "solar": solar[index],
+                "vg": np.asarray(rows["speed_km_s"][index], dtype=np.float64),
+                "lon": np.asarray(rows["lambda_minus_sun_deg"][index], dtype=np.float64),
+                "ecliptic_lon": np.asarray(rows["radiant_lambda_ecliptic_deg"][index], dtype=np.float64),
+                "beta": np.asarray(rows["radiant_beta_ecliptic_deg"][index], dtype=np.float64),
+                "kepler": np.asarray(rows["kepler"][index], dtype=np.float64),
+            }
         solar = np.asarray(h5["solar_longitude_deg"], dtype=np.float64)
         source = np.asarray(h5["source_id"], dtype=np.int8)
         preselect = (source == 0) & (solar >= SOLAR_RANGE_DEG[0]) & (solar <= SOLAR_RANGE_DEG[1])
@@ -170,6 +232,137 @@ def selection_masks(rows: dict[str, np.ndarray]) -> tuple[np.ndarray, np.ndarray
         dec_deg=dec_deg,
     )
     return shower, core
+
+
+def _solar_distance_deg(values, center_deg: float) -> np.ndarray:
+    return np.abs(wrap180(np.asarray(values, dtype=np.float64) - float(center_deg)))
+
+
+def load_nearby_mdc_showers(
+    established_path: Path | None = None,
+    working_path: Path | None = None,
+) -> list[tuple[str, object]]:
+    """Load every nearby established and Working List radiant shown in panel a."""
+    import iau_meteor_showers as ims
+
+    paths = []
+    for status, name, supplied in (
+        ("Established", MDC_ESTABLISHED_NAME, established_path),
+        ("Working List", MDC_WORKING_NAME, working_path),
+    ):
+        path = Path(supplied).expanduser() if supplied is not None else ims.cache_dir() / name
+        if not path.exists():
+            ims.download_catalog(path, url=f"{MDC_BASE_URL}/{name}")
+        showers = ims.average_showers(ims.load_showers(path, download=False))
+        for shower in showers:
+            lon = float(shower.radiant_solar_ecliptic_lon_deg) % 360.0
+            beta = float(shower.radiant_ecliptic_lat_deg)
+            peak = float(shower.solar_longitude_peak_deg)
+            if (
+                np.isfinite([lon, beta, peak]).all()
+                and _solar_distance_deg(peak, 110.0) <= SHOWER_PEAK_HALF_WIDTH_DEG
+                and RADIANT_PANEL_LONGITUDE_RANGE_DEG[0] <= lon <= RADIANT_PANEL_LONGITUDE_RANGE_DEG[1]
+                and RADIANT_PANEL_LATITUDE_RANGE_DEG[0] <= beta <= RADIANT_PANEL_LATITUDE_RANGE_DEG[1]
+            ):
+                paths.append((status, shower))
+    return sorted(paths, key=lambda item: (item[0], item[1].radiant_ecliptic_lat_deg, item[1].code))
+
+
+def radiant_count_density(rows: dict[str, np.ndarray]) -> np.ndarray:
+    keep = (
+        (rows["solar"] >= RADIANT_PANEL_SOLAR_RANGE_DEG[0])
+        & (rows["solar"] <= RADIANT_PANEL_SOLAR_RANGE_DEG[1])
+        & np.isfinite(rows["lon"])
+        & np.isfinite(rows["beta"])
+    )
+    pixel = hp.ang2pix(
+        RADIANT_PANEL_NSIDE,
+        rows["lon"][keep],
+        rows["beta"][keep],
+        lonlat=True,
+    )
+    count = np.bincount(pixel, minlength=hp.nside2npix(RADIANT_PANEL_NSIDE)).astype(np.float64)
+    return count / hp.nside2pixarea(RADIANT_PANEL_NSIDE, degrees=True)
+
+
+def _healpix_polygons_deg(nside: int, pixels: np.ndarray) -> list[np.ndarray]:
+    boundaries = hp.boundaries(int(nside), np.asarray(pixels, dtype=np.int64), step=1)
+    lon = np.rad2deg(np.arctan2(boundaries[:, 1, :], boundaries[:, 0, :])) % 360.0
+    beta = np.rad2deg(np.arcsin(np.clip(boundaries[:, 2, :], -1.0, 1.0)))
+    center_lon, _ = hp.pix2ang(int(nside), np.asarray(pixels, dtype=np.int64), lonlat=True)
+    lon += 360.0 * np.round((center_lon[:, None] - lon) / 360.0)
+    return [np.column_stack((x, y)) for x, y in zip(lon, beta, strict=True)]
+
+
+def draw_radiant_panel(ax, rows: dict[str, np.ndarray], nearby_showers) -> None:
+    density = radiant_count_density(rows)
+    pixels = np.flatnonzero(density > 0.0)
+    positive = density[pixels]
+    norm = LogNorm(vmin=1.0 / hp.nside2pixarea(RADIANT_PANEL_NSIDE, degrees=True), vmax=np.percentile(positive, 99.5))
+    collection = PolyCollection(
+        _healpix_polygons_deg(RADIANT_PANEL_NSIDE, pixels),
+        array=positive,
+        cmap="magma",
+        norm=norm,
+        edgecolors="none",
+        linewidths=0.0,
+        antialiased=False,
+        rasterized=True,
+        zorder=1,
+    )
+    ax.add_collection(collection)
+    ax.set_facecolor("black")
+    ax.set_xlim(*RADIANT_PANEL_LONGITUDE_RANGE_DEG[::-1])
+    ax.set_ylim(*RADIANT_PANEL_LATITUDE_RANGE_DEG)
+    ax.set_xlabel(r"Sun-centered ecliptic longitude, $\lambda_g-\lambda_\odot$ (deg)")
+    ax.set_ylabel(r"Ecliptic latitude, $\beta_g$ (deg)")
+    ax.set_title(r"Radiants at $\lambda_\odot=110^\circ\pm4^\circ$")
+    ax.grid(color="white", alpha=0.16, lw=0.6, zorder=2)
+
+    label_offsets = {
+        "PHE": (-4, -14), "PPH": (5, 8), "M2024-N1": (5, -13), "FOR": (5, -10),
+        "JXA": (-18, 8), "SJA": (6, -13), "JTR": (-20, 7), "TCT": (5, 7),
+        "APH": (-13, 9), "ZPH": (-3, -13), "JCT": (5, 7), "ESC": (-5, -16),
+    }
+    marker_handles = {}
+    for status, shower in nearby_showers:
+        code = shower.code or shower.name
+        lon = float(shower.radiant_solar_ecliptic_lon_deg) % 360.0
+        beta = float(shower.radiant_ecliptic_lat_deg)
+        marker, color = ("o", "white") if status == "Established" else ("D", "#34d5e5")
+        handle = ax.scatter(
+            lon, beta, marker=marker, s=34, facecolors="none", edgecolors=color,
+            linewidths=1.0, zorder=8,
+        )
+        marker_handles.setdefault(status, handle)
+        dx, dy = label_offsets.get(code, (4, 5))
+        ax.annotate(
+            code,
+            (lon, beta),
+            xytext=(dx, dy),
+            textcoords="offset points",
+            ha="right" if dx < 0 else "left",
+            va="top" if dy < 0 else "bottom",
+            color="white",
+            fontsize=9.2,
+            zorder=9,
+            arrowprops={"arrowstyle": "-", "color": color, "lw": 0.45, "alpha": 0.8},
+            path_effects=[patheffects.withStroke(linewidth=1.5, foreground="black")],
+        )
+
+    ax.scatter(
+        MEAN_SC_LON_DEG, MEAN_BETA_DEG, marker="o", s=520, facecolors="none",
+        edgecolors="#00c8d7", linewidths=1.8, alpha=0.75, zorder=7,
+    )
+    ax.annotate(
+        "JUE", (MEAN_SC_LON_DEG, MEAN_BETA_DEG), xytext=(8, 10), textcoords="offset points",
+        color="white", fontsize=10.0, fontweight="bold", zorder=10,
+        path_effects=[patheffects.withStroke(linewidth=1.6, foreground="black")],
+    )
+    ax.legend(
+        list(marker_handles.values()), list(marker_handles.keys()), loc="upper left",
+        frameon=False, labelcolor="white", fontsize=9.0, handletextpad=0.4,
+    )
 
 
 def interpolate_observation_solar_longitude(h5: h5py.File) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -427,6 +620,7 @@ def make_figure(
     core: np.ndarray,
     profile: dict[str, np.ndarray],
     saamer_profile: dict[str, np.ndarray] | None,
+    nearby_showers,
     output: Path,
 ) -> None:
     core_count = int(np.sum(core))
@@ -446,15 +640,11 @@ def make_figure(
         }
     )
     fig, axes = plt.subplots(1, 3, figsize=(14.0, 4.6), constrained_layout=True)
-    draw_orbit_panel(axes[0], orbits, (0, 1), 11.5)
+    draw_radiant_panel(axes[0], rows, nearby_showers)
     draw_mean_perifocal_panel(axes[1], orbits)
-    axes[0].set_xlabel("Ecliptic X (AU)")
-    axes[0].set_ylabel("Ecliptic Y (AU)")
     axes[1].set_xlabel("Ecliptic line of nodes (AU)")
     axes[1].set_ylabel("In-plane perpendicular (AU)")
-    axes[0].set_title("Viewed from the north ecliptic pole")
     axes[1].set_title("Mean orbital plane")
-    axes[0].legend(loc="lower left", frameon=False, fontsize=10.5)
 
     ra, dec = ecliptic_to_equatorial_deg(rows["ecliptic_lon"][core], rows["beta"][core])
     ra_mean, ra_std = circular_mean_std_deg(ra)
@@ -552,6 +742,20 @@ def make_figure(
         fontsize=8,
     )
 
+    for label, panel in zip(("a)", "b)", "c)"), axes, strict=True):
+        panel.text(
+            -0.12,
+            1.08,
+            label,
+            transform=panel.transAxes,
+            ha="left",
+            va="bottom",
+            color="black",
+            fontweight="bold",
+            fontsize=13,
+            clip_on=False,
+        )
+
     output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output, dpi=240)
     plt.close(fig)
@@ -566,6 +770,8 @@ def main() -> None:
     parser.add_argument("--saamer", type=Path, action="append", default=None)
     parser.add_argument("--saamer-cache", type=Path, default=DEFAULT_CACHE)
     parser.add_argument("--no-saamer", action="store_true")
+    parser.add_argument("--established-shower-catalog", type=Path)
+    parser.add_argument("--working-shower-catalog", type=Path)
     args = parser.parse_args()
 
     rows = load_catalogue(args.catalogue)
@@ -576,7 +782,11 @@ def main() -> None:
         load_selected("JUE", saamer_paths, args.saamer_cache) if saamer_paths else None
     )
     significance = poisson_activity_significance(profile)
-    make_figure(rows, core, profile, saamer_profile, args.output)
+    nearby_showers = load_nearby_mdc_showers(
+        established_path=args.established_shower_catalog,
+        working_path=args.working_shower_catalog,
+    )
+    make_figure(rows, core, profile, saamer_profile, nearby_showers, args.output)
     print(format_window(WINDOWS["JUE"]))
     print(f"selected core meteors: {int(np.sum(core))}")
     print(f"selected 100-120 deg meteors: {int(np.sum(shower))}")
@@ -588,6 +798,7 @@ def main() -> None:
     )
     for name, value in significance.items():
         print(f"{name}: {value}")
+    print("annotated MDC radiants: " + ", ".join(shower.code or shower.name for _, shower in nearby_showers))
     if saamer_profile is not None:
         centers = np.asarray(profile["centers"])
         saamer_count = sliding_counts(saamer_profile["solar"], centers, args.bin_width_deg)

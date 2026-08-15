@@ -4,6 +4,7 @@ from plot_omega_eridanids_shower import (
     ang2pix_ring,
     circular_mean_std_deg,
     ecliptic_to_equatorial_deg,
+    radiant_count_density,
 )
 
 
@@ -29,3 +30,15 @@ def test_ecliptic_to_equatorial_preserves_vernal_equinox():
 
     np.testing.assert_allclose(ra, 0.0, atol=1e-12)
     np.testing.assert_allclose(dec, 0.0, atol=1e-12)
+
+
+def test_radiant_panel_uses_110_plus_minus_four_degree_window():
+    rows = {
+        "solar": np.asarray([105.9, 106.0, 110.0, 114.0, 114.1]),
+        "lon": np.asarray([291.0] * 5),
+        "beta": np.asarray([-48.0] * 5),
+    }
+
+    density = radiant_count_density(rows)
+
+    assert np.isclose(np.sum(density) * (4.0 * np.pi / len(density)) * (180.0 / np.pi) ** 2, 3.0)
