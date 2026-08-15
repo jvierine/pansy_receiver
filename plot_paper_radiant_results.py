@@ -65,7 +65,7 @@ class SnapshotWindow:
 
 SHOWERS = (
     Shower(
-        name="July Eridanids (JUE)",
+        name="July Fornax-Eridanus (JFE)",
         solar_lon_deg=109.24,
         snapshot_solar_lon_deg=None,
         snapshot_half_width_deg=None,

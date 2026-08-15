@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plot the July Eridanid orbit ensemble and solar-longitude activity."""
+"""Plot the July Fornax-Eridanus orbit ensemble and solar-longitude activity."""
 
 from __future__ import annotations
 
@@ -355,7 +355,7 @@ def draw_radiant_panel(ax, rows: dict[str, np.ndarray], nearby_showers) -> None:
         edgecolors="#00c8d7", linewidths=1.8, alpha=0.75, zorder=7,
     )
     ax.annotate(
-        "JUE", (MEAN_SC_LON_DEG, MEAN_BETA_DEG), xytext=(8, 10), textcoords="offset points",
+        "JFE", (MEAN_SC_LON_DEG, MEAN_BETA_DEG), xytext=(8, 10), textcoords="offset points",
         color="white", fontsize=10.0, fontweight="bold", zorder=10,
         path_effects=[patheffects.withStroke(linewidth=1.6, foreground="black")],
     )
@@ -478,7 +478,7 @@ def activity_profile(
 
 
 def poisson_activity_significance(profile: dict[str, np.ndarray]) -> dict[str, float]:
-    """Compare the JUE peak with the adjacent pre- and post-event background."""
+    """Compare the JFE peak with the adjacent pre- and post-event background."""
     centers = np.asarray(profile["centers"], dtype=np.float64)
     counts = np.asarray(profile["shower_count"], dtype=np.float64)
     exposure = np.asarray(profile["exposure"], dtype=np.float64)
@@ -574,7 +574,7 @@ def draw_orbit_panel(ax, orbits: np.ndarray, coordinates: tuple[int, int], limit
         if xyz.shape[1]:
             ax.plot(xyz[ix], xyz[iy], color="0.55", lw=0.45, alpha=0.16)
     mean_xyz = orbit_xyz(MEAN_KEPLER, samples=1200)
-    ax.plot(mean_xyz[ix], mean_xyz[iy], color="black", lw=2.4, label="Mean JUE orbit")
+    ax.plot(mean_xyz[ix], mean_xyz[iy], color="black", lw=2.4, label="Mean JFE orbit")
     ax.scatter(0.0, 0.0, s=55, color="#f5b82e", edgecolor="black", linewidth=0.5, zorder=5)
     ax.set_xlim(-limit_au, limit_au)
     ax.set_ylim(-limit_au, limit_au)
@@ -607,7 +607,7 @@ def draw_mean_perifocal_panel(ax, orbits: np.ndarray) -> None:
             projected = project(xyz)
             ax.plot(projected[0], projected[1], color="0.50", lw=0.55, alpha=0.28)
     mean_projected = project(orbit_xyz(MEAN_KEPLER, samples=1200))
-    ax.plot(mean_projected[0], mean_projected[1], color="black", lw=2.4, label="Mean JUE orbit")
+    ax.plot(mean_projected[0], mean_projected[1], color="black", lw=2.4, label="Mean JFE orbit")
     ax.scatter(0.0, 0.0, s=55, color="#f5b82e", edgecolor="black", linewidth=0.5, zorder=5)
     ax.set_xlim(-10.0, 5.0)
     ax.set_ylim(-6.5, 8.5)
@@ -625,7 +625,7 @@ def make_figure(
 ) -> None:
     core_count = int(np.sum(core))
     if core_count == 0:
-        raise RuntimeError("July Eridanid selection is empty")
+        raise RuntimeError("July Fornax-Eridanus selection is empty")
     orbits = rows["kepler"][core]
     plt.rcParams.update(
         {
@@ -807,7 +807,7 @@ def main() -> None:
             (saamer_profile["solar"] >= SOLAR_RANGE_DEG[0])
             & (saamer_profile["solar"] <= SOLAR_RANGE_DEG[1])
         )
-        print(f"SAAMER selected JUE-like meteors in plot interval: {int(np.sum(in_plot))}")
+        print(f"SAAMER selected JFE-like meteors in plot interval: {int(np.sum(in_plot))}")
         print(f"SAAMER selected-count peak: {centers[peak_index]:.1f} deg")
         print(
             "SAAMER selected mean RA/Dec/vg: "
