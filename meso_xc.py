@@ -262,23 +262,32 @@ def analyze_xc():
         dmxc = drf.DigitalMetadataReader(pc.xc_metadata_dir)
         xcb=dmxc.get_bounds()
         t0=xcb[1]
+        latest_xc_start=xcb[1]
     except Exception:
         traceback.print_exc()
         print("no readable xc metadata yet; starting from first mesomode block")
         t0=dmb[0]
+        latest_xc_start=None
 
     b=d.get_bounds("ch000")
     dd=dmm.read(t0,dmb[1])
     kl=list(dd.keys())
     for ki in range(rank,len(kl),size):
         k=kl[ki]
-        i0=dd[k]["start"]
-        i1=dd[k]["end"]
+        i0=int(n.asarray(dd[k]["start"]).reshape(-1)[0])
+        i1=int(n.asarray(dd[k]["end"]).reshape(-1)[0])
+        # Open mesomode blocks are periodically republished with the same start
+        # and a later end. XC output is keyed by the block start, so processing
+        # an already-written start only recomputes it and causes a duplicate-key
+        # write loop.
+        if latest_xc_start is not None and i0 <= latest_xc_start:
+            continue
         rb=d.get_bounds("ch000")
         if (i1-i0)>60*1000000 and (rb[0]< i0):
             print("long enough")
             try:
                 analyze_block(i0,i1)
+                latest_xc_start=i0
             except Exception:
                 traceback.print_exc()
 
