@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>55P/Tempel-Tuttle orbit evolution</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Arial, Helvetica, sans-serif;
+      color: #171717;
+      background: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; background: #ffffff; }
+    main { width: min(100vw, 100vh); margin: 0 auto; }
+    #viewport {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 1;
+      overflow: hidden;
+      background: #ffffff;
+    }
+    canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+    .title {
+      position: absolute;
+      top: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      margin: 0;
+      width: calc(100% - 300px);
+      text-align: center;
+      font-size: clamp(20px, 3.0vw, 31px);
+      font-weight: 500;
+      pointer-events: none;
+    }
+    .state {
+      position: absolute;
+      top: 22px;
+      left: 22px;
+      font-size: clamp(15px, 2.0vw, 23px);
+      line-height: 1.35;
+      font-variant-numeric: tabular-nums;
+      pointer-events: none;
+    }
+    .legend {
+      position: absolute;
+      top: 68px;
+      right: 22px;
+      display: grid;
+      gap: 7px;
+      padding: 10px 12px;
+      background: rgb(255 255 255 / 82%);
+      font-size: clamp(12px, 1.45vw, 17px);
+      pointer-events: none;
+    }
+    .legend div { display: flex; align-items: center; gap: 8px; }
+    .swatch { width: 28px; height: 3px; flex: 0 0 auto; }
+    .dash { background: repeating-linear-gradient(90deg, #d62d2d 0 8px, transparent 8px 13px); }
+    .controls {
+      position: absolute;
+      left: 18px;
+      right: 18px;
+      bottom: 16px;
+      display: grid;
+      grid-template-columns: auto auto 1fr auto;
+      align-items: center;
+      gap: 10px;
+      padding: 10px;
+      background: rgb(255 255 255 / 88%);
+      border: 1px solid rgb(0 0 0 / 14%);
+    }
+    button {
+      min-height: 38px;
+      border: 1px solid #777;
+      border-radius: 4px;
+      padding: 6px 11px;
+      color: #171717;
+      background: #ffffff;
+      font: inherit;
+      cursor: pointer;
+    }
+    button:hover { background: #f2f2f2; }
+    button[aria-pressed="true"] { color: #ffffff; background: #242424; }
+    #play { width: 42px; padding: 6px; font-size: 19px; }
+    #timeline { width: 100%; accent-color: #159947; }
+    .models { display: flex; gap: 4px; }
+    .models button { white-space: nowrap; }
+    #loading {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      background: #ffffff;
+      font-size: 18px;
+      z-index: 20;
+    }
+    @media (max-width: 620px) {
+      .title { top: 12px; width: calc(100% - 32px); }
+      .state { top: 48px; left: 14px; }
+      .legend { top: 104px; right: 12px; }
+      .controls { left: 10px; right: 10px; bottom: 10px; grid-template-columns: auto 1fr auto; }
+      .models { grid-column: 1 / -1; order: -1; }
+      .models button { flex: 1; }
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <main>
+    <div id="viewport">
+      <h1 class="title">55P/Tempel-Tuttle orbit evolution</h1>
+      <div class="state" id="state"></div>
+      <div class="legend" aria-label="Orbit legend">
+        <div><span class="swatch" style="background:#173f88"></span>Earth orbit</div>
+        <div><span class="swatch" style="background:#d47a1f"></span>Jupiter orbit</div>
+        <div><span class="swatch dash"></span>Original 55P orbit</div>
+        <div><span class="swatch" style="background:#159947"></span><span id="evolution-label">Jupiter + P-R evolution</span></div>
+      </div>
+      <div class="controls">
+        <button id="play" type="button" title="Play or pause" aria-label="Play">&#9654;</button>
+        <button id="camera-motion" type="button" aria-pressed="true">Camera motion</button>
+        <input id="timeline" type="range" min="0" max="239" value="0" aria-label="Evolution time">
+        <div class="models" aria-label="Evolution model">
+          <button type="button" data-model="jupiter">Jupiter only</button>
+          <button type="button" data-model="jupiter-pr" aria-pressed="true">Jupiter + P-R</button>
+        </div>
+      </div>
+      <div id="loading">Loading HDF5 evolution...</div>
+    </div>
+  </main>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import h5wasm from "https://cdn.jsdelivr.net/npm/h5wasm@0.10.3/dist/esm/hdf5_hl.js";
+
+    const FILES = {
+      "jupiter": "tempel_tuttle_jupiter_only.h5",
+      "jupiter-pr": "tempel_tuttle_jupiter_pr_drag.h5",
+    };
+    const LABELS = {
+      "jupiter": "Jupiter-only evolution",
+      "jupiter-pr": "Jupiter + P-R evolution",
+    };
+    const A0 = 10.3383382297577;
+    const E0 = 0.905552720972412;
+    const I0 = THREE.MathUtils.degToRad(162.486575379434);
+    const NODE0 = THREE.MathUtils.degToRad(235.270989149082);
+    const ARG_PERI0 = THREE.MathUtils.degToRad(172.5002736828059);
+    const JUPITER_A = 5.2044;
+    const DURATION_MS = 12000;
+    const viewport = document.getElementById("viewport");
+    const stateLabel = document.getElementById("state");
+    const timeline = document.getElementById("timeline");
+    const playButton = document.getElementById("play");
+    const cameraButton = document.getElementById("camera-motion");
+    const loading = document.getElementById("loading");
+    const evolutionLabel = document.getElementById("evolution-label");
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setClearColor(0xffffff, 1);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    viewport.prepend(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xffffff);
+    const camera = new THREE.PerspectiveCamera(42, 1, 0.05, 160);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.enablePan = false;
+    controls.enableZoom = false;
+    controls.target.set(0, 0, 0);
+
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x888888, 2.0));
+    const sun = new THREE.Mesh(
+      new THREE.SphereGeometry(0.28, 32, 16),
+      new THREE.MeshBasicMaterial({ color: 0xffd51f }),
+    );
+    scene.add(sun);
+    const reference = new THREE.PolarGridHelper(21.7, 4, 8, 96, 0xb9b9b9, 0xe0e0e0);
+    reference.material.transparent = true;
+    reference.material.opacity = 0.34;
+    scene.add(reference);
+
+    function circlePoints(radius, samples = 512) {
+      return Array.from({ length: samples + 1 }, (_, index) => {
+        const angle = 2 * Math.PI * index / samples;
+        return new THREE.Vector3(radius * Math.cos(angle), 0, -radius * Math.sin(angle));
+      });
+    }
+
+    function makeLine(points, color, width = 1, dashed = false) {
+      const geometry = new THREE.BufferGeometry().setFromPoints(points);
+      const material = dashed
+        ? new THREE.LineDashedMaterial({ color, dashSize: 0.35, gapSize: 0.20 })
+        : new THREE.LineBasicMaterial({ color, linewidth: width });
+      const line = new THREE.Line(geometry, material);
+      if (dashed) line.computeLineDistances();
+      scene.add(line);
+      return line;
+    }
+
+    makeLine(circlePoints(1), 0x173f88);
+    makeLine(circlePoints(JUPITER_A), 0xd47a1f);
+
+    function rotationMatrix(node, inclination, argPeri) {
+      const rzNode = new THREE.Matrix4().makeRotationY(-node);
+      const rxInclination = new THREE.Matrix4().makeRotationX(-inclination);
+      const rzPeri = new THREE.Matrix4().makeRotationY(-argPeri);
+      return rzNode.multiply(rxInclination).multiply(rzPeri);
+    }
+
+    function orbitPoints(a, e, inclination, node, argPeri, samples = 720) {
+      const rotation = rotationMatrix(node, inclination, argPeri);
+      const points = [];
+      for (let index = 0; index <= samples; index += 1) {
+        const eccentricAnomaly = 2 * Math.PI * index / samples;
+        const point = new THREE.Vector3(
+          a * (Math.cos(eccentricAnomaly) - e),
+          0,
+          -a * Math.sqrt(Math.max(0, 1 - e * e)) * Math.sin(eccentricAnomaly),
+        );
+        points.push(point.applyMatrix4(rotation));
+      }
+      return points;
+    }
+
+    function solveKepler(meanAnomaly, eccentricity) {
+      let eccentricAnomaly = ((meanAnomaly % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+      for (let iteration = 0; iteration < 12; iteration += 1) {
+        eccentricAnomaly -= (eccentricAnomaly - eccentricity * Math.sin(eccentricAnomaly) - meanAnomaly)
+          / (1 - eccentricity * Math.cos(eccentricAnomaly));
+      }
+      return eccentricAnomaly;
+    }
+
+    const originalOrbit = makeLine(orbitPoints(A0, E0, I0, NODE0, ARG_PERI0), 0xd62d2d, 1, true);
+    const evolvedOrbit = makeLine(orbitPoints(A0, E0, I0, NODE0, ARG_PERI0), 0x159947, 2.5);
+    evolvedOrbit.renderOrder = 3;
+    const particle = new THREE.Mesh(
+      new THREE.SphereGeometry(0.18, 24, 12),
+      new THREE.MeshBasicMaterial({ color: 0xe62acb }),
+    );
+    particle.renderOrder = 5;
+    scene.add(particle);
+
+    const datasets = {};
+    let activeModel = new URLSearchParams(window.location.search).get("model") || "jupiter-pr";
+    if (!(activeModel in FILES)) activeModel = "jupiter-pr";
+    let data;
+    let frame = 0;
+    let playing = true;
+    let cameraMotion = true;
+    let lastTimestamp = performance.now();
+
+    async function loadHdf5(model) {
+      if (datasets[model]) return datasets[model];
+      const { FS } = await h5wasm.ready;
+      const response = await fetch(FILES[model]);
+      if (!response.ok) throw new Error(`Unable to load ${FILES[model]}`);
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      const virtualPath = `/${FILES[model]}`;
+      FS.writeFile(virtualPath, bytes);
+      const file = new h5wasm.File(virtualPath, "r");
+      const keys = [
+        "time_years", "a_au", "eccentricity", "mean_anomaly_rad",
+        "inclination_rad", "longitude_ascending_node_rad", "argument_perihelion_rad",
+      ];
+      const loaded = Object.fromEntries(keys.map((key) => [key, Array.from(file.get(key).value)]));
+      file.close();
+      datasets[model] = loaded;
+      return loaded;
+    }
+
+    function setCamera(progress) {
+      const smooth = progress * progress * (3 - 2 * progress);
+      const azimuth = THREE.MathUtils.degToRad(-45 + 95 * smooth);
+      const elevation = THREE.MathUtils.degToRad(68 - 40 * Math.sin(Math.PI * progress) ** 2);
+      const radius = 60;
+      camera.position.set(
+        radius * Math.cos(elevation) * Math.cos(azimuth),
+        radius * Math.sin(elevation),
+        radius * Math.cos(elevation) * Math.sin(azimuth),
+      );
+      camera.lookAt(0, 0, 0);
+      controls.update();
+    }
+
+    function updateFrame(nextFrame) {
+      frame = Math.max(0, Math.min(data.a_au.length - 1, Math.round(nextFrame)));
+      const a = data.a_au[frame];
+      const e = data.eccentricity[frame];
+      const inclination = data.inclination_rad[frame];
+      const node = data.longitude_ascending_node_rad[frame];
+      const argPeri = data.argument_perihelion_rad[frame];
+      const points = orbitPoints(a, e, inclination, node, argPeri);
+      evolvedOrbit.geometry.dispose();
+      evolvedOrbit.geometry = new THREE.BufferGeometry().setFromPoints(points);
+
+      const eccentricAnomaly = solveKepler(data.mean_anomaly_rad[frame], e);
+      const particlePosition = new THREE.Vector3(
+        a * (Math.cos(eccentricAnomaly) - e),
+        0,
+        -a * Math.sqrt(Math.max(0, 1 - e * e)) * Math.sin(eccentricAnomaly),
+      ).applyMatrix4(rotationMatrix(node, inclination, argPeri));
+      particle.position.copy(particlePosition);
+
+      const progress = frame / Math.max(data.a_au.length - 1, 1);
+      if (cameraMotion) setCamera(progress);
+      timeline.value = String(frame);
+      stateLabel.innerHTML = `${(data.time_years[frame] / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })} kyr<br>`
+        + `e = ${e.toFixed(3)}, i = ${THREE.MathUtils.radToDeg(inclination).toFixed(1)}&deg;`;
+    }
+
+    async function setModel(model) {
+      activeModel = model;
+      data = await loadHdf5(model);
+      timeline.max = String(data.a_au.length - 1);
+      evolutionLabel.textContent = LABELS[model];
+      document.querySelectorAll("[data-model]").forEach((button) => {
+        button.setAttribute("aria-pressed", String(button.dataset.model === model));
+      });
+      updateFrame(0);
+    }
+
+    function resize() {
+      const size = viewport.clientWidth;
+      renderer.setSize(size, size, false);
+      camera.aspect = 1;
+      camera.updateProjectionMatrix();
+    }
+
+    function animate(timestamp) {
+      requestAnimationFrame(animate);
+      if (data && playing) {
+        const elapsed = timestamp - lastTimestamp;
+        const frameStep = elapsed * data.a_au.length / DURATION_MS;
+        if (frameStep >= 1) {
+          updateFrame((frame + Math.floor(frameStep)) % data.a_au.length);
+          lastTimestamp = timestamp;
+        }
+      } else {
+        lastTimestamp = timestamp;
+      }
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    playButton.addEventListener("click", () => {
+      playing = !playing;
+      playButton.innerHTML = playing ? "&#10074;&#10074;" : "&#9654;";
+      playButton.setAttribute("aria-label", playing ? "Pause" : "Play");
+    });
+    timeline.addEventListener("input", () => {
+      playing = false;
+      playButton.innerHTML = "&#9654;";
+      updateFrame(Number(timeline.value));
+    });
+    cameraButton.addEventListener("click", () => {
+      cameraMotion = !cameraMotion;
+      cameraButton.setAttribute("aria-pressed", String(cameraMotion));
+      if (cameraMotion) updateFrame(frame);
+    });
+    controls.addEventListener("start", () => {
+      cameraMotion = false;
+      cameraButton.setAttribute("aria-pressed", "false");
+    });
+    document.querySelectorAll("[data-model]").forEach((button) => {
+      button.addEventListener("click", () => setModel(button.dataset.model));
+    });
+    window.addEventListener("resize", resize);
+
+    resize();
+    setCamera(0);
+    try {
+      await setModel(activeModel);
+      loading.remove();
+      playButton.innerHTML = "&#10074;&#10074;";
+      requestAnimationFrame(animate);
+    } catch (error) {
+      loading.textContent = error.message;
+      throw error;
+    }
+  </script>
+</body>
+</html>
