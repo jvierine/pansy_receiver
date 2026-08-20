@@ -95,6 +95,7 @@
       font-size: 18px;
       z-index: 20;
     }
+    body.capture .controls { display: none; }
     @media (max-width: 620px) {
       .title { top: 12px; width: calc(100% - 32px); }
       .state { top: 48px; left: 14px; }
@@ -177,7 +178,10 @@
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.enablePan = false;
-    controls.enableZoom = false;
+    controls.enableZoom = true;
+    controls.zoomToCursor = true;
+    controls.minDistance = 24;
+    controls.maxDistance = 100;
     controls.target.set(0, 0, 0);
 
     scene.add(new THREE.HemisphereLight(0xffffff, 0x888888, 2.0));
@@ -254,7 +258,10 @@
     scene.add(particle);
 
     const datasets = {};
-    let activeModel = new URLSearchParams(window.location.search).get("model") || "jupiter-pr";
+    const query = new URLSearchParams(window.location.search);
+    const captureMode = query.get("capture") === "1";
+    if (captureMode) document.body.classList.add("capture");
+    let activeModel = query.get("model") || "jupiter-pr";
     if (!(activeModel in FILES)) activeModel = "jupiter-pr";
     let data;
     let frame = 0;
@@ -332,6 +339,24 @@
       updateFrame(0);
     }
 
+    async function setCaptureFrame(model, nextFrame) {
+      playing = false;
+      cameraMotion = true;
+      if (model !== activeModel || !data) await setModel(model);
+      updateFrame(nextFrame);
+      controls.update();
+      renderer.render(scene, camera);
+      await new Promise((resolve) => requestAnimationFrame(() => {
+        renderer.render(scene, camera);
+        resolve();
+      }));
+      return {
+        frame,
+        frameCount: data.a_au.length,
+        timeYears: data.time_years[frame],
+      };
+    }
+
     function resize() {
       const size = viewport.clientWidth;
       renderer.setSize(size, size, false);
@@ -384,8 +409,14 @@
     try {
       await setModel(activeModel);
       loading.remove();
-      playButton.innerHTML = "&#10074;&#10074;";
-      requestAnimationFrame(animate);
+      window.setOrbitCaptureFrame = setCaptureFrame;
+      window.orbitViewerReady = true;
+      if (captureMode) {
+        await setCaptureFrame(activeModel, Number(query.get("frame") || 0));
+      } else {
+        playButton.innerHTML = "&#10074;&#10074;";
+        requestAnimationFrame(animate);
+      }
     } catch (error) {
       loading.textContent = error.message;
       throw error;
