@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import pansy_modes as pm
 import scipy.signal.windows as sw
 import scipy.constants as c
+import scipy.fft as sfft
 import stuffr
 import time
 import pansy_config as pc
@@ -17,9 +18,20 @@ comm = MPI.COMM_WORLD
 size = comm.Get_size()
 rank = comm.Get_rank()
 
+FFT_WORKERS = int(os.environ.get("PANSY_MESO_XC_FFT_WORKERS", "4"))
+
 """
  phase calibration data
 """
+
+
+def doppler_spectra(z, window, workers=FFT_WORKERS):
+    """Transform all channels, beams, and ranges along the pulse axis."""
+    weighted = z * n.asarray(window, dtype=n.float32)[None, None, :, None]
+    return sfft.fftshift(
+        sfft.fft(weighted, axis=2, workers=workers),
+        axes=2,
+    )
 
 def analyze_block(i0,
                   i1,
@@ -95,31 +107,32 @@ def analyze_block(i0,
     W=n.zeros([n_xc,n_beams,ipp])
     WS=n.zeros([n_xc,n_beams,ipp])    
 
-    txpulse=n.zeros(1600,dtype=n.complex64)
-    z_echo=n.zeros(1600,dtype=n.complex64)
     ipp_idx0=0
     print("%d %s"%(rank,stuffr.unix2datestr(i0/1e6)))
     for k in dd.keys():
 
-        ztx=d.read_vector_c81d(k,1600*20,tx_ch)
-        
+        ztx=d.read_vector_c81d(k,1600*20,tx_ch).reshape(20, ipp)
+        tx_pulses=n.zeros((n_beams, 4, ipp), dtype=n.complex64)
+        for bi in range(n_beams):
+            for ti in range(4):
+                tx_pulses[bi,ti,0:txlen]=ztx[ti*5+bi,0:txlen]
+        tx_spectra=sfft.fft(tx_pulses, axis=-1, workers=FFT_WORKERS)
+
         for chi in range(n_ch):
-            z=d.read_vector_c81d(k,1600*20,rx_ch[chi])
-            for bi in range(n_beams):
-                for ti in range(4):
-                    si0=ti*5*1600 + bi*1600
-                    txpulse[0:txlen]=ztx[si0:(si0+txlen)]
-                    z_echo[:]=z[si0:(si0+1600)]
-                    # gc remove
-                    z_echo[0:(txlen+100)]=0.0
-                    Z[chi,bi,ti+ipp_idx0,:]=n.fft.ifft(n.conj(n.fft.fft(txpulse))*n.fft.fft(z_echo))
+            echoes=d.read_vector_c81d(k,1600*20,rx_ch[chi]).reshape(4, n_beams, ipp)
+            echoes=echoes.transpose(1,0,2).copy()
+            # Remove direct transmitter leakage and ground clutter.
+            echoes[:,:,0:(txlen+100)]=0.0
+            echo_spectra=sfft.fft(echoes, axis=-1, workers=FFT_WORKERS)
+            Z[chi,:,ipp_idx0:(ipp_idx0+4),:]=sfft.ifft(
+                n.conj(tx_spectra)*echo_spectra,
+                axis=-1,
+                workers=FFT_WORKERS,
+            )
         # we get for ipps for each 20 pulse cycle
         ipp_idx0+=4
         if ipp_idx0 >= n_ipp:
-            for chi in range(n_ch):
-                for bi in range(n_beams):
-                    for ri in range(1600):
-                        S[chi,bi,:,ri]=n.fft.fftshift(n.fft.fft(wfun*Z[chi,bi,:,ri]))
+            S[:]=doppler_spectra(Z, wfun)
                         
             for pi in range(n_xc):
                 for bi in range(n_beams):

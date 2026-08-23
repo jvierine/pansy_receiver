@@ -1,6 +1,7 @@
 import numpy as np
 
 from mesomode_boundary import closed_mode_blocks
+from meso_xc import doppler_spectra
 
 
 def test_missed_cycle_does_not_split_mesosphere_mode():
@@ -29,3 +30,23 @@ def test_trailing_open_block_is_not_written():
     )
 
     assert blocks == []
+
+
+def test_vectorized_doppler_spectra_matches_loop_implementation():
+    rng = np.random.default_rng(4)
+    z = (
+        rng.standard_normal((2, 3, 16, 7))
+        + 1j * rng.standard_normal((2, 3, 16, 7))
+    ).astype(np.complex64)
+    window = np.hanning(16)
+    expected = np.empty_like(z)
+    for channel in range(z.shape[0]):
+        for beam in range(z.shape[1]):
+            for range_bin in range(z.shape[3]):
+                expected[channel, beam, :, range_bin] = np.fft.fftshift(
+                    np.fft.fft(window * z[channel, beam, :, range_bin])
+                )
+
+    actual = doppler_spectra(z, window, workers=1)
+
+    np.testing.assert_allclose(actual, expected, rtol=2e-6, atol=2e-6)
