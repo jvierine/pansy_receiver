@@ -10,6 +10,38 @@ import pansy_config as pc
 import os
 import traceback
 
+
+MESOMODE_MAX_GAP_SAMPLES = int(
+    float(os.environ.get("PANSY_MESOMODE_MAX_GAP_SECONDS", "0.5")) * 1e6
+)
+
+
+def closed_mode_blocks(start_indices, process_end, max_gap=MESOMODE_MAX_GAP_SAMPLES):
+    """Group detected M-mode cycle starts into blocks known to be closed."""
+    starts = n.asarray(start_indices, dtype=n.int64)
+    if starts.size == 0:
+        return []
+
+    starts = n.unique(starts)
+    blocks = []
+    block_start = int(starts[0])
+    previous = block_start
+    for current in starts[1:]:
+        current = int(current)
+        if current - previous <= max_gap:
+            previous = current
+            continue
+        blocks.append((block_start, previous))
+        block_start = current
+        previous = current
+
+    # process_end is already behind live TX metadata. If no cycle start has
+    # appeared within max_gap, the trailing block is known to have ended.
+    if int(process_end) - previous > max_gap:
+        blocks.append((block_start, previous))
+    return blocks
+
+
 def find_blocks():
     """
     find contiguous blocks of mesosphere mode
@@ -22,7 +54,7 @@ def find_blocks():
     try:
         dmm = drf.DigitalMetadataReader(pc.mesomode_metadata_dir)
         mmb=dmm.get_bounds()
-        start_idx=mmb[1]
+        start_idx=mmb[1]+1
     except Exception:
         print("no mm metadata; starting new mesomode metadata")
 
@@ -42,7 +74,6 @@ def find_blocks():
         file_name,
     )
 
-    max_gap = 20*1600+1600
     block=10*60*1000000
     processing_lag=2*block
     process_end=db[1]-processing_lag
@@ -54,51 +85,24 @@ def find_blocks():
         print("not enough tx metadata yet for mesomode boundary processing")
         return
 
-    i0=start_idx
-#    meso_blocks=[]
-    meso_start=-1
-    meso_prev=-1
-    last_written_end=-1
-    while i0<process_end:
-        i1=min(i0+block, process_end)
-        data_dict = dmr.read(i0, i1, "id")
-        if len(data_dict.keys()) == 0:
-            print("no meso-mode")
-        else:
-            for k in sorted(data_dict.keys()):
-                if data_dict[k] != 1:
-                    continue
-                if meso_start == -1:
-                    meso_start = k
-                    meso_prev=k
-                if ((k-meso_prev) > 0) and ((k-meso_prev) < max_gap):
-                    meso_prev=k
-                if ((k-meso_prev) > 0) and ((k-meso_prev) > max_gap):
-                    meso_end=meso_prev
-                    #meso_blocks.append({"start":meso_start,"end":meso_end})
-                    print("%s found meso mode %1.2f (s)"%(stuffr.unix2datestr(meso_start/1e6), (meso_end-meso_start)/1e6))
-                    odata_dict={}
-                    odata_dict["start"]=[meso_start]
-                    odata_dict["end"]=[meso_end]
-                    try:
-                        dmw.write([meso_end],odata_dict)
-                        last_written_end=meso_end
-                    except Exception:
-                        traceback.print_exc()
-                    # start new
-                    meso_start=k
-                    meso_prev=k
-        i0+=block
-    if meso_start != -1 and meso_prev > last_written_end:
-        print("%s writing open meso mode through %s (%1.2f s)"%(
+    data_dict = dmr.read(start_idx, process_end, "id")
+    meso_starts = [
+        k for k in sorted(data_dict) if int(n.asarray(data_dict[k]).reshape(-1)[0]) == 1
+    ]
+    blocks = closed_mode_blocks(meso_starts, process_end)
+    if not blocks:
+        print("no closed meso-mode blocks")
+        return
+
+    for meso_start, meso_end in blocks:
+        print("%s found meso mode %1.2f (s)"%(
             stuffr.unix2datestr(meso_start/1e6),
-            stuffr.unix2datestr(meso_prev/1e6),
-            (meso_prev-meso_start)/1e6))
+            (meso_end-meso_start)/1e6))
         odata_dict={}
         odata_dict["start"]=[meso_start]
-        odata_dict["end"]=[meso_prev]
+        odata_dict["end"]=[meso_end]
         try:
-            dmw.write([meso_prev],odata_dict)
+            dmw.write([meso_end],odata_dict)
         except Exception:
             traceback.print_exc()
 
