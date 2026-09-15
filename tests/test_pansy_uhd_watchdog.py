@@ -53,3 +53,9 @@ def test_metadata_mode_id_handles_scalar_and_array_values():
     assert watchdog.metadata_mode_id(np.uint8(1)) == 1
     assert watchdog.metadata_mode_id(np.array([1], dtype=np.uint8)) == 1
     assert watchdog.metadata_mode_id(np.array([], dtype=np.uint8)) is None
+
+
+def test_phase_recovery_retries_after_limit_backoff():
+    assert watchdog.phase_recovery_action(2, 3, None, 1000.0, 600.0) == "initial"
+    assert watchdog.phase_recovery_action(3, 3, 900.0, 1000.0, 600.0) == "wait"
+    assert watchdog.phase_recovery_action(3, 3, 300.0, 1000.0, 600.0) == "periodic"

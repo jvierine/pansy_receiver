@@ -58,6 +58,7 @@ def config():
         "phase_min_baseline": int(get("PANSY_PHASE_MIN_BASELINE", "10")),
         "phase_check_timeout_seconds": float(get("PANSY_PHASE_CHECK_TIMEOUT_SECONDS", "1200")),
         "phase_max_restarts": int(get("PANSY_PHASE_MAX_RESTARTS", "3")),
+        "phase_retry_seconds": float(get("PANSY_PHASE_RETRY_SECONDS", "600")),
         "phase_check_seconds": float(get("PANSY_PHASE_CHECK_SECONDS", "60")),
         "phase_post_restart_wait_seconds": float(
             get("PANSY_PHASE_POST_RESTART_WAIT_SECONDS", "90")
@@ -315,6 +316,14 @@ def classify_phase_vector(phase, amplitude, reference, threshold_deg, min_valid_
     }
 
 
+def phase_recovery_action(restart_count, max_restarts, last_retry, now, retry_seconds):
+    if restart_count < max_restarts:
+        return "initial"
+    if last_retry is None or now - last_retry >= retry_seconds:
+        return "periodic"
+    return "wait"
+
+
 def metadata_mode_id(value):
     values = np.asarray(value).reshape(-1)
     if values.size == 0:
@@ -455,6 +464,7 @@ def main():
     last_restart = 0.0
     last_receiver_restart = read_restart_state(cfg["restart_state_path"])
     phase_restart_count = 0
+    last_phase_retry = None
     last_phase_check = 0.0
     last_phase_sample = None
     configured_reference = np.fromstring(cfg["phase_reference_deg"], sep=",")
@@ -535,9 +545,16 @@ def main():
                 elif status["ok"]:
                     log("raw phase check ok: " + status["reason"])
                     phase_restart_count = 0
+                    last_phase_retry = None
                 elif time.time() - last_restart < cfg["cooldown_seconds"]:
                     log("bad raw TX phase detected during restart cooldown: " + status["reason"])
-                elif phase_restart_count < cfg["phase_max_restarts"]:
+                elif phase_recovery_action(
+                    phase_restart_count,
+                    cfg["phase_max_restarts"],
+                    last_phase_retry,
+                    time.time(),
+                    cfg["phase_retry_seconds"],
+                ) == "initial":
                     phase_restart_count += 1
                     last_receiver_restart = clean_restart(
                         cfg["service"],
@@ -547,8 +564,33 @@ def main():
                         f"bad raw TX phase ({phase_restart_count}/{cfg['phase_max_restarts']}): {status['reason']}",
                     )
                     last_restart = time.time()
+                    if phase_restart_count >= cfg["phase_max_restarts"]:
+                        last_phase_retry = last_restart
+                elif phase_recovery_action(
+                    phase_restart_count,
+                    cfg["phase_max_restarts"],
+                    last_phase_retry,
+                    time.time(),
+                    cfg["phase_retry_seconds"],
+                ) == "periodic":
+                    last_receiver_restart = clean_restart(
+                        cfg["service"],
+                        cfg["stop_timeout_seconds"],
+                        cfg["restart_settle_seconds"],
+                        cfg["restart_state_path"],
+                        f"periodic recovery after bad TX phase: {status['reason']}",
+                    )
+                    last_restart = time.time()
+                    last_phase_retry = last_restart
                 else:
-                    log("raw phase check failed but restart limit reached: " + status["reason"])
+                    remaining = max(
+                        0.0,
+                        cfg["phase_retry_seconds"] - (time.time() - last_phase_retry),
+                    )
+                    log(
+                        "raw phase check failed; restart limit reached, "
+                        f"next periodic recovery in {remaining:.0f}s: {status['reason']}"
+                    )
                 last_phase_sample = sample_idx
 
         except Exception as exc:

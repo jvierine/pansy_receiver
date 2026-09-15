@@ -53,6 +53,10 @@ watchdog restart is recorded in
 `~/.local/state/pansy-receiver/receiver_restart.json`; phase validation waits
 90 seconds and only accepts a mesosphere-mode transmit pulse whose TX metadata
 and raw voltage were both captured after that timestamp.
+If the initial three phase-recovery attempts fail, the watchdog continues with
+one full receiver restart every 10 minutes until a fresh TX pulse matches the
+known-good phase pattern. It no longer leaves a bad phase state running
+indefinitely after exhausting the initial retry burst.
 
 The mode finder keeps its independent raw-voltage scan cursor in
 `~/.local/state/pansy-receiver/find_mode_starts.json`. The cursor advances for
