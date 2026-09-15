@@ -20,6 +20,7 @@
 #include <string>
 #include <ctime>
 #include <cmath>
+#include <atomic>
 
 namespace po = boost::program_options;
 
@@ -27,6 +28,8 @@ using namespace uhd::usrp;
 using namespace std;
 
 namespace {
+
+std::atomic<bool> receiver_failed(false);
 
 void stop_rx_stream(const uhd::rx_streamer::sptr& rx_stream)
 {
@@ -175,11 +178,10 @@ void streaming_by_channel(size_t chan,double rate,std::string subdev,std::string
     uint64_t prev_tl=0;
     size_t prev_num_rx_samps = 0;
     uhd::time_spec_t next_start_time = ts_t0;
-    uint64_t restart_count = 0;
     const int max_empty_recvs = 10;
     const double restart_delay = 2.0;
 
-    while (1)
+    while (!receiver_failed.load())
     {
       uhd::rx_streamer::sptr rx_stream;
 
@@ -214,7 +216,7 @@ void streaming_by_channel(size_t chan,double rate,std::string subdev,std::string
         double timeout = restart_delay + 1.0;
         int n_empty = 0;
 
-        while (1)
+        while (!receiver_failed.load())
         {
           size_t num_rx_samps = rx_stream->recv(buffs, buff.size(), md, timeout, true);
 
@@ -246,6 +248,7 @@ void streaming_by_channel(size_t chan,double rate,std::string subdev,std::string
             result = digital_rf_write_hdf5(data_object, tl - global_start_index, a, num_rx_samps);
             if(result != 0) {
               stop_rx_stream(rx_stream);
+              receiver_failed.store(true);
               return;
             }
             prev_tl=tl;
@@ -268,18 +271,16 @@ void streaming_by_channel(size_t chan,double rate,std::string subdev,std::string
           // use a small timeout for subsequent packets
           timeout = 0.1;
         }
+        stop_rx_stream(rx_stream);
       }
       catch (const std::exception& e)
       {
         stop_rx_stream(rx_stream);
-        restart_count += 1;
-        // Recreate the stream and schedule the next attempt in the near future.
-        next_start_time = next_stream_start_time(usrp, restart_delay);
-        std::cerr << "Channel " << chan << " stalled after " << restart_count
-                  << " restart attempts: " << e.what()
-                  << ". Recreating stream at "
-                  << next_start_time.get_real_secs() << "." << std::endl;
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        receiver_failed.store(true);
+        std::cerr << "Channel " << chan << " stalled: " << e.what()
+                  << ". Stopping the combined receiver so all channels restart together."
+                  << std::endl;
+        return;
       }
     }
 }
@@ -400,5 +401,5 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         thread.join();
     }
 
-    return EXIT_SUCCESS;
+    return receiver_failed.load() ? EXIT_FAILURE : EXIT_SUCCESS;
 }

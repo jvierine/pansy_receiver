@@ -45,7 +45,11 @@ The watchdog checks `ch000` through `ch007` under `/media/archive` every
 10 seconds. One `pansy_uhd_rx` process owns all four USRPs and all eight
 channels. If any channel is stale, the watchdog stops that combined receiver,
 verifies that it has exited, waits 15 seconds for every UHD device session to
-close, and then starts all receivers together. It measures transmit-pulse
+close, and then starts all receivers together. The receiver binary also treats
+a stall in any individual stream as a failure of the combined receiver,
+allowing systemd to reopen every
+USRP and channel together instead of restarting one channel with an unrelated
+phase. It measures transmit-pulse
 cross-phase only at sample indices identified as mesosphere mode (`id=1`) in
 the TX metadata. A phase jump larger than the configured threshold triggers
 the same full receiver restart. Every
