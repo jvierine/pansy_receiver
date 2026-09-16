@@ -12,8 +12,8 @@ import time
 import scipy.fftpack as fp
 import itertools
 import pansy_config as pc
-import glob
-import h5py 
+
+from meteor_progress import read_completed_frontier
 
 def metadata_bounds(path, label):
     try:
@@ -411,16 +411,16 @@ def analyze_until_now():
             print(b_det)
 
         try:
-            # look for mf search output to determine where it has reached. only analyze that far
-            fl=glob.glob("/tmp/meteor_mf_*.h5")
-            latest_idx=[]
-            for f in fl:
-                h=h5py.File(f,"r")
-                print(f)
-                latest_idx.append(h["latest"][()])
-                h.close()
-            if len(latest_idx) > 0:
-                analysis_end=n.min(latest_idx)
+            # Prefer the frontier committed after every MPI rank completes its
+            # cycle. Fall back to legacy per-rank checkpoints during upgrades.
+            complete_progress = "/tmp/meteor_mf_complete.h5"
+            completed_frontier = read_completed_frontier(
+                complete_progress,
+                "/tmp/meteor_mf_[0-9]*.h5",
+            )
+            if completed_frontier is not None:
+                analysis_end = completed_frontier
+                print(complete_progress)
         except Exception as exc:
             print("couldn't read latest file. waiting for quicksource to finish")
             print(exc)

@@ -15,6 +15,8 @@ import pansy_config as pc
 import traceback
 import warnings
 
+from meteor_progress import write_progress
+
 warnings.filterwarnings(
     "ignore",
     message="The read_vector_c81d method is deprecated.*",
@@ -43,14 +45,7 @@ def log0(message):
 def write_rank_progress(latest):
     """Atomically publish the analysis frontier completed by this MPI rank."""
     progress_path = "/tmp/meteor_mf_%d.h5" % (rank)
-    temporary_path = "%s.%d.tmp" % (progress_path, os.getpid())
-    try:
-        with h5py.File(temporary_path, "w") as progress_file:
-            progress_file["latest"] = int(latest)
-        os.replace(temporary_path, progress_path)
-    finally:
-        if os.path.exists(temporary_path):
-            os.unlink(temporary_path)
+    write_progress(progress_path, latest)
 
 
 RANGE_SAMPLE_KM = c.c / 2.0 / 1e6 / 1e3
@@ -508,6 +503,17 @@ def meteor_search(debug=False):
                 first_i0 = item["first_i0"] if first_i0 is None else min(first_i0, item["first_i0"])
             if item["last_i1"] is not None:
                 last_i1 = item["last_i1"] if last_i1 is None else max(last_i1, item["last_i1"])
+        if totals["processing_errors"] == 0:
+            write_progress("/tmp/meteor_mf_complete.h5", end_idx)
+            print(
+                "meteor search committed complete frontier %s"
+                % stuffr.unix2datestr(end_idx/1e6)
+            )
+        else:
+            print(
+                "meteor search did not advance complete frontier: errors=%d"
+                % totals["processing_errors"]
+            )
         if first_i0 is None:
             print("meteor search summary: no assigned mesomode blocks")
         else:
