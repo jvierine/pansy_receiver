@@ -39,6 +39,20 @@ def log0(message):
     if rank == 0:
         print(message)
 
+
+def write_rank_progress(latest):
+    """Atomically publish the analysis frontier completed by this MPI rank."""
+    progress_path = "/tmp/meteor_mf_%d.h5" % (rank)
+    temporary_path = "%s.%d.tmp" % (progress_path, os.getpid())
+    try:
+        with h5py.File(temporary_path, "w") as progress_file:
+            progress_file["latest"] = int(latest)
+        os.replace(temporary_path, progress_path)
+    finally:
+        if os.path.exists(temporary_path):
+            os.unlink(temporary_path)
+
+
 RANGE_SAMPLE_KM = c.c / 2.0 / 1e6 / 1e3
 METEOR_SEARCH_MIN_SLANT_RANGE_KM = 60.0
 METEOR_SEARCH_MAX_SLANT_RANGE_KM = 170.0
@@ -188,11 +202,8 @@ def process_m_mode(key,d,rds,dmw,dm_mf2,chs=["ch000","ch001","ch002","ch003","ch
     odata_dict["noise_floor"]=[noise_floors]
     odata_dict["tx_idxs"]=[tx_idxs]
 
-    # write timestamp of last detection in tmp file, so that we know how far the analysis has reached.
-    last_fname="/tmp/meteor_mf_%d.h5"%(rank)
-    ho=h5py.File(last_fname,"w")
-    ho["latest"]=key
-    ho.close()
+    # Publish incremental progress atomically while this rank is working.
+    write_rank_progress(key)
     # check if we have done this already?
     mf2out=dm_mf2.read(key-100,key+100,["beam_pos_idx"])
     if len(mf2out.keys())==0:
@@ -470,6 +481,14 @@ def meteor_search(debug=False):
                 stuffr.unix2datestr(i1/1e6),
                 (cput1-cput0)/(size*(block_meso*20*1.6e-3))))
             summary["processed_meso"] += block_meso
+
+    # Every rank must advance its watermark, including ranks that received no
+    # block in this cycle. The minimum rank watermark is the clustering safety
+    # frontier, so leaving an idle rank stale blocks all downstream products.
+    # Keep a rank behind when it encountered an error so clustering cannot skip
+    # potentially incomplete matched-filter output.
+    if summary["processing_errors"] == 0:
+        write_rank_progress(end_idx)
 
     all_summaries = comm.gather(summary, root=0)
     if rank == 0:

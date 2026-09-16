@@ -4,7 +4,6 @@ Date: 2026-06-03
 
 Local repo: `/Users/jvi019/src/pansy_receiver`
 Remote repo: `/home/radar/src/git/pansy_receiver` on `syowa-meteor`
-Remote SSH: `ssh -J j@4.235.86.214 -p 3131 radar@localhost`
 
 Analysis local configuration:
 - Use `/Users/jvi019/src/pansy_receiver` with `conda run -n base python ...` locally.
