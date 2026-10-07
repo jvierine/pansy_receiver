@@ -10,7 +10,8 @@ RSYNC_BWLIMIT="${RADIANT_MONITOR_RSYNC_BWLIMIT_KB:-1000}"
 
 cd "$REPO_DIR"
 
-exec /usr/bin/python3 "$REPO_DIR/publish_radiant_monitor.py" \
+PYTHON="${PANSY_MONITOR_PYTHON:-/usr/bin/python3}"
+exec "$PYTHON" "$REPO_DIR/publish_radiant_monitor.py" \
   --loop \
   --interval-s "$INTERVAL_SECONDS" \
   --rsync-bwlimit "$RSYNC_BWLIMIT"

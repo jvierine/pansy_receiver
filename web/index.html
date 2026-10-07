@@ -269,6 +269,10 @@
     </div>
 </header>
 
+<div id="monitorFreshness" role="status" style="padding:12px 16px;font-size:16px;font-weight:bold;">
+    Checking source-data freshness...
+</div>
+
 <div class="dashboard">
 
     <div class="card">
@@ -282,12 +286,13 @@
     </div>
 
     <div class="card">
-        <h2>Current Fitted Radiants</h2>
+        <h2>Fitted Radiants — Processed Archive</h2>
+        <div id="radiantCoverage" style="font-size:13px;text-align:center;">Checking analyzed date range...</div>
         <img class="dashboard-image" src="current_fitted_radiant_distribution.png">
     </div>
 
     <div class="card">
-        <h2>Current Radiant Histogram</h2>
+        <h2>Radiant Histogram — Processed Archive</h2>
         <img class="dashboard-image" src="current_fitted_radiant_distribution_healpix.png">
     </div>
 
@@ -604,6 +609,28 @@
         return labels[path] || path;
     }
 
+    fetch('radiant_monitor.json', {cache: 'no-store'})
+        .then(response => { if (!response.ok) throw new Error('HTTP ' + response.status); return response.json(); })
+        .then(status => {
+            document.getElementById('radiantCoverage').textContent =
+                `Analyzed observations: ${status.first_analyzed_day || '?'} through ${status.latest_analyzed_day || '?'}. Not the live 48-hour feed.`;
+        })
+        .catch(() => { document.getElementById('radiantCoverage').textContent = 'Archive coverage unavailable — not the live 48-hour feed.'; });
+
+    const freshness = {};
+    function recordFreshness(name, generatedUtc) {
+        const generated = Date.parse(generatedUtc);
+        const age = Number.isFinite(generated) ? Math.max(0, (Date.now() - generated) / 1000) : null;
+        freshness[name] = {age, generatedUtc};
+        const entries = Object.entries(freshness);
+        const stale = entries.some(([, value]) => value.age === null || value.age > 3600);
+        const el = document.getElementById('monitorFreshness');
+        el.className = stale ? 'critical' : 'ok';
+        el.textContent = (stale ? 'STALE MONITOR DATA — ' : '') + entries.map(([label, value]) =>
+            `${label}: ${value.age === null ? 'unavailable' : formatAge(value.age) + ' old'}`
+        ).join(' | ');
+    }
+
     fetch('ops_status.json', {cache: 'no-store'})
         .then(response => {
             if (!response.ok) {
@@ -612,6 +639,7 @@
             return response.json();
         })
         .then(status => {
+            recordFreshness('Syowa plots/status', status.generated_utc);
             const generatedMs = Date.parse(status.generated_utc);
             const ageSeconds = Number.isFinite(generatedMs)
                 ? Math.max(0, (Date.now() - generatedMs) / 1000)
@@ -642,6 +670,7 @@
                 </div>`;
         })
         .catch(error => {
+            recordFreshness('Syowa plots/status', null);
             document.getElementById('diskSummary').innerHTML =
                 `<span class="critical">Could not load disk status: ${error}</span>`;
         });
@@ -649,14 +678,17 @@
     fetch('status.json', {cache: 'no-store'})
         .then(response => response.json())
         .then(status => {
+            recordFreshness('Backup monitor', status.generated_utc);
+            const snapshotAge = Math.max(0, (Date.now() - Date.parse(status.generated_utc)) / 1000);
             const rows = status.channels.map(channel => {
-                const fresh = channel.age_seconds !== null &&
-                    channel.age_seconds < 3600 &&
+                const age = channel.age_seconds === null || !Number.isFinite(snapshotAge)
+                    ? null : channel.age_seconds + snapshotAge;
+                const fresh = age !== null && age < 3600 &&
                     channel.last_rsync_exit_code === 0;
                 return `<tr>
                     <td class="${fresh ? 'ok' : 'warn'}">${channel.channel}</td>
                     <td class="${channel.rsync_active ? 'ok' : ''}">${formatActive(channel)}</td>
-                    <td>${formatAge(channel.age_seconds)}</td>
+                    <td>${formatAge(age)}</td>
                     <td>${formatFilesLeft(channel)}</td>
                 </tr>`;
             }).join('');
@@ -702,6 +734,7 @@
                 </table>`;
         })
         .catch(error => {
+            recordFreshness('Backup monitor', null);
             document.getElementById('backupSummary').textContent =
                 `Could not load backup status: ${error}`;
             document.getElementById('mirrorSummary').textContent =

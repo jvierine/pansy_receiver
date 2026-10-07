@@ -13,12 +13,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from radiant_visibility import radiant_above_local_horizon
-from dasst_orbits_from_candidate_states import (
-    DEFAULT_KERNEL,
-    dasst_orbit_from_gcrs,
-    first_radiant_column,
-    radiant_payload_from_dasst,
-)
+# Keep plotting precomputed metadata independent of the raw-RF/orbit runtime.
+# Import those optional dependencies only in paths that actually use them.
 from radiant_visibility import add_composite_visibility_boundary_hammer, add_visibility_boundary_hammer, visibility_samples_from_radiants
 
 
@@ -105,6 +101,7 @@ def first_existing_hypothesis(h5: h5py.File, accepted: str | None, include_rejec
 
 
 def radiant_row_from_payload(sample_idx: int, label: str, grp, payload: dict[str, np.ndarray], source: str):
+    from dasst_orbits_from_candidate_states import first_radiant_column
     radiant_gcrs = first_radiant_column(payload, "radiant_orbit_GCRS", 2)
     radiant_gme = first_radiant_column(payload, "radiant_orbit_GeocentricMeanEcliptic", 2)
     radiant_sun_gme = first_radiant_column(payload, "radiant_sun_GeocentricMeanEcliptic", 2)
@@ -181,6 +178,7 @@ def collect_one(task):
         return None
     if not recompute_missing:
         return None
+    from dasst_orbits_from_candidate_states import dasst_orbit_from_gcrs, radiant_payload_from_dasst
     try:
         with h5py.File(state_path, "r") as hs, h5py.File(orbit_path, "r") as ho:
             if label is None:
@@ -416,6 +414,7 @@ def plot_radiants_with_options(
 
 
 def main():
+    from dasst_orbits_from_candidate_states import DEFAULT_KERNEL
     parser = argparse.ArgumentParser(description="Plot PANSY radiant distribution from DASST orbit-determination products.")
     parser.add_argument("--input-dir", type=Path, default=Path("test_plots"))
     parser.add_argument("--output-png", type=Path, default=Path("test_plots/fitted_radiant_distribution.png"))

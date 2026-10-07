@@ -1,0 +1,39 @@
+PANSY monitor recovery, 2026-10-07 UTC
+
+Public /pansy stopped updating after the 2026-10-02 03:46 directory move
+to Azure Files/CIFS. Publishers failed creating rsync temporary files with
+EPERM. Last successful backup publication was 03:43, first failure 03:48.
+Receiver/processing and Antarctica -> Revontuli backup continued operating.
+
+juha.no deployment:
+  /var/www/html/pansy -> /var/www/pansy-live (local ext4, j:j)
+  preserved original: /mnt/shovel/storage/www/html/pansy
+The original frozen copy was not deleted. Keep the live publish target on
+a filesystem supporting normal rsync temporary-file and atomic-rename
+semantics. Disk use for the copied site was about 359 MiB, with 5 GiB free
+before copying. The normal Syowa rate limit remains 1 KiB/s; recovery used
+one 10 KiB/s plot upload. Only plot/web publishers were restarted, not RX.
+
+Revontuli radiant publisher:
+  /home/j/venv/pansy-monitor (system-site-packages, Python 3.14)
+  pip install -r requirements-monitor.txt
+  ~/.config/systemd/user/pansy-radiant-monitor.service.d/runtime.conf:
+    [Service]
+    Environment=PANSY_MONITOR_PYTHON=/home/j/venv/pansy-monitor/bin/python
+After changes: systemctl --user daemon-reload
+              systemctl --user restart pansy-radiant-monitor.service
+
+The plotting import no longer loads digital_rf/DASST merely to display
+precomputed orbit metadata. healpy and astropy are installed in the monitor
+environment. System-wide pip-check reports unrelated distro/stub-package
+issues; the focused publisher import regression passes in this environment.
+
+The radiant archive has observations through 2026-07-26; it is not the live
+48-hour detection feed. Rebuilding/publishing it does not create new orbit
+fits. The dashboard now labels this explicitly and displays its date range.
+It also shows source-status ages and corrects backup channel ages for the
+age of the published JSON, avoiding frozen snapshots appearing fresh.
+
+Verification: HTTP source timestamps, publisher journal/exit status, fresh
+Syowa plots, local source metadata, and browser freshness banner. Do not
+infer acquisition health from active services or a running page clock alone.

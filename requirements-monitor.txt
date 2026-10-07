@@ -1,0 +1,8 @@
+# Plotting precomputed orbit metadata does not require digital-rf or DASST.
+# Deployment: python3 -m venv --system-site-packages ~/venv/pansy-monitor
+# Then: ~/venv/pansy-monitor/bin/python -m pip install -r requirements-monitor.txt
+numpy
+h5py
+matplotlib
+healpy==1.20.1
+astropy==8.0.1
