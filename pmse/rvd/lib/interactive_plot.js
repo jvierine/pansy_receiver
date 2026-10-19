@@ -81,6 +81,10 @@ var InteractiveFieldPlot = class _InteractiveFieldPlot {
     this.options.spec = spec;
     this.reset();
   }
+  setFrameParameters(parameters) {
+    this.options.frameParameters = parameters;
+    this.queueFrame();
+  }
   reset() {
     this.viewport.reset();
     this.changed();
@@ -137,6 +141,7 @@ var InteractiveFieldPlot = class _InteractiveFieldPlot {
       const url = svgURL(frame.panel_labels[i]);
       this.labelURLs.push(url);
       p.label.src = url;
+      p.label.style.display = this.options.spec.panels[i] ? "block" : "none";
       p.label.style.left = `calc(${x * 100}% + 4px)`;
       p.label.style.top = `calc(${y * 100}% + 4px)`;
       p.field.set_scale(this.limits[0], this.limits[1], 0, 0.1, 2);

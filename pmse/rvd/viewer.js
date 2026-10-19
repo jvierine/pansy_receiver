@@ -31,6 +31,7 @@ function summaries(frame,beam,nr){
   return {peak,moments};
 }
 function renderRTI(){
+  rtiPlot.setFrameParameters({hsv:$('display').value==='hsv'?1:0,velocity_limit:+$('vlim').value,width_limit:+$('wlim').value});
   const geom=manifest.geometry,nr=geom.slant_range_km.length,first=frames[0].start_us,columns=[],xb=[];
   for(let i=0;i<frames.length;i++){
     const f=frames[i],previous=frames[i-1],next=frames[i+1];
