@@ -21,6 +21,7 @@ export async function imageSelection(key,slantRange,offsetSeconds=0){
       plot=await InteractiveFieldPlot.mount($('imagePlot'),{id:'image',frameParameters:{range_km:range},
        spec:{bounds:[-extent,-extent,extent,extent],xlabel:'East (km)',ylabel:'North (km)',colorbar_label:'Relative power (dB)',panels:['']},colorLimits:[-30,0]});previousRange=range;
      }
+     if(data.id!==sequence)return;
      lastMoments=moments;
      plot.panels[0].set_rectilinear_data(edges(extent),edges(extent),Float32Array.from({length:grid*grid},(_,i)=>moments[4*i]));repaint();
      const signal=Array.from({length:grid*grid},(_,i)=>moments[4*i+3]).some(x=>x>0);

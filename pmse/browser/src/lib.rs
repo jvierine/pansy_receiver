@@ -26,7 +26,7 @@ fn err(s:impl ToString)->JsValue { JsValue::from_str(&s.to_string()) }
 impl BrowserImager {
     #[wasm_bindgen(constructor)]
     pub fn new(geometry_json:&str, height_km:f64, grid:usize, fixed_slant_range:bool)->Result<BrowserImager,JsValue> {
-        if !(21..=101).contains(&grid) || !height_km.is_finite() || !(50. ..=120.).contains(&height_km) {
+        if !(21..=101).contains(&grid) || !height_km.is_finite() || height_km<50. || height_km>if fixed_slant_range {123.}else{120.} {
             return Err(err("Invalid image grid/altitude"));
         }
         let g:Geometry=serde_json::from_str(geometry_json).map_err(err)?;
