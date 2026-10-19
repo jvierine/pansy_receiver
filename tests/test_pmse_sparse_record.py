@@ -9,7 +9,7 @@ import numpy as np
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from pmse.sparse_record import (Config, C, axes, decode_pulses, coherent_spectrum,
-                                sparsify, write_record, read_complete, contiguous_looks,mode_is_closed)
+                                sparsify, write_record, read_complete, contiguous_looks,mode_is_closed,pulse_indices)
 
 
 class SparseRecordTests(unittest.TestCase):
@@ -105,6 +105,16 @@ class SparseRecordTests(unittest.TestCase):
         self.assertFalse(mode_is_closed(last,last+1_000_000,{}))
         self.assertFalse(mode_is_closed(last,last+20_000_000,{last+32000:{'id':1}}))
         self.assertTrue(mode_is_closed(last,last+20_000_000,{last+100000:{'id':0}}))
+
+    def test_clock_tracking_does_not_fragment_looks_or_misalign_cycles(self):
+        cfg=Config()
+        keys=np.arange(128,dtype=np.int64)*32000+np.arange(128)//30
+        groups=list(contiguous_looks(keys,cfg))
+        self.assertEqual([len(g) for g in groups],[64,64])
+        for group in groups:
+            idx=pulse_indices(group,cfg)
+            np.testing.assert_array_equal(idx[::20,0],group-group[0])
+            self.assertEqual(int(idx[-1,-1])+1,int(group[-1]-group[0])+32000)
 
     def test_native_digital_metadata_roundtrip_empty_and_signal(self):
         z=self.noise(); ri,_,_,valid,_,_=axes(self.cfg)

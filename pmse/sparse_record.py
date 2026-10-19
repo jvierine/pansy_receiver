@@ -256,11 +256,20 @@ def instrument_snapshot():
 
 def contiguous_looks(keys,cfg):
     keys=np.asarray(sorted(keys),dtype=np.int64)
-    groups=np.split(keys,np.flatnonzero(np.diff(keys)!=20*cfg.ipp_samples)+1)
+    # TX clock tracking occasionally advances a cycle marker by one sample.
+    # Keep it coherent but align each cycle to its measured absolute sample.
+    # Actual missing cycles still split the coherent sequence.
+    groups=np.split(keys,np.flatnonzero(abs(np.diff(keys)-20*cfg.ipp_samples)>2)+1)
     cycles=cfg.nfft//4
     for group in groups:
         for start in range(0,len(group),cycles):
             yield group[start:start+cycles]
+
+
+def pulse_indices(group,cfg):
+    return ((group-group[0])[:,None,None]+
+            np.arange(20)[None,:,None]*cfg.ipp_samples+
+            np.arange(cfg.ipp_samples)[None,None,:]).reshape(-1,cfg.ipp_samples)
 
 
 def process_mode(raw_root,tx_root,start,last,cfg):
@@ -274,13 +283,14 @@ def process_mode(raw_root,tx_root,start,last,cfg):
     for group in contiguous_looks(keys,cfg):
         pulse_count=4*len(group)
         try:
-            count=20*cfg.ipp_samples*len(group)
+            count=int(group[-1]-group[0])+20*cfg.ipp_samples
+            indices=pulse_indices(group,cfg)
             ref=reader.read_vector_1d(int(group[0]),count,'ch007').astype(np.complex64)
-            ref=ref.reshape(-1,cfg.ipp_samples)
+            ref=ref[indices]
             decoded=np.empty((7,5,pulse_count,len(ri)),dtype=np.complex64)
             for channel in range(7):
                 rx=reader.read_vector_1d(int(group[0]),count,f'ch{channel:03d}').astype(np.complex64)
-                matched,pulse_power=decode_pulses(rx.reshape(-1,cfg.ipp_samples),ref,cfg)
+                matched,pulse_power=decode_pulses(rx[indices],ref,cfg)
                 # pulse order: cycle, four repeated five-beam sweeps, beam
                 decoded[channel]=matched[:,ri].reshape(-1,4,5,len(ri)).transpose(2,0,1,3).reshape(5,pulse_count,len(ri))
             spectra.append(coherent_spectrum(decoded,cfg))
@@ -308,6 +318,10 @@ def process_mode(raw_root,tx_root,start,last,cfg):
     out['coverage_fraction']=out['coverage_seconds']/out['mode_duration_seconds']
     out['n_tx_cycles']=len(keys)
     out['total_pulses_per_beam']=int(sum(counts))
+    out['look_coherent_seconds']=np.asarray(counts)*5*cfg.ipp_samples/cfg.sample_rate_hz
+    gains=np.array([(np.hanning(n).sum())**2/(np.hanning(n)**2).sum() for n in counts])
+    out['look_coherent_signal_power_gain']=gains
+    out['look_equivalent_noise_bandwidth_hz']=cfg.sample_rate_hz/(5*cfg.ipp_samples*gains)
     if out['quality']=='ok' and out['coverage_fraction']<.999:
         out['quality']='partial_coverage'
     return out
@@ -368,7 +382,8 @@ def main():
             try:
                 out=process_mode(a.raw_root,a.tx_root,start,last,cfg)
                 out['processing_wall_seconds']=time.monotonic()-begun
-                out['peak_rss_platform_units']=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+                import sys
+                out['peak_rss_bytes']=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss*(1 if sys.platform=='darwin' else 1024)
                 write_record(a.output,start,out)
                 print(json.dumps(dict(start=start,seconds=out['mode_duration_seconds'],looks=out['n_coherent_looks'],
                     selected=len(out['sparse_index']),processing_seconds=out['processing_wall_seconds'],
