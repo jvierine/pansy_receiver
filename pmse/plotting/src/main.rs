@@ -21,7 +21,7 @@ fn main()->Result<()> {
        for kind in ["rti","rd"] {
         let mut f=WebLayout::new(width,16.)?.figure(300.)?;
         f.latex.cache=out.join(".latex-cache");
-        let rect=Rect::new(18.,7.,f.width_mm-48.,f.height_mm-24.);
+        let rect=Rect::new(20.,7.,f.width_mm-50.,f.height_mm-24.);
         let mut axes=Axes::new(if kind=="rti"{[0.,hours.max(0.001)]}else{[-90.321448,90.321448]},
             [50.,120.],if kind=="rti"{"Time (UTC)"}else{r"Radial velocity (m s$^{-1}$)"},"Nominal altitude (km)");
         axes.yticks=vec![50.,70.,90.,110.];
