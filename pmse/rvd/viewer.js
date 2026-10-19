@@ -68,9 +68,11 @@ async function refresh(){
   if(m.transfer){const a=m.transfer.archive,t=m.transfer.syowa_to_revontuli;
     $('transfer').textContent=`Revontuli native archive: ${(a.bytes/2**20).toFixed(2)} MiB · ${a.records} native records · ${a.files} HDF5 files. `+
       (a.first_mode_us?`${utc(a.first_mode_us)} through ${utc(a.latest_mode_us)}. `:'')+
-      (a.projected_bytes_per_day===null?'Daily growth: waiting for ≥12 modes and ≥1 hour. ':`Provisional growth: ${(a.projected_bytes_per_day/2**20).toFixed(1)} MiB/day. `)+
+      (a.projected_bytes_per_day===null?'Daily growth: interval too short for extrapolation. ':`Provisional growth: ${(a.projected_bytes_per_day/2**20).toFixed(1)} MiB/day (${(a.projected_bytes_per_day/86400/1024).toFixed(2)} KiB/s average). `)+
       (t?`Latest Syowa replication: ${(t.literal_bytes/2**20).toFixed(2)} MiB in ${t.elapsed_seconds.toFixed(1)} s (${(t.payload_bytes_per_second/1024).toFixed(2)} KiB/s payload; cap ${t.bandwidth_cap_kib_s} KiB/s). `:'Transfer measurement pending. ')+
       'Web copy: seven-day retention; Revontuli archive retained.';}
+  if(m.transfer?.archive?.hourly_unix_s?.length){const width=document.body.clientWidth<900?640:960;
+    $('archivePlot').src=`./data/axes/archive-growth-${width}.svg?v=${m.generated_utc}`;$('archivePlot').style.width=width+'px';$('archivePlot').hidden=false;}
   if(m.revision===revision)return;
   const cache=new Map(frames.map(f=>[f.key,f]));manifest=m;
   // A bounded pool avoids issuing hundreds of simultaneous requests.
