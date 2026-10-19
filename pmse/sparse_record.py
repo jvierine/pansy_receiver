@@ -241,6 +241,11 @@ def write_record(root,key,record):
     """
     import digital_rf as drf
     import h5py
+    # Keep the on-disk contract independent of the caller's calculation dtype.
+    record=dict(record)
+    for name,dtype in (('spectra',np.complex64),('noise_power',np.float32),
+                       ('noise_power_standard_error',np.float32)):
+        record[name]=np.asarray(record[name],dtype=dtype)
     root = Path(root); root.mkdir(parents=True,exist_ok=True)
     with (root/'.writer.lock').open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX)

@@ -148,11 +148,21 @@ class SparseRecordTests(unittest.TestCase):
             if has_signal:
                 z[:,:,0,32,np.flatnonzero(valid[0])[0]]+=20
             record=sparsify(z,self.cfg)
+            self.assertEqual(record['spectra'].dtype,np.dtype('complex64'))
+            for name in ('noise_power','noise_power_standard_error'):
+                self.assertEqual(record[name].dtype,np.dtype('float32'))
             with tempfile.TemporaryDirectory() as root:
                 key=1792430659921323
-                self.assertTrue(write_record(root,key,record))
+                promoted=dict(record,spectra=record['spectra'].astype('complex128'),
+                              noise_power=record['noise_power'].astype('float64'),
+                              noise_power_standard_error=record['noise_power_standard_error'].astype('float64'))
+                self.assertTrue(write_record(root,key,promoted))
                 self.assertFalse(write_record(root,key,record))
                 saved=read_complete(root,key)
+                self.assertEqual(saved['spectra'].dtype,np.dtype('complex64'))
+                for name in ('noise_power','noise_power_standard_error'):
+                    self.assertEqual(saved[name].dtype,np.dtype('float32'))
+                    np.testing.assert_array_equal(saved[name],record[name])
                 np.testing.assert_array_equal(saved['spectra'],record['spectra'])
                 np.testing.assert_array_equal(saved['sparse_index'],record['sparse_index'])
                 self.assertEqual(int(saved['complete']),1)
