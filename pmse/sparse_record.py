@@ -206,6 +206,8 @@ def write_record(root,key,record):
                         return False
                     del h[str(key)]  # our interrupted, explicitly incomplete record
         writer = drf.DigitalMetadataWriter(str(root),3600,600,1_000_000,1,'pmse')
+        if writer._fields is not None and set(writer._fields)!=set(record)|{'complete'}:
+            raise ValueError('Digital Metadata schema changed: use a new versioned channel')
         writer.write([int(key)],[dict(record,complete=np.int8(0))])
         with h5py.File(path,'a') as h:
             g = h[str(key)]
@@ -450,6 +452,15 @@ def closed_modes(mode_root,tx_root,raw_root,lookback_hours=3):
         if not mode_is_closed(last,tb[1],after):
             continue
         unique[start]=max(last,unique.get(start,last))
+    # The legacy mode-boundary producer keeps a ~20 min lag. Find newly closed
+    # modes directly in its TX-metadata tail for the realtime archive. A 0.5 s
+    # split matches the current boundary producer and tolerates missed markers.
+    tail=tx.read(max(oldest,mb[1]+1,tb[1]-int(lookback_hours*3600e6)),tb[1],'id')
+    tail_keys=np.array([int(k) for k,v in tail.items() if int(v)==1],dtype=np.int64)
+    if len(tail_keys):
+        for group in np.split(tail_keys,np.flatnonzero(np.diff(tail_keys)>500_000)+1):
+            if tb[1]-group[-1]>=5_000_000 and len(group)>1:
+                unique[int(group[0])]=int(group[-1])
     return sorted(unique.items())
 
 
