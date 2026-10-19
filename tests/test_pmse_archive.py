@@ -69,6 +69,9 @@ class ArchiveTests(unittest.TestCase):
                 for key,looks,cells,complete in [(1_000_000_000,2,10,1),(1_100_000_000,8,0,1),(1_200_000_000,20,100,0)]:
                     g=h.create_group(str(key));g['complete']=complete;g['mode_stop_sample_exclusive']=key+86_000_000
                     g['n_tested_cells']=100
+                    g.create_dataset('noise_power',shape=(7,5,10),dtype='float32')
+                    g.create_dataset('radial_velocity_mps',shape=(4,),dtype='float64')
+                    g.create_dataset('slant_range_km',shape=(10,),dtype='float64')
                     # An unavailable external dataset ensures inventory only reads its shape.
                     g.create_dataset('spectra',shape=(looks,7,cells),dtype='complex64',
                                      external=[('unavailable-spectra.bin',0,h5py.h5f.UNLIMITED)])
@@ -78,9 +81,13 @@ class ArchiveTests(unittest.TestCase):
                 self.assertEqual(result['retained_complex_samples'],140)
                 self.assertEqual(result['tested_complex_samples'],7000)
                 self.assertAlmostEqual(result['complex_sample_retained_fraction'],.02)
+                self.assertEqual(result['dense_complex_samples'],14000)
+                self.assertEqual(result['dense_retention_records'],2)
+                self.assertAlmostEqual(result['dense_complex_sample_retained_fraction'],.01)
             with h5py.File(path,'a') as h:
                 g=h.create_group('1300000000');g['complete']=1;g['mode_stop_sample_exclusive']=1_400_000_000
             self.assertIsNone(inventory(directory)['complex_sample_retained_fraction'])
+            self.assertIsNone(inventory(directory)['dense_complex_sample_retained_fraction'])
 
 
 if __name__=='__main__':unittest.main()
