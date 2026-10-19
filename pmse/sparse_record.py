@@ -308,6 +308,13 @@ def process_mode(raw_root,tx_root,start,last,cfg):
     return out
 
 
+def mode_is_closed(last,tx_latest,following_records,ipp_samples=1600):
+    if tx_latest < last+5_000_000:
+        return False
+    meso=sorted(int(k) for k,v in following_records.items() if int(v['id'])==1)
+    return not meso or meso[0]-last>20*ipp_samples+ipp_samples
+
+
 def closed_modes(mode_root,tx_root,raw_root,lookback_hours=3):
     import digital_rf as drf
     tx=drf.DigitalMetadataReader(str(tx_root)); tb=tx.get_bounds()
@@ -321,12 +328,11 @@ def closed_modes(mode_root,tx_root,raw_root,lookback_hours=3):
         if last<=start or start<oldest or last+20*1600>=tb[1]:
             continue
         after=tx.read(last+1,min(last+5_000_000,tb[1]))
-        next_meso=sorted(int(k) for k,v in after.items() if int(v['id'])==1)
         # Old boundary metadata can publish partial/open records. Do not use
         # these until a genuinely observed gap exceeds a full 20-pulse cycle.
-        if next_meso and next_meso[0]-last<=20*1600+1600:
-            continue
-        if not after:
+        # TX metadata contains mesomode markers only during some schedules;
+        # no rows in a five-second gap is meaningful once TX has advanced.
+        if not mode_is_closed(last,tb[1],after):
             continue
         unique[start]=max(last,unique.get(start,last))
     return sorted(unique.items())

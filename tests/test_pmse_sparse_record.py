@@ -9,7 +9,7 @@ import numpy as np
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from pmse.sparse_record import (Config, C, axes, decode_pulses, coherent_spectrum,
-                                sparsify, write_record, read_complete, contiguous_looks)
+                                sparsify, write_record, read_complete, contiguous_looks,mode_is_closed)
 
 
 class SparseRecordTests(unittest.TestCase):
@@ -98,6 +98,13 @@ class SparseRecordTests(unittest.TestCase):
         cfg=Config(); keys=np.r_[np.arange(40)*32000,5_000_000+np.arange(50)*32000]
         looks=list(contiguous_looks(keys,cfg))
         self.assertEqual([len(x) for x in looks],[40,50])
+
+    def test_boundary_closure_handles_schedule_without_inter_mode_metadata(self):
+        last=10_000_000
+        self.assertTrue(mode_is_closed(last,last+20_000_000,{}))
+        self.assertFalse(mode_is_closed(last,last+1_000_000,{}))
+        self.assertFalse(mode_is_closed(last,last+20_000_000,{last+32000:{'id':1}}))
+        self.assertTrue(mode_is_closed(last,last+20_000_000,{last+100000:{'id':0}}))
 
     def test_native_digital_metadata_roundtrip_empty_and_signal(self):
         z=self.noise(); ri,_,_,valid,_,_=axes(self.cfg)
