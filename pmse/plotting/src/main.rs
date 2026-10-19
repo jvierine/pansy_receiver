@@ -5,6 +5,14 @@ use anyhow::Result;
 use serde_json::{json,Value};
 use std::{fs,path::Path};
 
+const WAVE_PAPER:[f64;3]=[250./255.,247./255.,237./255.];
+
+fn wave_figure(width:f64,height:f64)->Result<Figure> {
+    let mut figure=WebLayout::new(width,16.)?.figure(height)?;
+    figure.background=WAVE_PAPER;
+    Ok(figure)
+}
+
 fn save(path: &Path, text: &str) -> Result<()> {
     let tmp=path.with_extension("partial"); fs::write(&tmp,text)?; fs::rename(tmp,path)?; Ok(())
 }
@@ -16,6 +24,7 @@ fn main()->Result<()> {
     if args.get(1).map(String::as_str)==Some("--frame") {
         let mut value:Value=serde_json::from_reader(std::io::stdin())?;
         value["spec"]["color_stops"]=serde_json::from_str(include_str!("../../rvd/palette.json"))?;
+        value["spec"]["background"]=json!(WAVE_PAPER);
         let spec=serde_json::from_value(value["spec"].clone())?;
         let request=serde_json::from_value(value["request"].clone())?;
         let cache=std::env::var("PANSY_FRAME_CACHE").unwrap_or_else(|_|"/tmp/pansy-native-frame-cache".into());
@@ -31,7 +40,7 @@ fn main()->Result<()> {
     for width in [360.,640.,960.] {
       for (low,high) in [(3.,6.),(3.,10.),(3.,15.),(3.,20.),(3.,30.),(3.,40.)] {
        for kind in ["rti","rd"] {
-        let mut f=WebLayout::new(width,16.)?.figure(300.)?;
+        let mut f=wave_figure(width,300.)?;
         f.latex.cache=out.join(".latex-cache");
         let rect=Rect::new(20.,7.,f.width_mm-50.,f.height_mm-24.);
         let mut axes=Axes::new(if kind=="rti"{[0.,hours.max(0.001)]}else{[-90.321448,90.321448]},
@@ -55,7 +64,7 @@ fn main()->Result<()> {
        layouts.insert(key,json!({"file":file,"width":width,"height":300.,
             "panel":[rect.x/f.width_mm,rect.y/f.height_mm,rect.width/f.width_mm,rect.height/f.height_mm]}));
        }
-       let mut f=WebLayout::new(width,16.)?.figure(700.)?;f.latex.cache=out.join(".latex-cache");
+       let mut f=wave_figure(width,700.)?;f.latex.cache=out.join(".latex-cache");
        f.scales.push(Scale::new([low,high],Normalization::Linear,
            wave_palette()?)?);
        let mut panels=vec![];let mut beam_labels=vec![];
@@ -68,7 +77,7 @@ fn main()->Result<()> {
            f.panels.push(Panel::new(rect,axes));
            panels.push([rect.x/f.width_mm,rect.y/f.height_mm,rect.width/f.width_mm,rect.height/f.height_mm]);
            let filename=format!("beam-{beam}.svg");
-           let mut label=WebLayout::new(80.,16.)?.figure(24.)?;label.latex.cache=f.latex.cache.clone();
+           let mut label=wave_figure(80.,24.)?;label.latex.cache=f.latex.cache.clone();
            label.labels.push(Label::new(["Zenith","North","East","South","West"][beam],label.width_mm/2.,label.height_mm/2.));
            save(&out.join(&filename),&label.svg()?)?;beam_labels.push(filename);
        }
@@ -91,7 +100,7 @@ fn main()->Result<()> {
         let colors=["#202020","#2474a8","#b65c18","#22854a","#b52e48"];
         let names=["Zenith","North","East","South","West"];
         for width in [640.,960.] {for channel in 0..7 {
-            let mut f=WebLayout::new(width,16.)?.figure(550.)?;f.latex.cache=out.join(".latex-cache");
+            let mut f=wave_figure(width,550.)?;f.latex.cache=out.join(".latex-cache");
             let xmax=times.last().copied().unwrap_or(0.).max(0.01);
             for panel in 0..2 {
                 let mut values=vec![];
@@ -125,7 +134,7 @@ fn main()->Result<()> {
         let bytes:Vec<f64>=serde_json::from_value(a["hourly_bytes"].clone())?;
         let labels:Vec<String>=serde_json::from_value(a["hour_tick_labels"].clone())?;
         if !hours.is_empty(){for width in [640.,960.] {
-            let mut f=WebLayout::new(width,16.)?.figure(550.)?;f.latex.cache=out.join(".latex-cache");
+            let mut f=wave_figure(width,550.)?;f.latex.cache=out.join(".latex-cache");
             let xmax=((a["latest_mode_us"].as_f64().unwrap()/1e6-hours[0])/3600.).max(0.01);
             for panel in 0..2 {
                 let ymax=if panel==0{bytes.iter().copied().fold(0_f64,f64::max)/1048576.}else{bytes.iter().sum::<f64>()/1048576.};

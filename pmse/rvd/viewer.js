@@ -1,7 +1,7 @@
 // Scientific provenance: rustplotlib interactive API d3837b8; numerical imaging is Rust/WASM.
 import init from './pkg/rustplotlib_web.js';
-import {imageSelection} from './imaging.js?v=wave-1';
-import {InteractiveFieldPlot} from './lib/interactive_plot.js?v=wave-1';
+import {imageSelection} from './imaging.js?v=wave-paper-2';
+import {InteractiveFieldPlot} from './lib/interactive_plot.js?v=wave-paper-2';
 const $=id=>document.getElementById(id), names=['Zenith','North','East','South','West'];
 let manifest,frames=[],plots=[],rd,playing=null,selected=0,revision='',rtiPlot,rdPlot,tdPlot;
 let chosenDay='',refreshSequence=0;

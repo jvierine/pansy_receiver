@@ -23,7 +23,7 @@ var InteractiveFieldPlot = class _InteractiveFieldPlot {
     toolbar.append(this.resetButton, help);
     root.append(toolbar);
     root.style.overflowX = "auto";
-    this.stage.style.cssText = "position:relative;background:var(--foam,#fffdf6);touch-action:none";
+    this.stage.style.cssText = "position:relative;background:var(--paper,#faf7ed);touch-action:none";
     this.axes.style.cssText = "position:absolute;inset:0;width:100%;height:100%;pointer-events:none";
     this.axes.alt = `${s.ylabel} versus ${s.xlabel}; ${s.colorbar_label}`;
     this.stage.append(this.axes);

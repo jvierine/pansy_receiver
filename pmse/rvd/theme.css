@@ -62,7 +62,7 @@ body[data-display=hsv] .hsv-settings { display: block; }
 .key { width: 9px; height: 9px; display: inline-block; border-radius: 2px; }
 .key.missing { background: #9eacb5; }
 .key.censored { background: var(--ink); margin-left: 14px; }
-#rti, #rd, #timeDoppler, #imagePlot { background: var(--foam); border: 1px solid var(--line); border-radius: 8px; padding: 12px 8px; overflow: auto; }
+#rti, #rd, #timeDoppler, #imagePlot { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 12px 8px; overflow: auto; }
 #imagePlot:empty { display: none; }
 #imagePlot { max-width: 860px; margin-top: 12px; }
 .playback { margin: 14px 0 18px; }
@@ -72,7 +72,7 @@ body[data-display=hsv] .hsv-settings { display: block; }
 .support-content { padding: 0 0 24px; }
 .support-content p + p { margin-top: 12px; }
 .support-content .status { margin: 12px 0; }
-.figure-scroll { overflow: auto; background: var(--foam); border-radius: 6px; }
+.figure-scroll { overflow: auto; background: var(--paper); border-radius: 6px; }
 .figure-scroll img { display: block; }
 #error { white-space: pre-wrap; overflow-wrap: anywhere; color: #a13c35; font-size: .85rem; }
 #error:empty { display: none; }
