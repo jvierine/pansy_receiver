@@ -64,8 +64,10 @@ function renderRD(){
 async function refresh(){
   const response=await fetch('./data/manifest.json',{cache:'no-cache'});if(!response.ok)throw Error(`Data unavailable (${response.status})`);
   const m=await response.json();
+  if(m.noise_model_status){manifest=m;renderNoise();}
   if(m.transfer){const a=m.transfer.archive,t=m.transfer.syowa_to_revontuli;
-    $('transfer').textContent=`Revontuli native archive: ${(a.bytes/2**20).toFixed(2)} MiB · ${a.records} modes in view. `+
+    $('transfer').textContent=`Revontuli native archive: ${(a.bytes/2**20).toFixed(2)} MiB · ${a.records} native records · ${a.files} HDF5 files. `+
+      (a.first_mode_us?`${utc(a.first_mode_us)} through ${utc(a.latest_mode_us)}. `:'')+
       (a.projected_bytes_per_day===null?'Daily growth: waiting for ≥12 modes and ≥1 hour. ':`Provisional growth: ${(a.projected_bytes_per_day/2**20).toFixed(1)} MiB/day. `)+
       (t?`Latest Syowa replication: ${(t.literal_bytes/2**20).toFixed(2)} MiB in ${t.elapsed_seconds.toFixed(1)} s (${(t.payload_bytes_per_second/1024).toFixed(2)} KiB/s payload; cap ${t.bandwidth_cap_kib_s} KiB/s). `:'Transfer measurement pending. ')+
       'Web copy: seven-day retention; Revontuli archive retained.';}
@@ -80,12 +82,22 @@ async function refresh(){
   const age=(Date.now()-m.latest_mode_us/1000)/60000;$('status').textContent=`${frames.length} observing modes · latest completed ${utc(m.latest_mode_us)} · ${Math.max(0,age).toFixed(1)} min old`;$('status').className=age>30?'status warn':'status';
   $('sidecar').href='./data/'+m.sidecar;renderRTI();renderRD();
 }
+function renderNoise(){
+  const module=+$('noiseModule').value,fit=manifest.noise_model_status[module];
+  $('noiseStatus').textContent=`PyGDSM GSM2008 · one-way receive pattern · 90% crossed-Yagi / 10% isotropic element. Module ${module}: `+
+    (fit.receiver_temp_k===null?fit.status:`T_receiver = ${fit.receiver_temp_k.toFixed(0)} K; fractional RMS ${(fit.fractional_rms*100).toFixed(1)}%; ${fit.status}`)+
+    '. Top: measured noise power; bottom: modeled sky temperature. Fits update hourly and require ≥12 hours of data.';
+  const width=document.body.clientWidth<900?640:960;
+  $('noisePlot').src=`./data/axes/noise-module-${module}-${width}.svg?v=${manifest.noise_model_updated_unix_s}`;
+  $('noisePlot').style.width=width+'px';$('noisePlot').hidden=false;
+}
 function failure(e){$('error').textContent=e.message;console.error(e);}
 try{
  await init();if(new URLSearchParams(location.search).has('embed'))document.body.classList.add('embedded');
  for(let beam=0;beam<5;beam++)plots.push(makePlot($('rti'),names[beam]));rd=makePlot($('rd'),'Retained spectral bins',true);
  for(const id of ['display','beam','low','high','vlim','wlim'])$(id).onchange=()=>{try{renderRTI();renderRD();}catch(e){failure(e);}};
  $('rdbeam').onchange=renderRD;$('frame').oninput=()=>{selected=+$('frame').value;renderRD();};
+ $('noiseModule').onchange=renderNoise;
  $('play').onclick=()=>{if(playing){clearInterval(playing);playing=null;$('play').textContent='Play';}else{$('play').textContent='Pause';playing=setInterval(()=>{selected=(selected+1)%frames.length;$('frame').value=selected;renderRD();},500);}};
  window.addEventListener('resize',()=>{if(frames.length){renderRTI();renderRD();}});
  await refresh();setInterval(()=>refresh().catch(failure),60000);

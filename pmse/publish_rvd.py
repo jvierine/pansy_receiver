@@ -102,6 +102,21 @@ def export(root,output,hours=48):
     transfer['archive']=inventory(root)
     transfer['archive'].update(destination='/mnt/shovel/rvd/pmse_sparse',web_retention_days=7)
     manifest['transfer']=transfer
+    cache=root.parent.parent/'sky-model-gsm2008-47MHz.h5'
+    fit_path=root.parent.parent/'rvd-noise-fit.h5'
+    if cache.exists():
+        if not fit_path.exists() or time.time()-fit_path.stat().st_mtime>3600:
+            from .sky_noise import update
+            update(root,cache,fit_path)
+        with h5py.File(fit_path,'r') as h:
+            times=h['times_s'][()];first_noise=float(times[0])
+            manifest['noise_model_data']=dict(times_h=((times-first_noise)/3600).tolist(),
+                time_tick_labels=[datetime.fromtimestamp(t,timezone.utc).strftime('%H:%M')
+                                  for t in [times[0],(times[0]+times[-1])/2,times[-1]]],
+                sky_temperature_k=h['sky_temperature_k'][()].tolist(),noise_power=h['noise_power'][()].tolist(),
+                fits=json.loads(h.attrs['fits_json']))
+            manifest['noise_model_status']=manifest['noise_model_data']['fits']
+            manifest['noise_model_updated_unix_s']=float(h.attrs['generated_unix_s'])
     first=packets[0]['start_us']; last=latest['stop_us']
     manifest['time_tick_labels']=[datetime.fromtimestamp((first+(last-first)*q)/1e6,timezone.utc).strftime('%H:%M:%S')
                                   for q in (0,.5,1)]

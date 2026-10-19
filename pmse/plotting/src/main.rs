@@ -46,5 +46,40 @@ fn main()->Result<()> {
       }
     }
     save(&out.join("layouts.json"),&serde_json::to_string(&layouts)?)?;
+    if spec.get("noise_model_data").is_some() {
+        let data=&spec["noise_model_data"];
+        let times:Vec<f64>=serde_json::from_value(data["times_h"].clone())?;
+        let sky:Vec<Vec<f64>>=serde_json::from_value(data["sky_temperature_k"].clone())?;
+        let power:Vec<Vec<Vec<f64>>>=serde_json::from_value(data["noise_power"].clone())?;
+        let labels:Vec<String>=serde_json::from_value(data["time_tick_labels"].clone())?;
+        let colors=["#202020","#2474a8","#b65c18","#22854a","#b52e48"];
+        let names=["Zenith","North","East","South","West"];
+        for width in [640.,960.] {for channel in 0..7 {
+            let mut f=WebLayout::new(width,16.)?.figure(550.)?;f.latex.cache=out.join(".latex-cache");
+            let xmax=times.last().copied().unwrap_or(0.).max(0.01);
+            for panel in 0..2 {
+                let mut values=vec![];
+                for t in 0..times.len(){for b in 0..5{values.push(if panel==0{10.*power[t][b][channel].log10()}else{sky[t][b]});}}
+                let lo=values.iter().copied().fold(f64::INFINITY,f64::min);
+                let hi=values.iter().copied().fold(f64::NEG_INFINITY,f64::max);
+                let pad=((hi-lo)*0.15).max(if panel==0{0.1}else{10.});
+                let mut axes=Axes::new([0.,xmax],[lo-pad,hi+pad],"Time (UTC)",
+                    if panel==0{"Receiver noise power (dB)"}else{r"Modeled $T_{\rm sky}$ (K)"});
+                axes.xticks=vec![0.,xmax/2.,xmax];axes.xticklabels=Some(labels.clone());
+                let rect=Rect::new(20.,10.+panel as f64*68.,f.width_mm-28.,43.);
+                let mut p=Panel::new(rect,axes);
+                for beam in 0..5 {
+                    let points=(0..times.len()).map(|t|[times[t],if panel==0{10.*power[t][beam][channel].log10()}else{sky[t][beam]}]).collect();
+                    p.push(Layer::Line(Line::new(points,colors[beam])));
+                }
+                if panel==0 {
+                    let mut legend=Legend::new(names.iter().zip(colors).map(|(n,c)|LegendEntry::line(*n,c)).collect());
+                    legend.columns=5;legend.position=LegendPosition::AboveCenter;p.legend=Some(legend);
+                }
+                f.panels.push(p);
+            }
+            save(&out.join(format!("noise-module-{channel}-{}.svg",width as i32)),&f.svg()?)?;
+        }}
+    }
     Ok(())
 }
