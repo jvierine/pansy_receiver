@@ -94,6 +94,8 @@ async function refresh(){
   if(m.noise_model_status)renderNoise(m);
   if(m.transfer){const a=m.transfer.archive,t=m.transfer.syowa_to_revontuli;
     $('transfer').textContent=`Revontuli native archive: ${(a.bytes/2**20).toFixed(2)} MiB · ${a.records} native records · ${a.files} HDF5 files. `+
+      (a.complex_sample_retained_fraction!=null?`Complex spectra retain ${(100*a.complex_sample_retained_fraction).toPrecision(3)}% of tested samples (${a.retained_complex_samples.toLocaleString()} / ${a.tested_complex_samples.toLocaleString()}; all receiver channels and coherent looks, within the valid altitude and Doppler domain). `:'Complex-spectra retained fraction: awaiting complete archive counts. ')+
+      'Storage: complex64 spectra (8 bytes/sample); float32 noise power and uncertainty (4 bytes/value), with lossless compression. '+
       (a.first_mode_us?`${utc(a.first_mode_us)} through ${utc(a.latest_mode_us)}. `:'')+
       (a.projected_bytes_per_day===null?'Daily growth: interval too short for extrapolation. ':`Provisional growth: ${(a.projected_bytes_per_day/2**20).toFixed(1)} MiB/day (${(a.projected_bytes_per_day/86400/1024).toFixed(2)} KiB/s average). `)+
       (t?`Latest Syowa replication: ${(t.literal_bytes/2**20).toFixed(2)} MiB in ${t.elapsed_seconds.toFixed(1)} s (${(t.payload_bytes_per_second/1024).toFixed(2)} KiB/s payload; cap ${t.bandwidth_cap_kib_s} KiB/s). `:'Transfer measurement pending. ')+

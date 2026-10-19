@@ -106,7 +106,7 @@ explicitly incomplete groups may be repaired in place.
 | `spectra` | K x 7 x N complex64 measured-TX decoded coherent spectra |
 | `mean_power` | 7 x N float32; average squared magnitude across looks |
 | `power_variance`, `power_standard_error` | 7 x N float32; inter-look statistics |
-| `noise_power`, `noise_power_standard_error` | 7 x 5 x R; retained even in empty records |
+| `noise_power`, `noise_power_standard_error` | 7 x 5 x R float32; retained even in empty records |
 | `detector_snr_db` | N; excess signal/noise, with explicit definition |
 | `detector_standard_error`, `null_probability` | N; detector diagnostics |
 | `look_bounds_sample` | K x 2; start and exclusive stop |
