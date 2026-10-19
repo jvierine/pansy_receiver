@@ -1,16 +1,17 @@
 [Unit]
-Description=PANSY sparse seven-channel PMSE and PMWE spectral archive
+Description=PANSY 16ms complementary sparse archive and retained-raw backfill (one core)
 
 [Service]
 Type=simple
 WorkingDirectory=/home/radar/src/git/pansy_pmse_sparse
 Environment=OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
-ExecStart=/home/radar/testenv/bin/python -u -m pmse.sparse_record --backend rust --output /media/analysis/metadata/pmse_sparse --latest 4 --lookback-hours 3 --reserve-free-gib 200 --max-archive-gib 500 --loop
+ExecStart=/home/radar/testenv/bin/python -u -m pmse.sparse_record --backend rust --output /media/analysis/metadata/pmse_sparse16 --latest 0 --lookback-hours 0 --max-per-cycle 3 --reserve-free-gib 200 --max-archive-gib 500 --loop
 Restart=on-failure
 RestartSec=60
 Nice=15
 IOSchedulingClass=idle
 CPUQuota=100%
+CPUAffinity=0
 MemoryHigh=4G
 MemoryMax=6G
 TimeoutStopSec=120

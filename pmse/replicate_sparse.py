@@ -41,21 +41,21 @@ def save_metrics(path,leg,values):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--root',type=Path,default=Path('/mnt/data/juha/pansy/metadata/pmse_sparse'))
+    p.add_argument('--root',type=Path,default=Path('/mnt/data/juha/pansy/metadata/pmse_sparse16'))
     p.add_argument('--metrics',type=Path,default=Path('/mnt/data/juha/pansy/rvd-transfer.h5'))
     p.add_argument('--syowa-kib-s',type=int,default=10)
     p.add_argument('--archive-host',default='j@juha.no')
-    p.add_argument('--archive-root',default='/mnt/shovel/rvd/pmse_sparse')
+    p.add_argument('--archive-root',default='/mnt/shovel/rvd/pmse_sparse16')
     p.add_argument('--loop',action='store_true');a=p.parse_args();a.root.mkdir(parents=True,exist_ok=True)
     while True:
         try:
             subprocess.run(['ssh','-p','2222','-o','BatchMode=yes','-o','ConnectTimeout=15','radar@127.0.0.1',
-                'cd /home/radar/src/git/pansy_pmse_sparse && /home/radar/testenv/bin/python -m pmse.snapshot_archive'],check=True,timeout=120)
-            values=rsync('radar@127.0.0.1:/media/analysis/metadata/pmse_sparse_snapshot/',str(a.root)+'/',
+                'cd /home/radar/src/git/pansy_pmse_sparse && OPENBLAS_NUM_THREADS=1 /home/radar/testenv/bin/python -m pmse.snapshot_archive'],check=True,timeout=120)
+            values=rsync('radar@127.0.0.1:/media/analysis/metadata/pmse_sparse16_snapshot/',str(a.root)+'/',
                          a.syowa_kib_s,'ssh -p 2222 -o BatchMode=yes -o ConnectTimeout=15')
             save_metrics(a.metrics,'syowa_to_revontuli',values)
             # Fail closed if shovel is unmounted; never fill the server root disk.
-            subprocess.run(['ssh',a.archive_host,'mountpoint -q /mnt/shovel && test -d /mnt/shovel/rvd/pmse_sparse'],check=True,timeout=30)
+            subprocess.run(['ssh',a.archive_host,'mountpoint -q /mnt/shovel && test -d /mnt/shovel/rvd/pmse_sparse16'],check=True,timeout=30)
             cutoff=time.time()-7*86400-600
             keep=['dmd_properties.h5']+[str(path.relative_to(a.root)) for path in a.root.glob('*T*/pmse@*.h5')
                 if int(path.stem.split('@')[1])>=cutoff]
@@ -75,7 +75,7 @@ def main():
             # Source deployment of this command is through git on juha.no.
             result=subprocess.run(['ssh',a.archive_host,
                 'cd /home/j/src/pansy_pmse_sparse && /home/j/venv/pansy-rvd/bin/python -m pmse.web_retention '
-                '--receipt /mnt/shovel/rvd/revontuli-receipt.h5 --apply'],
+                '--root /mnt/shovel/rvd/pmse_sparse16 --receipt /mnt/shovel/rvd/revontuli-receipt.h5 --apply'],
                 capture_output=True,text=True,cwd=Path(__file__).resolve().parents[1],timeout=120)
             if result.returncode: raise RuntimeError(result.stderr)
             print(result.stdout,flush=True)

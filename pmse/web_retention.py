@@ -21,7 +21,7 @@ def sha256(path):
 
 def expire(root,receipt,now=None,days=7,dry_run=True):
     root=Path(root).resolve();now=time.time() if now is None else now
-    if root!=Path('/mnt/shovel/rvd/pmse_sparse') and not dry_run:
+    if root!=Path('/mnt/shovel/rvd/pmse_sparse16') and not dry_run:
         raise ValueError('Refusing expiration outside the explicitly scoped secondary archive')
     cutoff=now-days*86400-600;removed=[];blocked=[]
     with h5py.File(receipt,'r') as h:
@@ -43,6 +43,6 @@ def expire(root,receipt,now=None,days=7,dry_run=True):
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--root',type=Path,default=Path('/mnt/shovel/rvd/pmse_sparse'))
+    p.add_argument('--root',type=Path,default=Path('/mnt/shovel/rvd/pmse_sparse16'))
     p.add_argument('--receipt',type=Path,required=True);p.add_argument('--apply',action='store_true')
     a=p.parse_args();print(json.dumps(expire(a.root,a.receipt,dry_run=not a.apply)))

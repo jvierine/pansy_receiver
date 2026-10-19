@@ -520,7 +520,8 @@ def closed_modes(mode_root,tx_root,raw_root,lookback_hours=3):
     mode=drf.DigitalMetadataReader(str(mode_root)); mb=mode.get_bounds()
     raw=drf.DigitalRFReader(str(raw_root))
     oldest=max(raw.get_bounds(f'ch{i:03d}')[0] for i in range(8))
-    modes=mode.read(max(oldest,mb[1]-int(lookback_hours*3600e6)),mb[1])
+    beginning=oldest if lookback_hours<=0 else max(oldest,mb[1]-int(lookback_hours*3600e6))
+    modes=mode.read(beginning,mb[1])
     unique={}
     for value in modes.values():
         start,last=int(value['start']),int(value['end'])
@@ -537,13 +538,22 @@ def closed_modes(mode_root,tx_root,raw_root,lookback_hours=3):
     # The legacy mode-boundary producer keeps a ~20 min lag. Find newly closed
     # modes directly in its TX-metadata tail for the realtime archive. A 0.5 s
     # split matches the current boundary producer and tolerates missed markers.
-    tail=tx.read(max(oldest,mb[1]+1,tb[1]-int(lookback_hours*3600e6)),tb[1],'id')
+    tail_begin=max(oldest,mb[1]+1) if lookback_hours<=0 else max(oldest,mb[1]+1,tb[1]-int(lookback_hours*3600e6))
+    tail=tx.read(tail_begin,tb[1],'id')
     tail_keys=np.array([int(k) for k,v in tail.items() if int(v)==1],dtype=np.int64)
     if len(tail_keys):
         for group in np.split(tail_keys,np.flatnonzero(np.diff(tail_keys)>500_000)+1):
             if tb[1]-group[-1]>=5_000_000 and len(group)>1:
                 unique[int(group[0])]=int(group[-1])
     return sorted(unique.items())
+
+
+def pending_modes(choices,done,limit=0):
+    """One sequential queue: two freshest records then the oldest pending one."""
+    remaining=[item for item in choices if item[0] not in done]
+    if limit<=0:return remaining
+    newest=remaining[-min(2,limit):][::-1]
+    return (newest+[item for item in remaining if item not in newest])[:limit]
 
 
 def main():
@@ -559,6 +569,7 @@ def main():
     p.add_argument('--reserve-free-gib',type=float,default=200)
     p.add_argument('--max-archive-gib',type=float,default=500)
     p.add_argument('--lookback-hours',type=float,default=3)
+    p.add_argument('--max-per-cycle',type=int,default=0,help='Bound each scheduling batch; freshest two first, then backfill')
     p.add_argument('--loop',action='store_true')
     p.add_argument('--poll-seconds',type=float,default=60)
     p.add_argument('--start',type=int); p.add_argument('--last',type=int)
@@ -566,6 +577,7 @@ def main():
     if a.latest<0 or a.reserve_free_gib<0 or a.max_archive_gib<=0:
         p.error('latest must be >=0 (zero=all); storage budgets must be positive')
     a.output.mkdir(parents=True,exist_ok=True)
+    choices_cache=None;choices_checked=0.
     while True:
         free=shutil.disk_usage(a.output).free/2**30
         used=sum(path.stat().st_size for path in a.output.rglob('*.h5'))/2**30
@@ -576,9 +588,14 @@ def main():
                 raise RuntimeError(message)
             time.sleep(max(a.poll_seconds,10))
             continue
-        choices=[(a.start,a.last)] if a.start is not None and a.last is not None else closed_modes(a.mode_root,a.tx_root,a.raw_root,a.lookback_hours)
+        if choices_cache is None or time.monotonic()-choices_checked>=60:
+            choices_cache=[(a.start,a.last)] if a.start is not None and a.last is not None else closed_modes(a.mode_root,a.tx_root,a.raw_root,a.lookback_hours)
+            choices_checked=time.monotonic()
+        choices=choices_cache
         done=completed_keys(a.output,choices[0][0],choices[-1][0]) if choices else set()
-        for start,last in (choices[-a.latest:] if a.latest else choices):
+        batch=pending_modes(choices[-a.latest:] if a.latest else choices,done,a.max_per_cycle)
+        made_progress=False
+        for start,last in batch:
             if start in done:
                 continue
             if shutil.disk_usage(a.output).free/2**30<a.reserve_free_gib:
@@ -591,6 +608,7 @@ def main():
                 import sys
                 out['peak_rss_bytes']=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss*(1 if sys.platform=='darwin' else 1024)
                 write_record(a.output,start,out)
+                made_progress=True
                 print(json.dumps(dict(start=start,seconds=out['mode_duration_seconds'],looks=out['n_coherent_looks'],
                     selected=len(out['sparse_index']),processing_seconds=out['processing_wall_seconds'],
                     coverage_seconds=out['coverage_seconds'],quality=out['quality'])),flush=True)
@@ -601,6 +619,7 @@ def main():
                     raise
         if not a.loop:
             break
+        if made_progress:continue
         time.sleep(max(a.poll_seconds,10))
 
 

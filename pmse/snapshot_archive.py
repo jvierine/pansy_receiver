@@ -22,6 +22,6 @@ def snapshot(source,destination,reserve_gib=200):
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--source',type=Path,default=Path('/media/analysis/metadata/pmse_sparse'))
-    p.add_argument('--destination',type=Path,default=Path('/media/analysis/metadata/pmse_sparse_snapshot'))
+    p.add_argument('--source',type=Path,default=Path('/media/analysis/metadata/pmse_sparse16'))
+    p.add_argument('--destination',type=Path,default=Path('/media/analysis/metadata/pmse_sparse16_snapshot'))
     a=p.parse_args();print(snapshot(a.source,a.destination))
