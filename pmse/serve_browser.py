@@ -85,7 +85,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--root',type=Path,default=Path('/mnt/data/juha/pansy/metadata/pmse_sparse'))
     p.add_argument('--manifest',type=Path,default=Path('/mnt/data/juha/pansy/rvd-web/data/manifest.json'))
-    p.add_argument('--port',type=int,default=18765)
+    p.add_argument('--port',type=int,default=18769)
     a=p.parse_args();reference=Path(__file__).parent/'reference';geo=geometry(reference)
     renderer=Path(__file__).parent/'plotting/target/release/pansy-pmse-plots'
     class Handler(BaseHTTPRequestHandler):
