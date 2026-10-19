@@ -27,6 +27,11 @@ class RustDSP:
     def decode_selected(self,rx,tx,cfg,ranges):
         rx=np.ascontiguousarray(rx,dtype=np.complex64)
         tx=np.ascontiguousarray(tx,dtype=np.complex64)
+        ranges=np.asarray(ranges)
+        if ranges.ndim!=1 or not len(ranges) or not np.issubdtype(ranges.dtype,np.integer) or np.any(ranges<0):
+            raise ValueError('Expected nonnegative integer range gates')
+        if np.any(ranges.astype(np.uint64)+cfg.tx_samples>cfg.ipp_samples):
+            raise ValueError('Range gate extends past linear decoded pulse')
         ranges=np.ascontiguousarray(ranges,dtype=np.uint32)
         if rx.ndim!=2 or rx.shape!=tx.shape or rx.shape[1]!=cfg.ipp_samples or not len(rx):
             raise ValueError('Expected matching nonempty [pulse,IPP] RX and measured TX')
