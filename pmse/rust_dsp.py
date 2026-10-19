@@ -18,6 +18,8 @@ class RustDSP:
         self.lib.pansy_decode_selected.restype=ctypes.c_int
         self.lib.pansy_coherent.argtypes=[ptr,ptr,size,size,size,size,ptr]
         self.lib.pansy_coherent.restype=ctypes.c_int
+        self.lib.pansy_complementary.argtypes=[ptr,ptr,size,size,size,size,ptr]
+        self.lib.pansy_complementary.restype=ctypes.c_int
 
     @staticmethod
     def checked(code):
@@ -54,5 +56,19 @@ class RustDSP:
             raise ValueError('Invalid pulse mask length')
         out=np.empty((7,5,cfg.nfft,x.shape[3]),dtype=np.complex64)
         self.checked(self.lib.pansy_coherent(x.ctypes.data,window.ctypes.data,35,count,
+            x.shape[3],cfg.nfft,out.ctypes.data))
+        return out
+
+    def complementary_spectrum(self,decoded,cfg,pulse_valid=None):
+        from .sparse_record import coherent_window
+        x=np.ascontiguousarray(decoded,dtype=np.complex64)
+        if x.ndim!=4 or x.shape[:2]!=(7,5) or x.shape[2]%2 or not 8<=x.shape[2]<=2*cfg.nfft:
+            raise ValueError('Expected [7,5,2*pairs,range] with complete pairs')
+        pairs=x.shape[2]//2
+        valid=None if pulse_valid is None else np.asarray(pulse_valid).reshape(-1,2).all(axis=1)
+        window=coherent_window(pairs,valid)
+        if window.shape!=(pairs,):raise ValueError('Invalid pair mask')
+        out=np.empty((7,5,cfg.nfft,x.shape[3]),dtype=np.complex64)
+        self.checked(self.lib.pansy_complementary(x.ctypes.data,window.ctypes.data,35,pairs,
             x.shape[3],cfg.nfft,out.ctypes.data))
         return out

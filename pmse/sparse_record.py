@@ -7,7 +7,7 @@ products at every selected cell. Incoherent averaging is applied to power.
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 import fcntl
 import hashlib
@@ -35,7 +35,8 @@ class Config:
     range_step_samples: int = 4
     altitude_min_km: float = 50.0
     altitude_max_km: float = 120.0
-    velocity_limit_mps: float = 90.0
+    velocity_limit_mps: float | None = 90.0
+    complementary_pairs: bool = False
     snr_threshold_db: float = 3.0
     false_alarm_per_record: float = 1e-3
     min_looks: int = 16
@@ -44,8 +45,8 @@ class Config:
     def validate(self):
         if self.nfft < 8 or self.nfft % 4 or self.ipp_samples <= self.tx_samples:
             raise ValueError('nfft must be a multiple of four >=8; pulse must fit IPP')
-        nyquist = self.sample_rate_hz/(10*self.ipp_samples)*C/(2*self.radar_frequency_hz)
-        if not 0 < self.velocity_limit_mps < .9*nyquist:
+        nyquist = self.sample_rate_hz/(10*self.ipp_samples*(2 if self.complementary_pairs else 1))*C/(2*self.radar_frequency_hz)
+        if self.velocity_limit_mps is not None and not 0 < self.velocity_limit_mps < nyquist:
             raise ValueError('Requested velocity exceeds safe five-beam Nyquist coverage')
         if not 0 < self.altitude_min_km < self.altitude_max_km or self.range_step_samples < 1:
             raise ValueError('Invalid altitude bounds or range spacing')
@@ -64,7 +65,7 @@ def axes(cfg):
     ranges = ri*dr
     height = np.sin(np.deg2rad(cfg.beam_elevation_deg))[:,None]*ranges
     valid = (height >= cfg.altitude_min_km)&(height <= cfg.altitude_max_km)
-    freq = fft.fftshift(fft.fftfreq(cfg.nfft,d=5*cfg.ipp_samples/cfg.sample_rate_hz))
+    freq = fft.fftshift(fft.fftfreq(cfg.nfft,d=5*cfg.ipp_samples*(2 if cfg.complementary_pairs else 1)/cfg.sample_rate_hz))
     velocity = freq*C/(2*cfg.radar_frequency_hz)
     return ri,ranges,height,valid,freq,velocity
 
@@ -107,7 +108,39 @@ def coherent_spectrum(decoded,cfg,pulse_valid=None):
                                axis=2,workers=1),axes=2).astype(np.complex64)
 
 
-def sparsify(spectra,cfg):
+def complementary_spectrum(decoded,cfg,pulse_valid=None):
+    """Add adjacent complementary decoded returns, /sqrt(2) for unit noise gain.
+
+    Each pair is timestamped at its midpoint and sampled every 16 ms. The known
+    two-pulse response is cos(pi*f*8 ms) in voltage; do not mistake its high-
+    Doppler sensitivity loss or residual range sidelobes for an unbiased PSD.
+    """
+    if decoded.shape[2]%2:raise ValueError('Incomplete complementary pulse pair')
+    valid=None if pulse_valid is None else np.asarray(pulse_valid).reshape(-1,2).all(axis=1)
+    paired=(decoded[:,:,0::2,:]+decoded[:,:,1::2,:])/np.sqrt(np.float32(2))
+    return coherent_spectrum(paired,cfg,valid)
+
+
+def complementary_template_families(template):
+    """Verify paired A/B families; measured TX is still the decoder kernel."""
+    import pansy_modes
+    codes=np.repeat(np.asarray(pansy_modes.get_m_mode()['codes'][:2]),8,axis=1)
+    autocorrelation=sum(np.correlate(c,c,'full') for c in codes[:,::8])
+    if np.any(np.delete(autocorrelation,len(autocorrelation)//2)):
+        raise ValueError('Configured code families are not complementary')
+    families=[];similarity=[]
+    for pulse in template:
+        scores=np.array([[abs(np.vdot(code,pulse[s:s+128]))/
+            max(np.linalg.norm(code)*np.linalg.norm(pulse[s:s+128]),1e-30) for s in range(5)] for code in codes])
+        family,shift=np.unravel_index(np.argmax(scores),scores.shape)
+        families.append(family);similarity.append(scores[family,shift])
+    family=np.asarray(families).reshape(4,5).T
+    if min(similarity)<.7 or np.any(family[:,0::2]==family[:,1::2]):
+        raise ValueError('Recorded TX does not verify as adjacent complementary A/B pairs')
+    return family,np.asarray(similarity).reshape(4,5).T
+
+
+def sparsify(spectra,cfg,noise_reference=None):
     """Select from ensemble power; never threshold channels/looks separately."""
     ri,ranges,height,valid,freq,velocity = axes(cfg)
     z = np.asarray(spectra,dtype=np.complex64)
@@ -122,12 +155,19 @@ def sparsify(spectra,cfg):
     # Use full-band noise guards OUTSIDE the saved +/-90 m/s interval. Median
     # correction is exact for a Gamma(k,1/k) white-noise averaged periodogram.
     bin_halfwidth = abs(velocity[1]-velocity[0])/2
-    archived_band = np.abs(velocity)<=cfg.velocity_limit_mps+bin_halfwidth
-    guard = (~archived_band)&(np.abs(freq)<.95*max(abs(freq)))
+    archived_band = np.ones(len(velocity),dtype=bool) if cfg.velocity_limit_mps is None else np.abs(velocity)<=cfg.velocity_limit_mps+bin_halfwidth
+    if noise_reference is None:
+        if cfg.complementary_pairs:raise ValueError('Full-band paired data require independent pre-pair noise guards')
+        noise_mean,noise_freq,noise_velocity=mean,freq,velocity
+        guard=(~archived_band)&(np.abs(freq)<.95*max(abs(freq)))
+    else:
+        noise_mean,noise_freq,noise_velocity=noise_reference
+        nyquist=cfg.sample_rate_hz/(20*cfg.ipp_samples)*C/(2*cfg.radar_frequency_hz)
+        guard=(abs(noise_velocity)>nyquist)&(abs(noise_freq)<.95*max(abs(noise_freq)))
     if guard.sum() < 16:
         raise ValueError('Insufficient independent noise guard bandwidth')
     median_bias = special.gammaincinv(k,.5)/k
-    noise = np.median(mean[:,:,guard,:],axis=2)/median_bias
+    noise = np.median(noise_mean[:,:,guard,:],axis=2)/median_bias
     if not np.isfinite(noise).all() or np.any(noise <= 0):
         raise ValueError('Invalid decoded-noise estimate')
     # Hann adjacent spectral bins correlate. Half the guard count is a
@@ -153,7 +193,7 @@ def sparsify(spectra,cfg):
     beam,fi,rj = np.nonzero(selected)
     values = z[:,:,beam,fi,rj]  # [look,channel,cell]
     out = dict(
-        schema_version='pansy_pmse_sparse_v1',config_json=json.dumps(asdict(cfg)),
+        schema_version='pansy_pmse_sparse16_v2' if cfg.complementary_pairs else 'pansy_pmse_sparse_v1',config_json=json.dumps(asdict(cfg)),
         sparse_index=np.column_stack([beam,fi,rj]).astype(np.int32),
         spectra=values,mean_power=mean[:,beam,fi,rj].astype(np.float32),
         power_variance=variance[:,beam,fi,rj].astype(np.float32),
@@ -182,6 +222,14 @@ def sparsify(spectra,cfg):
         generator='pmse/sparse_record.py',
         code_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
     )
+    if cfg.complementary_pairs:
+        out.update(effective_ipp_seconds=10*cfg.ipp_samples/cfg.sample_rate_hz,
+            noise_doppler_frequency_hz=noise_freq,noise_radial_velocity_mps=noise_velocity,
+            noise_estimator_domain='pre-pair 8 ms full-band guard periodograms outside paired Nyquist; unit noise gain',
+            pair_normalization='(decoded_first+decoded_second)/sqrt(2); unit white-noise gain',
+            pair_phase_reference='midpoint of two pulses separated by 8 ms',
+            pair_voltage_doppler_response=np.cos(np.pi*freq*5*cfg.ipp_samples/cfg.sample_rate_hz),
+            normalization='measured TX unit pulse energy; complementary sum /sqrt(2); pair Hann unit L2; unnormalized FFT')
     return out
 
 
@@ -281,7 +329,7 @@ def contiguous_looks(keys,cfg):
     # Keep it coherent but align each cycle to its measured absolute sample.
     # Actual missing cycles still split the coherent sequence.
     groups=np.split(keys,np.flatnonzero(abs(np.diff(keys)-20*cfg.ipp_samples)>2)+1)
-    cycles=cfg.nfft//4
+    cycles=cfg.nfft//(2 if cfg.complementary_pairs else 4)
     for group in groups:
         for start in range(0,len(group),cycles):
             yield group[start:start+cycles]
@@ -356,8 +404,10 @@ def process_mode(raw_root,tx_root,start,last,cfg,backend='python'):
     # start/stop transitions. This is a verifier, never a decoding substitute.
     anchor=markers[len(markers)//2]
     template=reader.read_vector_1d(int(anchor),20*cfg.ipp_samples,'ch007').astype(np.complex64).reshape(20,-1)
+    if cfg.complementary_pairs:families,family_similarity=complementary_template_families(template)
     ri,*_=axes(cfg)
-    spectra=[]; look_bounds=[]; counts=[]; tx_mean=[]; skipped=[]; gains=[]; scheduled=[]
+    spectra=[]; look_bounds=[]; counts=[]; tx_mean=[]; skipped=[]; gains=[]; scheduled=[];windows=[]
+    noise_sum=None;noise_cfg=replace(cfg,complementary_pairs=False,nfft=cfg.nfft*2,velocity_limit_mps=90.)
     verified=np.zeros(len(keys),dtype=np.int8)
     used=np.zeros(len(keys),dtype=np.int8)
     similarities=np.full(len(keys),np.nan,dtype=np.float32)
@@ -388,19 +438,37 @@ def process_mode(raw_root,tx_root,start,last,cfg,backend='python'):
                 full[valid_pulse]=selected
                 # pulse order: cycle, four repeated five-beam sweeps, beam
                 decoded[channel]=full.reshape(-1,4,5,len(ri)).transpose(2,0,1,3).reshape(5,pulse_count,len(ri))
-            transform=dsp.coherent_spectrum if backend=='rust' else coherent_spectrum
-            spectra.append(transform(decoded,cfg,valid_per_beam))
+            if cfg.complementary_pairs:
+                transform=dsp.complementary_spectrum if backend=='rust' else complementary_spectrum
+                paired=transform(decoded,cfg,valid_per_beam)
+                noise_transform=dsp.coherent_spectrum if backend=='rust' else coherent_spectrum
+                raw_noise=noise_transform(decoded,noise_cfg,valid_per_beam)
+                contribution=abs(raw_noise.astype(np.complex128))**2
+                noise_sum=contribution if noise_sum is None else noise_sum+contribution
+                spectra.append(paired)
+                window=coherent_window(pulse_count//2,valid_per_beam.reshape(-1,2).all(axis=1))
+                padded=np.zeros(cfg.nfft,dtype=np.float32);padded[:len(window)]=window;windows.append(padded)
+            else:
+                transform=dsp.coherent_spectrum if backend=='rust' else coherent_spectrum
+                spectra.append(transform(decoded,cfg,valid_per_beam))
             used[group_index]=valid_cycle
             look_bounds.append([group[0],group[-1]+20*cfg.ipp_samples])
             counts.append(int(valid_per_beam.sum()))
             scheduled.append(pulse_count)
-            gains.append(float(coherent_window(pulse_count,valid_per_beam).sum()**2))
+            gains.append(float(2*window.sum()**2) if cfg.complementary_pairs else float(coherent_window(pulse_count,valid_per_beam).sum()**2))
             tx_mean.append([pulse_power.mean(),pulse_power.min(),pulse_power.max()])
         except (OSError,IOError,ValueError) as error:
             skipped.append((int(group[0]),str(error)))
     if len(spectra)<2:
         raise ValueError(f'Insufficient usable looks: {len(spectra)}; skipped={skipped[:3]}')
-    out=sparsify(np.stack(spectra),cfg)
+    noise_reference=None
+    if cfg.complementary_pairs:noise_reference=(noise_sum/len(spectra),axes(noise_cfg)[4],axes(noise_cfg)[5])
+    out=sparsify(np.stack(spectra),cfg,noise_reference)
+    if cfg.complementary_pairs:
+        out.update(complementary_code_family=families,complementary_code_family_similarity=family_similarity,
+            look_window=np.asarray(windows),pairs_per_beam_per_look=np.asarray(counts,dtype=np.int32)//2,
+            look_pair_time0_sample_by_beam=np.asarray(look_bounds,dtype=np.int64)[:,0,None]+np.arange(5)[None,:]*cfg.ipp_samples+5*cfg.ipp_samples//2,
+            reconstruction='zero-fill omitted Fourier bins, ifftshift, inverse FFT per channel/look/range; returns retained windowed complementary pair echoes, not original ADC')
     if backend=='rust':
         out['generator']='pmse/processor (Rust DSP); pmse/sparse_record.py (Digital RF I/O and detection statistics)'
         out['code_sha256']=hashlib.sha256(Path(__file__).read_bytes()+
@@ -487,13 +555,14 @@ def main():
     p.add_argument('--latest',type=int,default=1)
     p.add_argument('--backend',choices=('python','rust'),default='python',
                    help='Rust executes pulse decoding and Doppler FFTs; reference I/O/statistics are shared')
+    p.add_argument('--legacy-8ms',action='store_true',help='Historical v1 only; default is full-band complementary pairs at 16 ms')
     p.add_argument('--reserve-free-gib',type=float,default=200)
     p.add_argument('--max-archive-gib',type=float,default=500)
     p.add_argument('--lookback-hours',type=float,default=3)
     p.add_argument('--loop',action='store_true')
     p.add_argument('--poll-seconds',type=float,default=60)
     p.add_argument('--start',type=int); p.add_argument('--last',type=int)
-    a=p.parse_args(); cfg=Config()
+    a=p.parse_args(); cfg=Config() if a.legacy_8ms else replace(Config(),nfft=128,complementary_pairs=True,velocity_limit_mps=None)
     if a.latest<0 or a.reserve_free_gib<0 or a.max_archive_gib<=0:
         p.error('latest must be >=0 (zero=all); storage budgets must be positive')
     a.output.mkdir(parents=True,exist_ok=True)

@@ -66,6 +66,40 @@ fn spectrum(input: &[Complex32], window: &[f32], out: &mut [Complex32],
     Ok(())
 }
 
+fn complementary(input: &[Complex32],window: &[f32],out: &mut [Complex32],
+                 series: usize,nr: usize,nfft: usize)->Result<(),i32>{
+    let pairs=window.len();let count=2*pairs;
+    if pairs<4 || pairs>nfft || nfft%2!=0 || input.len()!=series*count*nr || out.len()!=series*nfft*nr{return Err(-1);}
+    let mut planner=FftPlanner::<f32>::new();let fft=planner.plan_fft_forward(nfft);
+    let mut scratch=vec![Complex32::default();fft.get_inplace_scratch_len()];
+    let mut a=vec![Complex32::default();nfft];let mut b=a.clone();
+    for s in 0..series{for r in 0..nr{
+        a.fill(Complex32::default());b.fill(Complex32::default());
+        for k in 0..pairs{
+            a[k]=input[(s*count+2*k)*nr+r]*window[k];
+            b[k]=input[(s*count+2*k+1)*nr+r]*window[k];
+        }
+        fft.process_with_scratch(&mut a,&mut scratch);fft.process_with_scratch(&mut b,&mut scratch);
+        for k in 0..nfft{let j=(k+nfft/2)%nfft;
+            out[(s*nfft+k)*nr+r]=(a[j]+b[j])/2_f32.sqrt();
+        }
+    }}
+    Ok(())
+}
+
+/// Measured-TX decoded pulse pairs; shared window and complementary sum.
+#[no_mangle]
+pub unsafe extern "C" fn pansy_complementary(input:*const Complex32,window:*const f32,
+    series:usize,pairs:usize,nr:usize,nfft:usize,out:*mut Complex32)->i32{
+    status(||{
+        if [input as usize,window as usize,out as usize].contains(&0) || series==0 || nr==0 ||
+            series.checked_mul(pairs).and_then(|v|v.checked_mul(2*nr)).is_none() ||
+            series.checked_mul(nfft).and_then(|v|v.checked_mul(nr)).is_none(){return Err(-1);}
+        complementary(slice::from_raw_parts(input,series*2*pairs*nr),slice::from_raw_parts(window,pairs),
+            slice::from_raw_parts_mut(out,series*nfft*nr),series,nr,nfft)
+    })
+}
+
 /// Input [series,pulse,range], output [series,fftshift_bin,range].
 #[no_mangle]
 pub unsafe extern "C" fn pansy_coherent(input: *const Complex32, window: *const f32,
