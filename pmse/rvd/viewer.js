@@ -91,7 +91,7 @@ async function refresh(){
   const days=m.available_days||[];
   if(!chosenDay||!days.includes(chosenDay))chosenDay=days.at(-1)||m.selected_day;
   const control=$('day');control.replaceChildren(...days.map(day=>{const option=document.createElement('option');option.value=day;option.textContent=day;return option;}));control.value=chosenDay;
-  if(m.noise_model_status){manifest=m;renderNoise();}
+  if(m.noise_model_status)renderNoise(m);
   if(m.transfer){const a=m.transfer.archive,t=m.transfer.syowa_to_revontuli;
     $('transfer').textContent=`Revontuli native archive: ${(a.bytes/2**20).toFixed(2)} MiB · ${a.records} native records · ${a.files} HDF5 files. `+
       (a.first_mode_us?`${utc(a.first_mode_us)} through ${utc(a.latest_mode_us)}. `:'')+
@@ -111,13 +111,13 @@ async function refresh(){
   await mountPlots();
   $('sidecar').href='./data/'+m.sidecar;renderRTI();renderRD();
 }
-function renderNoise(){
-  const module=+$('noiseModule').value,fit=manifest.noise_model_status[module];
+function renderNoise(model=manifest){
+  const module=+$('noiseModule').value,fit=model.noise_model_status[module];
   $('noiseStatus').textContent=`PyGDSM GSM2008 · one-way receive pattern · 90% crossed-Yagi / 10% isotropic element. Module ${module}: `+
     (fit.receiver_temp_k===null?fit.status:`T_receiver = ${fit.receiver_temp_k.toFixed(0)} K; fractional RMS ${(fit.fractional_rms*100).toFixed(1)}%; ${fit.status}`)+
     '. Top: measured noise power; bottom: modeled sky temperature. Fits update hourly and require ≥12 hours of data.';
   const width=document.body.clientWidth<900?640:960;
-  $('noisePlot').src=`./data/axes/noise-module-${module}-${width}.svg?v=${manifest.noise_model_updated_unix_s}`;
+  $('noisePlot').src=`./data/axes/noise-module-${module}-${width}.svg?v=${model.noise_model_updated_unix_s}`;
   $('noisePlot').style.width=width+'px';$('noisePlot').hidden=false;
 }
 function failure(e){revision='';$('error').textContent=e.message;console.error(e);}
@@ -128,7 +128,7 @@ try{
   if(id==='vlim'||id==='wlim')rtiPlot?.setHsvLimits(+$('vlim').value,+$('wlim').value);
   renderRTI();renderRD();}catch(e){failure(e);}};
  $('rdbeam').onchange=renderRD;$('frame').oninput=()=>{selected=+$('frame').value;renderRD();};
- $('noiseModule').onchange=renderNoise;
+ $('noiseModule').onchange=()=>renderNoise();
  $('day').onchange=()=>{chosenDay=$('day').value;revision='';if(playing){clearInterval(playing);playing=null;$('play').textContent='Play';}refresh().catch(failure);};
  $('play').onclick=()=>{if(playing){clearInterval(playing);playing=null;$('play').textContent='Play';}else{$('play').textContent='Pause';playing=setInterval(()=>{selected=(selected+1)%frames.length;$('frame').value=selected;renderRD();},500);}};
  window.addEventListener('resize',()=>{if(frames.length){renderRTI();renderRD();}});
