@@ -36,3 +36,4 @@ test_plots/
 test_plots_smoke/
 texput.log
 pmse/processor/target/
+pmse/plotting/target/

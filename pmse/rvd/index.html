@@ -8,12 +8,13 @@
 <div class="controls">
 <label>View <select id="display"><option value="snr">Peak echo SNR</option><option value="hsv">HSV Doppler moments</option></select></label>
 <label>Beam <select id="beam"><option value="all">All five</option><option value="0">Zenith</option><option value="1">North</option><option value="2">East</option><option value="3">South</option><option value="4">West</option></select></label>
-<label>SNR low <input id="low" type="number" value="3" step="1"></label><label>high (dB) <input id="high" type="number" value="15" step="1"></label>
+<label>SNR low <select id="low"><option value="3">3 dB</option></select></label><label>high (dB) <select id="high"><option value="6">6</option><option value="10">10</option><option value="15">15</option><option value="20">20</option><option value="30">30</option><option value="40">40</option></select></label>
 <label>Hue ±m/s <input id="vlim" type="number" value="30" min="1"></label><label>Width (m/s) <input id="wlim" type="number" value="10" min="1"></label>
 </div>
-<p class="legend"><span class="swatch" id="swatch"></span><span id="colorLabel">Peak excess signal/noise, 3 to 15 dB</span>. Grey: no usable observation. Dark: no retained signal.</p>
+<p class="legend"><span id="colorLabel">Peak excess signal/noise, 3 to 6 dB</span>. Grey: no usable observation. Dark: no retained signal.</p>
 <div id="rti"></div>
 <section><h2>Range–Doppler spectra</h2><div class="controls"><button id="play">Play</button><input id="frame" aria-label="Observing mode" type="range" min="0" max="0" value="0"><label>Beam <select id="rdbeam"><option value="0">Zenith</option><option value="1">North</option><option value="2">East</option><option value="3">South</option><option value="4">West</option></select></label></div><p class="status" id="frameStatus"></p><div id="rd"></div></section>
 <p class="details">Altitude is nominal beam-center height above the radar, not an imaged arrival height. SNR is excess signal/noise. Only bins passing the 3 dB and statistical gates are retained; absent bins are censored, not zero power. HSV uses Doppler centroid for hue, peak dB SNR for intensity, and spectral width for saturation. Moments are threshold-censored. No high-speed bin is automatically a vertical draft. Adjacent observing modes fill the display to their midpoint only when separated by ≤10 minutes; actual sample coverage is reported below.</p>
 <p class="details"><a id="sidecar">Download HDF5 plot data</a> · <a href="https://github.com/jvierine/pansy_receiver/tree/codex/pmse-sparse-record/pmse">Processing and data format</a></p><pre id="error"></pre>
+<style>.plot{padding:0;background:white;overflow:auto;border-radius:0}.plot h2{padding:12px 18px;color:#152134}.native-frame{position:relative;background:white}.native-axes{position:absolute;inset:0;width:100%;height:100%}.native-data{position:absolute;z-index:1;display:block}</style>
 <script type="module" src="viewer.js"></script></body></html>

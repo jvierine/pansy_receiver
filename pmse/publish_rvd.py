@@ -92,6 +92,15 @@ def export(root,output,hours=48):
         display_fill='nearest mesomode for inter-mode gaps <=10 min; observations unchanged',
         moment_definition='threshold-censored moments of retained excess spectral power',
         generator='pmse/publish_rvd.py')
+    first=packets[0]['start_us']; last=latest['stop_us']
+    manifest['time_tick_labels']=[datetime.fromtimestamp((first+(last-first)*q)/1e6,timezone.utc).strftime('%H:%M:%S')
+                                  for q in (0,.5,1)]
+    renderer=Path(__file__).parent/'plotting/target/release/pansy-pmse-plots'
+    if renderer.exists():
+        specification=output/'plot-spec.json'
+        atomic_json(specification,manifest)
+        subprocess.run([str(renderer),str(specification),str(output/'axes')],check=True,timeout=120)
+        manifest['plot_layouts']='axes/layouts.json'
     sidecar=output/manifest['sidecar']
     if not sidecar.exists():
         tmp=sidecar.with_suffix('.h5.partial')
@@ -126,6 +135,7 @@ def main():
             if a.rsync_dest:
                 # Transfer data packets and sidecar first, manifest last.
                 subprocess.run(['rsync','-rt','--exclude=manifest.json','--exclude=*.partial',
+                                '--exclude=.latex-cache/',
                                 str(a.output)+'/',a.rsync_dest],check=True)
                 subprocess.run(['rsync','-rt',str(a.output/'manifest.json'),a.rsync_dest],check=True)
         except Exception:
