@@ -8,10 +8,14 @@ use std::{fs,path::Path};
 fn save(path: &Path, text: &str) -> Result<()> {
     let tmp=path.with_extension("partial"); fs::write(&tmp,text)?; fs::rename(tmp,path)?; Ok(())
 }
+fn wave_palette()->Result<ColorMap> {
+    ColorMap::new(serde_json::from_str(include_str!("../../rvd/palette.json"))?)
+}
 fn main()->Result<()> {
     let args:Vec<_>=std::env::args().collect();
     if args.get(1).map(String::as_str)==Some("--frame") {
-        let value:Value=serde_json::from_reader(std::io::stdin())?;
+        let mut value:Value=serde_json::from_reader(std::io::stdin())?;
+        value["spec"]["color_stops"]=serde_json::from_str(include_str!("../../rvd/palette.json"))?;
         let spec=serde_json::from_value(value["spec"].clone())?;
         let request=serde_json::from_value(value["request"].clone())?;
         let cache=std::env::var("PANSY_FRAME_CACHE").unwrap_or_else(|_|"/tmp/pansy-native-frame-cache".into());
@@ -38,7 +42,7 @@ fn main()->Result<()> {
         } else { axes.xticks=vec![-90.,0.,90.]; }
         f.panels.push(Panel::new(rect,axes));
         f.scales.push(Scale::new([low,high],Normalization::Linear,
-            ColorMap::new(vec![[0.08,0.08,0.16],[0.35,0.13,0.31],[0.71,0.24,0.25],[0.97,0.61,0.28],[1.,0.94,0.73]])?)?);
+            wave_palette()?)?);
         let ticks=if high==6. {vec![3.,4.,5.,6.]} else {
             let mut ticks=vec![3.];
             for v in [5.,10.,20.,30.,40.] { if v<=high {ticks.push(v);} }
@@ -53,7 +57,7 @@ fn main()->Result<()> {
        }
        let mut f=WebLayout::new(width,16.)?.figure(700.)?;f.latex.cache=out.join(".latex-cache");
        f.scales.push(Scale::new([low,high],Normalization::Linear,
-           ColorMap::new(vec![[0.08,0.08,0.16],[0.35,0.13,0.31],[0.71,0.24,0.25],[0.97,0.61,0.28],[1.,0.94,0.73]])?)?);
+           wave_palette()?)?);
        let mut panels=vec![];let mut beam_labels=vec![];
        for beam in 0..5 {
            let rect=Rect::new(20.,4.+beam as f64*32.,f.width_mm-50.,30.);

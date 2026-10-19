@@ -1,32 +1,84 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PANSY PMSE Explorer</title>
-<link rel="icon" type="image/png" href="rogue-wave-logo.png?v=1">
-<link rel="apple-touch-icon" href="rogue-wave-logo.png?v=1">
-<style>
-:root{font-family:system-ui,sans-serif;color:#e3eaf8;background:#101724;font-size:16px}body{max-width:1500px;margin:auto;padding:18px}h1{font-size:1.6rem;margin:0 0 8px}h2{font-size:1.1rem;margin:10px 0}a{color:#8ad9ff}.controls{display:flex;flex-wrap:wrap;gap:14px;align-items:center;padding:14px 0}label{display:flex;gap:6px;align-items:center}input,select,button{font:inherit;color:inherit;background:#243349;border:1px solid #73849e;border-radius:4px;padding:5px}input[type=number]{width:65px}input[type=range]{width:260px}p{line-height:1.5}.status{color:#b9c9dc}.warn{color:#ffd284}.plot{position:relative;margin:4px 0 20px;padding:8px 10px 25px 58px;background:#172234;border-radius:6px}.field{position:relative;height:160px}canvas{display:block;width:100%;height:100%;image-rendering:auto}.ylabels{position:absolute;left:-47px;top:0;bottom:0;width:40px;display:flex;flex-direction:column;justify-content:space-between;align-items:end;font-size:14px}.xticks{position:absolute;left:0;right:0;display:flex;justify-content:space-between;font-size:14px;margin-top:4px}.axis{color:#b9c9dc;font-size:14px;margin-top:25px;text-align:center}.rd .field{height:300px}.legend{font-size:14px;color:#b9c9dc}.swatch{display:inline-block;width:130px;height:12px;margin:0 8px;background:linear-gradient(to right,#141429,#b53d40,#fff0ba)}.hsv{background:linear-gradient(to right,blue,cyan,lime,yellow,red)}.details{font-size:14px}.embedded header,.embedded .details{display:none}.embedded{padding:5px}.embedded .field{height:120px}#error{color:#ffb5b5;white-space:pre-wrap}
-</style></head><body>
-<header class="site-header"><img class="site-logo" src="rogue-wave-logo.png?v=1" alt="Rogue wave inspired by Hokusai's Great Wave off Kanagawa" width="88" height="88"><div class="site-heading"><h1>PANSY PMSE Explorer</h1><p class="status" id="status">Loading observations…</p></div></header>
-<div class="controls">
-<label>UTC day <select id="day" aria-label="UTC day"></select></label>
-<label>View <select id="display"><option value="snr">Peak echo SNR</option><option value="hsv">HSV Doppler moments</option></select></label>
-<label>Beam <select id="beam"><option value="all">All five</option><option value="0">Zenith</option><option value="1">North</option><option value="2">East</option><option value="3">South</option><option value="4">West</option></select></label>
-<label>SNR low <select id="low"><option value="3">3 dB</option></select></label><label>high (dB) <select id="high"><option value="6">6</option><option value="10">10</option><option value="15">15</option><option value="20">20</option><option value="30">30</option><option value="40">40</option></select></label>
-<label>Hue ±m/s <input id="vlim" type="number" value="30" min="1"></label><label>Width (m/s) <input id="wlim" type="number" value="10" min="1"></label>
-</div>
-<p class="legend"><span id="colorLabel">Peak excess signal/noise, 3 to 6 dB</span>. Grey: no delivered 16 ms record; processing/transfer may be pending. Dark: a record exists, but no signal passed detection.</p>
-<div id="rti"></div>
-<section><h2>Five-beam radar imaging</h2>
-<p>Click any beam's range–time plot to image that slant range and observing period across all five beams. The image is computed locally in your browser; nothing is added to the archive.</p>
-<div class="controls"><label>Doppler hue ±m/s <input id="imageVelocity" type="number" min="1" value="30"></label><label>Width saturation (m/s) <input id="imageWidth" type="number" min="1" value="10"></label></div>
-<p id="imageStatus" class="status">Select a range and time in an RTI plot.</p><div id="imagePlot" style="max-width:840px"></div>
-<p class="details">East/north positions are projected from the selected slant-range shell, not a fixed-altitude plane. Hue: circular Doppler centroid; saturation: width; intensity: relative reconstructed power (−30 to 0 dB, normalized per selection), not calibrated SNR. Beam overlaps use cosine-squared tapers, not measured transmit gains. Missing spectral bins remain threshold-censored. At most 120 seconds of coherent looks are used per selected window.</p></section>
-<section><h2>Range–Doppler spectra</h2><div class="controls"><button id="play">Play</button><input id="frame" aria-label="Observing mode" type="range" min="0" max="0" value="0"><label>Beam <select id="rdbeam"><option value="0">Zenith</option><option value="1">North</option><option value="2">East</option><option value="3">South</option><option value="4">West</option></select></label></div><p class="status" id="frameStatus"></p><div id="rd"></div></section>
-<section><h2>Time–Doppler SNR · all five beams</h2><p class="details">Maximum retained excess signal/noise over 50–120 km nominal altitude in each velocity bin. Plasma color scale; shared UTC time axis. Grey: no delivered 16 ms record; processing/transfer may be pending. Unretained bins are censored, not measured zero power.</p><div id="timeDoppler"></div></section>
-<section><h2>Sky noise and receiver temperature</h2><label>Receiver module <select id="noiseModule"><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></label><p class="status" id="noiseStatus">Preparing the cached sky model…</p><div style="overflow:auto;background:white"><img id="noisePlot" alt="Measured noise and modeled sky temperature" hidden></div></section>
-<section><h2>Archive and transfer</h2><p class="status" id="transfer">Waiting for archive inventory…</p><div style="overflow:auto;background:white"><img id="archivePlot" alt="Data per UTC hour and cumulative archive size" hidden></div></section>
-<p class="details">Altitude is nominal beam-center height above the radar, not an imaged arrival height. SNR is excess signal/noise. Only bins passing the 3 dB and statistical gates are retained; absent bins are censored, not zero power. HSV uses Doppler centroid for hue, peak dB SNR for intensity, and spectral width for saturation. Moments are threshold-censored. No high-speed bin is automatically a vertical draft. Adjacent observing modes fill the display to their midpoint only when separated by ≤10 minutes; actual sample coverage is reported below.</p>
-<p class="details"><a id="sidecar">Download HDF5 plot data</a> · <a href="https://github.com/jvierine/pansy_receiver/tree/codex/pmse-sparse-record/pmse">Processing and data format</a></p><pre id="error"></pre>
-<style>:root{color:#172134;background:#fff}input,select,button{color:#172134;background:#fff;border-color:#a8b2bf}.status,.legend,.details{color:#475569}.warn{color:#8a4b0b}a{color:#145f94}#error{color:#a32020}.plot{padding:0;background:white;overflow:auto;border-radius:0}.plot h2{padding:12px 18px;color:#152134}.native-frame{position:relative;background:white}.native-axes{position:absolute;inset:0;width:100%;height:100%}.native-data{position:absolute;z-index:1;display:block}</style>
-<style>.site-header{display:flex;align-items:center;gap:18px;margin-bottom:12px}.site-logo{display:block;flex:none;width:88px;height:88px;object-fit:contain}.site-heading{min-width:0}.site-heading .status{margin:0}@media(max-width:640px){.site-header{align-items:flex-start;gap:12px}.site-logo{width:60px;height:60px}.site-heading h1{font-size:1.2rem}}</style>
-<script type="module" src="viewer.js?v=sparse16-delivery-status-7"></script></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#082747">
+  <title>PANSY PMSE Explorer</title>
+  <link rel="icon" type="image/png" href="rogue-wave-logo.png?v=1">
+  <link rel="apple-touch-icon" href="rogue-wave-logo.png?v=1">
+  <link rel="stylesheet" href="theme.css?v=wave-1">
+</head>
+<body>
+  <header class="site-header">
+    <div class="brand">
+      <img class="site-logo" src="rogue-wave-logo.png?v=1" alt="Rogue wave inspired by Hokusai's Great Wave off Kanagawa" width="80" height="80">
+      <div><p class="eyebrow">Syowa, Antarctica</p><h1>PANSY PMSE Explorer</h1></div>
+    </div>
+    <div class="header-actions">
+      <label class="day-control" for="day">UTC day <select id="day" aria-label="UTC day"></select></label>
+      <a id="downloadSpectra" class="button button-primary" aria-disabled="true">Download spectra <span aria-hidden="true">↓</span></a>
+    </div>
+  </header>
+  <main>
+    <div class="observation-status"><span class="status-dot" aria-hidden="true"></span><p class="status" id="status" role="status">Loading observations…</p></div>
+    <div class="view-toolbar">
+      <label for="display">Display <select id="display"><option value="snr">Echo strength · SNR</option><option value="hsv">Velocity &amp; width · HSV</option></select></label>
+      <details class="settings">
+        <summary>Display settings</summary>
+        <div class="settings-content">
+          <div><h3>Echo strength</h3><p>Click any colorbar to adjust its limits directly.</p>
+            <div class="control-row"><label>Minimum SNR <input id="low" type="number" value="3" step="1"> <span>dB</span></label><label>Maximum SNR <input id="high" type="number" value="6" step="1"> <span>dB</span></label></div>
+          </div>
+          <div class="hsv-settings"><h3>Doppler colors</h3><p>Velocity sets hue; spectral width sets saturation.</p>
+            <div class="control-row"><label>RTI velocity ± <input id="vlim" type="number" value="30" min="1"> <span>m/s</span></label><label>RTI width <input id="wlim" type="number" value="10" min="1"> <span>m/s</span></label></div>
+            <div class="control-row"><label>Image velocity ± <input id="imageVelocity" type="number" min="1" value="30"> <span>m/s</span></label><label>Image width <input id="imageWidth" type="number" min="1" value="10"> <span>m/s</span></label></div>
+          </div>
+        </div>
+      </details>
+    </div>
+    <section class="plot-section" aria-labelledby="rtiTitle">
+      <div class="section-heading"><h2 id="rtiTitle">Echoes through the day</h2><span class="section-note">Five beams · 50–120 km</span></div>
+      <p class="legend" id="colorLabel">Peak excess signal/noise (dB). Click a colorbar to adjust its limits.</p>
+      <div id="rti"></div>
+      <p class="plot-note"><span class="key missing"></span>No delivered record <span class="key censored"></span>Below detection threshold</p>
+    </section>
+    <section class="plot-section" aria-labelledby="imageTitle">
+      <div class="section-heading"><h2 id="imageTitle">Radar image</h2><span class="section-note">All five beams</span></div>
+      <p class="section-description">Click a time and altitude in the plot above to explore an echo.</p>
+      <p id="imageStatus" class="status">Select a range and time to begin.</p><div id="imagePlot"></div>
+    </section>
+    <section class="plot-section" aria-labelledby="rdTitle">
+      <div class="section-heading"><h2 id="rdTitle">Range–Doppler spectrum</h2>
+        <div class="controls"><label>Beam <select id="rdbeam"><option value="0">Zenith</option><option value="1">North</option><option value="2">East</option><option value="3">South</option><option value="4">West</option></select></label><button id="play" type="button">Play</button></div>
+      </div>
+      <div class="playback"><input id="frame" aria-label="Observing mode" type="range" min="0" max="0" value="0"><p class="status" id="frameStatus"></p></div>
+      <div id="rd"></div>
+    </section>
+    <section class="plot-section" aria-labelledby="tdTitle">
+      <div class="section-heading"><h2 id="tdTitle">Velocity through the day</h2><span class="section-note">Peak SNR across 50–120 km · five beams</span></div>
+      <div id="timeDoppler"></div>
+    </section>
+    <details class="support-section">
+      <summary>Sky noise &amp; receiver temperature</summary>
+      <div class="support-content"><label>Receiver module <select id="noiseModule"><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></label><p class="status" id="noiseStatus">Preparing the cached sky model…</p><div class="figure-scroll"><img id="noisePlot" alt="Measured noise and modeled sky temperature" hidden></div></div>
+    </details>
+    <details class="support-section">
+      <summary>Archive &amp; transfer</summary>
+      <div class="support-content"><p class="status" id="transfer">Waiting for archive inventory…</p><div class="figure-scroll"><img id="archivePlot" alt="Data per UTC hour and cumulative archive size" hidden></div></div>
+    </details>
+    <details class="support-section">
+      <summary>About the observations &amp; downloads</summary>
+      <div class="support-content details">
+        <p>The download button exports the selected UTC day's available native HDF5 files in a TAR archive, including sparse complex spectra for all seven receiver channels and all retained coherent looks, plus the Digital Metadata properties file. Today's archive grows as observations arrive.</p>
+        <p>Only cells passing the 3 dB excess-signal SNR and statistical gates are retained. Missing cells are censored, not measured zero power. Grey indicates no delivered record, which may still be processing or transferring. A high radial velocity alone does not establish a vertical draft.</p>
+        <p>Altitude is the nominal beam-center height. HSV encodes Doppler centroid, spectral width, and peak SNR. Radar images use a selected slant-range shell and at most 120 seconds of looks; their intensity is relative reconstructed power, not calibrated SNR. Historical phase calibration has not been independently validated for these observations.</p>
+        <p><a id="sidecar">Download derived plot data · HDF5</a> · <a href="https://github.com/jvierine/pansy_receiver/tree/main/pmse">Processing &amp; data format</a></p>
+      </div>
+    </details>
+    <pre id="error" role="alert"></pre>
+  </main>
+  <footer>PANSY · Mesospheric echoes at Syowa Station</footer>
+  <script type="module" src="viewer.js?v=wave-1"></script>
+</body>
+</html>

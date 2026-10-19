@@ -14,16 +14,16 @@ var InteractiveFieldPlot = class _InteractiveFieldPlot {
     this.limits = options.colorLimits || [0, 1];
     this.momentMode = options.frameParameters?.hsv === 1;
     const toolbar = document.createElement("div");
-    toolbar.style.cssText = "display:flex;gap:12px;align-items:center;font:inherit;margin:6px 0";
+    toolbar.style.cssText = "display:flex;flex-wrap:wrap;gap:10px;align-items:center;font:inherit;margin:0 6px 10px;color:var(--muted,#526b7d)";
     this.resetButton.textContent = "Reset view";
     this.resetButton.onclick = () => this.reset();
     const help = document.createElement("span");
-    help.textContent = "Wheel: zoom \xB7 drag: box zoom \xB7 Shift-drag: pan \xB7 double-click: reset";
-    help.style.fontSize = "0.875em";
+    help.textContent = "Scroll to zoom \xB7 drag to select \xB7 Shift-drag to pan";
+    help.style.fontSize = "0.75rem";
     toolbar.append(this.resetButton, help);
     root.append(toolbar);
     root.style.overflowX = "auto";
-    this.stage.style.cssText = "position:relative;background:white;touch-action:none";
+    this.stage.style.cssText = "position:relative;background:var(--foam,#fffdf6);touch-action:none";
     this.axes.style.cssText = "position:absolute;inset:0;width:100%;height:100%;pointer-events:none";
     this.axes.alt = `${s.ylabel} versus ${s.xlabel}; ${s.colorbar_label}`;
     this.stage.append(this.axes);
@@ -43,7 +43,7 @@ var InteractiveFieldPlot = class _InteractiveFieldPlot {
       this.panels.push(panel);
       this.bind(panel);
     });
-    this.selectionBox.style.cssText = "display:none;position:absolute;z-index:3;border:1px dashed #1d5577;background:#3e97bc22;pointer-events:none";
+    this.selectionBox.style.cssText = "display:none;position:absolute;z-index:3;border:1px dashed #12669a;background:#63a8c922;pointer-events:none";
     this.stage.append(this.selectionBox);
     this.observer = new ResizeObserver(() => this.queueFrame());
   }
@@ -108,7 +108,7 @@ var InteractiveFieldPlot = class _InteractiveFieldPlot {
     const dialog = document.createElement("dialog");
     this.editor = dialog;
     dialog.setAttribute("aria-label", "Adjust color limits");
-    dialog.style.cssText = "position:fixed;max-width:min(480px,90vw);padding:20px;border:1px solid #8b99aa;border-radius:7px;background:white;color:#172134;font:16px system-ui;box-shadow:0 8px 30px #0004";
+    dialog.style.cssText = "position:fixed;max-width:min(480px,90vw);padding:24px;border:1px solid var(--line,#d9e2e4);border-radius:10px;background:var(--paper,#faf7ed);color:var(--ink,#082747);font:15px system-ui;box-shadow:0 12px 40px #08274722";
     const title = document.createElement("h2");
     title.textContent = "Color limits";
     title.style.cssText = "font:inherit;font-weight:600;margin:0 0 14px";
@@ -343,7 +343,7 @@ var InteractiveFieldPanel = class {
     this.label = label;
     this.index = index;
     this.field = new FieldView(canvas);
-    this.field.set_missing_color(0.18, 0.23, 0.3, 1);
+    this.field.set_missing_color(0.6196, 0.6745, 0.7098, 1);
   }
   field;
   dataBounds;

@@ -8,6 +8,7 @@ import json
 import struct
 import subprocess
 import threading
+import tarfile
 from datetime import datetime,timezone,timedelta
 from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -20,6 +21,30 @@ import numpy as np
 HEIGHT_KM=85.290954301
 _render_lock=threading.Lock()
 _frames=OrderedDict()
+
+
+def day_archive_files(root,day):
+    """Native files for one validated UTC date; no derived plot data."""
+    date=datetime.strptime(day,'%Y-%m-%d')
+    if date.strftime('%Y-%m-%d')!=day:raise ValueError('Invalid UTC day')
+    root=Path(root).resolve()
+    files=sorted(path for path in root.glob(day+'T*/pmse@*.h5')
+                 if path.is_file() and not path.is_symlink() and path.resolve().is_relative_to(root))
+    if not files:raise FileNotFoundError('No delivered sparse spectra for this UTC day')
+    properties=root/'dmd_properties.h5'
+    if not properties.is_file():raise FileNotFoundError('Native metadata properties are not available yet')
+    return [properties]+files
+
+
+def stream_day_archive(output,root,files):
+    """Stream original HDF5 bytes, without loading spectra or storing another archive."""
+    root=Path(root).resolve()
+    with tarfile.open(fileobj=output,mode='w|') as archive:
+        for path in files:
+            with path.open('rb') as source:
+                info=archive.gettarinfo(fileobj=source,arcname=str(path.relative_to(root)))
+                info.uid=info.gid=0;info.uname=info.gname='';info.mode=0o644
+                archive.addfile(info,source)
 
 
 def day_packet(root,day,manifest):
@@ -128,6 +153,17 @@ def main():
         def do_GET(self):
             try:
                 url=urlparse(self.path)
+                if url.path.endswith('/download'):
+                    q=parse_qs(url.query);day=q['day'][0]
+                    files=day_archive_files(a.root,day)
+                    self.send_response(200)
+                    self.send_header('Content-Type','application/x-tar')
+                    self.send_header('Content-Disposition',f'attachment; filename="pansy-sparse-spectra-{day}.tar"')
+                    self.send_header('Cache-Control','no-store')
+                    self.end_headers()
+                    try:stream_day_archive(self.wfile,a.root,files)
+                    except (BrokenPipeError,ConnectionResetError):pass
+                    return
                 if url.path.endswith('/geometry'):
                     return self.send(json.dumps(geo).encode())
                 if url.path.endswith('/day'):
@@ -138,6 +174,7 @@ def main():
                     if not 50<=r<=123 or not 0<=offset<=86400 or key<=0:raise ValueError('Invalid selection')
                     return self.send(existing_packet(a.root,key,r,offset),'application/octet-stream')
                 self.send(b'{}',status=404)
+            except FileNotFoundError as e:self.send(json.dumps(dict(error=str(e))).encode(),status=404)
             except (ValueError,KeyError,OSError) as e:self.send(json.dumps(dict(error=str(e))).encode(),status=400)
         def do_POST(self):
             try:

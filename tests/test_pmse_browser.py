@@ -2,14 +2,38 @@ import json
 from pathlib import Path
 import struct
 import tempfile
+import io
+import tarfile
 import unittest
 import h5py
 import numpy as np
-from pmse.serve_browser import existing_packet,day_packet
+from pmse.serve_browser import existing_packet,day_packet,day_archive_files,stream_day_archive
 from pmse.sparse_record import pending_modes,bounded_modes
 
 
 class BrowserTransportTests(unittest.TestCase):
+    def test_day_download_preserves_native_files_and_excludes_other_days(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            (root/'dmd_properties.h5').write_bytes(b'native properties')
+            files=[]
+            for day in ['2026-10-18','2026-10-19']:
+                directory=root/f'{day}T18-00-00';directory.mkdir()
+                path=directory/'pmse@1792432800.h5'
+                with h5py.File(path,'w') as h:
+                    h['spectra']=np.array([1+2j,3-4j],dtype='complex64')
+                if day=='2026-10-19':files.append(path)
+            selected=day_archive_files(root,'2026-10-19')
+            self.assertEqual(selected,[root/'dmd_properties.h5']+files)
+            output=io.BytesIO();stream_day_archive(output,root,selected);output.seek(0)
+            with tarfile.open(fileobj=output) as archive:
+                self.assertEqual(archive.getnames(),[str(p.relative_to(root)) for p in selected])
+                for path in selected:
+                    self.assertEqual(archive.extractfile(str(path.relative_to(root))).read(),path.read_bytes())
+            with self.assertRaises(FileNotFoundError):day_archive_files(root,'2026-10-20')
+            for invalid in ['../../2026-10-19','2026-1-1','2026-10-19\r\nInjected: yes']:
+                with self.assertRaises(ValueError):day_archive_files(root,invalid)
+
     def test_one_worker_prioritizes_newest_then_backfills(self):
         choices=[(i,i+1) for i in range(10)]
         self.assertEqual(pending_modes(choices,{9},3),[(8,9),(7,8),(0,1)])

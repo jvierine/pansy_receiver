@@ -1,7 +1,7 @@
 // Scientific provenance: rustplotlib interactive API d3837b8; numerical imaging is Rust/WASM.
 import init from './pkg/rustplotlib_web.js';
-import {imageSelection} from './imaging.js';
-import {InteractiveFieldPlot} from './lib/interactive_plot.js';
+import {imageSelection} from './imaging.js?v=wave-1';
+import {InteractiveFieldPlot} from './lib/interactive_plot.js?v=wave-1';
 const $=id=>document.getElementById(id), names=['Zenith','North','East','South','West'];
 let manifest,frames=[],plots=[],rd,playing=null,selected=0,revision='',rtiPlot,rdPlot,tdPlot;
 let chosenDay='',refreshSequence=0;
@@ -103,7 +103,12 @@ async function refresh(){
   const daily=await fetch(`./api/day?day=${encodeURIComponent(chosenDay)}`,{cache:'no-cache'});if(!daily.ok)throw Error('Selected UTC day is unavailable');
   m=await daily.json();if(request!==refreshSequence)return;
   const age=(Date.now()-m.latest_mode_us/1000)/60000;
-  $('status').textContent=m.frame_count?`${chosenDay} UTC · ${m.frame_count} observing modes · 16 ms complementary pairs · Nyquist ±${m.velocity_limits_mps[1].toFixed(3)} m/s · latest delivered observation ${utc(m.latest_mode_us)} · ${Math.max(0,age).toFixed(1)} min behind now · checked ${new Date().toISOString().slice(11,19)} UTC`:`${chosenDay} UTC · no complete 16 ms records delivered yet`;
+  $('status').textContent=m.frame_count?`${m.frame_count} observing modes · latest ${utc(m.latest_mode_us)} · ${Math.max(0,age).toFixed(0)} min behind now`:`${chosenDay} UTC · no observations delivered yet`;
+  const download=$('downloadSpectra');
+  download.href=`./api/download?day=${encodeURIComponent(chosenDay)}`;
+  download.setAttribute('download',`pansy-sparse-spectra-${chosenDay}.tar`);
+  download.setAttribute('aria-disabled',m.frame_count?'false':'true');
+  download.title=`Native complex spectra and metadata for ${chosenDay} UTC (.tar)`;
   $('status').className=age>10?'status warn':'status';$('error').textContent='';
   if(m.revision===revision)return;manifest=m;
   frames=m.frame_packets;revision=m.revision;selected=frames.length-1;$('frame').max=String(Math.max(0,selected));$('frame').value=String(Math.max(0,selected));
@@ -123,13 +128,15 @@ function renderNoise(model=manifest){
 function failure(e){revision='';$('error').textContent=e.message;console.error(e);}
 try{
  await init();if(new URLSearchParams(location.search).has('embed'))document.body.classList.add('embedded');
- for(const id of ['display','beam','low','high','vlim','wlim'])$(id).onchange=()=>{try{
+ document.body.dataset.display=$('display').value;
+ for(const id of ['display','low','high','vlim','wlim'])$(id).onchange=()=>{try{
+  document.body.dataset.display=$('display').value;
   if(id==='low'||id==='high')for(const plot of [rtiPlot,rdPlot,tdPlot])plot?.setColorLimits(+$('low').value,+$('high').value);
   if(id==='vlim'||id==='wlim')rtiPlot?.setHsvLimits(+$('vlim').value,+$('wlim').value);
   renderRTI();renderRD();}catch(e){failure(e);}};
  $('rdbeam').onchange=renderRD;$('frame').oninput=()=>{selected=+$('frame').value;renderRD();};
  $('noiseModule').onchange=()=>renderNoise();
- $('day').onchange=()=>{chosenDay=$('day').value;revision='';if(playing){clearInterval(playing);playing=null;$('play').textContent='Play';}refresh().catch(failure);};
+ $('day').onchange=()=>{chosenDay=$('day').value;revision='';$('downloadSpectra').setAttribute('aria-disabled','true');$('downloadSpectra').removeAttribute('href');if(playing){clearInterval(playing);playing=null;$('play').textContent='Play';}refresh().catch(failure);};
  $('play').onclick=()=>{if(playing){clearInterval(playing);playing=null;$('play').textContent='Play';}else{$('play').textContent='Pause';playing=setInterval(()=>{selected=(selected+1)%frames.length;$('frame').value=selected;renderRD();},500);}};
  window.addEventListener('resize',()=>{if(frames.length){renderRTI();renderRD();}});
  await refresh();setInterval(()=>refresh().catch(failure),60000);
