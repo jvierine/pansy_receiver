@@ -55,7 +55,7 @@ try{
   await page.getByRole('button',{name:'Reset scale',exact:true}).click();
   assert.deepEqual(await page.evaluate(()=>window.colorbarTest.getColorLimits()),[3,6]);
   assert(close(before,await page.evaluate(()=>window.colorbarPixel())),'Reset must restore original WebGL colors');
-  await page.keyboard.press('Escape');assert.equal(await page.locator('dialog').count(),0);
+  await page.keyboard.press('Escape');await page.locator('dialog').waitFor({state:'detached'});
   // HSV state must survive scale edits, native frame refresh and resize.
   await page.evaluate(()=>window.colorbarTest.panels[0].set_moment_data(new Float32Array([4.5,10,2,0]),30,10));
   await page.waitForTimeout(400);
@@ -79,8 +79,8 @@ try{
   await page.getByRole('button',{name:'Done',exact:true}).click();
   // Colorbar is also an ordinary keyboard-operable button.
   await page.locator('#colorbar-test button[aria-label="Adjust color limits"]').first().focus();
-  await page.keyboard.press('Enter');assert.equal(await page.locator('dialog').count(),1);
-  await page.keyboard.press('Escape');
+  await page.keyboard.press('Enter');await page.locator('dialog').waitFor({state:'visible'});
+  await page.keyboard.press('Escape');await page.locator('dialog').waitFor({state:'detached'});
   await page.evaluate(()=>{window.colorbarTest.dispose();document.querySelector('#colorbar-test').remove();});
   assert.deepEqual(errors,[]);
   console.log(JSON.stringify({passed:true,scalarPixels:{before,after},hsvPixels:{before:hsvBefore,adjusted},mobile:size,errors}));
