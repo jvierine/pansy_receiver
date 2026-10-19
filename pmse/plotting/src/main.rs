@@ -31,7 +31,11 @@ fn main()->Result<()> {
         f.panels.push(Panel::new(rect,axes));
         f.scales.push(Scale::new([low,high],Normalization::Linear,
             ColorMap::new(vec![[0.08,0.08,0.16],[0.35,0.13,0.31],[0.71,0.24,0.25],[0.97,0.61,0.28],[1.,0.94,0.73]])?)?);
-        let ticks=(0..4).map(|i|low+(high-low)*i as f64/3.).collect();
+        let ticks=if high==6. {vec![3.,4.,5.,6.]} else {
+            let mut ticks=vec![3.];
+            for v in [5.,10.,20.,30.,40.] { if v<=high {ticks.push(v);} }
+            if !ticks.contains(&high){ticks.push(high);} ticks
+        };
         f.colorbars.push(Colorbar::new(Rect::new(rect.x+rect.width+3.,rect.y,3.,rect.height),0,"SNR (dB)",ticks));
         f.layout_colorbars()?;
         let key=format!("{kind}-{}-{low}-{high}",width as i32);
