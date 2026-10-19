@@ -3,7 +3,13 @@ const $=id=>document.getElementById(id);
 let worker,geometry,plot,sequence=0,previousRange,lastMoments;
 const grid=61;
 function edges(extent){const d=2*extent/(grid-1);return Float32Array.from({length:grid+1},(_,i)=>-extent-d/2+i*d);}
-function repaint(){if(plot&&lastMoments){plot.panels[0].set_moment_data(lastMoments,+$('imageVelocity').value,+$('imageWidth').value);plot.setFrameParameters({range_km:previousRange,velocity_limit:+$('imageVelocity').value,width_limit:+$('imageWidth').value});}}
+function styleParameters(range){return {range_km:range,hsv:$('display').value==='hsv'?1:0,velocity_limit:+$('imageVelocity').value,width_limit:+$('imageWidth').value};}
+function repaint(){if(plot&&lastMoments){
+ const extent=previousRange*Math.sin(20*Math.PI/180);
+ plot.panels[0].set_rectilinear_data(edges(extent),edges(extent),Float32Array.from({length:grid*grid},(_,i)=>lastMoments[4*i]));
+ if($('display').value==='hsv')plot.panels[0].set_moment_data(lastMoments,+$('imageVelocity').value,+$('imageWidth').value);
+ plot.setFrameParameters(styleParameters(previousRange));
+}}
 export async function imageSelection(key,slantRange,offsetSeconds=0){
  const id=++sequence;$('imageStatus').textContent='Fetching existing complex spectra…';
  try {
@@ -18,7 +24,7 @@ export async function imageSelection(key,slantRange,offsetSeconds=0){
     const {header,moments}=data,range=header.selected_range_km,extent=range*Math.sin(20*Math.PI/180);
     try {
      if(!plot||previousRange!==range){plot?.dispose();$('imagePlot').replaceChildren();
-      plot=await InteractiveFieldPlot.mount($('imagePlot'),{id:'image',frameParameters:{range_km:range,velocity_limit:+$('imageVelocity').value,width_limit:+$('imageWidth').value},
+      plot=await InteractiveFieldPlot.mount($('imagePlot'),{id:'image',frameParameters:styleParameters(range),
        spec:{bounds:[-extent,-extent,extent,extent],xlabel:'East (km)',ylabel:'North (km)',colorbar_label:'Relative power (dB)',panels:['']},colorLimits:[-30,0]});previousRange=range;
      }
      if(data.id!==sequence)return;
@@ -34,4 +40,4 @@ export async function imageSelection(key,slantRange,offsetSeconds=0){
   worker.postMessage({id,packet,geometry,grid},[packet]);
  }catch(e){if(id===sequence)$('imageStatus').textContent=String(e);}
 }
-for(const id of ['imageVelocity','imageWidth'])$(id).addEventListener('change',repaint);
+for(const id of ['imageVelocity','imageWidth','display'])$(id).addEventListener('change',repaint);

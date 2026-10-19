@@ -145,6 +145,7 @@ var InteractiveFieldPlot = class _InteractiveFieldPlot {
       p.label.style.left = `calc(${x * 100}% + 4px)`;
       p.label.style.top = `calc(${y * 100}% + 4px)`;
       p.field.set_scale(this.limits[0], this.limits[1], 0, 0.1, 2);
+      if (frame.color_stops) p.field.set_colormap(Float32Array.from(frame.color_stops));
       p.applyView();
     });
     this.axes.style.visibility = "visible";

@@ -123,7 +123,7 @@ def main():
                                 colorbar_label='Relative power (dB)',panels=[''],utc_origin_seconds=None,equal_aspect=True)
                 elif ident!='rti':raise ValueError('Unknown plot')
                 request={k:body[k] for k in ('width','viewport','color_limits')}
-                if ident=='image' or (ident=='rti' and body.get('hsv')==1):
+                if ident in ('image','rti') and body.get('hsv')==1:
                     velocity=float(body.get('velocity_limit',30));width=float(body.get('width_limit',10))
                     if not 0<velocity<=1000 or not 0<width<=1000:raise ValueError('Invalid HSV limits')
                     spec['hsv_key']=dict(velocity_limit=velocity,width_limit=width,
