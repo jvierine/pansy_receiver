@@ -40,9 +40,33 @@ fn main()->Result<()> {
         f.layout_colorbars()?;
         let key=format!("{kind}-{}-{low}-{high}",width as i32);
         let file=format!("{key}.svg");save(&out.join(&file),&f.svg()?)?;
-        layouts.insert(key,json!({"file":file,"width":width,"height":300.,
+       layouts.insert(key,json!({"file":file,"width":width,"height":300.,
             "panel":[rect.x/f.width_mm,rect.y/f.height_mm,rect.width/f.width_mm,rect.height/f.height_mm]}));
        }
+       let mut f=WebLayout::new(width,16.)?.figure(700.)?;f.latex.cache=out.join(".latex-cache");
+       f.scales.push(Scale::new([low,high],Normalization::Linear,
+           ColorMap::new(vec![[0.08,0.08,0.16],[0.35,0.13,0.31],[0.71,0.24,0.25],[0.97,0.61,0.28],[1.,0.94,0.73]])?)?);
+       let mut panels=vec![];let mut beam_labels=vec![];
+       for beam in 0..5 {
+           let rect=Rect::new(20.,4.+beam as f64*32.,f.width_mm-50.,30.);
+           let mut axes=Axes::new([0.,hours.max(0.001)],[50.,120.],"Time (UTC)",
+               if beam==2{"Nominal altitude (km)"}else{""});
+           axes.yticks=vec![60.,90.,120.];axes.show_x_axis=beam==4;
+           axes.xticks=vec![0.,hours/2.,hours];axes.xticklabels=Some(labels.clone());
+           f.panels.push(Panel::new(rect,axes));
+           panels.push([rect.x/f.width_mm,rect.y/f.height_mm,rect.width/f.width_mm,rect.height/f.height_mm]);
+           let filename=format!("beam-{beam}.svg");
+           let mut label=WebLayout::new(80.,16.)?.figure(24.)?;label.latex.cache=f.latex.cache.clone();
+           label.labels.push(Label::new(["Zenith","North","East","South","West"][beam],label.width_mm/2.,label.height_mm/2.));
+           save(&out.join(&filename),&label.svg()?)?;beam_labels.push(filename);
+       }
+       let r=f.panels[0].rect;
+       let ticks=if high==6.{vec![3.,4.,5.,6.]}else{vec![3.,high]};
+       f.colorbars.push(Colorbar::new(Rect::new(r.x+r.width+3.,r.y,3.,158.),0,"SNR (dB)",ticks));
+       f.layout_colorbars()?;
+       let key=format!("rti_stack-{}-{low}-{high}",width as i32);let file=format!("{key}.svg");
+       save(&out.join(&file),&f.svg()?)?;
+       layouts.insert(key,json!({"file":file,"width":width,"height":700.,"panels":panels,"beam_labels":beam_labels}));
       }
     }
     save(&out.join("layouts.json"),&serde_json::to_string(&layouts)?)?;

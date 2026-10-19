@@ -15,14 +15,24 @@ function makePlot(parent,title,rdMode=false){
   const view=new FieldView(canvas);view.set_missing_color(.18,.23,.30,1);
   return {box,field,canvas,axes,view,kind:rdMode?'rd':'rti'};
 }
+function makeStack(parent){
+  const box=document.createElement('div');box.className='plot';
+  const field=document.createElement('div');field.className='native-frame';
+  const axes=document.createElement('img');axes.className='native-axes';axes.alt='Five beams with a shared UTC time axis';field.append(axes);box.append(field);parent.append(box);
+  return names.map((name,beam)=>{const canvas=document.createElement('canvas');canvas.className='native-data';canvas.setAttribute('aria-label',name);canvas.width=10;canvas.height=10;field.append(canvas);
+    const label=document.createElement('img');label.alt=name;label.style.position='absolute';label.style.zIndex='2';label.style.width='80px';label.style.height='24px';field.append(label);
+    const view=new FieldView(canvas);view.set_missing_color(.18,.23,.30,1);
+    return {box,field,axes,canvas,label,view,kind:'rti_stack',beam};});
+}
 function nativeFrame(p){
   const width=p.box.clientWidth<500?360:p.box.clientWidth<1000?640:960;
   const key=`${p.kind}-${width}-${$('low').value}-${$('high').value}`,layout=layouts[key];
   if(!layout)throw Error('Native rustplotlib axes are not available yet for this scale');
   p.field.style.width=layout.width+'px';p.field.style.height=layout.height+'px';
   p.axes.src='./data/axes/'+layout.file+'?v='+revision;
-  const [x,y,w,h]=layout.panel;p.canvas.style.left=(x*100)+'%';p.canvas.style.top=(y*100)+'%';
+  const [x,y,w,h]=layout.panels?layout.panels[p.beam]:layout.panel;p.canvas.style.left=(x*100)+'%';p.canvas.style.top=(y*100)+'%';
   p.canvas.style.width=(w*100)+'%';p.canvas.style.height=(h*100)+'%';resize(p.canvas);
+  if(p.label){p.label.src='./data/axes/'+layout.beam_labels[p.beam];p.label.style.left=`calc(${x*100}% + 4px)`;p.label.style.top=`calc(${y*100}% + 4px)`;}
 }
 function scale(p){const low=+$('low').value,high=+$('high').value;if(!(high>low))throw Error('SNR high must exceed low');p.view.set_scale(low,high,0,.1,2);}
 function crop(p,y){const ye=edges(y);p.view.set_view(0,(50-ye[0])/(ye.at(-1)-ye[0]),1,(120-ye[0])/(ye.at(-1)-ye[0]));}
@@ -43,7 +53,7 @@ function renderRTI(){
   }
   const x=Float32Array.from(xb,t=>(t-first)/3600e6),nx=columns.length;
   plots.forEach((p,beam)=>{
-    p.box.hidden=$('beam').value!=='all'&&+$('beam').value!==beam;if(p.box.hidden)return;nativeFrame(p);
+    nativeFrame(p);
     const val=new Float32Array(nx*nr),moment=new Float32Array(nx*nr*4);
     columns.forEach((frame,c)=>{const s=frame?summaries(frame,beam,nr):null;
       for(let r=0;r<nr;r++){val[r*nx+c]=s?s.peak[r]:NaN;for(let k=0;k<4;k++)moment[4*(r*nx+c)+k]=s?s.moments[4*r+k]:(k===0?NaN:0);}});
@@ -96,7 +106,7 @@ function renderNoise(){
 function failure(e){$('error').textContent=e.message;console.error(e);}
 try{
  await init();if(new URLSearchParams(location.search).has('embed'))document.body.classList.add('embedded');
- for(let beam=0;beam<5;beam++)plots.push(makePlot($('rti'),names[beam]));rd=makePlot($('rd'),'Retained spectral bins',true);
+ plots=makeStack($('rti'));rd=makePlot($('rd'),'Retained spectral bins',true);
  for(const id of ['display','beam','low','high','vlim','wlim'])$(id).onchange=()=>{try{renderRTI();renderRD();}catch(e){failure(e);}};
  $('rdbeam').onchange=renderRD;$('frame').oninput=()=>{selected=+$('frame').value;renderRD();};
  $('noiseModule').onchange=renderNoise;
