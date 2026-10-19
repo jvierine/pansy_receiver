@@ -27,6 +27,8 @@ class BrowserTransportTests(unittest.TestCase):
                     schema_version='pansy_pmse_sparse16_v2',sparse_index=[[0,0,0]],detector_snr_db=[4.]).items():g[name]=value
             m=day_packet(root,'2026-10-19',{})
             self.assertEqual(m['frame_count'],1)
+            self.assertEqual(m['latest_mode_us'],key+80_000_000)
+            self.assertEqual(m['first_mode_us'],key)
             self.assertEqual(m['axis_stop_us']-m['axis_start_us'],86400_000_000)
             self.assertEqual(day_packet(root,'2026-10-18',{})['frame_count'],0)
             self.assertIsNone(m['frame_packets'][0]['look_dominance'])

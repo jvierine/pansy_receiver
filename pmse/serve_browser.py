@@ -48,6 +48,8 @@ def day_packet(root,day,manifest):
     packets.sort(key=lambda p:p['start_us'])
     revision=hashlib.sha256(('16ms:'+day+','.join(p['key'] for p in packets)).encode()).hexdigest()[:16]
     return dict(manifest,selected_day=day,revision=revision,axis_start_us=start,axis_stop_us=stop,
+                first_mode_us=min((p['start_us'] for p in packets),default=start),
+                latest_mode_us=max((p['stop_us'] for p in packets),default=start),
                 frame_packets=packets,frame_count=len(packets),
                 frames=[{k:p[k] for k in ('key','start_us','stop_us','duration_s','coverage_s','looks','quality')} for p in packets])
 

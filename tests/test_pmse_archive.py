@@ -4,9 +4,36 @@ import unittest
 import h5py
 from pmse.web_retention import expire,sha256
 from pmse.archive_inventory import inventory
+from pmse.snapshot_archive import snapshot
+from pmse.replicate_sparse import catchup_files
+import numpy as np
 
 
 class ArchiveTests(unittest.TestCase):
+    def test_snapshot_compacts_without_changing_scientific_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source=Path(directory)/'source';source.mkdir();dest=Path(directory)/'copy'
+            path=source/'pmse@600.h5'
+            with h5py.File(path,'w') as h:
+                h.attrs['provenance']='test';h['abandoned']=np.ones(100000)
+                h['keep']=np.arange(1000,dtype='complex64');h['keep'].attrs['units']='V'
+                del h['abandoned']
+            self.assertEqual(snapshot(source,dest,reserve_gib=0),1)
+            self.assertLess((dest/path.name).stat().st_size,path.stat().st_size/2)
+            with h5py.File(path) as src,h5py.File(dest/path.name) as dst:
+                np.testing.assert_array_equal(src['keep'][()],dst['keep'][()])
+                self.assertEqual(dict(src.attrs),dict(dst.attrs))
+                self.assertEqual(dict(src['keep'].attrs),dict(dst['keep'].attrs))
+            self.assertEqual(snapshot(source,dest,reserve_gib=0),0)
+            self.assertEqual(snapshot(source,dest,reserve_gib=0,force=True),1)
+
+    def test_recent_chunks_precede_historical_backfill(self):
+        with tempfile.TemporaryDirectory() as directory:
+            files=[(f'2026-10-19T20-00-00/pmse@{t}.h5',100,1.) for t in [20000,19400,18800,600]]
+            recent,cold=catchup_files(files,directory,20000)
+            self.assertEqual(recent,[files[1][0]])
+            self.assertEqual(cold,[files[-1][0]])
+
     def test_expiration_requires_matching_retained_source_hash(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)/'secondary';hour=root/'1970-01-01T00-00-00';hour.mkdir(parents=True)

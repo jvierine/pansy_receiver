@@ -47,6 +47,18 @@ def save_metrics(path,leg,values):
         h.flush()
 
 
+def catchup_files(files,root,now):
+    """Do not strand earlier live chunks behind the multi-day backfill."""
+    pending=[]
+    for p,size,mtime in files[1:]:
+        local=Path(root)/p
+        if not local.exists() or local.stat().st_size!=size or abs(local.stat().st_mtime-mtime)>1e-6:
+            pending.append(p)
+    recent=[p for p in pending if int(Path(p).stem.split('@')[1])>=now-3*3600]
+    historical=[p for p in pending if p not in recent]
+    return recent[:1],historical[-1:]
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--root',type=Path,default=Path('/mnt/data/juha/pansy/metadata/pmse_sparse16'))
@@ -76,10 +88,10 @@ def main():
             hot=['dmd_properties.h5']+[p for p,_,_ in files[:1]]
             values=rsync(source,str(a.root)+'/',a.syowa_kib_s,shell,files_from=hot)
             save_metrics(a.metrics,'syowa_to_revontuli',values)
-            cold=[]
-            for p,size,mtime in files[1:]:
-                local=a.root/p
-                if not local.exists() or local.stat().st_size!=size or abs(local.stat().st_mtime-mtime)>1e-6:cold.append(p)
+            recent,cold=catchup_files(files,a.root,time.time())
+            if recent:
+                values=rsync(source,str(a.root)+'/',a.syowa_kib_s,shell,files_from=recent)
+                save_metrics(a.metrics,'syowa_to_revontuli_catchup',values)
             if cold:
                 values=rsync(source,str(a.root)+'/',a.syowa_kib_s,shell,files_from=[cold[-1]],timeout=45,partial_ok=True)
                 save_metrics(a.metrics,'syowa_to_revontuli_backfill',values)

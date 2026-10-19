@@ -102,11 +102,13 @@ async function refresh(){
     $('archivePlot').src=`./data/axes/archive-growth-${width}.svg?v=${m.generated_utc}`;$('archivePlot').style.width=width+'px';$('archivePlot').hidden=false;}
   const daily=await fetch(`./api/day?day=${encodeURIComponent(chosenDay)}`,{cache:'no-cache'});if(!daily.ok)throw Error('Selected UTC day is unavailable');
   m=await daily.json();if(request!==refreshSequence)return;
+  const age=(Date.now()-m.latest_mode_us/1000)/60000;
+  $('status').textContent=m.frame_count?`${chosenDay} UTC · ${m.frame_count} observing modes · 16 ms complementary pairs · Nyquist ±${m.velocity_limits_mps[1].toFixed(3)} m/s · latest delivered observation ${utc(m.latest_mode_us)} · ${Math.max(0,age).toFixed(1)} min behind now · checked ${new Date().toISOString().slice(11,19)} UTC`:`${chosenDay} UTC · no complete 16 ms records delivered yet`;
+  $('status').className=age>10?'status warn':'status';$('error').textContent='';
   if(m.revision===revision)return;manifest=m;
   frames=m.frame_packets;revision=m.revision;selected=frames.length-1;$('frame').max=String(Math.max(0,selected));$('frame').value=String(Math.max(0,selected));
   if(!frames.length){$('status').textContent=`${chosenDay} UTC · no complete 16 ms records yet`;return;}
   await mountPlots();
-  const age=(Date.now()-m.latest_mode_us/1000)/60000;$('status').textContent=`${chosenDay} UTC · ${frames.length} observing modes · 16 ms complementary pairs · Nyquist ±${m.velocity_limits_mps[1].toFixed(3)} m/s · latest archive observation ${utc(m.latest_mode_us)}`;$('status').className=age>30?'status warn':'status';$('error').textContent='';
   $('sidecar').href='./data/'+m.sidecar;renderRTI();renderRD();
 }
 function renderNoise(){
