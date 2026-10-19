@@ -143,7 +143,8 @@ fn main()->Result<()> {
                     1=>bytes.iter().sum::<f64>()/1048576.,
                     _=>retention.iter().flatten().copied().fold(0_f64,f64::max)*100.,
                 };
-                let mut axes=Axes::new([0.,xmax],[0.,(ymax*1.15).max(0.001)],"Time (UTC)",
+                let ymin=if panel==2 {-(ymax*0.04).max(0.00004)} else {0.};
+                let mut axes=Axes::new([0.,xmax],[ymin,(ymax*1.15).max(0.001)],"Time (UTC)",
                     match panel {0=>"Data per UTC hour (MiB)",1=>"Accumulated data (MiB)",_=>"Full spectra retained (\\%)"});
                 axes.xticks=vec![0.,xmax/2.,xmax];axes.xticklabels=Some(labels.clone());
                 let mut p=Panel::new(Rect::new(20.,8.+panel as f64*68.,f.width_mm-36.,43.),axes);
