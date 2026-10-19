@@ -152,7 +152,7 @@ def export(root,output,hours=0):
                 g=fg.create_group(item['key'])
                 for key,value in item.items():
                     if key=='key': continue
-                    if key=='quality': g.attrs[key]=value
+                    if isinstance(value,str): g.attrs[key]=value
                     else:
                         array=np.asarray(value)
                         g.create_dataset(key,data=array,compression='gzip' if array.ndim and array.size else None)
