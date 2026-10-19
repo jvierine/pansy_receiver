@@ -340,8 +340,13 @@ def valid_transmit_cycles(reference,template,cfg):
     return valid,similarity.mean(axis=1)
 
 
-def process_mode(raw_root,tx_root,start,last,cfg):
+def process_mode(raw_root,tx_root,start,last,cfg,backend='python'):
     import digital_rf as drf
+    if backend not in ('python','rust'):
+        raise ValueError('Unknown numerical backend')
+    if backend=='rust':
+        from .rust_dsp import RustDSP
+        dsp=RustDSP()
     reader=drf.DigitalRFReader(str(raw_root))
     tx=drf.DigitalMetadataReader(str(tx_root))
     records=tx.read(int(start),int(last))
@@ -374,12 +379,17 @@ def process_mode(raw_root,tx_root,start,last,cfg):
             decoded=np.zeros((7,5,pulse_count,len(ri)),dtype=np.complex64)
             for channel in range(7):
                 rx=reader.read_vector_1d(int(group[0]),count,f'ch{channel:03d}').astype(np.complex64)
-                matched,pulse_power=decode_pulses(rx[indices[valid_pulse]],ref[valid_pulse],cfg)
+                if backend=='rust':
+                    selected,pulse_power=dsp.decode_selected(rx[indices[valid_pulse]],ref[valid_pulse],cfg,ri)
+                else:
+                    matched,pulse_power=decode_pulses(rx[indices[valid_pulse]],ref[valid_pulse],cfg)
+                    selected=matched[:,ri]
                 full=np.zeros((len(indices),len(ri)),dtype=np.complex64)
-                full[valid_pulse]=matched[:,ri]
+                full[valid_pulse]=selected
                 # pulse order: cycle, four repeated five-beam sweeps, beam
                 decoded[channel]=full.reshape(-1,4,5,len(ri)).transpose(2,0,1,3).reshape(5,pulse_count,len(ri))
-            spectra.append(coherent_spectrum(decoded,cfg,valid_per_beam))
+            transform=dsp.coherent_spectrum if backend=='rust' else coherent_spectrum
+            spectra.append(transform(decoded,cfg,valid_per_beam))
             used[group_index]=valid_cycle
             look_bounds.append([group[0],group[-1]+20*cfg.ipp_samples])
             counts.append(int(valid_per_beam.sum()))
@@ -391,6 +401,10 @@ def process_mode(raw_root,tx_root,start,last,cfg):
     if len(spectra)<2:
         raise ValueError(f'Insufficient usable looks: {len(spectra)}; skipped={skipped[:3]}')
     out=sparsify(np.stack(spectra),cfg)
+    if backend=='rust':
+        out['generator']='pmse/processor (Rust DSP); pmse/sparse_record.py (Digital RF I/O and detection statistics)'
+        out['code_sha256']=hashlib.sha256(Path(__file__).read_bytes()+
+            (Path(__file__).parent/'processor/src/lib.rs').read_bytes()).hexdigest()
     out.update(instrument_snapshot())
     out.update(mode_start_sample=int(start),mode_stop_sample_exclusive=int(last)+20*cfg.ipp_samples,
         mode_duration_seconds=(int(last)+20*cfg.ipp_samples-int(start))/cfg.sample_rate_hz,
@@ -471,6 +485,8 @@ def main():
     p.add_argument('--mode-root',type=Path,default=Path('/media/analysis/metadata/mesomode'))
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--latest',type=int,default=1)
+    p.add_argument('--backend',choices=('python','rust'),default='python',
+                   help='Rust executes pulse decoding and Doppler FFTs; reference I/O/statistics are shared')
     p.add_argument('--reserve-free-gib',type=float,default=200)
     p.add_argument('--max-archive-gib',type=float,default=500)
     p.add_argument('--lookback-hours',type=float,default=3)
@@ -501,7 +517,7 @@ def main():
             print(f'Processing closed mesomode {start}..{last}',flush=True)
             begun=time.monotonic()
             try:
-                out=process_mode(a.raw_root,a.tx_root,start,last,cfg)
+                out=process_mode(a.raw_root,a.tx_root,start,last,cfg,a.backend)
                 out['processing_wall_seconds']=time.monotonic()-begun
                 import sys
                 out['peak_rss_bytes']=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss*(1 if sys.platform=='darwin' else 1024)

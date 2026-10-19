@@ -1,0 +1,16 @@
+[package]
+name = "pansy-pmse-dsp"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Power-normalized measured-pulse decoding and coherent PMSE spectra"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rustfft = "6.4"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
