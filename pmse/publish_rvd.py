@@ -88,7 +88,7 @@ def export(root,output,hours=48):
         frames=[{k:item[k] for k in ('key','start_us','stop_us','duration_s','coverage_s','looks','quality')}
                 for item in packets],
         snr_threshold_db=3,altitude_limits_km=[50,120],velocity_limits_mps=[-90.321448,90.321448],
-        sidecar=f'plot-data-{identity}.h5',
+        sidecar='../archive/plot-data/plot-data-'+datetime.now(timezone.utc).strftime('%Y-%m-%d')+'.h5',
         display_fill='nearest mesomode for inter-mode gaps <=10 min; observations unchanged',
         moment_definition='threshold-censored moments of retained excess spectral power',
         generator='pmse/publish_rvd.py')
@@ -126,12 +126,15 @@ def export(root,output,hours=48):
         atomic_json(specification,manifest)
         subprocess.run([str(renderer),str(specification),str(output/'axes')],check=True,timeout=120)
         manifest['plot_layouts']='axes/layouts.json'
-    sidecar=output/manifest['sidecar']
-    if not sidecar.exists():
+    sidecar=output/Path(manifest['sidecar']).name
+    write_sidecar=not sidecar.exists()
+    if not write_sidecar:
+        with h5py.File(sidecar,'r') as h:write_sidecar=h.attrs.get('revision','')!=identity
+    if write_sidecar:
         tmp=sidecar.with_suffix('.h5.partial')
         with h5py.File(tmp,'w') as h:
             h.attrs.update(schema=manifest['schema'],generator='pmse/publish_rvd.py',source=str(root),
-                snr_definition='excess signal/noise',moment_censoring_db=3)
+                snr_definition='excess signal/noise',moment_censoring_db=3,revision=identity)
             for key,value in geometry.items(): h[key]=value
             fg=h.create_group('frames')
             for item in packets:
@@ -152,6 +155,7 @@ def main():
     p.add_argument('--root',type=Path,default=Path('/mnt/data/juha/pansy/metadata/pmse_sparse'))
     p.add_argument('--output',type=Path,default=Path('/mnt/data/juha/pansy/rvd-web/data'))
     p.add_argument('--rsync-dest'); p.add_argument('--hours',type=float,default=48)
+    p.add_argument('--plot-archive-dest',default='j@juha.no:/mnt/shovel/rvd/plot-data/')
     p.add_argument('--loop',action='store_true')
     a=p.parse_args()
     while True:
@@ -159,9 +163,12 @@ def main():
             export(a.root,a.output,a.hours)
             if a.rsync_dest:
                 # Transfer data packets and sidecar first, manifest last.
-                subprocess.run(['rsync','-rt','--exclude=manifest.json','--exclude=*.partial',
+                subprocess.run(['rsync','-rt','--exclude=manifest.json','--exclude=*.partial','--exclude=*.h5',
                                 '--exclude=.latex-cache/',
                                 str(a.output)+'/',a.rsync_dest],check=True)
+                manifest=json.loads((a.output/'manifest.json').read_text())
+                sidecar=a.output/Path(manifest['sidecar']).name
+                subprocess.run(['rsync','-rt','--no-perms','--no-owner','--no-group',str(sidecar),a.plot_archive_dest],check=True)
                 subprocess.run(['rsync','-rt',str(a.output/'manifest.json'),a.rsync_dest],check=True)
         except Exception:
             import traceback; traceback.print_exc()
