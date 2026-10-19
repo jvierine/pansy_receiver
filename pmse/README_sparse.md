@@ -1,6 +1,6 @@
 # PANSY PMSE / PMWE sparse spectral archive
 
-Status: implementation and numerical tests complete; real-data commissioning
+Status: Python reference and Rust DSP implementation are available. Real-data commissioning
 is separate from the existing cross-spectral service. The new archive must
 pass measured noise, signal-injection, coverage, and throughput checks before
 it replaces any existing product. No old data are removed.
@@ -135,6 +135,24 @@ threshold or changing altitude/resolution after raw deletion cannot recover
 discarded cells.
 
 ## Run and inspect
+
+The numerical processor has a Rust backend for measured-pulse matched filtering
+and coherent Doppler FFTs (`rustfft`). Digital RF/Metadata I/O, mode discovery and
+the shared SciPy statistical selection remain in Python. This is an intentional
+library boundary, not a claim that the entire daemon is a standalone Rust binary.
+Build the DSP with `cargo build --locked --release --manifest-path pmse/processor/Cargo.toml`,
+then select it with `--backend rust`. No silent fallback is allowed if the library
+is absent. The release service explicitly requires this backend. Rust and Python
+produce the same versioned native schema, including uncalibrated channel phases.
+
+The viewer at `/rvd/` uses rustplotlib Rust/WASM/WebGL2; only arrays and metadata
+are transferred. It supports all five beams, dB limits, HSV velocity/width limits,
+range–Doppler selection and mode playback, with an HDF5 plot sidecar. It is a
+range-time/spectral viewer, not a five-beam interferometric image reconstruction.
+The checked-in runtime and its build reference are under `pmse/rvd/`.
+
+See [XC_MIGRATION.md](XC_MIGRATION.md) for the consumer inventory, noise-model
+compatibility, calibration convention and mandatory producer-retirement gates.
 
 Use base conda locally. At Syowa use the existing processing virtual
 environment `/home/radar/testenv/bin/python`; no base conda installation was
