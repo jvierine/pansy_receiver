@@ -71,24 +71,32 @@ def fit_module(tsky,power,times_s):
 
 def update(root,cache,output,hours=72):
     from .export_noise import noise_rows
-    rows=[];cutoff=(time.time()-hours*3600)*1e6
+    rows=[];latest_key=0;cutoff=(time.time()-hours*3600)*1e6
     for path in sorted(Path(root).glob('*T*/pmse@*.h5')):
         with h5py.File(path,'r') as h:
             for key,g in h.items():
                 if not key.isdecimal() or int(key)<cutoff or int(g.get('complete',np.array(0))[()])!=1:continue
                 fields=['noise_power','noise_power_standard_error','altitude_valid','complete','mode_start_sample','mode_stop_sample_exclusive']
                 rows.append(noise_rows({k:g[k][()] for k in fields},int(key)))
+                latest_key=max(latest_key,int(key))
     if not rows:raise ValueError('No complete noise records')
     rows.sort(key=lambda r:r['times_s'][0]);times=np.asarray([r['times_s'][0] for r in rows]);noise=np.stack([r['noise_power'] for r in rows])
-    sky=interpolate_cache(cache,times);fits=[fit_module(sky,noise[:,:,ch],times) for ch in range(7)]
-    out=Path(output);out.parent.mkdir(parents=True,exist_ok=True);tmp=out.with_suffix('.h5.partial')
+    sky=interpolate_cache(cache,times)
+    out=Path(output);fit_time=0;fits=None
+    if out.exists():
+        with h5py.File(out,'r') as h:
+            fit_time=float(h.attrs.get('fit_unix_s',0))
+            if time.time()-fit_time<3600:fits=json.loads(h.attrs['fits_json'])
+    if fits is None:
+        fits=[fit_module(sky,noise[:,:,ch],times) for ch in range(7)];fit_time=time.time()
+    out.parent.mkdir(parents=True,exist_ok=True);tmp=out.with_suffix('.h5.partial')
     with h5py.File(tmp,'w') as h:
         h['times_s']=times;h['noise_power']=noise;h['sky_temperature_k']=sky
         h.attrs.update(model_cache=str(cache),generator='pmse/sky_noise.py',fits_json=json.dumps(fits),
             model='PyGDSM GSM2008; paper one-way receive pattern',
             fit_definition='P=G*(T_sky+T_receiver); relative-power objective; T_receiver>=273 K',
             caution='Guard-bin colored-noise response and interference may bias absolute receiver temperature',
-            generated_unix_s=time.time())
+            generated_unix_s=time.time(),fit_unix_s=fit_time,latest_mode_start_sample=latest_key)
     tmp.replace(out);print(json.dumps(fits),flush=True)
     return fits
 

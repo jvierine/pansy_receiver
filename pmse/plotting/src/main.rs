@@ -69,8 +69,10 @@ fn main()->Result<()> {
                 let rect=Rect::new(20.,10.+panel as f64*68.,f.width_mm-28.,43.);
                 let mut p=Panel::new(rect,axes);
                 for beam in 0..5 {
-                    let points=(0..times.len()).map(|t|[times[t],if panel==0{10.*power[t][beam][channel].log10()}else{sky[t][beam]}]).collect();
-                    p.push(Layer::Line(Line::new(points,colors[beam])));
+                    let points:Vec<_>=(0..times.len()).map(|t|[times[t],if panel==0{10.*power[t][beam][channel].log10()}else{sky[t][beam]}]).collect();
+                    p.push(Layer::Line(Line::new(points.clone(),colors[beam])));
+                    let rgb=match beam {0=>[0.12,0.12,0.12],1=>[0.14,0.45,0.66],2=>[0.71,0.36,0.09],3=>[0.13,0.52,0.29],_=>[0.71,0.18,0.28]};
+                    p.markers(&mut f,&points,&MarkerStyle{shape:MarkerShape::Circle,size_pt:2.8,color:rgb})?;
                 }
                 if panel==0 {
                     let mut legend=Legend::new(names.iter().zip(colors).map(|(n,c)|LegendEntry::line(*n,c)).collect());

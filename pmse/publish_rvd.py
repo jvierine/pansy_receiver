@@ -105,7 +105,11 @@ def export(root,output,hours=48):
     cache=root.parent.parent/'sky-model-gsm2008-47MHz.h5'
     fit_path=root.parent.parent/'rvd-noise-fit.h5'
     if cache.exists():
-        if not fit_path.exists() or time.time()-fit_path.stat().st_mtime>3600:
+        needs_update=not fit_path.exists()
+        if not needs_update:
+            with h5py.File(fit_path,'r') as h:
+                needs_update=int(h.attrs.get('latest_mode_start_sample',0))!=latest['start_us'] or time.time()-float(h.attrs.get('fit_unix_s',0))>3600
+        if needs_update:
             from .sky_noise import update
             update(root,cache,fit_path)
         with h5py.File(fit_path,'r') as h:
