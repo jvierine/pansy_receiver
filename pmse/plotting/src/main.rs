@@ -120,7 +120,7 @@ fn main()->Result<()> {
                 let mut axes=Axes::new([0.,xmax],[0.,(ymax*1.15).max(0.001)],"Time (UTC)",
                     if panel==0{"Data per UTC hour (MiB)"}else{"Accumulated data (MiB)"});
                 axes.xticks=vec![0.,xmax/2.,xmax];axes.xticklabels=Some(labels.clone());
-                let mut p=Panel::new(Rect::new(20.,8.+panel as f64*68.,f.width_mm-28.,43.),axes);
+                let mut p=Panel::new(Rect::new(20.,8.+panel as f64*68.,f.width_mm-36.,43.),axes);
                 let mut sum=0.;let mut cumulative=vec![[0.,0.]];
                 for i in 0..hours.len(){let x=(hours[i]-hours[0])/3600.;let right=(x+1.).min(xmax);let y=bytes[i]/1048576.;
                     if panel==0{let mut bar=Line::new(vec![[x,0.],[right,0.],[right,y],[x,y],[x,0.]],"#215d86");bar.fill=Some("#5a9ec4".into());p.push(Layer::Line(bar));}
