@@ -9,9 +9,6 @@ export class FieldView {
     [Symbol.dispose](): void;
     draw(): void;
     constructor(canvas: HTMLCanvasElement);
-    /**
-     * Read a rendered pixel (bottom-left origin), useful for renderer checks.
-     */
     pixel(x: number, y: number): Uint8Array;
     renderer(): string;
     set_colormap(rgb: Float32Array): void;
@@ -20,6 +17,13 @@ export class FieldView {
      * Missing observations can be distinguished from values below the scale.
      */
     set_missing_color(red: number, green: number, blue: number, alpha: number): void;
+    /**
+     * Read a rendered pixel (bottom-left origin), useful for renderer checks.
+     * Replace an already-sized field with [SNR dB, velocity, width, reserved]
+     * cells. Existing rectilinear edges and view are preserved. HSV conversion
+     * is performed by the WebGL shader, not by the host language.
+     */
+    set_moment_data(values: Float32Array, velocity_limit: number, width_limit: number): void;
     set_rectilinear_data(x_edges: Float32Array, y_edges: Float32Array, values: Float32Array): void;
     /**
      * mode: 0 linear, 1 logarithmic, 2 signed asinh; palette: 0 diverging, 1 sequential, 2 ember.
@@ -131,6 +135,7 @@ export interface InitOutput {
     readonly fieldview_set_colormap: (a: number, b: number, c: number) => [number, number];
     readonly fieldview_set_data: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly fieldview_set_missing_color: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly fieldview_set_moment_data: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly fieldview_set_rectilinear_data: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
     readonly fieldview_set_scale: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
     readonly fieldview_set_view: (a: number, b: number, c: number, d: number, e: number) => [number, number];

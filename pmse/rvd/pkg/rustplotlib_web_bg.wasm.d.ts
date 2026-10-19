@@ -14,6 +14,7 @@ export const fieldview_renderer: (a: number) => [number, number];
 export const fieldview_set_colormap: (a: number, b: number, c: number) => [number, number];
 export const fieldview_set_data: (a: number, b: number, c: number, d: number, e: number) => [number, number];
 export const fieldview_set_missing_color: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+export const fieldview_set_moment_data: (a: number, b: number, c: number, d: number, e: number) => [number, number];
 export const fieldview_set_rectilinear_data: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
 export const fieldview_set_scale: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
 export const fieldview_set_view: (a: number, b: number, c: number, d: number, e: number) => [number, number];

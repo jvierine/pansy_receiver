@@ -30,7 +30,6 @@ export class FieldView {
         return this;
     }
     /**
-     * Read a rendered pixel (bottom-left origin), useful for renderer checks.
      * @param {number} x
      * @param {number} y
      * @returns {Uint8Array}
@@ -92,6 +91,23 @@ export class FieldView {
      */
     set_missing_color(red, green, blue, alpha) {
         const ret = wasm.fieldview_set_missing_color(this.__wbg_ptr, red, green, blue, alpha);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * Read a rendered pixel (bottom-left origin), useful for renderer checks.
+     * Replace an already-sized field with [SNR dB, velocity, width, reserved]
+     * cells. Existing rectilinear edges and view are preserved. HSV conversion
+     * is performed by the WebGL shader, not by the host language.
+     * @param {Float32Array} values
+     * @param {number} velocity_limit
+     * @param {number} width_limit
+     */
+    set_moment_data(values, velocity_limit, width_limit) {
+        const ptr0 = passArrayF32ToWasm0(values, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.fieldview_set_moment_data(this.__wbg_ptr, ptr0, len0, velocity_limit, width_limit);
         if (ret[1]) {
             throw takeFromExternrefTable0(ret[0]);
         }

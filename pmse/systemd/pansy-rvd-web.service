@@ -1,0 +1,18 @@
+[Unit]
+Description=PANSY sparse echo data publication for the RVD viewer
+After=pansy-pmse-sparse-backup.service
+Wants=pansy-pmse-sparse-backup.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/j/src/pansy_pmse_sparse
+Environment=OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
+ExecStart=/home/j/venv/pansy-monitor/bin/python -u -m pmse.publish_rvd --rsync-dest j@juha.no:/var/www/rvd-live/data/ --loop
+Restart=on-failure
+RestartSec=60
+Nice=15
+CPUQuota=50%
+MemoryMax=2G
+
+[Install]
+WantedBy=default.target

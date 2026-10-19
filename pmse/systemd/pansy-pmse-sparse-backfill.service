@@ -5,7 +5,7 @@ Description=PANSY sparse spectral archive retained-raw backfill
 Type=oneshot
 WorkingDirectory=/home/radar/src/git/pansy_pmse_sparse
 Environment=OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
-ExecStart=/home/radar/testenv/bin/python -u -m pmse.sparse_record --output /media/analysis/metadata/pmse_sparse --latest 0 --lookback-hours 216 --reserve-free-gib 200 --max-archive-gib 500
+ExecStart=/home/radar/testenv/bin/python -u -m pmse.sparse_record --backend rust --output /media/analysis/metadata/pmse_sparse --latest 0 --lookback-hours 216 --reserve-free-gib 200 --max-archive-gib 500
 Nice=19
 IOSchedulingClass=idle
 CPUQuota=50%

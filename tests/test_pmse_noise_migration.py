@@ -2,6 +2,7 @@ import unittest
 import numpy as np
 from pmse.export_noise import noise_rows
 from pmse.sparse_record import channel_covariance
+from pmse.sparse_readers import cross_products
 
 
 class NoiseMigration(unittest.TestCase):
@@ -26,6 +27,16 @@ class NoiseMigration(unittest.TestCase):
         cov=channel_covariance(dict(spectra=z))
         np.testing.assert_allclose(np.angle(cov[:,1,0]),.3,atol=1e-12)
         np.testing.assert_allclose(cov,cov.conj().swapaxes(1,2),atol=1e-12)
+
+    def test_explicit_phase_sign_and_historical_pair_order(self):
+        phi=np.tile(np.arange(7)*.2,(5,1))
+        z=np.tile(np.exp(-1j*phi[0])[None,:,None],(20,1,1))
+        record=dict(spectra=z,sparse_index=np.array([[0,128,12]]))
+        with self.assertRaises(ValueError): cross_products(record,phasecal=phi)
+        out=cross_products(record,phasecal=phi,phase_sign=1)
+        self.assertEqual(out['cross_spectra'].shape,(1,28))
+        np.testing.assert_allclose(out['cross_spectra'],1,atol=1e-12)
+        np.testing.assert_array_equal(out['ch_pairs'][:7],np.column_stack([np.arange(7)]*2))
 
 
 if __name__=='__main__': unittest.main()
