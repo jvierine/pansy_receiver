@@ -4,42 +4,51 @@ import {imageSelection} from './imaging.js';
 import {InteractiveFieldPlot} from './lib/interactive_plot.js';
 const $=id=>document.getElementById(id), names=['Zenith','North','East','South','West'];
 let manifest,frames=[],plots=[],rd,playing=null,selected=0,revision='',rtiPlot,rdPlot,tdPlot;
+let chosenDay='',refreshSequence=0;
+const axisStart=()=>manifest.axis_start_us??manifest.first_mode_us;
+const axisStop=()=>manifest.axis_stop_us??manifest.latest_mode_us;
+const dayNumber=()=>Number(manifest.selected_day.replaceAll('-',''));
 const utc=us=>new Date(us/1000).toISOString().replace('T',' ').slice(0,19)+' UTC';
 const edges=centers=>Float32Array.from([...centers.map((x,i)=>i?(centers[i-1]+x)/2:x-(centers[1]-x)/2),centers.at(-1)+(centers.at(-1)-centers.at(-2))/2]);
 async function mountPlots(){
- const hours=(manifest.latest_mode_us-manifest.first_mode_us)/3.6e9,origin=manifest.first_mode_us/1e6;
+ const hours=(axisStop()-axisStart())/3.6e9,origin=axisStart()/1e6;
  const spec={bounds:[0,50,Math.max(hours,.001),120],xlabel:'Time (UTC)',ylabel:'Nominal altitude (km)',colorbar_label:'SNR (dB)',panels:names,utc_origin_seconds:origin};
  if(!rtiPlot){
-  rtiPlot=await InteractiveFieldPlot.mount($('rti'),{id:'rti',spec,colorLimits:[+$('low').value,+$('high').value],onSelect:({panel,x,y})=>{
-   const time=manifest.first_mode_us+x*3.6e9;
+  rtiPlot=await InteractiveFieldPlot.mount($('rti'),{id:'rti',spec,frameParameters:{day:dayNumber()},colorLimits:[+$('low').value,+$('high').value],onSelect:({panel,x,y})=>{
+   const time=axisStart()+x*3.6e9;
    selected=frames.reduce((best,f,i)=>Math.abs((f.start_us+f.stop_us)/2-time)<Math.abs((frames[best].start_us+frames[best].stop_us)/2-time)?i:best,0);
    $('rdbeam').value=String(panel);$('frame').value=String(selected);renderRD();
    const range=y/Math.sin(manifest.geometry.beam_elevation_deg[panel]*Math.PI/180);
    const offset=Math.max(0,Math.floor((time-frames[selected].start_us)/120e6)*120);
    imageSelection(frames[selected].key,range,Math.min(offset,Math.max(0,Math.floor((frames[selected].duration_s-1)/120)*120)));
   }});
-  plots=rtiPlot.panels.map(p=>({canvas:p.canvas,view:p}));
+  plots=rtiPlot.panels.map(p=>({canvas:p.canvas,view:p,owner:rtiPlot}));
  }else rtiPlot.setSpec(spec);
- const ve=edges(manifest.geometry.velocity_mps);
- if(!rdPlot){rdPlot=await InteractiveFieldPlot.mount($('rd'),{id:'rd',spec:{bounds:[ve[0],50,ve.at(-1),120],xlabel:'Radial velocity (m/s)',ylabel:'Nominal altitude (km)',colorbar_label:'SNR (dB)',panels:['Spectrum']},colorLimits:[+$('low').value,+$('high').value],onSelect:({y})=>imageSelection(frames[selected].key,y/Math.sin(manifest.geometry.beam_elevation_deg[+$('rdbeam').value]*Math.PI/180))});rd={view:rdPlot.panels[0]};}
- const tdSpec={bounds:[0,ve[0],Math.max(hours,.001),ve.at(-1)],xlabel:'Time (UTC)',ylabel:'Radial velocity (m/s)',colorbar_label:'SNR (dB)',panels:names,utc_origin_seconds:origin};
- if(!tdPlot){tdPlot=await InteractiveFieldPlot.mount($('timeDoppler'),{id:'td',spec:tdSpec,colorLimits:[+$('low').value,+$('high').value],onSelect:({panel,x})=>{
-  const time=manifest.first_mode_us+x*3.6e9;
+ const [v0,v1]=manifest.velocity_limits_mps;
+ if(!rdPlot){rdPlot=await InteractiveFieldPlot.mount($('rd'),{id:'rd',frameParameters:{day:dayNumber()},spec:{bounds:[v0,50,v1,120],xlabel:'Radial velocity (m/s)',ylabel:'Nominal altitude (km)',colorbar_label:'SNR (dB)',panels:['Spectrum']},colorLimits:[+$('low').value,+$('high').value],onSelect:({y})=>imageSelection(frames[selected].key,y/Math.sin(manifest.geometry.beam_elevation_deg[+$('rdbeam').value]*Math.PI/180))});rd={view:rdPlot.panels[0],owner:rdPlot};}
+ rdPlot.setFrameParameters({day:dayNumber()});
+ const tdSpec={bounds:[0,v0,Math.max(hours,.001),v1],xlabel:'Time (UTC)',ylabel:'Radial velocity (m/s)',colorbar_label:'SNR (dB)',panels:names,utc_origin_seconds:origin};
+ if(!tdPlot){tdPlot=await InteractiveFieldPlot.mount($('timeDoppler'),{id:'td',frameParameters:{day:dayNumber()},spec:tdSpec,colorLimits:[+$('low').value,+$('high').value],onSelect:({panel,x})=>{
+  const time=axisStart()+x*3.6e9;
   selected=frames.reduce((best,f,i)=>Math.abs((f.start_us+f.stop_us)/2-time)<Math.abs((frames[best].start_us+frames[best].stop_us)/2-time)?i:best,0);
   $('rdbeam').value=String(panel);$('frame').value=String(selected);renderRD();
  }});}else tdPlot.setSpec(tdSpec);
+ tdPlot.setFrameParameters({day:dayNumber()});
 }
-function scale(p){const low=+$('low').value,high=+$('high').value;if(!(high>low))throw Error('SNR high must exceed low');p.view.set_scale(low,high,0,.1,2);}
+function scale(p){const [low,high]=p.owner.getColorLimits();p.view.set_scale(low,high,0,.1,2);}
 function summaries(frame,beam,nr){
   const peak=new Float32Array(nr),sum=new Float64Array(nr),vsum=new Float64Array(nr),v2sum=new Float64Array(nr),vel=manifest.geometry.velocity_mps;
-  frame.index.forEach(([b,f,r],i)=>{if(b!==beam)return;const w=10**(frame.snr_db[i]/10),v=vel[f];peak[r]=Math.max(peak[r],frame.snr_db[i]);sum[r]+=w;vsum[r]+=w*v;v2sum[r]+=w*v*v;});
-  const moments=new Float32Array(nr*4);for(let r=0;r<nr;r++){moments[4*r]=peak[r];if(sum[r]){moments[4*r+1]=vsum[r]/sum[r];moments[4*r+2]=Math.sqrt(Math.max(0,v2sum[r]/sum[r]-(vsum[r]/sum[r])**2));}}
+  const nyquist=manifest.velocity_limits_mps[1];
+  frame.index.forEach(([b,f,r],i)=>{if(b!==beam)return;const w=10**(frame.snr_db[i]/10),angle=Math.PI*vel[f]/nyquist;peak[r]=Math.max(peak[r],frame.snr_db[i]);sum[r]+=w;vsum[r]+=w*Math.cos(angle);v2sum[r]+=w*Math.sin(angle);});
+  const moments=new Float32Array(nr*4),variance=new Float64Array(nr);for(let r=0;r<nr;r++){moments[4*r]=peak[r];if(sum[r])moments[4*r+1]=Math.atan2(v2sum[r],vsum[r])*nyquist/Math.PI;}
+  frame.index.forEach(([b,f,r],i)=>{if(b!==beam)return;const w=10**(frame.snr_db[i]/10),period=2*nyquist,dv=((vel[f]-moments[4*r+1]+nyquist)%period+period)%period-nyquist;variance[r]+=w*dv*dv;});
+  for(let r=0;r<nr;r++)if(sum[r])moments[4*r+2]=Math.sqrt(variance[r]/sum[r]);
   return {peak,moments};
 }
 function renderRTI(){
   if(!rtiPlot||!tdPlot||!frames.length)return;
-  rtiPlot.setFrameParameters({hsv:$('display').value==='hsv'?1:0,velocity_limit:+$('vlim').value,width_limit:+$('wlim').value});
-  const geom=manifest.geometry,nr=geom.slant_range_km.length,first=frames[0].start_us,columns=[],xb=[];
+  rtiPlot.setFrameParameters({day:dayNumber(),hsv:$('display').value==='hsv'?1:0,velocity_limit:+$('vlim').value,width_limit:+$('wlim').value});
+  const geom=manifest.geometry,nr=geom.slant_range_km.length,first=axisStart(),columns=[],xb=[];
   for(let i=0;i<frames.length;i++){
     const f=frames[i],previous=frames[i-1],next=frames[i+1];
     const left=previous&&f.start_us-previous.stop_us<=600e6?(previous.stop_us+f.start_us)/2:f.start_us;
@@ -48,36 +57,40 @@ function renderRTI(){
     if(!xb.length)xb.push(left);columns.push(f);xb.push(right);
   }
   const x=Float32Array.from(xb,t=>(t-first)/3600e6),nx=columns.length;
-  const nf=geom.velocity_mps.length;
+  const nativeNf=geom.velocity_mps.length,nf=nativeNf+1;
   tdPlot.panels.forEach((panel,beam)=>{
    const value=new Float32Array(nx*nf);
    columns.forEach((frame,c)=>{
     if(!frame){for(let f=0;f<nf;f++)value[f*nx+c]=NaN;return;}
-    frame.index.forEach(([b,f,r],i)=>{if(b===beam&&geom.altitude_km[beam][r]>=50&&geom.altitude_km[beam][r]<=120)value[f*nx+c]=Math.max(value[f*nx+c],frame.snr_db[i]);});
+    frame.index.forEach(([b,f,r],i)=>{if(b===beam&&geom.altitude_km[beam][r]>=50&&geom.altitude_km[beam][r]<=120){value[f*nx+c]=Math.max(value[f*nx+c],frame.snr_db[i]);if(f===0)value[nativeNf*nx+c]=value[c];}});
    });
-   panel.set_rectilinear_data(x,edges(geom.velocity_mps),value);panel.set_scale(+$('low').value,+$('high').value);
+   panel.set_rectilinear_data(x,edges([...geom.velocity_mps,manifest.velocity_limits_mps[1]]),value);panel.set_scale(...tdPlot.getColorLimits());
   });
   plots.forEach((p,beam)=>{
     const val=new Float32Array(nx*nr),moment=new Float32Array(nx*nr*4);
     columns.forEach((frame,c)=>{const s=frame?summaries(frame,beam,nr):null;
       for(let r=0;r<nr;r++){val[r*nx+c]=s?s.peak[r]:NaN;for(let k=0;k<4;k++)moment[4*(r*nx+c)+k]=s?s.moments[4*r+k]:(k===0?NaN:0);}});
     p.view.set_rectilinear_data(x,edges(geom.altitude_km[beam]),val);scale(p);
-    if($('display').value==='hsv')p.view.set_moment_data(moment,+$('vlim').value,+$('wlim').value);
+    if($('display').value==='hsv')p.view.set_moment_data(moment,...(rtiPlot.getHsvLimits()||[+$('vlim').value,+$('wlim').value]));
   });
-  const hsv=$('display').value==='hsv';$('colorLabel').textContent=hsv?`Hue −${$('vlim').value} to +${$('vlim').value} m/s; saturation decreases over 0–${$('wlim').value} m/s width; intensity ${$('low').value}–${$('high').value} dB`:`Peak excess signal/noise, ${$('low').value} to ${$('high').value} dB`;
+  const hsv=$('display').value==='hsv';$('colorLabel').textContent=hsv?'Hue: radial velocity; saturation: spectral width; brightness: dB SNR. Click the HSV key to adjust.':'Peak excess signal/noise (dB). Click a colorbar to adjust its limits.';
 }
 function renderRD(){
   if(!rd||!frames.length)return;
   const frame=frames[selected],beam=+$('rdbeam').value,g=manifest.geometry,nr=g.slant_range_km.length;
-  const bins=g.velocity_mps.map((v,i)=>i),nx=bins.length;
+  const bins=g.velocity_mps.map((v,i)=>i),nx=bins.length+1;
   const lookup=new Map(bins.map((f,i)=>[f,i])),value=new Float32Array(nx*nr);let count=0,transients=0;
-  frame.index.forEach(([b,f,r],i)=>{if(b===beam&&lookup.has(f)){value[r*nx+lookup.get(f)]=frame.snr_db[i];count++;if(frame.look_dominance[i]>.5)transients++;}});
-  rd.view.set_rectilinear_data(edges(bins.map(f=>g.velocity_mps[f])),edges(g.altitude_km[beam]),value);scale(rd);
-  $('frameStatus').textContent=`${utc(frame.start_us)} · ${names[beam]} · ${frame.duration_s.toFixed(2)} s mode, ${frame.coverage_s.toFixed(2)} s valid support · ${frame.looks} looks · ${count} retained cells (${transients} dominated by one look) · ${frame.quality}`;
+  frame.index.forEach(([b,f,r],i)=>{if(b===beam&&lookup.has(f)){value[r*nx+lookup.get(f)]=frame.snr_db[i];if(f===0)value[r*nx+nx-1]=frame.snr_db[i];count++;if(frame.look_dominance?.[i]>.5)transients++;}});
+  rd.view.set_rectilinear_data(edges([...g.velocity_mps,manifest.velocity_limits_mps[1]]),edges(g.altitude_km[beam]),value);scale(rd);
+  $('frameStatus').textContent=`${utc(frame.start_us)} · ${names[beam]} · ${frame.duration_s.toFixed(2)} s mode, ${frame.coverage_s.toFixed(2)} s valid support · ${frame.looks} looks · ${count} retained cells · 16 ms complementary pairs · ${frame.quality}`;
 }
 async function refresh(){
+  const request=++refreshSequence;
   const response=await fetch('./data/manifest.json',{cache:'no-cache'});if(!response.ok)throw Error(`Data unavailable (${response.status})`);
-  const m=await response.json();
+  let m=await response.json();
+  const days=m.available_days||[];
+  if(!chosenDay||!days.includes(chosenDay))chosenDay=days.at(-1)||m.selected_day;
+  const control=$('day');control.replaceChildren(...days.map(day=>{const option=document.createElement('option');option.value=day;option.textContent=day;return option;}));control.value=chosenDay;
   if(m.noise_model_status){manifest=m;renderNoise();}
   if(m.transfer){const a=m.transfer.archive,t=m.transfer.syowa_to_revontuli;
     $('transfer').textContent=`Revontuli native archive: ${(a.bytes/2**20).toFixed(2)} MiB · ${a.records} native records · ${a.files} HDF5 files. `+
@@ -87,14 +100,13 @@ async function refresh(){
       'Web copy: seven-day retention; Revontuli archive retained.';}
   if(m.transfer?.archive?.hourly_unix_s?.length){const width=document.body.clientWidth<900?640:960;
     $('archivePlot').src=`./data/axes/archive-growth-${width}.svg?v=${m.generated_utc}`;$('archivePlot').style.width=width+'px';$('archivePlot').hidden=false;}
-  if(m.revision===revision)return;
-  const cache=new Map(frames.map(f=>[f.key,f]));manifest=m;
-  // A bounded pool avoids issuing hundreds of simultaneous requests.
-  const result=new Array(m.frames.length);let next=0;
-  await Promise.all(Array.from({length:6},async()=>{for(;;){const i=next++;if(i>=result.length)break;const key=m.frames[i].key;if(cache.has(key)){result[i]=cache.get(key);continue;}const r=await fetch(`./data/frames/${key}.json`);if(!r.ok)throw Error('Incomplete frame transfer');result[i]=await r.json();}}));
-  frames=result;revision=m.revision;selected=frames.length-1;$('frame').max=String(selected);$('frame').value=String(selected);
+  const daily=await fetch(`./api/day?day=${encodeURIComponent(chosenDay)}`,{cache:'no-cache'});if(!daily.ok)throw Error('Selected UTC day is unavailable');
+  m=await daily.json();if(request!==refreshSequence)return;
+  if(m.revision===revision)return;manifest=m;
+  frames=m.frame_packets;revision=m.revision;selected=frames.length-1;$('frame').max=String(Math.max(0,selected));$('frame').value=String(Math.max(0,selected));
+  if(!frames.length){$('status').textContent=`${chosenDay} UTC · no complete 16 ms records yet`;return;}
   await mountPlots();
-  const age=(Date.now()-m.latest_mode_us/1000)/60000;$('status').textContent=`${frames.length} observing modes · latest completed ${utc(m.latest_mode_us)} · ${Math.max(0,age).toFixed(1)} min old`;$('status').className=age>30?'status warn':'status';
+  const age=(Date.now()-m.latest_mode_us/1000)/60000;$('status').textContent=`${chosenDay} UTC · ${frames.length} observing modes · 16 ms complementary pairs · Nyquist ±${m.velocity_limits_mps[1].toFixed(3)} m/s · latest archive observation ${utc(m.latest_mode_us)}`;$('status').className=age>30?'status warn':'status';$('error').textContent='';
   $('sidecar').href='./data/'+m.sidecar;renderRTI();renderRD();
 }
 function renderNoise(){
@@ -109,9 +121,13 @@ function renderNoise(){
 function failure(e){revision='';$('error').textContent=e.message;console.error(e);}
 try{
  await init();if(new URLSearchParams(location.search).has('embed'))document.body.classList.add('embedded');
- for(const id of ['display','beam','low','high','vlim','wlim'])$(id).onchange=()=>{try{renderRTI();renderRD();}catch(e){failure(e);}};
+ for(const id of ['display','beam','low','high','vlim','wlim'])$(id).onchange=()=>{try{
+  if(id==='low'||id==='high')for(const plot of [rtiPlot,rdPlot,tdPlot])plot?.setColorLimits(+$('low').value,+$('high').value);
+  if(id==='vlim'||id==='wlim')rtiPlot?.setHsvLimits(+$('vlim').value,+$('wlim').value);
+  renderRTI();renderRD();}catch(e){failure(e);}};
  $('rdbeam').onchange=renderRD;$('frame').oninput=()=>{selected=+$('frame').value;renderRD();};
  $('noiseModule').onchange=renderNoise;
+ $('day').onchange=()=>{chosenDay=$('day').value;revision='';if(playing){clearInterval(playing);playing=null;$('play').textContent='Play';}refresh().catch(failure);};
  $('play').onclick=()=>{if(playing){clearInterval(playing);playing=null;$('play').textContent='Play';}else{$('play').textContent='Pause';playing=setInterval(()=>{selected=(selected+1)%frames.length;$('frame').value=selected;renderRD();},500);}};
  window.addEventListener('resize',()=>{if(frames.length){renderRTI();renderRD();}});
  await refresh();setInterval(()=>refresh().catch(failure),60000);

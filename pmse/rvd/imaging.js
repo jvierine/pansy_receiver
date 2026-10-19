@@ -7,7 +7,7 @@ function styleParameters(range){return {range_km:range,hsv:$('display').value===
 function repaint(){if(plot&&lastMoments){
  const extent=previousRange*Math.sin(20*Math.PI/180);
  plot.panels[0].set_rectilinear_data(edges(extent),edges(extent),Float32Array.from({length:grid*grid},(_,i)=>lastMoments[4*i]));
- if($('display').value==='hsv')plot.panels[0].set_moment_data(lastMoments,+$('imageVelocity').value,+$('imageWidth').value);
+ if($('display').value==='hsv')plot.panels[0].set_moment_data(lastMoments,...(plot.getHsvLimits()||[+$('imageVelocity').value,+$('imageWidth').value]));
  plot.setFrameParameters(styleParameters(previousRange));
 }}
 export async function imageSelection(key,slantRange,offsetSeconds=0){
@@ -23,10 +23,10 @@ export async function imageSelection(key,slantRange,offsetSeconds=0){
     if(data.error){$('imageStatus').textContent=data.error;return;}
     const {header,moments}=data,range=header.selected_range_km,extent=range*Math.sin(20*Math.PI/180);
     try {
-     if(!plot||previousRange!==range){plot?.dispose();$('imagePlot').replaceChildren();
+     if(!plot){
       plot=await InteractiveFieldPlot.mount($('imagePlot'),{id:'image',frameParameters:styleParameters(range),
        spec:{bounds:[-extent,-extent,extent,extent],xlabel:'East (km)',ylabel:'North (km)',colorbar_label:'Relative power (dB)',panels:['']},colorLimits:[-30,0]});previousRange=range;
-     }
+     }else if(previousRange!==range){previousRange=range;plot.setFrameParameters(styleParameters(range));plot.setSpec({bounds:[-extent,-extent,extent,extent],xlabel:'East (km)',ylabel:'North (km)',colorbar_label:'Relative power (dB)',panels:['']});}
      if(data.id!==sequence)return;
      lastMoments=moments;
      plot.panels[0].set_rectilinear_data(edges(extent),edges(extent),Float32Array.from({length:grid*grid},(_,i)=>moments[4*i]));repaint();
@@ -40,4 +40,4 @@ export async function imageSelection(key,slantRange,offsetSeconds=0){
   worker.postMessage({id,packet,geometry,grid},[packet]);
  }catch(e){if(id===sequence)$('imageStatus').textContent=String(e);}
 }
-for(const id of ['imageVelocity','imageWidth','display'])$(id).addEventListener('change',repaint);
+for(const id of ['imageVelocity','imageWidth','display'])$(id).addEventListener('change',()=>{if(id!=='display')plot?.setHsvLimits(+$('imageVelocity').value,+$('imageWidth').value);repaint();});

@@ -8,6 +8,7 @@ import json
 import struct
 import subprocess
 import threading
+from datetime import datetime,timezone,timedelta
 from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -19,6 +20,36 @@ import numpy as np
 HEIGHT_KM=85.290954301
 _render_lock=threading.Lock()
 _frames=OrderedDict()
+
+
+def day_packet(root,day,manifest):
+    """One UTC day from existing native metadata; never read voltage spectra."""
+    first=datetime.strptime(day,'%Y-%m-%d').replace(tzinfo=timezone.utc)
+    if first.strftime('%Y-%m-%d')!=day:raise ValueError('Invalid UTC day')
+    start=round(first.timestamp()*1e6);stop=start+86_400_000_000
+    packets=[]
+    dirs=list(root.glob(day+'T*'))+list(root.glob((first-timedelta(days=1)).strftime('%Y-%m-%d')+'T23*'))
+    for directory in sorted(dirs):
+        for path in sorted(directory.glob('pmse@*.h5')):
+            with h5py.File(path,'r') as h:
+                for key in sorted(h):
+                    if not key.isdigit():continue
+                    g=h[key]
+                    if 'complete' not in g or int(g['complete'][()])!=1:continue
+                    begin=int(g['mode_start_sample'][()]);end=int(g['mode_stop_sample_exclusive'][()])
+                    if end<=start or begin>=stop:continue
+                    schema=g['schema_version'][()].decode()
+                    if schema!='pansy_pmse_sparse16_v2':raise ValueError('Refusing mixed/legacy sparse product')
+                    packets.append(dict(key=key,start_us=begin,stop_us=end,
+                        duration_s=float(g['mode_duration_seconds'][()]),coverage_s=float(g['coverage_seconds'][()]),
+                        looks=int(g['n_coherent_looks'][()]),quality=g['quality'][()].decode(),
+                        product_schema=schema,index=g['sparse_index'][()].tolist(),snr_db=g['detector_snr_db'][()].tolist(),
+                        look_dominance=None,look_persistence=None))
+    packets.sort(key=lambda p:p['start_us'])
+    revision=hashlib.sha256(('16ms:'+day+','.join(p['key'] for p in packets)).encode()).hexdigest()[:16]
+    return dict(manifest,selected_day=day,revision=revision,axis_start_us=start,axis_stop_us=stop,
+                frame_packets=packets,frame_count=len(packets),
+                frames=[{k:p[k] for k in ('key','start_us','stop_us','duration_s','coverage_s','looks','quality')} for p in packets])
 
 
 def geometry(reference):
@@ -97,6 +128,9 @@ def main():
                 url=urlparse(self.path)
                 if url.path.endswith('/geometry'):
                     return self.send(json.dumps(geo).encode())
+                if url.path.endswith('/day'):
+                    q=parse_qs(url.query);m=json.loads(a.manifest.read_text())
+                    return self.send(json.dumps(day_packet(a.root,q['day'][0],m),separators=(',',':'),allow_nan=False).encode())
                 if url.path.endswith('/spectra'):
                     q=parse_qs(url.query);key=int(q['key'][0]);r=float(q['range_km'][0]);offset=float(q.get('offset_s',['0'])[0])
                     if not 50<=r<=123 or not 0<=offset<=86400 or key<=0:raise ValueError('Invalid selection')
@@ -109,15 +143,16 @@ def main():
                 length=int(self.headers.get('Content-Length','0'))
                 if not 0<length<=4096:raise ValueError('Invalid request size')
                 body=json.loads(self.rfile.read(length));m=json.loads(a.manifest.read_text());ident=body['id']
-                origin=m['first_mode_us']/1e6;duration=(m['latest_mode_us']-m['first_mode_us'])/3.6e9
+                day=datetime.strptime(str(int(body.get('day',int(m.get('selected_day','2026-10-19').replace('-',''))))),'%Y%m%d').replace(tzinfo=timezone.utc)
+                origin=day.timestamp();duration=24.
                 spec=dict(bounds=[0,50,max(duration,.001),120],xlabel='Time (UTC)',ylabel='Nominal altitude (km)',
                           colorbar_label='SNR (dB)',panels=['Zenith','North','East','South','West'],utc_origin_seconds=origin)
                 if ident in ('rd','td'):
-                    v=m['geometry']['velocity_mps'];dv=v[1]-v[0]
+                    v=m['geometry']['velocity_mps'];v0,v1=m['velocity_limits_mps']
                     if ident=='rd':
-                        spec.update(bounds=[v[0]-dv/2,50,v[-1]+dv/2,120],xlabel=r'Radial velocity (m s$^{-1}$)',panels=['Spectrum'],utc_origin_seconds=None)
+                        spec.update(bounds=[v0,50,v1,120],xlabel=r'Radial velocity (m s$^{-1}$)',panels=['Spectrum'],utc_origin_seconds=None)
                     else:
-                        spec.update(bounds=[0,v[0]-dv/2,max(duration,.001),v[-1]+dv/2],ylabel=r'Radial velocity (m s$^{-1}$)')
+                        spec.update(bounds=[0,v0,max(duration,.001),v1],ylabel=r'Radial velocity (m s$^{-1}$)')
                 elif ident=='image':
                     radius=float(body.get('range_km',HEIGHT_KM))
                     if not 50<=radius<=123:raise ValueError('Invalid range')

@@ -5,10 +5,32 @@ import tempfile
 import unittest
 import h5py
 import numpy as np
-from pmse.serve_browser import existing_packet
+from pmse.serve_browser import existing_packet,day_packet
+from pmse.sparse_record import pending_modes,bounded_modes
 
 
 class BrowserTransportTests(unittest.TestCase):
+    def test_one_worker_prioritizes_newest_then_backfills(self):
+        choices=[(i,i+1) for i in range(10)]
+        self.assertEqual(pending_modes(choices,{9},3),[(8,9),(7,8),(0,1)])
+        self.assertEqual(pending_modes(choices,set(range(10)),3),[])
+        self.assertEqual(bounded_modes([(0,300_000_000-32_000)]),[(0,119_968_000),(120_000_000,239_968_000),(240_000_000,299_968_000)])
+
+    def test_day_selection_does_not_read_spectra(self):
+        key=1792433051921664
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);directory=root/'2026-10-19T18-00-00';directory.mkdir()
+            with h5py.File(directory/'pmse@1792432800.h5','w') as h:
+                g=h.create_group(str(key))
+                for name,value in dict(complete=1,mode_start_sample=key,mode_stop_sample_exclusive=key+80_000_000,
+                    mode_duration_seconds=80.,coverage_seconds=80.,n_coherent_looks=40,quality='ok',
+                    schema_version='pansy_pmse_sparse16_v2',sparse_index=[[0,0,0]],detector_snr_db=[4.]).items():g[name]=value
+            m=day_packet(root,'2026-10-19',{})
+            self.assertEqual(m['frame_count'],1)
+            self.assertEqual(m['axis_stop_us']-m['axis_start_us'],86400_000_000)
+            self.assertEqual(day_packet(root,'2026-10-18',{})['frame_count'],0)
+            self.assertIsNone(m['frame_packets'][0]['look_dominance'])
+
     def test_selected_range_all_channels_and_bounded_looks(self):
         key=1792433051921664
         with tempfile.TemporaryDirectory() as temporary:

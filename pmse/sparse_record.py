@@ -545,7 +545,26 @@ def closed_modes(mode_root,tx_root,raw_root,lookback_hours=3):
         for group in np.split(tail_keys,np.flatnonzero(np.diff(tail_keys)>500_000)+1):
             if tb[1]-group[-1]>=5_000_000 and len(group)>1:
                 unique[int(group[0])]=int(group[-1])
-    return sorted(unique.items())
+            elif len(group)>1:
+                # Emit completed bounded integrations even when mesomode never
+                # turns off. Keep five seconds of acquisition/metadata margin.
+                start=int(group[0]);cap=120_000_000
+                count=max(0,(int(group[-1])-start-5_000_000)//cap)
+                for n in range(count):
+                    first=start+n*cap;unique[first]=first+cap-32_000
+    return bounded_modes(sorted(unique.items()))
+
+
+def bounded_modes(choices,cap_seconds=120):
+    cap=int(cap_seconds*1e6)//32_000*32_000
+    if cap<4_096_000:raise ValueError('Integration cap too short')
+    windows={}
+    for start,last in choices:
+        stop=last+32_000
+        for first in range(start,stop,cap):
+            end=min(first+cap,stop)-32_000
+            if end>=first:windows[first]=max(end,windows.get(first,end))
+    return sorted(windows.items())
 
 
 def pending_modes(choices,done,limit=0):

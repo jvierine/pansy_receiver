@@ -42,7 +42,7 @@ def save_metrics(path,leg,values):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--root',type=Path,default=Path('/mnt/data/juha/pansy/metadata/pmse_sparse16'))
-    p.add_argument('--metrics',type=Path,default=Path('/mnt/data/juha/pansy/rvd-transfer.h5'))
+    p.add_argument('--metrics',type=Path,default=Path('/mnt/data/juha/pansy/rvd16-transfer.h5'))
     p.add_argument('--syowa-kib-s',type=int,default=10)
     p.add_argument('--archive-host',default='j@juha.no')
     p.add_argument('--archive-root',default='/mnt/shovel/rvd/pmse_sparse16')

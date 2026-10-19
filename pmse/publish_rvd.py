@@ -28,6 +28,7 @@ def packet(group,key):
     else:
         dominance=np.empty(0); persistence=np.empty(0,dtype=int)
     return dict(key=str(key),start_us=int(group['mode_start_sample'][()]),
+        product_schema=group['schema_version'][()].decode(),
         stop_us=int(group['mode_stop_sample_exclusive'][()]),
         duration_s=float(group['mode_duration_seconds'][()]),
         coverage_s=float(group['coverage_seconds'][()]),looks=int(group['n_coherent_looks'][()]),
@@ -45,9 +46,11 @@ def atomic_json(path,value):
     temporary.replace(path)
 
 
-def export(root,output,hours=48):
+def export(root,output,hours=0):
     output.mkdir(parents=True,exist_ok=True); (output/'frames').mkdir(exist_ok=True)
-    begin=time.time()-hours*3600
+    available_days=sorted({p.name[:10] for p in root.glob('20*T*') if any(p.glob('pmse@*.h5'))})
+    if not available_days:raise ValueError('No native sparse data days yet')
+    begin=datetime.fromisoformat(available_days[-1]).replace(tzinfo=timezone.utc).timestamp()
     date_cut=datetime.fromtimestamp(begin-3600,timezone.utc).strftime('%Y-%m-%dT%H')
     packets=[]; geometry=None
     for directory in sorted(root.glob('20*')):
@@ -62,6 +65,8 @@ def export(root,output,hours=48):
                         g=h[name]
                         if 'complete' not in g or int(g['complete'][()])!=1:
                             continue
+                        if g['schema_version'][()].decode()!='pansy_pmse_sparse16_v2':
+                            raise ValueError('Refusing to publish a legacy or mixed sparse schema')
                         if geometry is None:
                             geometry=dict(altitude_km=g['nominal_altitude_km'][()].tolist(),
                                 slant_range_km=g['slant_range_km'][()].tolist(),
@@ -69,9 +74,8 @@ def export(root,output,hours=48):
                                 beam_azimuth_deg=g['beam_azimuth_deg'][()].tolist(),
                                 beam_elevation_deg=g['beam_elevation_deg'][()].tolist())
                         path=output/'frames'/f'{name}.json'
-                        if path.exists():
-                            item=json.loads(path.read_text())
-                        else:
+                        item=json.loads(path.read_text()) if path.exists() else None
+                        if item is None or item.get('product_schema')!='pansy_pmse_sparse16_v2':
                             item=packet(g,int(name)); atomic_json(path,item)
                         packets.append(item)
             except (OSError,KeyError,ValueError) as error:
@@ -80,30 +84,33 @@ def export(root,output,hours=48):
     if not packets:
         raise ValueError('No complete sparse records in viewer window')
     latest=packets[-1]
-    identity=hashlib.sha256(','.join(p['key'] for p in packets).encode()).hexdigest()[:16]
-    manifest=dict(schema='pansy_rvd_plot_v1',revision=identity,
+    identity=hashlib.sha256(('16ms:'+','.join(p['key'] for p in packets)).encode()).hexdigest()[:16]
+    velocity=np.asarray(geometry['velocity_mps']);nyquist=abs(float(velocity[0]))
+    manifest=dict(schema='pansy_rvd_plot_v2',source_schema='pansy_pmse_sparse16_v2',revision=identity,
+        available_days=available_days,selected_day=available_days[-1],
         generated_utc=datetime.now(timezone.utc).isoformat(),
         first_mode_us=packets[0]['start_us'],latest_mode_us=latest['stop_us'],
         frame_count=len(packets),geometry=geometry,
         frames=[{k:item[k] for k in ('key','start_us','stop_us','duration_s','coverage_s','looks','quality')}
                 for item in packets],
-        snr_threshold_db=3,altitude_limits_km=[50,120],velocity_limits_mps=[-90.321448,90.321448],
+        snr_threshold_db=3,altitude_limits_km=[50,120],velocity_limits_mps=[-nyquist,nyquist],
+        effective_ipp_seconds=.016,
         sidecar='../archive/plot-data/plot-data-'+datetime.now(timezone.utc).strftime('%Y-%m-%d')+'.h5',
         display_fill='nearest mesomode for inter-mode gaps <=10 min; observations unchanged',
         moment_definition='threshold-censored moments of retained excess spectral power',
         generator='pmse/publish_rvd.py')
     transfer={}
-    metrics=root.parent.parent/'rvd-transfer.h5'
+    metrics=root.parent.parent/'rvd16-transfer.h5'
     if metrics.exists():
         with h5py.File(metrics,'r') as h:
             for g in h.get('runs',{}).values():
                 transfer[str(g.attrs['leg'])]={k:float(g[k][()]) for k in g}
     from .archive_inventory import inventory
     transfer['archive']=inventory(root)
-    transfer['archive'].update(destination='/mnt/shovel/rvd/pmse_sparse',web_retention_days=7)
+    transfer['archive'].update(destination='/mnt/shovel/rvd/pmse_sparse16',web_retention_days=7)
     manifest['transfer']=transfer
     cache=root.parent.parent/'sky-model-gsm2008-47MHz.h5'
-    fit_path=root.parent.parent/'rvd-noise-fit.h5'
+    fit_path=root.parent.parent/'rvd-noise16-fit.h5'
     if cache.exists():
         needs_update=not fit_path.exists()
         if not needs_update:
@@ -156,9 +163,9 @@ def export(root,output,hours=48):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--root',type=Path,default=Path('/mnt/data/juha/pansy/metadata/pmse_sparse'))
+    p.add_argument('--root',type=Path,default=Path('/mnt/data/juha/pansy/metadata/pmse_sparse16'))
     p.add_argument('--output',type=Path,default=Path('/mnt/data/juha/pansy/rvd-web/data'))
-    p.add_argument('--rsync-dest'); p.add_argument('--hours',type=float,default=48)
+    p.add_argument('--rsync-dest'); p.add_argument('--hours',type=float,default=0)
     p.add_argument('--plot-archive-dest',default='j@juha.no:/mnt/shovel/rvd/plot-data/')
     p.add_argument('--loop',action='store_true')
     a=p.parse_args()
