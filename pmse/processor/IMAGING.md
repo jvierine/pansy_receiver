@@ -26,16 +26,16 @@ The operator exposes both parameters explicitly. Its squared magnitude is a
 relative image proxy, not calibrated SNR or absolute echo brightness. Sparse
 non-detections must remain censored, not be labeled measured zero power.
 
-Status: unit-tested kernels only. Existing-record transport, WebAssembly
-bindings, sparse range interpolation with coverage masks, five-beam blending,
-and Rustplotlib browser display are not yet wired to this module. The historical
-Python imaging scripts are unchanged.
+The browser crate in `pmse/browser` calls these kernels through WebAssembly.
+`pmse.serve_browser` selects original seven-channel spectra from an existing
+record and serves them in an ephemeral binary response; it does not calculate
+covariances or images. The historical Python imaging scripts are unchanged.
 
 ## Browser-only deployment contract
 
 Imaging runs in the web browser through Rust compiled to WebAssembly, not on
 Syowa or in a server-side imaging service. Rustplotlib owns browser rendering.
-Only the current combined five-beam image is displayed. Existing sparse
+Only the selected combined five-beam image is displayed. Existing sparse
 complex spectra are the scientific source; do not introduce an image archive,
 image HDF5 sidecars, server-rendered images, or another native data product.
 Transfer the existing spectra plus the required geometry/calibration and dense
@@ -47,5 +47,14 @@ persisted scientific product. Preserve complex phases, all incoherent looks,
 missing-bin masks, integration bounds, and calibration provenance in transport.
 Keep only bounded current-frame buffers and reuse geometry operators. Changing
 colors reuses browser-resident numerical results without another data transfer.
+
+Clicking an RTI selects its mesomode and slant-range gate (converting the
+displayed nominal height using the clicked beam elevation). All five beams
+use that same gate. This is a spherical range shell, not a constant-altitude
+plane: its east/north projection is shown with equal physical axis scales.
+The reusable Rust geometry also supports the earlier constant-altitude plane,
+but that is not the click-selection default. A worker keeps TSVD computation
+off the browser UI thread. The 61 by 61 Cartesian grid and nine-degree supports
+use the historical positive phase convention, 18 modes and ridge one.
 
 Test with `cargo test --manifest-path pmse/processor/Cargo.toml`.

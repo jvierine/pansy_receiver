@@ -10,6 +10,14 @@ fn save(path: &Path, text: &str) -> Result<()> {
 }
 fn main()->Result<()> {
     let args:Vec<_>=std::env::args().collect();
+    if args.get(1).map(String::as_str)==Some("--frame") {
+        let value:Value=serde_json::from_reader(std::io::stdin())?;
+        let spec=serde_json::from_value(value["spec"].clone())?;
+        let request=serde_json::from_value(value["request"].clone())?;
+        let cache=std::env::var("PANSY_FRAME_CACHE").unwrap_or_else(|_|"/tmp/pansy-native-frame-cache".into());
+        let frame=rustplotlib::interactive::field_frame(&spec,&request,Path::new(&cache))?;
+        println!("{}",serde_json::to_string(&frame)?);return Ok(());
+    }
     anyhow::ensure!(args.len()==3,"Usage: pansy-pmse-plots manifest.json output_directory");
     let spec:Value=serde_json::from_slice(&fs::read(&args[1])?)?;
     let out=Path::new(&args[2]);fs::create_dir_all(out)?;

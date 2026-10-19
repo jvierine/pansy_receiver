@@ -1,0 +1,12 @@
+[Unit]
+Description=Publish read-only PANSY browser API to juha.no loopback
+After=pansy-rvd-browser-api.service network-online.target
+Wants=pansy-rvd-browser-api.service
+
+[Service]
+ExecStart=/usr/bin/ssh -N -T -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -R 127.0.0.1:18765:127.0.0.1:18765 j@juha.no
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
