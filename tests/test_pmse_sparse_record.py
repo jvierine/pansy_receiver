@@ -9,7 +9,8 @@ import numpy as np
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from pmse.sparse_record import (Config, C, axes, decode_pulses, coherent_spectrum,
-                                sparsify, write_record, read_complete, contiguous_looks,mode_is_closed,pulse_indices)
+                                sparsify, write_record, read_complete, contiguous_looks,mode_is_closed,pulse_indices,
+                                recover_cycle_grid,valid_transmit_cycles,coherent_window)
 
 
 class SparseRecordTests(unittest.TestCase):
@@ -115,6 +116,31 @@ class SparseRecordTests(unittest.TestCase):
             idx=pulse_indices(group,cfg)
             np.testing.assert_array_equal(idx[::20,0],group-group[0])
             self.assertEqual(int(idx[-1,-1])+1,int(group[-1]-group[0])+32000)
+
+    def test_missing_metadata_cycles_are_recovered_without_voltage_interpolation(self):
+        cfg=Config(); original=1_700_000_000_000_000+np.arange(128)*32000+np.arange(128)//30
+        markers=np.delete(original,[4,5,8,20,25,50,101])
+        markers=np.r_[markers,markers[-1]+28800]  # transition false marker
+        keys,observed=recover_cycle_grid(markers,cfg)
+        self.assertEqual(len(keys),128)
+        self.assertEqual(int((~observed).sum()),7)
+        np.testing.assert_allclose(keys-original,0,atol=1)
+
+    def test_measured_tx_verification_rejects_wrong_codes_and_zero_pulses(self):
+        cfg=Config()
+        template=self.rng.choice([-1,1],(20,cfg.ipp_samples)).astype('c8')
+        reference=np.tile(template,(3,1))
+        reference[20:40]=np.roll(template,1,axis=0)
+        reference[40]=0
+        valid,similarity=valid_transmit_cycles(reference,template,cfg)
+        np.testing.assert_array_equal(valid,[True,False,False])
+        self.assertGreater(similarity[0],.99)
+
+    def test_gaps_have_zero_weight_and_unit_noise_gain(self):
+        cfg=Config(); valid=np.ones(cfg.nfft,dtype=bool); valid[48:52]=False
+        window=coherent_window(cfg.nfft,valid)
+        self.assertTrue(np.all(window[48:52]==0))
+        self.assertAlmostEqual(float((window**2).sum()),1.,places=6)
 
     def test_native_digital_metadata_roundtrip_empty_and_signal(self):
         z=self.noise(); ri,_,_,valid,_,_=axes(self.cfg)

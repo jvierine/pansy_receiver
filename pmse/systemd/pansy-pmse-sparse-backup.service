@@ -1,0 +1,15 @@
+[Unit]
+Description=PANSY sparse spectral archive replication from Syowa
+After=pansy-backup-tunnel.service
+Wants=pansy-backup-tunnel.service
+
+[Service]
+Type=simple
+ExecStart=/bin/bash /home/j/src/pansy_pmse_sparse/pmse/backup_sparse.sh
+Restart=on-failure
+RestartSec=60
+Nice=15
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=default.target

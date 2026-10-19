@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import resource
+import shutil
 import subprocess
 import time
 
@@ -86,13 +87,22 @@ def decode_pulses(rx,tx,cfg):
     return decoded[...,:cfg.ipp_samples].astype(np.complex64),energy/cfg.tx_samples
 
 
-def coherent_spectrum(decoded,cfg):
+def coherent_window(count,pulse_valid=None):
+    window=np.hanning(count).astype(np.float32)
+    if pulse_valid is not None:
+        window*=np.asarray(pulse_valid,dtype=np.float32)
+    norm=np.linalg.norm(window)
+    if norm<=0:
+        raise ValueError('No usable coherent window support')
+    return window/norm
+
+
+def coherent_spectrum(decoded,cfg,pulse_valid=None):
     """Transform [channel,beam,pulse,range]; no pulse presumming or notch removal."""
     count = decoded.shape[2]
     if count < 4 or count > cfg.nfft:
         raise ValueError('A coherent look needs 4..nfft pulses per beam')
-    window = np.hanning(count).astype(np.float32)
-    window /= np.linalg.norm(window)
+    window = coherent_window(count,pulse_valid)
     return fft.fftshift(fft.fft(decoded*window[None,None,:,None],n=cfg.nfft,
                                axis=2,workers=1),axes=2).astype(np.complex64)
 
@@ -218,6 +228,15 @@ def read_complete(root,key):
     return data
 
 
+def completed_keys(root,start,stop):
+    import digital_rf as drf
+    try:
+        rows=drf.DigitalMetadataReader(str(root)).read(int(start),int(stop),'complete')
+        return {int(k) for k,v in rows.items() if int(v)==1}
+    except (IOError,OSError,ValueError):
+        return set()
+
+
 def channel_covariance(record):
     """Recover all 7x7 complex correlations without ever archiving 28 products."""
     z=np.asarray(record['spectra'],dtype=np.complex128)
@@ -272,14 +291,69 @@ def pulse_indices(group,cfg):
             np.arange(cfg.ipp_samples)[None,None,:]).reshape(-1,cfg.ipp_samples)
 
 
+def recover_cycle_grid(keys,cfg):
+    """Interpolate clock *timing*, never received voltages, between TX markers.
+
+    Every recovered cycle must subsequently pass measured-TX signature checks.
+    Reject markers displaced by a substantial fraction of an IPP (transition
+    detections can otherwise rotate beam assignments).
+    """
+    keys=np.asarray(sorted(set(keys)),dtype=np.int64)
+    cycle=20*cfg.ipp_samples
+    number=np.rint((keys-keys[0])/cycle).astype(np.int64)
+    residual=keys-keys[0]-number*cycle
+    good=abs(residual)<cfg.ipp_samples/4
+    number,residual=number[good],residual[good]
+    number,unique=np.unique(number,return_index=True); residual=residual[unique]
+    grid=np.arange(number[-1]+1,dtype=np.int64)
+    offset=np.rint(np.interp(grid,number,residual)).astype(np.int64)
+    recovered=keys[0]+grid*cycle+offset
+    observed=np.isin(grid,number)
+    return recovered,observed
+
+
+def valid_transmit_cycles(reference,template,cfg):
+    """Verify 20-pulse code/beam order using a measured, power-normalized template."""
+    pulses=np.asarray(reference[:,:cfg.tx_samples],dtype=np.complex128)
+    template=np.asarray(template[:,:cfg.tx_samples],dtype=np.complex128)
+    energy=np.sum(abs(pulses)**2,axis=1)
+    te=np.sum(abs(template)**2,axis=1)
+    normalized=np.divide(pulses,np.sqrt(energy)[:,None],out=np.zeros_like(pulses),
+                         where=energy[:,None]>0).reshape(-1,20,cfg.tx_samples)
+    target=np.divide(template,np.sqrt(te)[:,None],out=np.zeros_like(template),where=te[:,None]>0)
+    # The marker tracker rounds fractional-sample clock drift. Permit small
+    # pulse-envelope shifts for verification, while decoding each actual pulse.
+    similarities=[]
+    for shift in range(-2,3):
+        moved=np.zeros_like(target)
+        if shift>=0:
+            moved[:,shift:]=target[:,:cfg.tx_samples-shift]
+        else:
+            moved[:,:shift]=target[:,-shift:]
+        moved/=np.maximum(np.linalg.norm(moved,axis=1)[:,None],1e-30)
+        similarities.append(abs(np.sum(normalized*moved.conj()[None],axis=2)))
+    similarity=np.max(similarities,axis=0)
+    valid=(similarity.mean(axis=1)>=.8)&(similarity.min(axis=1)>=.65)
+    valid &= np.all(np.isfinite(energy.reshape(-1,20))&(energy.reshape(-1,20)>0),axis=1)
+    return valid,similarity.mean(axis=1)
+
+
 def process_mode(raw_root,tx_root,start,last,cfg):
     import digital_rf as drf
     reader=drf.DigitalRFReader(str(raw_root))
     tx=drf.DigitalMetadataReader(str(tx_root))
     records=tx.read(int(start),int(last))
-    keys=sorted(int(k) for k,v in records.items() if int(v['id'])==1)
+    markers=sorted(int(k) for k,v in records.items() if int(v['id'])==1)
+    keys,observed=recover_cycle_grid(markers,cfg)
+    # Learn the pulse-code sequence from a measured central marker, away from
+    # start/stop transitions. This is a verifier, never a decoding substitute.
+    anchor=markers[len(markers)//2]
+    template=reader.read_vector_1d(int(anchor),20*cfg.ipp_samples,'ch007').astype(np.complex64).reshape(20,-1)
     ri,*_=axes(cfg)
-    spectra=[]; look_bounds=[]; counts=[]; tx_mean=[]; skipped=[]
+    spectra=[]; look_bounds=[]; counts=[]; tx_mean=[]; skipped=[]; gains=[]; scheduled=[]
+    verified=np.zeros(len(keys),dtype=np.int8)
+    used=np.zeros(len(keys),dtype=np.int8)
+    similarities=np.full(len(keys),np.nan,dtype=np.float32)
     for group in contiguous_looks(keys,cfg):
         pulse_count=4*len(group)
         try:
@@ -287,15 +361,28 @@ def process_mode(raw_root,tx_root,start,last,cfg):
             indices=pulse_indices(group,cfg)
             ref=reader.read_vector_1d(int(group[0]),count,'ch007').astype(np.complex64)
             ref=ref[indices]
-            decoded=np.empty((7,5,pulse_count,len(ri)),dtype=np.complex64)
+            valid_cycle,similarity=valid_transmit_cycles(ref,template,cfg)
+            group_index=np.searchsorted(keys,group)
+            verified[group_index]=valid_cycle
+            similarities[group_index]=similarity
+            valid_pulse=np.repeat(valid_cycle,20)
+            valid_per_beam=np.repeat(valid_cycle,4)
+            if np.count_nonzero(valid_per_beam)<4:
+                raise ValueError('Measured TX rejects all cycles in coherent look')
+            decoded=np.zeros((7,5,pulse_count,len(ri)),dtype=np.complex64)
             for channel in range(7):
                 rx=reader.read_vector_1d(int(group[0]),count,f'ch{channel:03d}').astype(np.complex64)
-                matched,pulse_power=decode_pulses(rx[indices],ref,cfg)
+                matched,pulse_power=decode_pulses(rx[indices[valid_pulse]],ref[valid_pulse],cfg)
+                full=np.zeros((len(indices),len(ri)),dtype=np.complex64)
+                full[valid_pulse]=matched[:,ri]
                 # pulse order: cycle, four repeated five-beam sweeps, beam
-                decoded[channel]=matched[:,ri].reshape(-1,4,5,len(ri)).transpose(2,0,1,3).reshape(5,pulse_count,len(ri))
-            spectra.append(coherent_spectrum(decoded,cfg))
+                decoded[channel]=full.reshape(-1,4,5,len(ri)).transpose(2,0,1,3).reshape(5,pulse_count,len(ri))
+            spectra.append(coherent_spectrum(decoded,cfg,valid_per_beam))
+            used[group_index]=valid_cycle
             look_bounds.append([group[0],group[-1]+20*cfg.ipp_samples])
-            counts.append(pulse_count)
+            counts.append(int(valid_per_beam.sum()))
+            scheduled.append(pulse_count)
+            gains.append(float(coherent_window(pulse_count,valid_per_beam).sum()**2))
             tx_mean.append([pulse_power.mean(),pulse_power.min(),pulse_power.max()])
         except (OSError,IOError,ValueError) as error:
             skipped.append((int(group[0]),str(error)))
@@ -308,7 +395,7 @@ def process_mode(raw_root,tx_root,start,last,cfg):
         look_bounds_sample=np.asarray(look_bounds,dtype=np.int64),
         pulses_per_beam_per_look=np.asarray(counts,dtype=np.int32),
         tx_mean_min_max_power=np.asarray(tx_mean),
-        coverage_seconds=sum(np.diff(np.asarray(look_bounds),axis=1).ravel())/cfg.sample_rate_hz,
+        coverage_seconds=sum(counts)*5*cfg.ipp_samples/cfg.sample_rate_hz,
         skipped_looks_json=json.dumps(skipped),raw_source=str(raw_root),tx_source=str(tx_root),
         per_pulse_tx_normalization='reference / sqrt(sum(abs(reference[:132])**2))',
         interferometer_calibration='not applied; original receiver channel order preserved',
@@ -317,9 +404,18 @@ def process_mode(raw_root,tx_root,start,last,cfg):
         source_commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=Path(__file__).parent,text=True).strip())
     out['coverage_fraction']=out['coverage_seconds']/out['mode_duration_seconds']
     out['n_tx_cycles']=len(keys)
+    out['n_tx_metadata_markers']=len(markers)
+    out['n_recovered_cycle_markers']=int(np.count_nonzero(~observed))
+    out['tx_cycle_start_sample']=keys
+    out['tx_cycle_marker_observed']=observed
+    out['tx_cycle_similarity']=similarities
+    out['tx_cycle_verified']=verified
+    out['rx_cycle_used']=used
+    out['tx_reference_template']=template[:,:cfg.tx_samples]
     out['total_pulses_per_beam']=int(sum(counts))
-    out['look_coherent_seconds']=np.asarray(counts)*5*cfg.ipp_samples/cfg.sample_rate_hz
-    gains=np.array([(np.hanning(n).sum())**2/(np.hanning(n)**2).sum() for n in counts])
+    out['look_coherent_seconds']=np.asarray(scheduled)*5*cfg.ipp_samples/cfg.sample_rate_hz
+    out['scheduled_pulses_per_beam_per_look']=np.asarray(scheduled,dtype=np.int32)
+    gains=np.asarray(gains)
     out['look_coherent_signal_power_gain']=gains
     out['look_equivalent_noise_bandwidth_hz']=cfg.sample_rate_hz/(5*cfg.ipp_samples*gains)
     if out['quality']=='ok' and out['coverage_fraction']<.999:
@@ -364,20 +460,34 @@ def main():
     p.add_argument('--mode-root',type=Path,default=Path('/media/analysis/metadata/mesomode'))
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--latest',type=int,default=1)
+    p.add_argument('--reserve-free-gib',type=float,default=200)
+    p.add_argument('--max-archive-gib',type=float,default=500)
     p.add_argument('--lookback-hours',type=float,default=3)
     p.add_argument('--loop',action='store_true')
     p.add_argument('--poll-seconds',type=float,default=60)
     p.add_argument('--start',type=int); p.add_argument('--last',type=int)
     a=p.parse_args(); cfg=Config()
+    if a.latest<0 or a.reserve_free_gib<0 or a.max_archive_gib<=0:
+        p.error('latest must be >=0 (zero=all); storage budgets must be positive')
+    a.output.mkdir(parents=True,exist_ok=True)
     while True:
+        free=shutil.disk_usage(a.output).free/2**30
+        used=sum(path.stat().st_size for path in a.output.rglob('*.h5'))/2**30
+        if free<a.reserve_free_gib or used>=a.max_archive_gib:
+            message=f'Archive paused: free={free:.1f} GiB, archive={used:.1f} GiB; storage budget reached'
+            print(message,flush=True)
+            if not a.loop:
+                raise RuntimeError(message)
+            time.sleep(max(a.poll_seconds,10))
+            continue
         choices=[(a.start,a.last)] if a.start is not None and a.last is not None else closed_modes(a.mode_root,a.tx_root,a.raw_root,a.lookback_hours)
-        for start,last in choices[-a.latest:]:
-            if a.output.exists():
-                try:
-                    read_complete(a.output,start)
-                    continue
-                except (IOError,OSError,KeyError,ValueError):
-                    pass
+        done=completed_keys(a.output,choices[0][0],choices[-1][0]) if choices else set()
+        for start,last in (choices[-a.latest:] if a.latest else choices):
+            if start in done:
+                continue
+            if shutil.disk_usage(a.output).free/2**30<a.reserve_free_gib:
+                break
+            print(f'Processing closed mesomode {start}..{last}',flush=True)
             begun=time.monotonic()
             try:
                 out=process_mode(a.raw_root,a.tx_root,start,last,cfg)
