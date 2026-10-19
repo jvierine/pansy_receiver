@@ -3,7 +3,7 @@ import init from './pkg/rustplotlib_web.js';
 import {imageSelection} from './imaging.js';
 import {InteractiveFieldPlot} from './lib/interactive_plot.js';
 const $=id=>document.getElementById(id), names=['Zenith','North','East','South','West'];
-let manifest,frames=[],plots=[],rd,playing=null,selected=0,revision='',rtiPlot,rdPlot;
+let manifest,frames=[],plots=[],rd,playing=null,selected=0,revision='',rtiPlot,rdPlot,tdPlot;
 const utc=us=>new Date(us/1000).toISOString().replace('T',' ').slice(0,19)+' UTC';
 const edges=centers=>Float32Array.from([...centers.map((x,i)=>i?(centers[i-1]+x)/2:x-(centers[1]-x)/2),centers.at(-1)+(centers.at(-1)-centers.at(-2))/2]);
 async function mountPlots(){
@@ -22,6 +22,12 @@ async function mountPlots(){
  }else rtiPlot.setSpec(spec);
  const ve=edges(manifest.geometry.velocity_mps);
  if(!rdPlot){rdPlot=await InteractiveFieldPlot.mount($('rd'),{id:'rd',spec:{bounds:[ve[0],50,ve.at(-1),120],xlabel:'Radial velocity (m/s)',ylabel:'Nominal altitude (km)',colorbar_label:'SNR (dB)',panels:['Spectrum']},colorLimits:[+$('low').value,+$('high').value],onSelect:({y})=>imageSelection(frames[selected].key,y/Math.sin(manifest.geometry.beam_elevation_deg[+$('rdbeam').value]*Math.PI/180))});rd={view:rdPlot.panels[0]};}
+ const tdSpec={bounds:[0,ve[0],Math.max(hours,.001),ve.at(-1)],xlabel:'Time (UTC)',ylabel:'Radial velocity (m/s)',colorbar_label:'SNR (dB)',panels:names,utc_origin_seconds:origin};
+ if(!tdPlot){tdPlot=await InteractiveFieldPlot.mount($('timeDoppler'),{id:'td',spec:tdSpec,colorLimits:[+$('low').value,+$('high').value],onSelect:({panel,x})=>{
+  const time=manifest.first_mode_us+x*3.6e9;
+  selected=frames.reduce((best,f,i)=>Math.abs((f.start_us+f.stop_us)/2-time)<Math.abs((frames[best].start_us+frames[best].stop_us)/2-time)?i:best,0);
+  $('rdbeam').value=String(panel);$('frame').value=String(selected);renderRD();
+ }});}else tdPlot.setSpec(tdSpec);
 }
 function scale(p){const low=+$('low').value,high=+$('high').value;if(!(high>low))throw Error('SNR high must exceed low');p.view.set_scale(low,high,0,.1,2);}
 function summaries(frame,beam,nr){
@@ -31,6 +37,7 @@ function summaries(frame,beam,nr){
   return {peak,moments};
 }
 function renderRTI(){
+  if(!rtiPlot||!tdPlot||!frames.length)return;
   rtiPlot.setFrameParameters({hsv:$('display').value==='hsv'?1:0,velocity_limit:+$('vlim').value,width_limit:+$('wlim').value});
   const geom=manifest.geometry,nr=geom.slant_range_km.length,first=frames[0].start_us,columns=[],xb=[];
   for(let i=0;i<frames.length;i++){
@@ -41,6 +48,15 @@ function renderRTI(){
     if(!xb.length)xb.push(left);columns.push(f);xb.push(right);
   }
   const x=Float32Array.from(xb,t=>(t-first)/3600e6),nx=columns.length;
+  const nf=geom.velocity_mps.length;
+  tdPlot.panels.forEach((panel,beam)=>{
+   const value=new Float32Array(nx*nf);
+   columns.forEach((frame,c)=>{
+    if(!frame){for(let f=0;f<nf;f++)value[f*nx+c]=NaN;return;}
+    frame.index.forEach(([b,f,r],i)=>{if(b===beam&&geom.altitude_km[beam][r]>=50&&geom.altitude_km[beam][r]<=120)value[f*nx+c]=Math.max(value[f*nx+c],frame.snr_db[i]);});
+   });
+   panel.set_rectilinear_data(x,edges(geom.velocity_mps),value);panel.set_scale(+$('low').value,+$('high').value);
+  });
   plots.forEach((p,beam)=>{
     const val=new Float32Array(nx*nr),moment=new Float32Array(nx*nr*4);
     columns.forEach((frame,c)=>{const s=frame?summaries(frame,beam,nr):null;
@@ -51,6 +67,7 @@ function renderRTI(){
   const hsv=$('display').value==='hsv';$('colorLabel').textContent=hsv?`Hue −${$('vlim').value} to +${$('vlim').value} m/s; saturation decreases over 0–${$('wlim').value} m/s width; intensity ${$('low').value}–${$('high').value} dB`:`Peak excess signal/noise, ${$('low').value} to ${$('high').value} dB`;
 }
 function renderRD(){
+  if(!rd||!frames.length)return;
   const frame=frames[selected],beam=+$('rdbeam').value,g=manifest.geometry,nr=g.slant_range_km.length;
   const bins=g.velocity_mps.map((v,i)=>i),nx=bins.length;
   const lookup=new Map(bins.map((f,i)=>[f,i])),value=new Float32Array(nx*nr);let count=0,transients=0;

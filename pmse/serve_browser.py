@@ -112,9 +112,12 @@ def main():
                 origin=m['first_mode_us']/1e6;duration=(m['latest_mode_us']-m['first_mode_us'])/3.6e9
                 spec=dict(bounds=[0,50,max(duration,.001),120],xlabel='Time (UTC)',ylabel='Nominal altitude (km)',
                           colorbar_label='SNR (dB)',panels=['Zenith','North','East','South','West'],utc_origin_seconds=origin)
-                if ident=='rd':
+                if ident in ('rd','td'):
                     v=m['geometry']['velocity_mps'];dv=v[1]-v[0]
-                    spec.update(bounds=[v[0]-dv/2,50,v[-1]+dv/2,120],xlabel=r'Radial velocity (m s$^{-1}$)',panels=['Spectrum'],utc_origin_seconds=None)
+                    if ident=='rd':
+                        spec.update(bounds=[v[0]-dv/2,50,v[-1]+dv/2,120],xlabel=r'Radial velocity (m s$^{-1}$)',panels=['Spectrum'],utc_origin_seconds=None)
+                    else:
+                        spec.update(bounds=[0,v[0]-dv/2,max(duration,.001),v[-1]+dv/2],ylabel=r'Radial velocity (m s$^{-1}$)')
                 elif ident=='image':
                     radius=float(body.get('range_km',HEIGHT_KM))
                     if not 50<=radius<=123:raise ValueError('Invalid range')
