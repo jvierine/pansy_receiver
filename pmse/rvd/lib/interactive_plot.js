@@ -1,9 +1,8 @@
-// web/src/interactive_plot.ts
 import init, { FieldView, PlotViewport } from "../pkg/rustplotlib_web.js";
-var initialization;
-var clamp = (v) => Math.max(0, Math.min(1, v));
-var svgURL = (svg) => URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
-var InteractiveFieldPlot = class _InteractiveFieldPlot {
+let initialization;
+const clamp = (v) => Math.max(0, Math.min(1, v));
+const svgURL = (svg) => URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+class InteractiveFieldPlot {
   constructor(root, options) {
     this.root = root;
     this.options = options;
@@ -11,19 +10,21 @@ var InteractiveFieldPlot = class _InteractiveFieldPlot {
     if (!s.xlabel?.trim() || !s.ylabel?.trim() || !s.colorbar_label?.trim()) throw Error("Interactive plots require x, y and colorbar labels");
     if (!s.panels.length || s.bounds.length !== 4 || !s.bounds.every(Number.isFinite)) throw Error("Invalid interactive figure specification");
     this.onSelect = options.onSelect;
-    this.limits = options.colorLimits || [0, 1];
+    this.limits = [...options.colorLimits || [0, 1]];
+    this.initialLimits = [...this.limits];
     this.momentMode = options.frameParameters?.hsv === 1;
+    this.initialMomentLimits = [options.frameParameters?.velocity_limit || 30, options.frameParameters?.width_limit || 10];
     const toolbar = document.createElement("div");
     toolbar.style.cssText = "display:flex;flex-wrap:wrap;gap:10px;align-items:center;font:inherit;margin:0 6px 10px;color:var(--muted,#526b7d)";
     this.resetButton.textContent = "Reset view";
     this.resetButton.onclick = () => this.reset();
     const help = document.createElement("span");
-    help.textContent = "Scroll to zoom \xB7 drag to select \xB7 Shift-drag to pan";
+    help.textContent = "Scroll to zoom \xB7 drag to zoom \xB7 Shift-drag to pan \xB7 click colorbar to adjust";
     help.style.fontSize = "0.75rem";
     toolbar.append(this.resetButton, help);
     root.append(toolbar);
     root.style.overflowX = "auto";
-    this.stage.style.cssText = "position:relative;background:var(--paper,#faf7ed);touch-action:none";
+    this.stage.style.cssText = "position:relative;background:var(--paper,white);touch-action:none";
     this.axes.style.cssText = "position:absolute;inset:0;width:100%;height:100%;pointer-events:none";
     this.axes.alt = `${s.ylabel} versus ${s.xlabel}; ${s.colorbar_label}`;
     this.stage.append(this.axes);
@@ -43,7 +44,7 @@ var InteractiveFieldPlot = class _InteractiveFieldPlot {
       this.panels.push(panel);
       this.bind(panel);
     });
-    this.selectionBox.style.cssText = "display:none;position:absolute;z-index:3;border:1px dashed #12669a;background:#63a8c922;pointer-events:none";
+    this.selectionBox.style.cssText = "display:none;position:absolute;z-index:3;border:1px dashed var(--blue,#1d5577);background:#63a8c922;pointer-events:none";
     this.stage.append(this.selectionBox);
     this.observer = new ResizeObserver(() => this.queueFrame());
   }
@@ -54,6 +55,8 @@ var InteractiveFieldPlot = class _InteractiveFieldPlot {
   resetButton = document.createElement("button");
   observer;
   limits;
+  initialLimits;
+  initialMomentLimits;
   revision = 0;
   timer;
   abort;
@@ -70,7 +73,7 @@ var InteractiveFieldPlot = class _InteractiveFieldPlot {
   static async mount(root, options) {
     initialization ??= init();
     await initialization;
-    const plot = new _InteractiveFieldPlot(root, options);
+    const plot = new InteractiveFieldPlot(root, options);
     await plot.requestFrame();
     plot.observer.observe(root);
     return plot;
@@ -108,17 +111,22 @@ var InteractiveFieldPlot = class _InteractiveFieldPlot {
     const dialog = document.createElement("dialog");
     this.editor = dialog;
     dialog.setAttribute("aria-label", "Adjust color limits");
-    dialog.style.cssText = "position:fixed;max-width:min(480px,90vw);padding:24px;border:1px solid var(--line,#d9e2e4);border-radius:10px;background:var(--paper,#faf7ed);color:var(--ink,#082747);font:15px system-ui;box-shadow:0 12px 40px #08274722";
+    dialog.style.cssText = "position:fixed;box-sizing:border-box;width:min(440px,calc(100vw - 32px));max-width:none;max-height:calc(100dvh - 32px);overflow:auto;padding:24px;border:1px solid var(--line,#8b99aa);border-radius:10px;background:var(--paper,white);color:var(--ink,#172134);font:15px system-ui;box-shadow:0 12px 40px #0003";
     const title = document.createElement("h2");
-    title.textContent = "Color limits";
-    title.style.cssText = "font:inherit;font-weight:600;margin:0 0 14px";
+    title.textContent = "Color scale";
+    title.style.cssText = "font:inherit;font-size:1.15em;font-weight:600;margin:0 0 6px";
     dialog.append(title);
+    const description = document.createElement("p");
+    description.textContent = this.options.spec.colorbar_label;
+    description.style.cssText = "margin:0 0 18px;color:var(--muted,#526b7d)";
+    dialog.append(description);
     const span = this.limits[1] - this.limits[0], base = [this.limits[0] - 4 * span, this.limits[1] + 4 * span];
     const row = (label, value, min, max, step, apply) => {
       const line = document.createElement("label");
-      line.style.cssText = "display:grid;grid-template-columns:130px 160px 80px;gap:8px;align-items:center;margin:12px 0";
+      line.style.cssText = "display:grid;grid-template-columns:minmax(0,1fr) 90px;gap:8px;align-items:center;margin:16px 0";
       const text = document.createElement("span");
       text.textContent = label;
+      text.style.gridColumn = "1 / -1";
       const slider = document.createElement("input");
       slider.type = "range";
       slider.min = String(min);
@@ -126,44 +134,68 @@ var InteractiveFieldPlot = class _InteractiveFieldPlot {
       slider.step = String(step);
       slider.value = String(value);
       slider.setAttribute("aria-label", label);
+      slider.style.cssText = "min-width:0;width:100%;margin:0";
       const number = document.createElement("input");
       number.type = "number";
       number.step = "any";
       number.value = String(value);
       number.setAttribute("aria-label", label + " value");
-      number.style.width = "75px";
-      slider.oninput = () => {
-        number.value = slider.value;
-        apply(+slider.value);
-      };
-      number.onchange = () => {
-        if (Number.isFinite(+number.value)) {
-          slider.value = number.value;
-          apply(+number.value);
+      number.style.cssText = "box-sizing:border-box;min-width:0;width:100%";
+      const update = () => {
+        const v = number.valueAsNumber, valid = Number.isFinite(v) && apply(v);
+        number.setCustomValidity(valid ? "" : "Enter a finite value; maximum must exceed minimum and HSV limits must be positive.");
+        number.setAttribute("aria-invalid", String(!valid));
+        if (valid) {
+          slider.min = String(Math.min(+slider.min, v));
+          slider.max = String(Math.max(+slider.max, v));
+          slider.value = String(v);
         }
       };
+      slider.oninput = () => {
+        number.value = slider.value;
+        update();
+      };
+      number.oninput = update;
       line.append(text, slider, number);
       dialog.append(line);
     };
     row("Minimum", this.limits[0], base[0], base[1], span / 500, (v) => {
-      if (v < this.limits[1]) this.setColorLimits(v, this.limits[1]);
+      if (v >= this.limits[1]) return false;
+      this.setColorLimits(v, this.limits[1]);
+      return true;
     });
     row("Maximum", this.limits[1], base[0], base[1], span / 500, (v) => {
-      if (v > this.limits[0]) this.setColorLimits(this.limits[0], v);
+      if (v <= this.limits[0]) return false;
+      this.setColorLimits(this.limits[0], v);
+      return true;
     });
     if (this.momentMode) {
       const limits = this.momentLimits || [this.options.frameParameters?.velocity_limit || 30, this.options.frameParameters?.width_limit || 10];
       row("Velocity +/- m/s", limits[0], 0.1, Math.max(limits[0] * 4, 200), 0.1, (v) => {
-        if (v > 0) this.setHsvLimits(v, (this.momentLimits || limits)[1]);
+        if (v <= 0) return false;
+        this.setHsvLimits(v, (this.momentLimits || limits)[1]);
+        return true;
       });
       row("Width m/s", limits[1], 0.1, Math.max(limits[1] * 4, 100), 0.1, (v) => {
-        if (v > 0) this.setHsvLimits((this.momentLimits || limits)[0], v);
+        if (v <= 0) return false;
+        this.setHsvLimits((this.momentLimits || limits)[0], v);
+        return true;
       });
     }
+    const actions = document.createElement("div");
+    actions.style.cssText = "display:flex;justify-content:space-between;gap:12px;margin-top:24px";
+    const reset = document.createElement("button");
+    reset.textContent = "Reset scale";
+    reset.onclick = () => {
+      this.setColorLimits(...this.initialLimits);
+      if (this.momentMode) this.setHsvLimits(...this.initialMomentLimits);
+      this.openColorEditor();
+    };
     const close = document.createElement("button");
     close.textContent = "Done";
     close.onclick = () => dialog.close();
-    dialog.append(close);
+    actions.append(reset, close);
+    dialog.append(actions);
     document.body.append(dialog);
     dialog.addEventListener("click", (event) => {
       if (event.target === dialog) {
@@ -253,8 +285,10 @@ var InteractiveFieldPlot = class _InteractiveFieldPlot {
     this.colorButtons = [];
     (frame.color_regions || []).forEach(([x, y, w, h]) => {
       const button = document.createElement("button");
+      button.type = "button";
       button.setAttribute("aria-label", "Adjust color limits");
-      button.title = "Click to adjust color limits";
+      button.setAttribute("aria-haspopup", "dialog");
+      button.title = `Adjust ${this.options.spec.colorbar_label} color scale`;
       button.style.cssText = `position:absolute;left:${x * 100}%;top:${y * 100}%;width:${Math.max(24, w * frame.width)}px;height:${h * 100}%;z-index:4;background:transparent;border:0;padding:0;cursor:pointer`;
       button.onclick = () => this.openColorEditor();
       this.stage.append(button);
@@ -335,8 +369,8 @@ var InteractiveFieldPlot = class _InteractiveFieldPlot {
     this.labelURLs.forEach(URL.revokeObjectURL);
     this.root.replaceChildren();
   }
-};
-var InteractiveFieldPanel = class {
+}
+class InteractiveFieldPanel {
   constructor(plot, canvas, label, index) {
     this.plot = plot;
     this.canvas = canvas;
@@ -376,7 +410,7 @@ var InteractiveFieldPanel = class {
     const b = this.plot.physicalBounds(), d = this.dataBounds;
     this.field.set_view((b[0] - d[0]) / (d[2] - d[0]), (b[1] - d[1]) / (d[3] - d[1]), (b[2] - d[0]) / (d[2] - d[0]), (b[3] - d[1]) / (d[3] - d[1]));
   }
-};
+}
 export {
   InteractiveFieldPanel,
   InteractiveFieldPlot

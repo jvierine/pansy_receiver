@@ -2,7 +2,8 @@
   "name": "pansy-receiver-visualizations",
   "private": true,
   "scripts": {
-    "render:55p": "node render_tempel_tuttle_webgl_gif.mjs"
+    "render:55p": "node render_tempel_tuttle_webgl_gif.mjs",
+    "test:pmse-colorbars": "node scripts/test_pmse_colorbars.mjs"
   },
   "devDependencies": {
     "playwright": "1.62.1"

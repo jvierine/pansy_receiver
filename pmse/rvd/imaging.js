@@ -1,4 +1,4 @@
-import {InteractiveFieldPlot} from './lib/interactive_plot.js?v=wave-paper-2';
+import {InteractiveFieldPlot} from './lib/interactive_plot.js?v=colorbar-1';
 const $=id=>document.getElementById(id);
 let worker,geometry,plot,sequence=0,previousRange,lastMoments;
 const grid=61;
