@@ -1,4 +1,4 @@
-// Scientific provenance: rustplotlib viewer 74eff2d; no figure generation in JS.
+// Scientific provenance: rustplotlib interactive API d3837b8; numerical imaging is Rust/WASM.
 import init from './pkg/rustplotlib_web.js';
 import {imageSelection} from './imaging.js';
 import {InteractiveFieldPlot} from './lib/interactive_plot.js';
@@ -88,7 +88,7 @@ function renderNoise(){
   $('noisePlot').src=`./data/axes/noise-module-${module}-${width}.svg?v=${manifest.noise_model_updated_unix_s}`;
   $('noisePlot').style.width=width+'px';$('noisePlot').hidden=false;
 }
-function failure(e){$('error').textContent=e.message;console.error(e);}
+function failure(e){revision='';$('error').textContent=e.message;console.error(e);}
 try{
  await init();if(new URLSearchParams(location.search).has('embed'))document.body.classList.add('embedded');
  for(const id of ['display','beam','low','high','vlim','wlim'])$(id).onchange=()=>{try{renderRTI();renderRD();}catch(e){failure(e);}};
