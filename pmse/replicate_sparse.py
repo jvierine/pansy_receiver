@@ -47,7 +47,9 @@ def main():
     p.add_argument('--loop',action='store_true');a=p.parse_args();a.root.mkdir(parents=True,exist_ok=True)
     while True:
         try:
-            values=rsync('radar@127.0.0.1:/media/analysis/metadata/pmse_sparse/',str(a.root)+'/',
+            subprocess.run(['ssh','-p','2222','-o','BatchMode=yes','-o','ConnectTimeout=15','radar@127.0.0.1',
+                'cd /home/radar/src/git/pansy_pmse_sparse && /home/radar/testenv/bin/python -m pmse.snapshot_archive'],check=True,timeout=120)
+            values=rsync('radar@127.0.0.1:/media/analysis/metadata/pmse_sparse_snapshot/',str(a.root)+'/',
                          a.syowa_kib_s,'ssh -p 2222 -o BatchMode=yes -o ConnectTimeout=15')
             save_metrics(a.metrics,'syowa_to_revontuli',values)
             # Fail closed if shovel is unmounted; never fill the server root disk.
