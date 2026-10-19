@@ -2,6 +2,7 @@
 //! All complex arrays are interleaved float32, matching NumPy complex64.
 use rustfft::{num_complex::Complex32, FftPlanner};
 use std::{panic::{catch_unwind, AssertUnwindSafe}, slice};
+pub mod imaging;
 
 fn status(f: impl FnOnce() -> Result<(), i32>) -> i32 {
     match catch_unwind(AssertUnwindSafe(f)) { Ok(Ok(())) => 0, Ok(Err(e)) => e, Err(_) => -3 }

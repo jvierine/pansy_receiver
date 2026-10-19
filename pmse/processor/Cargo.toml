@@ -10,6 +10,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 rustfft = "6.4"
+nalgebra = { version = "0.33", default-features = false, features = ["std"] }
 
 [profile.release]
 lto = "thin"
