@@ -133,18 +133,29 @@ fn main()->Result<()> {
         let hours:Vec<f64>=serde_json::from_value(a["hourly_unix_s"].clone())?;
         let bytes:Vec<f64>=serde_json::from_value(a["hourly_bytes"].clone())?;
         let labels:Vec<String>=serde_json::from_value(a["hour_tick_labels"].clone())?;
+        let retention:Vec<Option<f64>>=serde_json::from_value(a["hourly_dense_retained_fraction"].clone())?;
         if !hours.is_empty(){for width in [640.,960.] {
-            let mut f=wave_figure(width,550.)?;f.latex.cache=out.join(".latex-cache");
+            let mut f=wave_figure(width,810.)?;f.latex.cache=out.join(".latex-cache");
             let xmax=((a["latest_mode_us"].as_f64().unwrap()/1e6-hours[0])/3600.).max(0.01);
-            for panel in 0..2 {
-                let ymax=if panel==0{bytes.iter().copied().fold(0_f64,f64::max)/1048576.}else{bytes.iter().sum::<f64>()/1048576.};
+            for panel in 0..3 {
+                let ymax=match panel {
+                    0=>bytes.iter().copied().fold(0_f64,f64::max)/1048576.,
+                    1=>bytes.iter().sum::<f64>()/1048576.,
+                    _=>retention.iter().flatten().copied().fold(0_f64,f64::max)*100.,
+                };
                 let mut axes=Axes::new([0.,xmax],[0.,(ymax*1.15).max(0.001)],"Time (UTC)",
-                    if panel==0{"Data per UTC hour (MiB)"}else{"Accumulated data (MiB)"});
+                    match panel {0=>"Data per UTC hour (MiB)",1=>"Accumulated data (MiB)",_=>"Full spectra retained (\\%)"});
                 axes.xticks=vec![0.,xmax/2.,xmax];axes.xticklabels=Some(labels.clone());
                 let mut p=Panel::new(Rect::new(20.,8.+panel as f64*68.,f.width_mm-36.,43.),axes);
                 let mut sum=0.;let mut cumulative=vec![[0.,0.]];
                 for i in 0..hours.len(){let x=(hours[i]-hours[0])/3600.;let right=(x+1.).min(xmax);let y=bytes[i]/1048576.;
                     if panel==0{let mut bar=Line::new(vec![[x,0.],[right,0.],[right,y],[x,y],[x,0.]],"#215d86");bar.fill=Some("#5a9ec4".into());p.push(Layer::Line(bar));}
+                    if panel==2 {if let Some(Some(fraction))=retention.get(i) {
+                        let percent=fraction*100.;
+                        let mut bar=Line::new(vec![[x,0.],[right,0.],[right,percent],[x,percent],[x,0.]],"#215d86");
+                        bar.fill=Some("#5a9ec4".into());p.push(Layer::Line(bar));
+                        if percent==0. {p.markers(&mut f,&[[(x+right)/2.,0.]],&MarkerStyle{shape:MarkerShape::Circle,size_pt:2.8,color:[0.13,0.36,0.53]})?;}
+                    }}
                     sum+=y;cumulative.push([right,sum]);
                 }
                 if panel==1{p.push(Layer::Line(Line::new(cumulative,"#215d86")));}
