@@ -218,6 +218,42 @@ def read_complete(root,key):
     return data
 
 
+def channel_covariance(record):
+    """Recover all 7x7 complex correlations without ever archiving 28 products."""
+    z=np.asarray(record['spectra'],dtype=np.complex128)
+    return np.einsum('lcn,ldn->ncd',z,z.conj(),optimize=True)/len(z)
+
+
+def instrument_snapshot():
+    """Embed geometry and calibration inputs; stored voltages remain uncalibrated."""
+    import h5py
+    repo=Path(__file__).resolve().parents[1]
+    groups={}
+    path=repo/'cfg/antpos.csv'
+    for line in path.read_text().splitlines()[1:]:
+        fields=line.split(',')
+        groups.setdefault(fields[1],[]).append([float(x) for x in fields[4:7]])
+    connections=[line.split(',')[0] for line in (repo/'cfg/connections.txt').read_text().splitlines()]
+    names=[name for name in connections if name!='RFTX' and name in groups]
+    positions=np.array([np.mean(groups[name],axis=0) for name in names])
+    if positions.shape!=(7,3):
+        raise ValueError('Instrument geometry does not map to seven receiver modules')
+    phases=[]; hashes=[]
+    for beam in range(5):
+        cal=repo/f'data/phases{beam}.h5'
+        if cal.exists():
+            with h5py.File(cal) as h:
+                phases.append(np.asarray(h['phasecal'][()],dtype=float))
+            hashes.append(hashlib.sha256(cal.read_bytes()).hexdigest())
+        else:
+            phases.append(np.full(7,np.nan)); hashes.append('missing')
+    return dict(antenna_positions_m=positions,module_names=np.array(names,dtype='S16'),
+        phasecal_snapshot_rad=np.asarray(phases),phasecal_sha256=np.array(hashes,dtype='S64'),
+        geometry_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+        phasecal_applied=np.int8(0),
+        phasecal_status='snapshot only; historical sign/validity requires independent verification')
+
+
 def contiguous_looks(keys,cfg):
     keys=np.asarray(sorted(keys),dtype=np.int64)
     groups=np.split(keys,np.flatnonzero(np.diff(keys)!=20*cfg.ipp_samples)+1)
@@ -256,6 +292,7 @@ def process_mode(raw_root,tx_root,start,last,cfg):
     if len(spectra)<2:
         raise ValueError(f'Insufficient usable looks: {len(spectra)}; skipped={skipped[:3]}')
     out=sparsify(np.stack(spectra),cfg)
+    out.update(instrument_snapshot())
     out.update(mode_start_sample=int(start),mode_stop_sample_exclusive=int(last)+20*cfg.ipp_samples,
         mode_duration_seconds=(int(last)+20*cfg.ipp_samples-int(start))/cfg.sample_rate_hz,
         look_bounds_sample=np.asarray(look_bounds,dtype=np.int64),
@@ -265,6 +302,7 @@ def process_mode(raw_root,tx_root,start,last,cfg):
         skipped_looks_json=json.dumps(skipped),raw_source=str(raw_root),tx_source=str(tx_root),
         per_pulse_tx_normalization='reference / sqrt(sum(abs(reference[:132])**2))',
         interferometer_calibration='not applied; original receiver channel order preserved',
+        radial_velocity_sign='algebraic f_D=2*f_radar*v/c; physical up/down sign requires verification',
         physical_height_convention='nominal beam-center height above radar; actual sidelobe angle requires imaging',
         source_commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=Path(__file__).parent,text=True).strip())
     return out
