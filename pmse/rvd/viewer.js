@@ -63,7 +63,13 @@ function renderRD(){
 }
 async function refresh(){
   const response=await fetch('./data/manifest.json',{cache:'no-cache'});if(!response.ok)throw Error(`Data unavailable (${response.status})`);
-  const m=await response.json();if(m.revision===revision)return;
+  const m=await response.json();
+  if(m.transfer){const a=m.transfer.archive,t=m.transfer.syowa_to_revontuli;
+    $('transfer').textContent=`Revontuli native archive: ${(a.bytes/2**20).toFixed(2)} MiB · ${a.records} modes in view. `+
+      (a.projected_bytes_per_day===null?'Daily growth: waiting for ≥12 modes and ≥1 hour. ':`Provisional growth: ${(a.projected_bytes_per_day/2**20).toFixed(1)} MiB/day. `)+
+      (t?`Latest Syowa replication: ${(t.literal_bytes/2**20).toFixed(2)} MiB in ${t.elapsed_seconds.toFixed(1)} s (${(t.payload_bytes_per_second/1024).toFixed(2)} KiB/s payload; cap ${t.bandwidth_cap_kib_s} KiB/s). `:'Transfer measurement pending. ')+
+      'Web copy: seven-day retention; Revontuli archive retained.';}
+  if(m.revision===revision)return;
   const cache=new Map(frames.map(f=>[f.key,f]));manifest=m;
   // A bounded pool avoids issuing hundreds of simultaneous requests.
   const result=new Array(m.frames.length);let next=0;

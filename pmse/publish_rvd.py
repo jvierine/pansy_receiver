@@ -92,6 +92,16 @@ def export(root,output,hours=48):
         display_fill='nearest mesomode for inter-mode gaps <=10 min; observations unchanged',
         moment_definition='threshold-censored moments of retained excess spectral power',
         generator='pmse/publish_rvd.py')
+    transfer={}
+    metrics=root.parent.parent/'rvd-transfer.h5'
+    if metrics.exists():
+        with h5py.File(metrics,'r') as h:
+            for g in h.get('runs',{}).values():
+                transfer[str(g.attrs['leg'])]={k:float(g[k][()]) for k in g}
+    from .archive_inventory import inventory
+    transfer['archive']=inventory(root)
+    transfer['archive'].update(destination='/mnt/shovel/rvd/pmse_sparse',web_retention_days=7)
+    manifest['transfer']=transfer
     first=packets[0]['start_us']; last=latest['stop_us']
     manifest['time_tick_labels']=[datetime.fromtimestamp((first+(last-first)*q)/1e6,timezone.utc).strftime('%H:%M:%S')
                                   for q in (0,.5,1)]

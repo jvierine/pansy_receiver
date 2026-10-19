@@ -5,7 +5,8 @@ Wants=pansy-backup-tunnel.service
 
 [Service]
 Type=simple
-ExecStart=/bin/bash /home/j/src/pansy_pmse_sparse/pmse/backup_sparse.sh
+WorkingDirectory=/home/j/src/pansy_pmse_sparse
+ExecStart=/home/j/venv/pansy-monitor/bin/python -u -m pmse.replicate_sparse --loop
 Restart=on-failure
 RestartSec=60
 Nice=15

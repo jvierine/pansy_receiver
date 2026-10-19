@@ -13,6 +13,7 @@
 </div>
 <p class="legend"><span id="colorLabel">Peak excess signal/noise, 3 to 6 dB</span>. Grey: no usable observation. Dark: no retained signal.</p>
 <div id="rti"></div>
+<section><h2>Archive and transfer</h2><p class="status" id="transfer">Waiting for archive inventory…</p></section>
 <section><h2>Range–Doppler spectra</h2><div class="controls"><button id="play">Play</button><input id="frame" aria-label="Observing mode" type="range" min="0" max="0" value="0"><label>Beam <select id="rdbeam"><option value="0">Zenith</option><option value="1">North</option><option value="2">East</option><option value="3">South</option><option value="4">West</option></select></label></div><p class="status" id="frameStatus"></p><div id="rd"></div></section>
 <p class="details">Altitude is nominal beam-center height above the radar, not an imaged arrival height. SNR is excess signal/noise. Only bins passing the 3 dB and statistical gates are retained; absent bins are censored, not zero power. HSV uses Doppler centroid for hue, peak dB SNR for intensity, and spectral width for saturation. Moments are threshold-censored. No high-speed bin is automatically a vertical draft. Adjacent observing modes fill the display to their midpoint only when separated by ≤10 minutes; actual sample coverage is reported below.</p>
 <p class="details"><a id="sidecar">Download HDF5 plot data</a> · <a href="https://github.com/jvierine/pansy_receiver/tree/codex/pmse-sparse-record/pmse">Processing and data format</a></p><pre id="error"></pre>
