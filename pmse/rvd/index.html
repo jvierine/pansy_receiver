@@ -1,12 +1,12 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PANSY mesospheric echoes</title>
+<title>PANSY PMSE Explorer</title>
 <link rel="icon" type="image/png" href="rogue-wave-logo.png?v=1">
 <link rel="apple-touch-icon" href="rogue-wave-logo.png?v=1">
 <style>
 :root{font-family:system-ui,sans-serif;color:#e3eaf8;background:#101724;font-size:16px}body{max-width:1500px;margin:auto;padding:18px}h1{font-size:1.6rem;margin:0 0 8px}h2{font-size:1.1rem;margin:10px 0}a{color:#8ad9ff}.controls{display:flex;flex-wrap:wrap;gap:14px;align-items:center;padding:14px 0}label{display:flex;gap:6px;align-items:center}input,select,button{font:inherit;color:inherit;background:#243349;border:1px solid #73849e;border-radius:4px;padding:5px}input[type=number]{width:65px}input[type=range]{width:260px}p{line-height:1.5}.status{color:#b9c9dc}.warn{color:#ffd284}.plot{position:relative;margin:4px 0 20px;padding:8px 10px 25px 58px;background:#172234;border-radius:6px}.field{position:relative;height:160px}canvas{display:block;width:100%;height:100%;image-rendering:auto}.ylabels{position:absolute;left:-47px;top:0;bottom:0;width:40px;display:flex;flex-direction:column;justify-content:space-between;align-items:end;font-size:14px}.xticks{position:absolute;left:0;right:0;display:flex;justify-content:space-between;font-size:14px;margin-top:4px}.axis{color:#b9c9dc;font-size:14px;margin-top:25px;text-align:center}.rd .field{height:300px}.legend{font-size:14px;color:#b9c9dc}.swatch{display:inline-block;width:130px;height:12px;margin:0 8px;background:linear-gradient(to right,#141429,#b53d40,#fff0ba)}.hsv{background:linear-gradient(to right,blue,cyan,lime,yellow,red)}.details{font-size:14px}.embedded header,.embedded .details{display:none}.embedded{padding:5px}.embedded .field{height:120px}#error{color:#ffb5b5;white-space:pre-wrap}
 </style></head><body>
-<header class="site-header"><img class="site-logo" src="rogue-wave-logo.png?v=1" alt="Rogue wave inspired by Hokusai's Great Wave off Kanagawa" width="88" height="88"><div class="site-heading"><h1>PANSY PMSE / PMWE · five-beam range–time and Doppler</h1><p class="status" id="status">Loading observations…</p></div></header>
+<header class="site-header"><img class="site-logo" src="rogue-wave-logo.png?v=1" alt="Rogue wave inspired by Hokusai's Great Wave off Kanagawa" width="88" height="88"><div class="site-heading"><h1>PANSY PMSE Explorer</h1><p class="status" id="status">Loading observations…</p></div></header>
 <div class="controls">
 <label>UTC day <select id="day" aria-label="UTC day"></select></label>
 <label>View <select id="display"><option value="snr">Peak echo SNR</option><option value="hsv">HSV Doppler moments</option></select></label>
