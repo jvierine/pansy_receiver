@@ -305,6 +305,11 @@ def process_mode(raw_root,tx_root,start,last,cfg):
         radial_velocity_sign='algebraic f_D=2*f_radar*v/c; physical up/down sign requires verification',
         physical_height_convention='nominal beam-center height above radar; actual sidelobe angle requires imaging',
         source_commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=Path(__file__).parent,text=True).strip())
+    out['coverage_fraction']=out['coverage_seconds']/out['mode_duration_seconds']
+    out['n_tx_cycles']=len(keys)
+    out['total_pulses_per_beam']=int(sum(counts))
+    if out['quality']=='ok' and out['coverage_fraction']<.999:
+        out['quality']='partial_coverage'
     return out
 
 
