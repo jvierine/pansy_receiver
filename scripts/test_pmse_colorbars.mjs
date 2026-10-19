@@ -59,7 +59,7 @@ try{
   // HSV state must survive scale edits, native frame refresh and resize.
   await page.evaluate(()=>window.colorbarTest.panels[0].set_moment_data(new Float32Array([4.5,10,2,0]),30,10));
   await page.waitForTimeout(400);
-  await open();assert.equal(await page.getByRole('spinbutton').count(),4);
+  await open();assert.equal(await page.locator('dialog').getByRole('spinbutton').count(),4);
   const hsvBefore=await page.evaluate(()=>window.colorbarPixel());
   await page.getByRole('spinbutton',{name:'Velocity +/- m/s value',exact:true}).fill('60');
   assert.deepEqual(await page.evaluate(()=>window.colorbarTest.getHsvLimits()),[60,10]);

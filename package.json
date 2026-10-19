@@ -3,7 +3,8 @@
   "private": true,
   "scripts": {
     "render:55p": "node render_tempel_tuttle_webgl_gif.mjs",
-    "test:pmse-colorbars": "node scripts/test_pmse_colorbars.mjs"
+    "test:pmse-colorbars": "node scripts/test_pmse_colorbars.mjs",
+    "test:pmse-imaging": "node scripts/test_pmse_imaging.mjs"
   },
   "devDependencies": {
     "playwright": "1.62.1"

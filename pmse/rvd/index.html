@@ -7,7 +7,7 @@
   <title>PANSY PMSE Explorer</title>
   <link rel="icon" type="image/png" href="rogue-wave-logo.png?v=1">
   <link rel="apple-touch-icon" href="rogue-wave-logo.png?v=1">
-  <link rel="stylesheet" href="theme.css?v=wave-paper-2">
+  <link rel="stylesheet" href="theme.css?v=sparse-1">
 </head>
 <body>
   <header class="site-header">
@@ -46,7 +46,26 @@
     <section class="plot-section" aria-labelledby="imageTitle">
       <div class="section-heading"><h2 id="imageTitle">Radar image</h2><span class="section-note">All five beams</span></div>
       <p class="section-description">Click a time and altitude in the plot above to explore an echo.</p>
-      <p id="imageStatus" class="status">Select a range and time to begin.</p><div id="imagePlot"></div>
+      <div class="imaging-controls">
+        <label><input id="sparseImaging" type="checkbox" checked> Use sparse reconstruction <span class="experimental">Experimental</span></label>
+        <div id="sparseOptions" class="controls">
+          <label>Method <select id="imageMethod"><option value="wavelet">PMSE · wavelet sparsity</option><option value="sparse">Compact echoes · pixel ℓ₁</option></select></label>
+          <label>Regularization <input id="imageStrength" type="number" min="0.05" max="5" step="0.05" value="1" required></label>
+          <label id="reweightControl" hidden><input id="imageReweight" type="checkbox" checked> Reweighted ℓ₁</label>
+        </div>
+        <p id="imageMethodNote" class="section-description">Positive source power with 2-D Haar-wavelet sparsity. Uncheck for the legacy TSVD comparison.</p>
+      </div>
+      <p id="imageStatus" class="status" role="status">Select a range and time to begin.</p><div id="imagePlot"></div>
+      <p id="imageDiagnostics" class="plot-note" role="status"></p>
+      <details class="imaging-references">
+        <summary>Imaging methods &amp; references</summary>
+        <p>Experimental methods fit calibrated complex covariances directly, with nonnegative source power. Compact echoes use pixel ℓ₁ and optional reweighting; PMSE uses analysis ℓ₁ on a 2-D Haar pyramid, not TV or point-source sparsity. The image is relative reconstructed power, not calibrated SNR. Sparse censoring, approximate noise weights and historical phase calibration limit interpretation; inspect the residual and convergence warning.</p>
+        <ul>
+          <li><a href="https://www.ceremade.dauphine.fr/~carlier/FISTA">Beck &amp; Teboulle (2009): FISTA</a> — accelerated proximal solver for compact-source ℓ₁.</li>
+          <li><a href="https://arxiv.org/abs/0711.1612">Candès, Wakin &amp; Boyd (2008): reweighted ℓ₁</a> — optional compact-source sparsity refinement.</li>
+          <li><a href="https://arxiv.org/abs/1504.03896">Girard et al. (2015): sparse representations in interferometric imaging</a> — background on multiscale sparse imaging; not a claim of the same implementation.</li>
+        </ul>
+      </details>
     </section>
     <section class="plot-section" aria-labelledby="rdTitle">
       <div class="section-heading"><h2 id="rdTitle">Range–Doppler spectrum</h2>
@@ -79,6 +98,6 @@
     <pre id="error" role="alert"></pre>
   </main>
   <footer>PANSY · Mesospheric echoes at Syowa Station</footer>
-  <script type="module" src="viewer.js?v=colorbar-1"></script>
+  <script type="module" src="viewer.js?v=sparse-1"></script>
 </body>
 </html>

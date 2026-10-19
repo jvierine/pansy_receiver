@@ -35,6 +35,53 @@ export class BrowserImager {
         return v4;
     }
     /**
+     * Default is positive Haar-wavelet analysis L1. Legacy image() retains
+     * its historical normalization and TSVD reconstruction.
+     * @param {string} header_json
+     * @param {string} geometry_json
+     * @param {Float32Array} values
+     * @param {string} options_json
+     * @returns {Float32Array}
+     */
+    image_with_options(header_json, geometry_json, values, options_json) {
+        const ptr0 = passStringToWasm0(header_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(geometry_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passArrayF32ToWasm0(values, wasm.__wbindgen_malloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ptr3 = passStringToWasm0(options_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len3 = WASM_VECTOR_LEN;
+        const ret = wasm.browserimager_image_with_options(this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v5 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v5;
+    }
+    /**
+     * @returns {string}
+     */
+    last_diagnostics() {
+        let deferred2_0;
+        let deferred2_1;
+        try {
+            const ret = wasm.browserimager_last_diagnostics(this.__wbg_ptr);
+            var ptr1 = ret[0];
+            var len1 = ret[1];
+            if (ret[3]) {
+                ptr1 = 0; len1 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred2_0 = ptr1;
+            deferred2_1 = len1;
+            return getStringFromWasm0(ptr1, len1);
+        } finally {
+            wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+        }
+    }
+    /**
      * @param {string} geometry_json
      * @param {number} height_km
      * @param {number} grid

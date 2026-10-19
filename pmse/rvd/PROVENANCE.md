@@ -24,3 +24,9 @@ The colorbar click targets, responsive editor, validation, live adjustment and
 reset are standard shared Rustplotlib behavior, not page-specific handlers.
 `npm run test:pmse-colorbars` exercises real WebGL pixels, native frame updates,
 HSV preservation, keyboard access and mobile layout against read-only APIs.
+
+Radar inversion is a separate first-party WASM package in `imaging_pkg`, built
+from `pmse/browser` and `pmse/processor` with the locked dependencies and
+`bash scripts/build_pmse_imaging.sh`. Source algorithms, objective functions,
+noise assumptions, experimental limits and references are documented in
+`pmse/processor/IMAGING.md`; `npm run test:pmse-imaging` exercises this package.

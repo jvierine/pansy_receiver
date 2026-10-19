@@ -9,6 +9,12 @@ export class BrowserImager {
      * Output [pixel,4] = relative dB power, circular velocity, width, support.
      */
     image(header_json: string, geometry_json: string, values: Float32Array): Float32Array;
+    /**
+     * Default is positive Haar-wavelet analysis L1. Legacy image() retains
+     * its historical normalization and TSVD reconstruction.
+     */
+    image_with_options(header_json: string, geometry_json: string, values: Float32Array, options_json: string): Float32Array;
+    last_diagnostics(): string;
     constructor(geometry_json: string, height_km: number, grid: number, fixed_slant_range: boolean);
 }
 
@@ -18,6 +24,8 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_browserimager_free: (a: number, b: number) => void;
     readonly browserimager_image: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number, number];
+    readonly browserimager_image_with_options: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
+    readonly browserimager_last_diagnostics: (a: number) => [number, number, number, number];
     readonly browserimager_new: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly pansy_coherent: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
     readonly pansy_complementary: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;

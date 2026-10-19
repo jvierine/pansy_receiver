@@ -65,6 +65,15 @@ body[data-display=hsv] .hsv-settings { display: block; }
 #rti, #rd, #timeDoppler, #imagePlot { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 12px 8px; overflow: auto; }
 #imagePlot:empty { display: none; }
 #imagePlot { max-width: 860px; margin-top: 12px; }
+.imaging-controls { margin: 14px 0; }
+.imaging-controls > .controls { margin-top: 12px; }
+.imaging-controls [hidden], [hidden]#reweightControl { display: none; }
+.experimental { font-size: .67rem; letter-spacing: .03em; color: var(--blue); border: 1px solid var(--line); padding: 1px 5px; border-radius: 4px; }
+.imaging-references { color: var(--muted); font-size: .78rem; margin-top: 16px; max-width: 860px; }
+.imaging-references summary { color: var(--blue); }
+.imaging-references p { margin-top: 10px; }
+#imageDiagnostics { display: block; overflow-wrap: anywhere; }
+#imagePlot[aria-busy=true] { opacity: .5; }
 .playback { margin: 14px 0 18px; }
 .playback input { display: block; width: 100%; margin: 0 0 8px; }
 .support-section { border-top: 1px solid var(--line); }
