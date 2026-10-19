@@ -520,6 +520,7 @@ def closed_modes(mode_root,tx_root,raw_root,lookback_hours=3):
     mode=drf.DigitalMetadataReader(str(mode_root)); mb=mode.get_bounds()
     raw=drf.DigitalRFReader(str(raw_root))
     oldest=max(raw.get_bounds(f'ch{i:03d}')[0] for i in range(8))
+    closed_modes.raw_oldest=max(oldest,getattr(closed_modes,'raw_oldest',0))
     beginning=oldest if lookback_hours<=0 else max(oldest,mb[1]-int(lookback_hours*3600e6))
     modes=mode.read(beginning,mb[1])
     unique={}
@@ -596,7 +597,7 @@ def main():
     if a.latest<0 or a.reserve_free_gib<0 or a.max_archive_gib<=0:
         p.error('latest must be >=0 (zero=all); storage budgets must be positive')
     a.output.mkdir(parents=True,exist_ok=True)
-    choices_cache=None;choices_checked=0.
+    choices_cache=None;choices_checked=0.;history=[];history_future=None;history_pool=None
     while True:
         free=shutil.disk_usage(a.output).free/2**30
         used=sum(path.stat().st_size for path in a.output.rglob('*.h5'))/2**30
@@ -608,9 +609,16 @@ def main():
             time.sleep(max(a.poll_seconds,10))
             continue
         if choices_cache is None or time.monotonic()-choices_checked>=60:
-            choices_cache=[(a.start,a.last)] if a.start is not None and a.last is not None else closed_modes(a.mode_root,a.tx_root,a.raw_root,a.lookback_hours)
+            # Never scan the whole retained buffer before producing fresh data.
+            horizon=3 if a.lookback_hours<=0 else a.lookback_hours
+            choices_cache=[(a.start,a.last)] if a.start is not None and a.last is not None else closed_modes(a.mode_root,a.tx_root,a.raw_root,horizon)
             choices_checked=time.monotonic()
-        choices=choices_cache
+        if history_future is not None and history_future.done():
+            if not history:
+                history=history_future.result()
+                print(f'Retained-buffer index ready: {len(history)} integrations',flush=True)
+        merged=dict(history);merged.update(dict(choices_cache))
+        choices=sorted((start,last) for start,last in merged.items() if start>=getattr(closed_modes,'raw_oldest',0))
         done=completed_keys(a.output,choices[0][0],choices[-1][0]) if choices else set()
         batch=pending_modes(choices[-a.latest:] if a.latest else choices,done,a.max_per_cycle)
         made_progress=False
@@ -628,6 +636,13 @@ def main():
                 out['peak_rss_bytes']=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss*(1 if sys.platform=='darwin' else 1024)
                 write_record(a.output,start,out)
                 made_progress=True
+                if a.loop and a.lookback_hours<=0 and history_future is None:
+                    # Metadata discovery overlaps I/O, not a second DSP job.
+                    # The entire service (including this thread) is CPU-pinned
+                    # and quota-capped to one logical core.
+                    from concurrent.futures import ThreadPoolExecutor
+                    history_pool=ThreadPoolExecutor(max_workers=1)
+                    history_future=history_pool.submit(closed_modes,a.mode_root,a.tx_root,a.raw_root,0)
                 print(json.dumps(dict(start=start,seconds=out['mode_duration_seconds'],looks=out['n_coherent_looks'],
                     selected=len(out['sparse_index']),processing_seconds=out['processing_wall_seconds'],
                     coverage_seconds=out['coverage_seconds'],quality=out['quality'])),flush=True)
