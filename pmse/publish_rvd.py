@@ -168,7 +168,8 @@ def main():
                                 str(a.output)+'/',a.rsync_dest],check=True)
                 manifest=json.loads((a.output/'manifest.json').read_text())
                 sidecar=a.output/Path(manifest['sidecar']).name
-                subprocess.run(['rsync','-rt','--no-perms','--no-owner','--no-group',str(sidecar),a.plot_archive_dest],check=True)
+                subprocess.run(['rsync','-r','--no-times','--omit-dir-times','--size-only',
+                                '--no-perms','--no-owner','--no-group',str(sidecar),a.plot_archive_dest],check=True)
                 subprocess.run(['rsync','-rt',str(a.output/'manifest.json'),a.rsync_dest],check=True)
         except Exception:
             import traceback; traceback.print_exc()

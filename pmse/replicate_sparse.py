@@ -9,12 +9,14 @@ import h5py
 from .web_retention import sha256
 
 
-def rsync(source,destination,bandwidth=None,remote_shell=None,files_from=None):
+def rsync(source,destination,bandwidth=None,remote_shell=None,files_from=None,preserve_times=True,force=False):
     cmd=['rsync','-rt','--no-perms','--no-owner','--no-group','--partial','--delay-updates',
          '--timeout=120','--stats','--exclude=/.writer.lock']
     if bandwidth: cmd.append(f'--bwlimit={bandwidth}')
     if remote_shell: cmd+=['-e',remote_shell]
     if files_from is not None:cmd+=['--files-from=-']
+    if not preserve_times:cmd+=['--no-times','--omit-dir-times','--size-only']
+    if force:cmd+=['--ignore-times']
     began=time.monotonic()
     result=subprocess.run(cmd+[source,destination],text=True,capture_output=True,
                           input=None if files_from is None else '\n'.join(files_from)+'\n',
@@ -57,7 +59,7 @@ def main():
             cutoff=time.time()-7*86400-600
             keep=['dmd_properties.h5']+[str(path.relative_to(a.root)) for path in a.root.glob('*T*/pmse@*.h5')
                 if int(path.stem.split('@')[1])>=cutoff]
-            values=rsync(str(a.root)+'/',f'{a.archive_host}:{a.archive_root}/',files_from=keep)
+            values=rsync(str(a.root)+'/',f'{a.archive_host}:{a.archive_root}/',files_from=keep,preserve_times=False)
             save_metrics(a.metrics,'revontuli_to_shovel',values)
             # Only changed/new source files are rehashed. The receipt proves
             # preservation on Revontuli before any secondary expiration.
@@ -69,7 +71,7 @@ def main():
                     if int(g.attrs.get('mtime_ns',-1))!=st.st_mtime_ns or int(g.attrs.get('bytes',-1))!=st.st_size:
                         g.attrs.update(sha256=sha256(path),bytes=st.st_size,mtime_ns=st.st_mtime_ns)
                 h.attrs.update(source=str(a.root),checked_unix_s=time.time())
-            rsync(str(receipt),f'{a.archive_host}:/mnt/shovel/rvd/revontuli-receipt.h5')
+            rsync(str(receipt),f'{a.archive_host}:/mnt/shovel/rvd/revontuli-receipt.h5',preserve_times=False,force=True)
             # Source deployment of this command is through git on juha.no.
             result=subprocess.run(['ssh',a.archive_host,
                 'cd /home/j/src/pansy_pmse_sparse && /home/j/venv/pansy-rvd/bin/python -m pmse.web_retention '
