@@ -71,13 +71,13 @@ def main():
             files.sort(reverse=True)
             source='radar@127.0.0.1:/media/analysis/metadata/pmse_sparse16_snapshot/'
             shell=' '.join(ssh)
-            # Latest two chunks first. Bound historical transfer work so a large
+            # Latest chunk first. Bound historical transfer work so a large
             # backfill can never monopolize the link for fifteen minutes.
-            hot=['dmd_properties.h5']+[p for p,_,_ in files[:2]]
+            hot=['dmd_properties.h5']+[p for p,_,_ in files[:1]]
             values=rsync(source,str(a.root)+'/',a.syowa_kib_s,shell,files_from=hot)
             save_metrics(a.metrics,'syowa_to_revontuli',values)
             cold=[]
-            for p,size,mtime in files[2:]:
+            for p,size,mtime in files[1:]:
                 local=a.root/p
                 if not local.exists() or local.stat().st_size!=size or abs(local.stat().st_mtime-mtime)>1e-6:cold.append(p)
             if cold:
