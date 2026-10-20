@@ -143,7 +143,7 @@ discarded cells.
 
 ### Optional temporal display filter and shared color controls
 
-The viewer's **Hide single-mode echoes** control keeps a beam/range-gate
+The viewer's **Hide single-mode echoes** control is enabled by default and keeps a beam/range-gate
 detection only when the previous or next delivered mode also contains a
 detection at exactly that gate in that beam (inter-mode gap at most ten
 minutes). Doppler may change between modes. This browser-only heuristic is

@@ -4,6 +4,11 @@ import {readFile} from 'node:fs/promises';
 import {persistentEchoes,filterImageCells} from '../pmse/rvd/echo_filter.mjs';
 const frame=(i,index,snr_db=index.map(()=>5))=>({key:String(i),start_us:i*220e6,stop_us:i*220e6+86e6,index,snr_db});
 
+test('single-mode suppression is checked on initial page load',async()=>{
+ const html=await readFile(new URL('../pmse/rvd/index.html',import.meta.url),'utf8');
+ assert.match(html,/<input\b[^>]*id="hideSingleMode"[^>]*\bchecked\b[^>]*>/);
+});
+
 test('same beam and exact range survive Doppler changes; isolated gates disappear',()=>{
  const source=[frame(0,[[0,1,10],[0,1,20]]),frame(1,[[0,8,10],[1,1,20],[0,8,30]]),frame(2,[[0,2,30]])];
  const before=JSON.stringify(source),out=persistentEchoes(source);
