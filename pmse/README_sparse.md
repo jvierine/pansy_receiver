@@ -244,13 +244,14 @@ native files. It is transferred before voltage payloads, and the viewer shows
 source processing and historical delivery separately, including status age.
 Undelivered spectral coefficients are never presented as available observations.
 The link cap remains 10 KiB/s. Transfers alternate the oldest historical gap
-with the newest backfill frontier in resumable 120-second slices; recent native
+with the newest backfill frontier in resumable 120-second slices. Recent native
+transfers are also bounded to 120 seconds so no single growing chunk monopolizes
+the cycle. Source status and channel properties have their own short transfer.
+
 The frontier is selected using the source worker's actual processing timestamp,
 not a newer legacy day's missing file. It gets the first turn after restart;
 large partial chunks keep their place until complete. Subsequent turns alternate
 with FIFO holes, so neither viewable progress nor old archive gaps starve.
-transfers are also bounded to 120 seconds so no single growing chunk monopolizes
-the cycle. Source status and channel properties have their own short transfer.
 
 Optional SVG rendering failures/timeouts cannot block the manifest, date list,
 native day API or derived-data publication. Failed auxiliary plots are explicitly

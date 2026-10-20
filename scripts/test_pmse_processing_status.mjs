@@ -33,5 +33,8 @@ try{
   await page.locator('#day option').first().waitFor({state:'attached'});
   const days=await page.locator('#day option').allTextContents();
   assert(days.length>1);
-  console.log(JSON.stringify({passed:true,deployed,message,days}));
+  await page.waitForFunction(()=>document.querySelector('#frameStatus').textContent.includes('retained cells'),null,{timeout:120000});
+  assert.equal(await page.locator('#rti canvas').count(),5);
+  assert.equal(await page.locator('#error').innerText(),'');
+  console.log(JSON.stringify({passed:true,deployed,message,days,observationStatus:await page.locator('#status').innerText()}));
 }finally{await browser.close();}
