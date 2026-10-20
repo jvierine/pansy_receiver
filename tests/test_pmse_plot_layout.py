@@ -36,6 +36,14 @@ class AuxiliaryLayoutTests(unittest.TestCase):
             self.assertEqual(sorted(p.name for p in archive_only.glob('*.svg')),
                              ['archive-growth-640.svg','archive-growth-960.svg'])
             self.assertFalse((archive_only/'layouts.json').exists())
+            noise_only=root/'noise-only'
+            spec.write_text(json.dumps(dict(noise_model_data=manifest['noise_model_data'])))
+            result=subprocess.run([str(renderer),'--noise-only',str(spec),str(noise_only)],
+                                  capture_output=True,text=True,timeout=120)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertEqual(len(list(noise_only.glob('noise-module-*.svg'))),14)
+            self.assertFalse((noise_only/'layouts.json').exists())
+            self.assertFalse(list(noise_only.glob('archive-growth-*.svg')))
 
 
 if __name__=='__main__':unittest.main()

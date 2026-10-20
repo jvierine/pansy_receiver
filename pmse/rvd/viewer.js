@@ -7,6 +7,7 @@ const $=id=>document.getElementById(id), names=['Zenith','North','East','South',
 let initialResponse=fetch('./data/manifest.json',{cache:'no-cache'}).catch(error=>({error}));
 let manifest,frames=[],plots=[],rd,playing=null,selected=0,revision='',rtiPlot,rdPlot,tdPlot;
 let chosenDay='',refreshSequence=0;
+let skyNoise,noiseRequest;
 const secondaryMounts=new Map();
 const visiblePlots=new IntersectionObserver(entries=>{
  for(const entry of entries)if(entry.isIntersecting){
@@ -114,7 +115,8 @@ async function refresh(){
   const days=m.available_days||[];
   if(!chosenDay||!days.includes(chosenDay))chosenDay=days.at(-1)||m.selected_day;
   const control=$('day');control.replaceChildren(...days.map(day=>{const option=document.createElement('option');option.value=day;option.textContent=day;return option;}));control.value=chosenDay;
-  if(m.noise_model_status)renderNoise(m);
+  if(skyNoise)renderNoise();else if(m.noise_model_status)renderNoise(m);
+  if($('skyNoiseSection').open)void refreshSkyNoise();
   if(m.transfer){const a=m.transfer.archive,t=m.transfer.syowa_to_revontuli;
     $('transfer').textContent=`Delivered native archive: ${(a.bytes/2**20).toFixed(2)} MiB · ${a.records} native records · ${a.files} HDF5 files. `+
       (a.dense_complex_sample_retained_fraction!=null?`Complex spectra retain ${(100*a.dense_complex_sample_retained_fraction).toPrecision(3)}% of the full dense spectra (${a.retained_complex_samples.toLocaleString()} / ${a.dense_complex_samples.toLocaleString()} complex samples; all beams, Doppler bins, range gates, receiver channels and coherent looks, before altitude, velocity and detection masks). `:'Complex-spectra retained fraction: awaiting complete dense-spectrum counts. ')+
@@ -176,16 +178,40 @@ function renderProcessingStatus(m){
   if(m.plot_generation_status==='delayed')parts.push('Optional plot refresh delayed; native observations continue updating.');
   node.textContent=parts.join(' ');
 }
-function renderNoise(model=manifest){
-  const module=+$('noiseModule').value,fit=model.noise_model_status[module];
+async function refreshSkyNoise(){
+  if(noiseRequest)return noiseRequest;
+  noiseRequest=(async()=>{
+    try{
+      const response=await fetch('./data/sky-noise/status.json',{cache:'no-cache'});
+      if(!response.ok)throw Error(`Sky-noise diagnostics unavailable (${response.status})`);
+      const value=await response.json();
+      if(value.noise_model_status?.length!==7||!value.noise_plot?.files)throw Error('Sky-noise diagnostics are incomplete');
+      skyNoise=value;renderNoise();
+    }catch(error){
+      if(skyNoise){skyNoise.noise_plot.status='delayed';renderNoise();}
+      else{$('noiseStatus').textContent='Sky-noise diagnostics are not available yet; the independent analysis job will retry. Observations remain available.';$('noisePlot').hidden=true;}
+    }
+  })();
+  try{await noiseRequest;}finally{noiseRequest=null;}
+}
+function renderNoise(model=skyNoise||manifest){
+  const module=+$('noiseModule').value,fit=model?.noise_model_status?.[module];
+  if(!fit){void refreshSkyNoise();return;}
   $('noiseStatus').textContent=`PyGDSM GSM2008 · one-way receive pattern · 90% crossed-Yagi / 10% isotropic element. Module ${module}: `+
     (fit.receiver_temp_k===null?fit.status:`T_receiver = ${fit.receiver_temp_k.toFixed(0)} K; fractional RMS ${(fit.fractional_rms*100).toFixed(1)}%; ${fit.status}`)+
     '. Top: measured noise power; bottom: modeled sky temperature. Fits update hourly and require ≥12 hours of data.';
-  if(model.plot_generation_status&&model.plot_generation_status!=='ready'){
+  const plot=model.noise_plot;
+  if(!plot&&model.plot_generation_status&&model.plot_generation_status!=='ready'){
     $('noisePlot').hidden=true;$('noiseStatus').textContent+=' Plot refresh delayed; native observations remain current.';return;
   }
   const width=document.body.clientWidth<900?640:960;
-  $('noisePlot').src=`./data/axes/noise-module-${module}-${width}.svg?v=${model.noise_model_updated_unix_s}`;
+  if(plot){
+    const generated=Date.parse(plot.generated_utc),stale=plot.status==='delayed'||Date.now()-generated>2*3600e3;
+    $('noiseStatus').textContent+=` ${stale?'Refresh delayed; last successful plots':'Plots updated'}: ${plot.generated_utc.replace('T',' ').slice(0,19)} UTC.`;
+    if(model.noise_model_observation_stop_unix_s)$('noiseStatus').textContent+=` Measurements through ${utc(model.noise_model_observation_stop_unix_s*1e6)}.`;
+  }
+  $('noisePlot').onerror=()=>{$('noisePlot').hidden=true;$('noiseStatus').textContent+=' Sky-noise plot could not be loaded; retry by reopening this section.';};
+  $('noisePlot').src=plot?`./data/sky-noise/${plot.files[module][width]}?v=${plot.revision}`:`./data/axes/noise-module-${module}-${width}.svg?v=${model.noise_model_updated_unix_s}`;
   $('noisePlot').style.width=width+'px';$('noisePlot').hidden=false;
 }
 function failure(e){revision='';$('error').textContent=e.message;console.error(e);}
@@ -199,6 +225,7 @@ try{
   renderRTI();renderRD();}catch(e){failure(e);}};
  $('rdbeam').onchange=renderRD;$('frame').oninput=()=>{selected=+$('frame').value;renderRD();};
  $('noiseModule').onchange=()=>renderNoise();
+ $('skyNoiseSection').ontoggle=()=>{if($('skyNoiseSection').open)void refreshSkyNoise();};
  $('day').onchange=()=>{chosenDay=$('day').value;revision='';$('downloadSpectra').setAttribute('aria-disabled','true');$('downloadSpectra').removeAttribute('href');if(playing){clearInterval(playing);playing=null;$('play').textContent='Play';}refresh().catch(failure);};
  $('play').onclick=()=>{if(playing){clearInterval(playing);playing=null;$('play').textContent='Play';}else{$('play').textContent='Pause';playing=setInterval(()=>{selected=(selected+1)%frames.length;$('frame').value=selected;renderRD();},500);}};
  window.addEventListener('resize',()=>{if(frames.length){renderRTI();renderRD();}});

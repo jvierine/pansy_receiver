@@ -42,13 +42,14 @@ fn main()->Result<()> {
         println!("{}",serde_json::to_string(&frame)?);return Ok(());
     }
     let archive_only=args.get(1).map(String::as_str)==Some("--archive-only");
-    let offset=usize::from(archive_only);
-    anyhow::ensure!(args.len()==3+offset,"Usage: pansy-pmse-plots [--archive-only] manifest.json output_directory");
+    let noise_only=args.get(1).map(String::as_str)==Some("--noise-only");
+    let offset=usize::from(archive_only||noise_only);
+    anyhow::ensure!(args.len()==3+offset,"Usage: pansy-pmse-plots [--archive-only|--noise-only] manifest.json output_directory");
     let spec:Value=serde_json::from_slice(&fs::read(&args[1+offset])?)?;
     let out=Path::new(&args[2+offset]);fs::create_dir_all(out)?;
     // The metadata-only web publisher needs storage diagnostics, not dozens
     // of static RTI frames or any radar/complex-voltage processing.
-    if !archive_only {
+    if !archive_only&&!noise_only {
     let hours=(spec["latest_mode_us"].as_f64().unwrap()-spec["first_mode_us"].as_f64().unwrap())/3.6e9;
     let labels:Vec<String>=serde_json::from_value(spec["time_tick_labels"].clone())?;
     let mut layouts=serde_json::Map::new();
@@ -106,7 +107,8 @@ fn main()->Result<()> {
       }
     }
     save(&out.join("layouts.json"),&serde_json::to_string(&layouts)?)?;
-    if spec.get("noise_model_data").is_some() {
+    }
+    if !archive_only&&spec.get("noise_model_data").is_some() {
         let data=&spec["noise_model_data"];
         let times:Vec<f64>=serde_json::from_value(data["times_h"].clone())?;
         let sky:Vec<Vec<f64>>=serde_json::from_value(data["sky_temperature_k"].clone())?;
@@ -143,8 +145,7 @@ fn main()->Result<()> {
             save(&out.join(format!("noise-module-{channel}-{}.svg",width as i32)),&f.svg()?)?;
         }}
     }
-    }
-    if spec["transfer"]["archive"]["hourly_unix_s"].is_array() {
+    if !noise_only&&spec["transfer"]["archive"]["hourly_unix_s"].is_array() {
         let a=&spec["transfer"]["archive"];
         let hours:Vec<f64>=serde_json::from_value(a["hourly_unix_s"].clone())?;
         let bytes:Vec<f64>=serde_json::from_value(a["hourly_bytes"].clone())?;
