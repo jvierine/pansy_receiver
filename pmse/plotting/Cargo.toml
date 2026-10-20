@@ -6,4 +6,4 @@ edition = "2024"
 [dependencies]
 anyhow = "1"
 serde_json = "1"
-rustplotlib = { git = "https://github.com/jvierine/rustplotlib.git", rev = "4c9263f", default-features = false }
+rustplotlib = { git = "https://github.com/jvierine/rustplotlib.git", rev = "4bbda59", default-features = false }

@@ -141,6 +141,29 @@ discarded cells.
 
 ## Run and inspect
 
+### Optional temporal display filter and shared color controls
+
+The viewer's **Hide single-mode echoes** control keeps a beam/range-gate
+detection only when the previous or next delivered mode also contains a
+detection at exactly that gate in that beam (inter-mode gap at most ten
+minutes). Doppler may change between modes. This browser-only heuristic is
+applied before RTI moments, time–Doppler maxima, range–Doppler rendering and
+image reconstruction. It does not change native files or downloads. New echoes
+without prior support await confirmation; short real atmospheric echoes may be
+hidden and longer meteor trails may survive. Missing delivery is not evidence
+of meteor contamination. Turn the filter off to inspect all retained echoes.
+
+The initial SNR color limits are 3–13 dB; the shared colorbar editor's slider
+also permits 30 dB. The sequential wave palette retains navy/ivory endpoints
+with additional blue, teal and sand hues and monotonic relative luminance.
+The global HSV option applies to the RTIs, both Doppler plots and the image.
+For individual Doppler cells, hue is the cell's radial velocity and saturation
+uses the width at its range gate; the time–Doppler maximum inherits width from
+the strongest contributing range gate. Image intensity remains relative
+reconstructed power, not calibrated SNR. Native Rustplotlib owns all keys.
+
+### Processor and viewer
+
 The numerical processor has a Rust backend for measured-pulse matched filtering
 and coherent Doppler FFTs (`rustfft`). Digital RF/Metadata I/O, mode discovery and
 the shared SciPy statistical selection remain in Python. This is an intentional
@@ -152,8 +175,9 @@ produce the same versioned native schema, including uncalibrated channel phases.
 
 The viewer at `/rvd/` uses rustplotlib Rust/WASM/WebGL2; only arrays and metadata
 are transferred. It supports all five beams, dB limits, HSV velocity/width limits,
-range–Doppler selection and mode playback, with an HDF5 plot sidecar. It is a
-range-time/spectral viewer, not a five-beam interferometric image reconstruction.
+range–Doppler selection and mode playback, with an HDF5 plot sidecar. Five-beam
+interferometric reconstruction runs in the browser using the selected native
+complex spectra, with positive sparse methods and a legacy TSVD comparison.
 The checked-in runtime and its build reference are under `pmse/rvd/`.
 
 See [XC_MIGRATION.md](XC_MIGRATION.md) for the consumer inventory, noise-model
