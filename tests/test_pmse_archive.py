@@ -60,6 +60,11 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(historical_turn(advanced,4,'newest-backfilled.h5'),['oldest.h5'])
         self.assertEqual(historical_turn(advanced,5,'already-complete.h5'),['even-newer.h5'])
         self.assertEqual(historical_turn([],3),[])
+        actual=['2026-10-19T18-00-00/pmse@1792433400.h5',
+                '2026-10-14T19-00-00/pmse@1792006200.h5',
+                '2026-10-12T05-00-00/pmse@1791782400.h5']
+        self.assertEqual(historical_turn(actual,1,processed_frontier_us=1792006419897755),[actual[1]])
+        self.assertEqual(historical_turn(actual,2,processed_frontier_us=1792006419897755),[actual[2]])
         with tempfile.TemporaryDirectory() as directory:
             files=[(f'2026-10-19T20-00-00/pmse@{t}.h5',100,1.) for t in [50000,49400,19400,600]]
             recent,cold=catchup_files(files,directory,50000)

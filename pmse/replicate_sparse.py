@@ -1,6 +1,7 @@
 """Replicate native HDF5 without ownership changes; persist transfer evidence."""
 import argparse
 import os
+import json
 from pathlib import Path
 import re
 import signal
@@ -59,11 +60,15 @@ def catchup_files(files,root,now):
     return recent[:1],historical
 
 
-def historical_turn(historical,turn,frontier_target=None):
+def historical_turn(historical,turn,frontier_target=None,processed_frontier_us=None):
     """FIFO must progress, but today's backfill frontier must not wait days."""
     if not historical:return []
-    return [historical[-1] if turn%2==0 else
-            frontier_target if frontier_target in historical else historical[0]]
+    if turn%2==0:return [historical[-1]]
+    eligible=historical
+    if processed_frontier_us is not None:
+        bucket=int(processed_frontier_us)//1_000_000//600*600
+        eligible=[p for p in historical if int(Path(p).stem.split('@')[1])<=bucket] or historical
+    return [frontier_target if frontier_target in eligible else eligible[0]]
 
 
 def changed_files(root,receipt,relative_paths):
@@ -91,7 +96,10 @@ def main():
     p.add_argument('--loop',action='store_true');a=p.parse_args();a.root.mkdir(parents=True,exist_ok=True)
     if not 30<=a.backfill_slice_seconds<=180 or a.syowa_kib_s<=0:
         p.error('Require a positive link cap and historical slices of 30..180 seconds')
-    turn=0;frontier_target=None
+    # Expose the actual reprocessing frontier after a restart, then fill FIFO
+    # holes on alternating turns. This is not simply the newest missing file:
+    # newer legacy days may have unrelated gaps ahead of the backfill worker.
+    turn=1;frontier_target=None
     while True:
         try:
             ssh=['ssh','-p','2222','-o','BatchMode=yes','-o','ConnectTimeout=30',
@@ -122,7 +130,12 @@ def main():
                 values=rsync(source,str(a.root)+'/',a.syowa_kib_s,shell,files_from=recent,timeout=120,partial_ok=True)
                 save_metrics(a.metrics,'syowa_to_revontuli_catchup',values)
             if cold:
-                selected=historical_turn(cold,turn,frontier_target)
+                processed_frontier=None
+                try:
+                    status=json.loads((a.root/'processing-status.json').read_text())
+                    processed_frontier=status.get('backfill',{}).get('current_start_us')
+                except (OSError,ValueError):pass
+                selected=historical_turn(cold,turn,frontier_target,processed_frontier)
                 if turn%2:frontier_target=selected[0]
                 print(f'Historical transfer ({"oldest" if turn%2==0 else "frontier"}): {selected[0]}',flush=True)
                 values=rsync(source,str(a.root)+'/',a.syowa_kib_s,shell,files_from=selected,
