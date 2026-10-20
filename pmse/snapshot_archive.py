@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 import os
 import h5py
+import json
 
 
 def compact_copy(source,target):
@@ -37,3 +38,9 @@ if __name__=='__main__':
     p.add_argument('--destination',type=Path,default=Path('/media/analysis/metadata/pmse_sparse16_snapshot'))
     p.add_argument('--compact-all',action='store_true',help='Repack existing snapshots once; native archive is untouched')
     a=p.parse_args();print(snapshot(a.source,a.destination,force=a.compact_all))
+    # Outside the writer lock. This tiny status copy makes processing progress
+    # visible independently of multi-megabyte historical voltage transfers.
+    from .processing_status import status
+    temporary=a.destination/'processing-status.json.partial'
+    temporary.write_text(json.dumps(status()))
+    temporary.replace(a.destination/'processing-status.json')

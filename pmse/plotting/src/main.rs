@@ -6,6 +6,16 @@ use serde_json::{json,Value};
 use std::{fs,path::Path};
 
 const WAVE_PAPER:[f64;3]=[250./255.,247./255.,237./255.];
+// Scientific-notation tick labels (e.g. 1.00 x 10^4 K) exceed the former
+// 20 mm gutter. Keep geometry checks enabled and reserve actual label space.
+const AUX_LEFT_MM:f64=32.;
+
+fn auxiliary_ylabel(figure:&mut Figure,rect:Rect,text:&str) {
+    // Axes' fixed default title offset assumes short ticks. Use a native Label
+    // in a dedicated outer gutter, separate from scientific-notation ticks.
+    let mut label=Label::new(text,4.,rect.y+rect.height/2.);
+    label.rotation=-90.;figure.labels.push(label);
+}
 
 fn wave_figure(width:f64,height:f64)->Result<Figure> {
     let mut figure=WebLayout::new(width,16.)?.figure(height)?;
@@ -108,10 +118,10 @@ fn main()->Result<()> {
                 let lo=values.iter().copied().fold(f64::INFINITY,f64::min);
                 let hi=values.iter().copied().fold(f64::NEG_INFINITY,f64::max);
                 let pad=((hi-lo)*0.15).max(if panel==0{0.1}else{10.});
-                let mut axes=Axes::new([0.,xmax],[lo-pad,hi+pad],"Time (UTC)",
-                    if panel==0{"Receiver noise power (dB)"}else{r"Modeled $T_{\rm sky}$ (K)"});
+                let mut axes=Axes::new([0.,xmax],[lo-pad,hi+pad],"Time (UTC)","");
                 axes.xticks=vec![0.,xmax/2.,xmax];axes.xticklabels=Some(labels.clone());
-                let rect=Rect::new(20.,10.+panel as f64*68.,f.width_mm-28.,43.);
+                let rect=Rect::new(AUX_LEFT_MM,10.+panel as f64*68.,f.width_mm-AUX_LEFT_MM-8.,43.);
+                auxiliary_ylabel(&mut f,rect,if panel==0{"Receiver noise power (dB)"}else{r"Modeled $T_{\rm sky}$ (K)"});
                 let mut p=Panel::new(rect,axes);
                 for beam in 0..5 {
                     let points:Vec<_>=(0..times.len()).map(|t|[times[t],if panel==0{10.*power[t][beam][channel].log10()}else{sky[t][beam]}]).collect();
@@ -144,10 +154,11 @@ fn main()->Result<()> {
                     _=>retention.iter().flatten().copied().fold(0_f64,f64::max)*100.,
                 };
                 let ymin=if panel==2 {-(ymax*0.04).max(0.00004)} else {0.};
-                let mut axes=Axes::new([0.,xmax],[ymin,(ymax*1.15).max(0.001)],"Time (UTC)",
-                    match panel {0=>"Data per UTC hour (MiB)",1=>"Accumulated data (MiB)",_=>"Full spectra retained (\\%)"});
+                let mut axes=Axes::new([0.,xmax],[ymin,(ymax*1.15).max(0.001)],"Time (UTC)","");
                 axes.xticks=vec![0.,xmax/2.,xmax];axes.xticklabels=Some(labels.clone());
-                let mut p=Panel::new(Rect::new(20.,8.+panel as f64*68.,f.width_mm-36.,43.),axes);
+                let rect=Rect::new(AUX_LEFT_MM,8.+panel as f64*68.,f.width_mm-AUX_LEFT_MM-16.,43.);
+                auxiliary_ylabel(&mut f,rect,match panel {0=>"Data per UTC hour (MiB)",1=>"Accumulated data (MiB)",_=>"Full spectra retained (\\%)"});
+                let mut p=Panel::new(rect,axes);
                 let mut sum=0.;let mut cumulative=vec![[0.,0.]];
                 for i in 0..hours.len(){let x=(hours[i]-hours[0])/3600.;let right=(x+1.).min(xmax);let y=bytes[i]/1048576.;
                     if panel==0{let mut bar=Line::new(vec![[x,0.],[right,0.],[right,y],[x,y],[x,0.]],"#215d86");bar.fill=Some("#5a9ec4".into());p.push(Layer::Line(bar));}

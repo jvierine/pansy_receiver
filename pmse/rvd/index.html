@@ -25,6 +25,7 @@
   </header>
   <main>
     <div class="observation-status"><span class="status-dot" aria-hidden="true"></span><p class="status" id="status" role="status">Loading observations…</p></div>
+    <p class="status" id="processingStatus" role="status" hidden></p>
     <div class="view-toolbar">
       <label for="display">Display <select id="display"><option value="snr">Echo strength · SNR</option><option value="hsv">Velocity &amp; width · HSV</option></select></label>
       <details class="settings">
@@ -101,6 +102,6 @@
     <pre id="error" role="alert"></pre>
   </main>
   <footer>PANSY · Mesospheric echoes at Syowa Station</footer>
-  <script type="module" src="viewer.js?v=sparse-1"></script>
+  <script type="module" src="viewer.js?v=transfer-status-2"></script>
 </body>
 </html>

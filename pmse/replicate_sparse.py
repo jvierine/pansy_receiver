@@ -56,7 +56,13 @@ def catchup_files(files,root,now):
             pending.append(p)
     recent=[p for p in pending if int(Path(p).stem.split('@')[1])>=now-3*3600]
     historical=[p for p in pending if p not in recent]
-    return recent[:1],historical[-1:]
+    return recent[:1],historical
+
+
+def historical_turn(historical,turn):
+    """FIFO must progress, but today's backfill frontier must not wait days."""
+    if not historical:return []
+    return [historical[-1] if turn%2==0 else historical[0]]
 
 
 def changed_files(root,receipt,relative_paths):
@@ -80,7 +86,11 @@ def main():
     p.add_argument('--syowa-kib-s',type=int,default=10)
     p.add_argument('--archive-host',default='j@juha.no')
     p.add_argument('--archive-root',default='/mnt/shovel/rvd/pmse_sparse16')
+    p.add_argument('--backfill-slice-seconds',type=int,default=120)
     p.add_argument('--loop',action='store_true');a=p.parse_args();a.root.mkdir(parents=True,exist_ok=True)
+    if not 30<=a.backfill_slice_seconds<=180 or a.syowa_kib_s<=0:
+        p.error('Require a positive link cap and historical slices of 30..180 seconds')
+    turn=0
     while True:
         try:
             ssh=['ssh','-p','2222','-o','BatchMode=yes','-o','ConnectTimeout=30',
@@ -88,27 +98,35 @@ def main():
             subprocess.run(ssh+['radar@127.0.0.1',
                 'cd /home/radar/src/git/pansy_pmse_sparse && OPENBLAS_NUM_THREADS=1 /home/radar/testenv/bin/python -m pmse.snapshot_archive'],check=True,timeout=120)
             listing=subprocess.run(ssh+['radar@127.0.0.1',
-                "find /media/analysis/metadata/pmse_sparse16_snapshot -maxdepth 2 -type f -name '*.h5' -printf '%P %s %T@\\n'"],
+                "find /media/analysis/metadata/pmse_sparse16_snapshot -maxdepth 2 -type f \\( -name '*.h5' -o -name 'processing-status.json' \\) -printf '%P %s %T@\\n'"],
                 check=True,capture_output=True,text=True,timeout=60)
-            files=[]
+            files=[];has_status=False
             for line in listing.stdout.splitlines():
                 path,size,mtime=line.rsplit(' ',2)
+                if path=='processing-status.json':has_status=True
                 if re.fullmatch(r'20\d\d-\d\d-\d\dT\d\d-00-00/pmse@\d+\.h5',path):files.append((path,int(size),float(mtime)))
             files.sort(reverse=True)
             source='radar@127.0.0.1:/media/analysis/metadata/pmse_sparse16_snapshot/'
             shell=' '.join(ssh)
             # Latest chunk first. Bound historical transfer work so a large
             # backfill can never monopolize the link for fifteen minutes.
-            hot=['dmd_properties.h5']+[p for p,_,_ in files[:1]]
-            values=rsync(source,str(a.root)+'/',a.syowa_kib_s,shell,files_from=hot)
+            metadata=['dmd_properties.h5']+(['processing-status.json'] if has_status else [])
+            values=rsync(source,str(a.root)+'/',a.syowa_kib_s,shell,files_from=metadata,timeout=60,partial_ok=True)
+            save_metrics(a.metrics,'syowa_to_revontuli_status',values)
+            hot=[p for p,_,_ in files[:1]]
+            values=rsync(source,str(a.root)+'/',a.syowa_kib_s,shell,files_from=hot,timeout=120,partial_ok=True)
             save_metrics(a.metrics,'syowa_to_revontuli',values)
             recent,cold=catchup_files(files,a.root,time.time())
             if recent:
-                values=rsync(source,str(a.root)+'/',a.syowa_kib_s,shell,files_from=recent)
+                values=rsync(source,str(a.root)+'/',a.syowa_kib_s,shell,files_from=recent,timeout=120,partial_ok=True)
                 save_metrics(a.metrics,'syowa_to_revontuli_catchup',values)
             if cold:
-                values=rsync(source,str(a.root)+'/',a.syowa_kib_s,shell,files_from=[cold[-1]],timeout=45,partial_ok=True)
+                selected=historical_turn(cold,turn)
+                print(f'Historical transfer ({"oldest" if turn%2==0 else "frontier"}): {selected[0]}',flush=True)
+                values=rsync(source,str(a.root)+'/',a.syowa_kib_s,shell,files_from=selected,
+                             timeout=a.backfill_slice_seconds,partial_ok=True)
                 save_metrics(a.metrics,'syowa_to_revontuli_backfill',values)
+                turn+=1
             # Fail closed if shovel is unmounted; never fill the server root disk.
             subprocess.run(['ssh',a.archive_host,'mountpoint -q /mnt/shovel && test -d /mnt/shovel/rvd/pmse_sparse16'],check=True,timeout=30)
             cutoff=time.time()-7*86400-600

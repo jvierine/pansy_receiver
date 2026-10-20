@@ -237,6 +237,25 @@ as live data. Archive and viewer caches/transfer checks recognize replacements
 with unchanged record keys or byte lengths. This worker stops on completion;
 on failure systemd retries after five minutes. It never restarts acquisition.
 
+### Processing versus delivery in the viewer
+
+The snapshot helper exports a small, path-free source-worker status alongside
+native files. It is transferred before voltage payloads, and the viewer shows
+source processing and historical delivery separately, including status age.
+Undelivered spectral coefficients are never presented as available observations.
+The link cap remains 10 KiB/s. Transfers alternate the oldest historical gap
+with the newest backfill frontier in resumable 120-second slices; recent native
+transfers are also bounded to 120 seconds so no single growing chunk monopolizes
+the cycle. Source status and channel properties have their own short transfer.
+
+Optional SVG rendering failures/timeouts cannot block the manifest, date list,
+native day API or derived-data publication. Failed auxiliary plots are explicitly
+marked delayed and hidden rather than silently presented as current. Native
+layout tests cover scientific-notation sky-temperature and tiny-retention ticks;
+label-geometry checks remain enabled. Run `tests/test_pmse_publication.py`,
+`tests/test_pmse_plot_layout.py`, and `scripts/test_pmse_processing_status.mjs`
+along with the archive/processing gates when changing publication or transfer.
+
 For commissioning on Syowa, use one worker and low scheduling priority:
 
 ```sh

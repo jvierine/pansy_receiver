@@ -5,7 +5,7 @@ import h5py
 from pmse.web_retention import expire,sha256
 from pmse.archive_inventory import inventory
 from pmse.snapshot_archive import snapshot
-from pmse.replicate_sparse import catchup_files,changed_files
+from pmse.replicate_sparse import catchup_files,changed_files,historical_turn
 import numpy as np
 
 
@@ -47,6 +47,18 @@ class ArchiveTests(unittest.TestCase):
             recent,cold=catchup_files(files,directory,20000)
             self.assertEqual(recent,[files[1][0]])
             self.assertEqual(cold,[files[-1][0]])
+
+    def test_oldest_transfer_and_processing_frontier_both_get_turns(self):
+        historical=['newest-backfilled.h5','middle.h5','oldest.h5']
+        self.assertEqual(historical_turn(historical,0),['oldest.h5'])
+        self.assertEqual(historical_turn(historical,1),['newest-backfilled.h5'])
+        self.assertEqual(historical_turn(historical,2),['oldest.h5'])
+        self.assertEqual(historical_turn([],3),[])
+        with tempfile.TemporaryDirectory() as directory:
+            files=[(f'2026-10-19T20-00-00/pmse@{t}.h5',100,1.) for t in [50000,49400,19400,600]]
+            recent,cold=catchup_files(files,directory,50000)
+            self.assertEqual(recent,[files[1][0]])
+            self.assertEqual(cold,[files[2][0],files[3][0]])
 
     def test_expiration_requires_matching_retained_source_hash(self):
         with tempfile.TemporaryDirectory() as directory:

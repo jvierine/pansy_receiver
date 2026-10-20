@@ -88,6 +88,7 @@ async function refresh(){
   const request=++refreshSequence;
   const response=await fetch('./data/manifest.json',{cache:'no-cache'});if(!response.ok)throw Error(`Data unavailable (${response.status})`);
   let m=await response.json();
+  renderProcessingStatus(m);
   const days=m.available_days||[];
   if(!chosenDay||!days.includes(chosenDay))chosenDay=days.at(-1)||m.selected_day;
   const control=$('day');control.replaceChildren(...days.map(day=>{const option=document.createElement('option');option.value=day;option.textContent=day;return option;}));control.value=chosenDay;
@@ -100,7 +101,8 @@ async function refresh(){
       (a.projected_bytes_per_day===null?'Daily growth: interval too short for extrapolation. ':`Provisional growth: ${(a.projected_bytes_per_day/2**20).toFixed(1)} MiB/day (${(a.projected_bytes_per_day/86400/1024).toFixed(2)} KiB/s average). `)+
       (t?`Latest Syowa replication: ${(t.literal_bytes/2**20).toFixed(2)} MiB in ${t.elapsed_seconds.toFixed(1)} s (${(t.payload_bytes_per_second/1024).toFixed(2)} KiB/s payload; cap ${t.bandwidth_cap_kib_s} KiB/s). `:'Transfer measurement pending. ')+
       'Web copy: seven-day retention; Revontuli archive retained.';}
-  if(m.transfer?.archive?.hourly_unix_s?.length){const width=document.body.clientWidth<900?640:960;
+  $('archivePlot').hidden=m.plot_generation_status&&m.plot_generation_status!=='ready';
+  if(!($('archivePlot').hidden)&&m.transfer?.archive?.hourly_unix_s?.length){const width=document.body.clientWidth<900?640:960;
     $('archivePlot').src=`./data/axes/archive-growth-${width}.svg?v=${m.generated_utc}`;$('archivePlot').style.width=width+'px';$('archivePlot').hidden=false;}
   const daily=await fetch(`./api/day?day=${encodeURIComponent(chosenDay)}`,{cache:'no-cache'});if(!daily.ok)throw Error('Selected UTC day is unavailable');
   m=await daily.json();if(request!==refreshSequence)return;
@@ -118,11 +120,30 @@ async function refresh(){
   await mountPlots();
   $('sidecar').href='./data/'+m.sidecar;renderRTI();renderRD();
 }
+function renderProcessingStatus(m){
+  const s=m.source_processing,node=$('processingStatus');node.hidden=!s;
+  if(!s)return;
+  const b=s.backfill||{},live=s.live||{},parts=[];
+  if(live.last_written_stop_us)parts.push(`Source live processing (${live.state}): ${utc(live.last_written_stop_us)}.`);
+  if(b.current_index&&b.total_modes){
+    parts.push(`Rectangular backfill (${b.complete?'complete':b.state}): ${b.current_index} / ${b.total_modes} modes; working on ${utc(b.current_start_us)}.`);
+    const frontier=new Date(b.current_start_us/1000).toISOString().slice(0,10);
+    const delivered=Object.entries(m.transfer?.archive?.days||{}).filter(([d,v])=>d<=frontier&&v.latest_mode_us).sort(([a],[b])=>a.localeCompare(b)).at(-1);
+    parts.push(delivered?`Historical voltages delivered to viewer through ${utc(delivered[1].latest_mode_us)}.`:'Historical voltage delivery pending.');
+  }
+  const age=Math.max(0,(Date.now()/1000-s.generated_unix_s)/60);
+  parts.push(`Processing status updated ${age.toFixed(0)} min ago; processing and transfer are separate.`);
+  if(m.plot_generation_status==='delayed')parts.push('Optional plot refresh delayed; native observations continue updating.');
+  node.textContent=parts.join(' ');
+}
 function renderNoise(model=manifest){
   const module=+$('noiseModule').value,fit=model.noise_model_status[module];
   $('noiseStatus').textContent=`PyGDSM GSM2008 · one-way receive pattern · 90% crossed-Yagi / 10% isotropic element. Module ${module}: `+
     (fit.receiver_temp_k===null?fit.status:`T_receiver = ${fit.receiver_temp_k.toFixed(0)} K; fractional RMS ${(fit.fractional_rms*100).toFixed(1)}%; ${fit.status}`)+
     '. Top: measured noise power; bottom: modeled sky temperature. Fits update hourly and require ≥12 hours of data.';
+  if(model.plot_generation_status&&model.plot_generation_status!=='ready'){
+    $('noisePlot').hidden=true;$('noiseStatus').textContent+=' Plot refresh delayed; native observations remain current.';return;
+  }
   const width=document.body.clientWidth<900?640:960;
   $('noisePlot').src=`./data/axes/noise-module-${module}-${width}.svg?v=${model.noise_model_updated_unix_s}`;
   $('noisePlot').style.width=width+'px';$('noisePlot').hidden=false;

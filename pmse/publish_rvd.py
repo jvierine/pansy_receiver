@@ -56,7 +56,7 @@ def atomic_json(path,value):
     temporary.replace(path)
 
 
-def export(root,output,hours=0):
+def export(root,output,hours=0,renderer=None):
     output.mkdir(parents=True,exist_ok=True); (output/'frames').mkdir(exist_ok=True)
     available_days=sorted({p.name[:10] for p in root.glob('20*T*') if any(p.glob('pmse@*.h5'))})
     if not available_days:raise ValueError('No native sparse data days yet')
@@ -120,6 +120,10 @@ def export(root,output,hours=0):
     transfer['archive']=inventory(root)
     transfer['archive'].update(destination='/mnt/shovel/rvd/pmse_sparse16',web_retention_days=7)
     manifest['transfer']=transfer
+    status_path=root/'processing-status.json'
+    if status_path.exists():
+        try:manifest['source_processing']=json.loads(status_path.read_text())
+        except (OSError,ValueError) as error:print(f'Source status unavailable: {error}',flush=True)
     cache=root.parent.parent/'sky-model-gsm2008-47MHz.h5'
     fit_path=root.parent.parent/'rvd-noise16-fit.h5'
     if cache.exists():
@@ -142,12 +146,23 @@ def export(root,output,hours=0):
     first=packets[0]['start_us']; last=latest['stop_us']
     manifest['time_tick_labels']=[datetime.fromtimestamp((first+(last-first)*q)/1e6,timezone.utc).strftime('%H:%M:%S')
                                   for q in (0,.5,1)]
-    renderer=Path(__file__).parent/'plotting/target/release/pansy-pmse-plots'
+    renderer=Path(renderer) if renderer is not None else Path(__file__).parent/'plotting/target/release/pansy-pmse-plots'
     if renderer.exists():
         specification=output/'plot-spec.json'
         atomic_json(specification,manifest)
-        subprocess.run([str(renderer),str(specification),str(output/'axes')],check=True,timeout=120)
-        manifest['plot_layouts']='axes/layouts.json'
+        try:
+            subprocess.run([str(renderer),str(specification),str(output/'axes')],
+                           check=True,timeout=120,capture_output=True,text=True)
+            manifest['plot_layouts']='axes/layouts.json'
+            manifest['plot_generation_status']='ready'
+        except (OSError,subprocess.SubprocessError) as error:
+            # Optional decorations must never freeze the core data/date feed.
+            # Keep the last good SVGs, but explicitly mark them as stale.
+            manifest['plot_generation_status']='delayed'
+            detail=getattr(error,'stderr',None) or str(error)
+            print(f'Optional plot rendering failed; publishing current data anyway: {detail}',flush=True)
+    else:
+        manifest['plot_generation_status']='unavailable'
     sidecar=output/Path(manifest['sidecar']).name
     write_sidecar=not sidecar.exists()
     if not write_sidecar:
