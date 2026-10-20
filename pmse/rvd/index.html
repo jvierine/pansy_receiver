@@ -7,7 +7,7 @@
   <title>PANSY PMSE Explorer</title>
   <link rel="icon" type="image/png" href="rogue-wave-logo.png?v=1">
   <link rel="apple-touch-icon" href="rogue-wave-logo.png?v=1">
-  <link rel="stylesheet" href="theme.css?v=sparse-1">
+  <link rel="stylesheet" href="theme.css?v=download-guide-1">
 </head>
 <body>
   <header class="site-header">
@@ -17,7 +17,10 @@
     </div>
     <div class="header-actions">
       <label class="day-control" for="day">UTC day <select id="day" aria-label="UTC day"></select></label>
-      <a id="downloadSpectra" class="button button-primary" aria-disabled="true">Download spectra <span aria-hidden="true">↓</span></a>
+      <div class="download-actions">
+        <a id="downloadSpectra" class="button button-primary" aria-disabled="true">Download spectra <span aria-hidden="true">↓</span></a>
+        <a id="downloadHelp" class="download-help" href="pansy-sparse-spectra-guide.pdf?v=1" target="_blank" rel="noopener" aria-label="Download help: file contents and data layout, inverse FFT and noise (PDF, opens in a new tab)" title="File contents, data layout, inverse FFT and noise (PDF)"><span class="help-icon" aria-hidden="true">?</span> Help <span class="help-format">PDF</span></a>
+      </div>
     </div>
   </header>
   <main>

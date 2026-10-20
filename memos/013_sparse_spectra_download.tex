@@ -1,0 +1,489 @@
+\documentclass[11pt]{article}
+\usepackage{uitmemo}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{listings}
+\hypersetup{pdftitle={PANSY Memo 013: Sparse spectra file contents and data layout},
+  pdfauthor={Juha Vierinen},pdfsubject={PANSY native sparse complex spectra download guide}}
+\renewcommand{\uitseries}{PANSY RECEIVER MEMO SERIES}
+\renewcommand{\uitprefix}{PANSY}
+\providecommand{\uitstyledir}{../uit-memo-style}
+\renewcommand{\uitlogo}{\uitstyledir/assets/uit-circular-logo.pdf}
+\newcommand{\field}[1]{\ifmmode\text{\path{#1}}\else\path{#1}\fi}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\lstset{basicstyle=\ttfamily\footnotesize,columns=fullflexible,
+  keepspaces=true,breaklines=true,showstringspaces=false,
+  aboveskip=0.5em,belowskip=0.5em}
+
+\begin{document}
+\uitmemo{013}{2026-10-19}{PANSY data users}{Juha Vierinen}
+ {Sparse complex spectra downloads: file contents and data layout}
+\makeuitmemo
+
+\section{Scope and archive structure}
+
+The \emph{Download spectra} button at \url{https://juha.no/rvd/} returns a TAR
+archive of the selected UTC day's available native HDF5 records, together with
+\field{dmd_properties.h5}. The download is not restricted to the clicked echo,
+displayed receiver beam, range gate, or browser imaging window. Changing the
+web imaging algorithm or its regularization does not change these data.
+
+This memo describes the \field{pansy_pmse_sparse16_v2} product, whose complex
+spectra are formed from \SI{16}{\milli\second} complementary-pair samples.
+Readers must inspect each record's \field{schema_version}, \field{config_json}
+and quality indicators. Legacy formats and incomplete or insufficient-coverage
+records must not be assumed to have the same usable scientific arrays.
+
+The relative directory structure is
+\begin{lstlisting}
+pansy-sparse-spectra-YYYY-MM-DD.tar
+  dmd_properties.h5
+  YYYY-MM-DDTHH-00-00/
+    pmse@<600-second Unix-time bucket>.h5
+      /<mode-start sample>/
+        complete
+        schema_version
+        sparse_index
+        spectra
+        ... coordinates, statistics and provenance
+\end{lstlisting}
+The directories are hourly; the files use 600-second buckets. Numeric HDF5
+group names are mode-start sample indices at \SI{1e6}{\per\second}, not Unix
+seconds. The properties file defines the Digital Metadata channel. Keep it
+with the directory tree when using \field{digital_rf.DigitalMetadataReader};
+direct HDF5 inspection with \field{h5py} does not require Digital RF.
+
+The handler copies existing HDF5 payloads unchanged, rather than generating a
+spectra-only export. Large scientific arrays are losslessly compressed within
+HDF5; the enclosing TAR is not gzip-compressed. Today's archive grows as records
+arrive and is not a frozen final-day release. A mode spanning midnight is not
+split between two downloads: its file belongs to its start-time bucket.
+Always skip groups without \field{complete=1}. If a currently written file is
+not readable, allow the producer to finish and retry the download.
+
+The archive includes decoded complex spectra, dense noise estimates, summary
+statistics, coordinates, calibration inputs, and processing provenance. It
+does \emph{not} contain raw ADC recordings, browser plots, reconstructed images,
+or separately archived channel-covariance spectra. The web page's separate
+derived-plot HDF5 link is a different product.
+The inverse-FFT recipe in Section~\ref{sec:inverse} preserves the retained
+complex spectrum to floating-point precision. It cannot restore coefficients
+discarded by sparse selection.
+
+\clearpage
+\section{Sparse-cell indexing and physical quantities}
+
+The principal array is
+\begin{equation}
+ S_{\ell c n}=\field{spectra}[\ell,c,n],\qquad
+ \operatorname{shape}(S)=(K,7,N),
+\end{equation}
+stored as \field{complex64}: two float32 components, eight bytes per complex
+sample. Here $K$ is the number of coherent looks and $N$ the number of retained
+cells. The row \field{sparse_index}[n] contains three zero-based integers
+$(b,f,r)$: beam index, full shifted FFT-bin index, and range-axis index.
+For this cell, its coordinates are
+\begin{align}
+ R_n &= \field{slant_range_km}[r], &
+ v_n &= \field{radial_velocity_mps}[f],\\
+ h_{\mathrm{nom},n} &= \field{nominal_altitude_km}[b,r].
+\end{align}
+Beam order is 0 Zenith, 1 North, 2 East, 3 South, 4 West. Receiver-channel order
+is retained in \field{rx_channels} and \field{module_names}. All seven channels
+and every valid coherent look are saved for each selected cell, including weak
+individual channel/look values. Selection is not applied independently to each
+receiver or look, which would bias interferometric correlations.
+
+The spectral covariance at a retained cell is recoverable directly:
+\begin{equation}
+ C_{ij,n}=\frac{1}{K}\sum_{\ell=0}^{K-1}
+ S_{\ell i n} S_{\ell j n}^{*}.
+ \label{eq:covariance}
+\end{equation}
+There is no need to store the 21 distinct cross-correlations and seven
+autocorrelations redundantly. The stored spectra have \emph{not} had the
+interferometer phase snapshot applied. The historical correction is
+$C_{ij}\exp[+\mathrm{i}(\phi_i-\phi_j)]$; its sign, direction convention and
+contemporary calibration validity require an independent known-source check.
+
+Power is decoded ADC-count squared per spectral bin under the stored
+normalization, not absolute reflectivity or temperature. Doppler velocity obeys
+$f_D=2f_\mathrm{radar}v/c$ algebraically; a physical up/down interpretation must
+not be inferred without validating the convention. Nominal altitude is
+beam-center height, not the true height of an echo arriving through a sidelobe.
+
+\clearpage
+\section{Scientific array dictionary}
+
+In Tables~\ref{tab:science} and~\ref{tab:timing}, $F$ is the paired-spectrum FFT
+length, $R$ the saved range-axis length, and $F_\mathrm{noise}$ the pre-pair
+noise FFT length. Dimensions are read from each record, not hard-coded.
+Floating-point coordinate axes are generally float64; inspect the stored dtype.
+
+\begingroup\small\setlength{\tabcolsep}{4pt}\setlength{\parskip}{2pt}
+\renewcommand{\arraystretch}{1.12}
+\begin{longtable}{@{}L{0.36\textwidth}L{0.16\textwidth}L{\dimexpr0.48\textwidth-4\tabcolsep\relax}@{}}
+\caption{Scientific arrays in a normal complete v2 record.}\label{tab:science}\\
+\toprule Field & Layout / type & Meaning\\\midrule
+\endfirsthead
+\toprule Field & Layout / type & Meaning (continued)\\\midrule
+\endhead
+\bottomrule\endfoot
+\field{spectra} & $K\times7\times N$; complex64 & Decoded, windowed complex Fourier coefficients; receiver phases preserved.\\
+\field{sparse_index} & $N\times3$; int32 & Columns are beam, full FFT bin and range-axis index.\\
+\field{mean_power} & $7\times N$; float32 & Mean $|S|^2$ across looks; recomputable.\\
+\field{power_variance}\par\field{power_standard_error} & $7\times N$; float32 & Sample variance of power and standard error of the mean, respectively.\\
+\field{noise_power}\par\field{noise_power_standard_error} & $7\times5\times R$; float32 & Dense noise power and uncertainty, retained even when no cells are selected.\\
+\field{detector_snr_db} & $N$; float32 & Excess signal/noise in dB; read \field{snr_definition}.\\
+\field{detector_standard_error}\par\field{null_probability} & $N$; float32 / float64 & Error of the normalized total-power detection statistic and approximate null tail probability. The error is not in dB.\\
+\field{high_velocity_candidate} & $N$; bool & Screening mask for $|v|\ge\SI{12.5}{\metre\per\second}$, not a physical event classification.\\
+\field{slant_range_km}\par\field{range_sample} & $R$; float64 / int32 & Slant range in km and decoded sample index.\\
+\field{nominal_altitude_km}\par\field{altitude_valid} & $5\times R$; float64 / bool & Beam-center height in km and valid-altitude mask.\\
+\field{doppler_frequency_hz}\par\field{radial_velocity_mps} & $F$; float64 & Full shifted FFT coordinates in Hz and m/s. Sparse indices reference this full axis.\\
+\field{beam_azimuth_deg}\par\field{beam_elevation_deg}\par\field{rx_channels} & 5 / 5 / 7 & Beam angles in degrees and original receiver-channel names.\\
+\field{noise_doppler_frequency_hz}\par\field{noise_radial_velocity_mps}\par\field{noise_guard_mask} & $F_\mathrm{noise}$ & Pre-pair noise axes and guard mask, distinct from the paired signal axis.\\
+\end{longtable}
+\endgroup
+
+The detector's dB quantity is
+\begin{equation}
+ \mathrm{SNR}_{\mathrm{dB},n}
+ =10\log_{10}\left[\frac{1}{7K}
+ \sum_{c,\ell}\frac{|S_{\ell c n}|^2}{N_{cbr}}-1\right],
+\end{equation}
+where $N_{cbr}$ is \field{noise_power}[c,b,r]. The standard archive applies a
+3 dB excess-SNR gate and statistical selection, with the record's configuration
+being authoritative. Power variances have squared-power units; power standard
+errors have power units. These differ from uncertainty in the normalized
+detection statistic.
+
+\clearpage
+\section{Timing, geometry and reconstruction inputs}
+
+The timing and calibration inputs are part of the download, not extra browser
+products. Complete records can still have \field{quality=partial_coverage} or
+insufficient usable looks. Elapsed mode duration and decoded coverage differ.
+
+\begingroup\small\setlength{\tabcolsep}{4pt}\setlength{\parskip}{2pt}
+\renewcommand{\arraystretch}{1.12}
+\begin{longtable}{@{}L{0.36\textwidth}L{0.16\textwidth}L{\dimexpr0.48\textwidth-4\tabcolsep\relax}@{}}
+\caption{Timing, receiver geometry and complementary-pair reconstruction inputs.}\label{tab:timing}\\
+\toprule Field & Layout & Meaning\\\midrule
+\endfirsthead
+\toprule Field & Layout & Meaning (continued)\\\midrule
+\endhead
+\bottomrule\endfoot
+\field{mode_start_sample}\par\field{mode_stop_sample_exclusive} & scalar int64 & Actual half-open observing interval in 1 MHz sample coordinates.\\
+\field{mode_duration_seconds}\par\field{coverage_seconds}\par\field{coverage_fraction} & scalar & Elapsed duration, decoded support in seconds and coverage ratio.\\
+\field{look_bounds_sample} & $K\times2$; int64 & Inclusive start and exclusive stop of each coherent look.\\
+\field{n_coherent_looks}\par\field{pulses_per_beam_per_look}\par\field{scheduled_pulses_per_beam_per_look} & scalar / $K$ / $K$ & Number of looks, used pulses and scheduled pulses, including partial-look accounting.\\
+\field{look_coherent_seconds}\par\field{look_coherent_signal_power_gain}\par\field{look_equivalent_noise_bandwidth_hz} & $K$ & Scheduled coherent duration (s), coherent signal power gain and equivalent noise bandwidth (Hz).\\
+\field{look_window} & $K\times F$; float32 & Pair-domain windows padded to the paired FFT length.\\
+\field{pairs_per_beam_per_look}\par\field{look_pair_time0_sample_by_beam} & $K$ / $K\times5$ & Used pair count and first pair phase-reference sample for each beam.\\
+\field{effective_ipp_seconds}\par\field{pair_voltage_doppler_response} & scalar / $F$ & Pair sampling interval (s) and pairing voltage response over Doppler.\\
+\field{antenna_positions_m}\par\field{module_names} & $7\times3$ / 7 & Receiver-module phase-center positions (m) and names.\\
+\field{phasecal_snapshot_rad}\par\field{phasecal_sha256}\par\field{geometry_sha256} & $5\times7$ / 5 / scalar & Phase snapshot (rad), per-beam phase-file hashes and geometry hash.\\
+\field{phasecal_applied}\par\field{phasecal_status}\par\field{interferometer_calibration} & scalar / text & Normally phase correction is not applied; status and conventions are explicit.\\
+\field{tx_reference_template}\par\field{complementary_code_family}\par\field{complementary_code_family_similarity} & $20\times\texttt{tx\_samples}$ / $5\times4$ / $5\times4$ & Measured TX reference and complementary-family assignments/similarities.\\
+\end{longtable}
+\endgroup
+
+Zero-filling omitted Fourier bins and taking an inverse shifted FFT recovers
+only a retained, windowed complementary-pair echo sequence. It does not recover
+discarded Fourier content or the original ADC samples. Read \field{reconstruction},
+\field{pair_normalization} and \field{pair_phase_reference} before interpreting
+the reconstructed amplitudes or phases.
+
+\clearpage
+\section{Additional metadata and overhead}
+
+The following field families are also included unchanged. Some are conditional
+on processing mode or record status.
+\begin{sloppypar}
+\begin{description}[style=nextline,leftmargin=1.35em,font=\normalfont\bfseries]
+\item[Quality and schema]
+\field{complete}, \field{schema_version}, \field{quality},
+\field{skipped_looks_json}. Completion is a write-publication flag, not a promise
+of full observing coverage; an empty retained-cell array may be valid.
+\item[Configuration and conventions]
+\field{config_json}, \field{normalization}, \field{per_pulse_tx_normalization},
+\field{pair_normalization}, \field{pair_phase_reference}, \field{reconstruction},
+\field{spectra_axis_order}, \field{sparse_index_columns},
+\field{radial_velocity_sign}, \field{physical_height_convention}.
+\item[Detection and noise diagnostics]
+\field{snr_definition}, \field{detection_statistics}, \field{n_tested_cells},
+\field{noise_gamma_shape_conservative}, \field{noise_guard_effective_bins},
+\field{null_power_relative_standard_deviation},
+\field{null_power_degrees_of_freedom_conservative}, \field{noise_estimator_domain}.
+These describe an approximate statistical model, not an empirical bound on
+false atmospheric events.
+\item[TX timing and validation]
+\field{tx_cycle_start_sample}, \field{tx_cycle_marker_observed},
+\field{tx_cycle_similarity}, \field{tx_cycle_verified}, \field{rx_cycle_used}
+are $T$-element cycle arrays. Related scalar counts are \field{n_tx_cycles},
+\field{n_tx_metadata_markers}, \field{n_recovered_cycle_markers} and
+\field{total_pulses_per_beam}. \field{tx_mean_min_max_power} is $K\times3$.
+Recovered timing is not interpolated received voltage; validation flags and
+actual receiver support are retained.
+\item[Processing provenance]
+\field{generator}, \field{code_sha256}, \field{source_commit},
+\field{raw_source}, \field{tx_source}, \field{processing_wall_seconds},
+\field{peak_rss_bytes}. The archive preserves original source-path strings,
+runtime and peak-memory diagnostics. Those paths can reveal local directory
+names; this memo does not reproduce host paths or network access details.
+\end{description}
+\end{sloppypar}
+
+Mean powers, variances and standard errors are recomputable from the stored
+complex spectra. Geometry, configuration, and reference metadata repeat across
+records for reproducibility. Their storage cost and HDF5/TAR overhead are extra
+to the complex-spectra payload, whose uncompressed size is
+\begin{equation}
+ B_{\mathrm{spectra}}=8K\,7N\quad\text{bytes}.
+\end{equation}
+Each dense float32 noise array adds $4\,7\,5R$ bytes before compression. A full
+dense spectral-grid comparison uses $K\,7\,5FR$ complex samples; a comparison
+restricted to the tested domain instead uses
+$K\,7\,\field{n_tested_cells}$. Neither ratio is a byte-compression ratio.
+
+\clearpage
+\section{Recovering the complex time-domain signal}
+\label{sec:inverse}
+
+\textbf{The inverse FFT is reversible for the retained complex spectrum, not
+for the original full-band waveform.} One must inverse-transform the complex
+coefficients separately for every look and receiver, not the mean powers,
+SNR values, or reconstructed image. Combining looks incoherently into a power
+spectrum before inverse transformation would destroy the voltage phases.
+
+Let $d_{2m}$ and $d_{2m+1}$ be the two measured-TX-decoded complex echoes in a
+complementary pair, for one receiver, look, beam and range. The forward stages
+are
+\begin{align}
+ p_m &= (d_{2m}+d_{2m+1})/\sqrt{2},\\
+ q_m &= w_m p_m,\qquad 0\le m<J,
+ \qquad q_m=0\quad(J\le m<F),\\
+ X &= \operatorname{fftshift}\bigl(\operatorname{FFT}_F(q)\bigr),
+ \qquad \widetilde X=M X,
+\end{align}
+where $J$ is the scheduled pair count, $w$ is the stored unit-$L^2$ Hann
+window including validity masking, and $M$ is the archived sparse-bin mask.
+The forward FFT is unnormalized. The exact retained-signal inverse is
+\begin{equation}
+ q_{\rm ret}=\operatorname{IFFT}_F\!\left(
+        \operatorname{ifftshift}(\widetilde X)\right).
+ \label{eq:inverse}
+\end{equation}
+NumPy's default inverse FFT includes the required $1/F$ factor. Do not divide
+by $F$ a second time, and do not inverse-transform only the compact list of
+retained bins: first place them at their original full-FFT indices.
+
+The following example uses only NumPy and h5py after extracting the TAR. It
+selects one beam/range combination present in a complete record, reconstructs
+all looks and all seven receivers at that gate, and explicitly checks the
+complex FFT round trip. Other beam/range gates are reconstructed independently.
+\begin{lstlisting}[language=Python]
+from pathlib import Path
+import h5py
+import numpy as np
+
+root = Path("extracted-day")
+for path in sorted(root.glob("*T*/pmse@*.h5")):
+    with h5py.File(path, "r") as h:
+        keys = sorted(k for k in h if k.isdigit())
+        for key in keys:
+            g = h[key]
+            if "complete" not in g or int(g["complete"][()]) != 1:
+                continue
+            if "spectra" not in g or g["spectra"].shape[2] == 0:
+                continue
+            index = g["sparse_index"][()]
+            b, _, r = map(int, index[0])  # choose a retained gate
+            cells = np.flatnonzero((index[:, 0] == b)
+                                   & (index[:, 2] == r))
+            F = len(g["doppler_frequency_hz"])
+            K = g["spectra"].shape[0]
+            X = np.zeros((K, 7, F), dtype=np.complex64)
+            X[:, :, index[cells, 1]] = g["spectra"][:, :, cells]
+            kept = np.zeros(F, dtype=bool)
+            kept[index[cells, 1]] = True
+            q = np.fft.ifft(np.fft.ifftshift(X, axes=2), axis=2)
+            check = np.fft.fftshift(np.fft.fft(q, axis=2), axes=2)
+            atol = 1e-6 * max(1., float(np.max(np.abs(X))))
+            np.testing.assert_allclose(check, X, rtol=1e-6, atol=atol)
+            amplitude = np.abs(q)       # [look, channel, pair_time]
+            phase_rad = np.angle(q)
+\end{lstlisting}
+
+\subsection{Amplitude, phase, timing and window handling}
+The returned $q_{\rm ret}$ is a complex amplitude-domain signal. Its envelope is
+$|q_{\rm ret}|$, its phase is $\arg q_{\rm ret}$, and its power is
+$|q_{\rm ret}|^2$. No magnitude, conjugation, phase-calibration factor,
+or extra FFT normalization is applied before the inverse. It remains in the
+measured-TX-normalized, windowed complementary-pair domain, not original ADC
+voltage units.
+
+The nominal sample separation is \field{effective_ipp_seconds}, normally
+\SI{0.016}{\second}. Pair times refer to the midpoint of the two pulses.
+\field{look_pair_time0_sample_by_beam} gives each look/beam's first reference
+sample. The example's uniform time grid is nominal: for sample-level clock
+tracking use \field{tx_cycle_start_sample}, \field{look_bounds_sample}, the
+IPP from \field{config_json}, and cycle-validation masks. The last look may be
+shorter than $F$ samples. Do not concatenate looks through gaps as one continuous
+measured record.
+For nominal absolute times use $t_{\ell m}=s_{0,\ell b}/f_s+m\Delta t$,
+where $s_{0,\ell b}$ is the stored first-pair reference sample and $f_s$ comes
+from \field{config_json}. The scheduled pair count is
+\field{scheduled_pulses_per_beam_per_look}/2. Keep all $F$ output samples for
+the FFT round trip; padding and gaps are not additional measured samples.
+
+Do not reapply the Hann window, divide it out, crop the IFFT, or discard its
+zero-padding interval before checking the round trip. Sparse-bin masking is a
+Fourier projection, so the retained-signal IFFT may be nonzero even at original
+window zeros, invalid input times or padded times. These values are not newly
+recovered measurements. Even with all coefficients, division by $w_m$ is
+undefined where $w_m=0$ and unstable near zero. The Hann endpoints and rejected
+pulse samples therefore cannot be recovered by dewindowing.
+
+\subsection{What can and cannot be reversible}
+\begin{enumerate}
+\item \textbf{Retained complex spectrum: reversible.} Applying a forward FFT
+and shift to Eq.~\eqref{eq:inverse} returns every saved complex coefficient
+and the zero-filled spectrum, within floating-point error. This is not a
+bit-identical promise after float32 arithmetic or serialization conversions.
+\item \textbf{Full pre-selection windowed pair signal: not recoverable from
+the current sparse archive.} Exact recovery requires the omitted complex
+coefficients as well, or a lossless complementary residual. Two full signals
+can differ only in discarded bins yet produce the same sparse archive.
+\item \textbf{Unwindowed pair signal: additionally loses window-zero and
+rejected-pulse samples.} Full spectral storage alone does not undo those zeros.
+\item \textbf{Individual decoded pulses or raw ADC: further information is
+absent.} The pair sum does not determine its two inputs; matched filtering,
+range selection and discarded raw samples cannot be undone by an inverse FFT.
+\end{enumerate}
+Consequently, full-waveform reversibility would require an explicitly changed
+archive contract and additional stored data. That is distinct from the
+currently verified retained-spectrum FFT round trip; no such receiver or
+retention change is made by this documentation.
+
+\clearpage
+\section{Recovering noise information}
+\label{sec:noise}
+
+The complex noise present in the retained bins is already part of the measured
+\field{spectra}, and therefore already part of $q_{\rm ret}$. It is not stored
+as a separate noise realization. Adding another noise draw to the retained
+coefficients would double-count noise, not reconstruct the observation.
+
+The dense \field{noise_power}[c,b,r] estimates the mean noise power in a
+decoded spectral bin for each receiver, beam and range. Its standard error
+describes uncertainty in that estimate; neither field contains the phases of
+discarded noise samples. \textbf{Actual noise in omitted bins cannot be
+recovered.} What can be reconstructed is a specified statistical noise model,
+with a reproducible random seed if desired. This is a synthetic realization,
+not the original missing data.
+
+\subsection{A model consistent with the saved Hann window}
+
+Let $N_c=\field{noise_power}[c,b,r]$ for the chosen beam and range. Under a
+white, proper-complex Gaussian receiver-noise model, draw independent real
+and imaginary components with variance $N_c/2$:
+\begin{equation}
+ \eta_{\ell c m}=\sqrt{N_c/2}\,(u_{\ell c m}+\mathrm{i}v_{\ell c m}),
+ \qquad u,v\sim\mathcal N(0,1).
+\end{equation}
+Generate the noise \emph{before} the coherent window, then form
+$q^N_{\ell c m}=w_{\ell m}\eta_{\ell c m}$ and transform it with the same
+unnormalized FFT and shift as the data. Because
+$\sum_m |w_{\ell m}|^2=1$, this gives
+\begin{equation}
+ \mathbb E|X^N_{\ell c f}|^2=N_c,
+ \qquad
+ \mathbb E|q^N_{\ell c m}|^2=N_c|w_{\ell m}|^2.
+\end{equation}
+This preserves Hann-induced correlation between neighboring Fourier bins.
+Drawing independent noise coefficients in every FFT bin would generally miss
+that correlation and the stored time-window/gap structure. The complementary
+pair sum has unit white-noise gain because of its $1/\sqrt{2}$ normalization.
+
+The following helper reads the saved windows and noise powers from an open
+complete v2 record. The boolean \field{kept} mask comes from the inverse-FFT
+example in Section~\ref{sec:inverse}; it is a full $F$-element frequency mask,
+not a mask over the compact $N$ retained cells.
+\begin{lstlisting}[language=Python]
+def synthetic_noise(g, b, r, kept, seed=2026):
+    rng = np.random.default_rng(seed)
+    K = g["spectra"].shape[0]
+    F = len(g["doppler_frequency_hz"])
+    w = g["look_window"][()].astype(np.float64)  # [K, F]
+    N = g["noise_power"][:, b, r].astype(np.float64)
+    assert w.shape == (K, F) and kept.shape == (F,)
+    np.testing.assert_allclose(np.sum(w*w, axis=1), 1., atol=2e-6)
+    shape = (K, 7, F)
+    eta = (rng.normal(size=shape) + 1j*rng.normal(size=shape))
+    eta *= np.sqrt(N[None, :, None] / 2.)
+    q_noise = w[:, None, :] * eta
+    X_noise = np.fft.fftshift(np.fft.fft(q_noise, axis=2), axes=2)
+    masked = np.where(kept[None, None, :], X_noise, 0.)
+    q_noise_retained = np.fft.ifft(
+        np.fft.ifftshift(masked, axes=2), axis=2)
+    return X_noise, q_noise, q_noise_retained
+\end{lstlisting}
+The returned arrays have shape $(K,7,F)$. The second return is modeled full
+windowed noise; the third is its projection onto the same retained-frequency
+mask as the measured signal. Their complex envelopes, phases and powers are
+obtained using \field{np.abs}, \field{np.angle} and squared absolute value,
+respectively. For $F_M$ retained bins, Parseval's identity gives the model's
+expected retained-noise energy per look/channel as $N_cF_M/F$, not $N_c$ per
+output time sample.
+
+\Needspace{14\baselineskip}
+\subsection{Optional synthetic filling of discarded bins}
+If a complete, noise-filled Fourier grid is needed for a simulation or a
+visualization, preserve the observed coefficients and fill \emph{only} omitted
+bins. The following fragment belongs inside the same open-record context as
+the inverse-FFT example:
+\begin{lstlisting}[language=Python]
+X_noise, _, _ = synthetic_noise(g, b, r, kept, seed=2026)
+X_filled = X.copy()
+X_filled[:, :, ~kept] = X_noise[:, :, ~kept]
+q_filled = np.fft.ifft(np.fft.ifftshift(X_filled, axes=2), axis=2)
+np.testing.assert_array_equal(X_filled[:, :, kept], X[:, :, kept])
+\end{lstlisting}
+This augmentation preserves the retained complex data but does not restore
+discarded weak signals or the original full-band waveform. It also need not
+restore exact window zeros, because observed retained bins and simulated
+omitted bins are mixed. Label it as synthetic noise filling, and keep the
+original retention mask and random seed with any derived result.
+
+The model assumes independent receiver noise, independent looks, stationary
+per-record noise power and white pair-domain noise before windowing. Real
+array noise can have inter-receiver, temporal or range correlation that cannot
+be inferred from scalar noise powers. Detection-conditioned noise statistics,
+colored interference and estimator uncertainty are not supplied by this
+simulation. A repeated seed reproduces the synthetic model draw, not the
+original discarded noise realization.
+
+\section{Interpretation limits and provenance of this memo}
+
+A missing sparse cell is not zero power: it may be outside the selection
+domain or fail the archive's selection tests. Missing or incomplete records
+may instead reflect coverage or delivery. Doppler moments computed only from
+retained bins are censored estimates. Discarded cells cannot be recovered by
+lowering a threshold after the raw recordings have been deleted.
+
+The dense per-channel noise powers do not supply a measured full spatial noise
+covariance. Historical phase snapshots are not an independent validation of
+contemporary calibration. A high radial velocity alone does not establish a
+vertical draft. Browser reconstruction images, including their fit residuals
+and regularization settings, are not added to this native archive.
+
+The field catalogue was checked against a complete native v2 record and the
+producer/download-handler source. Source documentation is maintained at
+\url{https://github.com/jvierine/pansy_receiver/tree/main/pmse}.
+This memo uses the unmodified \field{uitmemo.sty} and UiT seal from
+\url{https://github.com/jvierine/uit-memo-style}, revision
+\field{06dd4b15d32ddeaf06f6c9df583079b84f494c87}. Private template sources are
+build dependencies, not bundled public web assets.
+\scriptprovenance{scripts/build_pmse_download_guide.sh}
+\end{document}

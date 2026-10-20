@@ -37,3 +37,7 @@ test_plots_smoke/
 texput.log
 pmse/processor/target/
 pmse/plotting/target/
+
+# Local UiT download-memo build and visual QA; the public PDF is tracked.
+/output/pdf/pansy-sparse-spectra-guide.pdf
+/tmp/pdfs/uit-download-guide/
