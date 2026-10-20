@@ -16,7 +16,7 @@
   aboveskip=0.5em,belowskip=0.5em}
 
 \begin{document}
-\uitmemo{013}{2026-10-19}{PANSY data users}{Juha Vierinen}
+\uitmemo{013}{2026-10-20}{PANSY data users}{Juha Vierinen}
  {Sparse complex spectra downloads: file contents and data layout}
 \makeuitmemo
 
@@ -30,6 +30,11 @@ web imaging algorithm or its regularization does not change these data.
 
 This memo describes the \field{pansy_pmse_sparse16_v2} product, whose complex
 spectra are formed from \SI{16}{\milli\second} complementary-pair samples.
+New production uses rectangular weighting: no Hann taper and no artificial
+endpoint zeros. Historical Hann records remain identifiable until reprocessed
+from available raw recordings; dewindowing cannot convert them. The saved
+\field{look_window} is authoritative; new \field{config_json} includes
+\field{window_kind=rectangular}. Do not infer weighting from the schema alone.
 Readers must inspect each record's \field{schema_version}, \field{config_json}
 and quality indicators. Legacy formats and incomplete or insufficient-coverage
 records must not be assumed to have the same usable scientific arrays.
@@ -266,8 +271,12 @@ are
  X &= \operatorname{fftshift}\bigl(\operatorname{FFT}_F(q)\bigr),
  \qquad \widetilde X=M X,
 \end{align}
-where $J$ is the scheduled pair count, $w$ is the stored unit-$L^2$ Hann
-window including validity masking, and $M$ is the archived sparse-bin mask.
+where $J$ is the scheduled pair count, $w$ is the saved unit-$L^2$ weighting
+including validity masking, and $M$ is the archived sparse-bin mask.
+For new rectangular records, $w_m=1/\sqrt{N_{\rm valid}}$ at every valid pair
+and zero only at rejected/padded samples. This constant normalization preserves
+the spectral noise-power units; it is not a taper. Historical records instead
+contain a normalized Hann taper.
 The forward FFT is unnormalized. The exact retained-signal inverse is
 \begin{equation}
  q_{\rm ret}=\operatorname{IFFT}_F\!\left(
@@ -320,8 +329,16 @@ The returned $q_{\rm ret}$ is a complex amplitude-domain signal. Its envelope is
 $|q_{\rm ret}|$, its phase is $\arg q_{\rm ret}$, and its power is
 $|q_{\rm ret}|^2$. No magnitude, conjugation, phase-calibration factor,
 or extra FFT normalization is applied before the inverse. It remains in the
-measured-TX-normalized, windowed complementary-pair domain, not original ADC
-voltage units.
+measured-TX-normalized complementary-pair domain with the saved coherent
+weights applied, not original ADC voltage units.
+
+The normal full look uses $F=128$ complementary pairs (256 decoded pulses),
+\SI{16}{\milli\second} pair spacing, and \SI{2.048}{\second} coherent duration.
+Its FFT-bin spacing is \SI{0.48828125}{\hertz}, or approximately
+\SI{1.5573}{\metre\per\second} at \SI{47}{\mega\hertz}. A partial look is padded
+to the same grid but has shorter actual duration and poorer resolving power.
+Rectangular weighting has a different leakage response from historical Hann
+weighting; do not confuse equal FFT-bin spacing with equal spectral response.
 
 The nominal sample separation is \field{effective_ipp_seconds}, normally
 \SI{0.016}{\second}. Pair times refer to the midpoint of the two pulses.
@@ -337,14 +354,39 @@ from \field{config_json}. The scheduled pair count is
 \field{scheduled_pulses_per_beam_per_look}/2. Keep all $F$ output samples for
 the FFT round trip; padding and gaps are not additional measured samples.
 
-Do not reapply the Hann window, divide it out, crop the IFFT, or discard its
+Do not reapply a window, divide pointwise by saved zeros, crop the IFFT, or discard its
 zero-padding interval before checking the round trip. Sparse-bin masking is a
 Fourier projection, so the retained-signal IFFT may be nonzero even at original
 window zeros, invalid input times or padded times. These values are not newly
-recovered measurements. Even with all coefficients, division by $w_m$ is
-undefined where $w_m=0$ and unstable near zero. The Hann endpoints and rejected
-pulse samples therefore cannot be recovered by dewindowing.
+recovered measurements. Historical Hann endpoints cannot be recovered by
+division, and small Hann weights amplify errors. New rectangular weights have
+no taper zeros: their single nonzero value is a safely reversible constant.
 
+\subsection{Removing the rectangular normalization}
+For a rectangular look let $a_\ell=\max_m w_{\ell m}$.
+The retained-bin projection in decoded pair-voltage units is simply
+$p_{{\rm ret},\ell}=q_{{\rm ret},\ell}/a_\ell$.
+With all Fourier bins retained, this recovers every valid original pair sample,
+including both endpoints. Sparse selection still omits frequencies, and values
+at rejected/padded times are not recovered measurements. The following fragment
+uses $q$ from the preceding example inside the same open-record context and
+rejects historical tapers rather than silently dividing by Hann:
+\begin{lstlisting}[language=Python]
+w = g["look_window"][()].astype(np.float64)
+a = np.max(w, axis=1)
+if (not np.isfinite(w).all() or np.any(w < 0) or np.any(a <= 0)
+        or not np.all((w == 0) | (w == a[:, None]))):
+    raise ValueError("Not rectangular: cannot undo historical Hann")
+pair_voltage = q / a[:, None, None]
+\end{lstlisting}
+The repository reader provides this as
+\field{reconstruct(record, beam, restore_pair_scale=True)}, or the command-line
+option \texttt{\detokenize{python -m pmse.reconstruct_echoes --pair-voltage}} with the usual
+root, key, beam and output arguments. Its default output retains the original
+stored-FFT normalization for backward compatibility. Keep the saved validity
+weights alongside either output and do not combine separate looks across gaps.
+
+\clearpage
 \subsection{What can and cannot be reversible}
 \begin{enumerate}
 \item \textbf{Retained complex spectrum: reversible.} Applying a forward FFT
@@ -355,16 +397,48 @@ bit-identical promise after float32 arithmetic or serialization conversions.
 the current sparse archive.} Exact recovery requires the omitted complex
 coefficients as well, or a lossless complementary residual. Two full signals
 can differ only in discarded bins yet produce the same sparse archive.
-\item \textbf{Unwindowed pair signal: additionally loses window-zero and
-rejected-pulse samples.} Full spectral storage alone does not undo those zeros.
+\item \textbf{Unwindowed pair signal: rectangular normalization is reversible.}
+With a full Fourier grid, division by the one nonzero constant restores all
+valid pair samples. Rejected samples remain absent. Historical Hann records
+additionally lose endpoint samples; their taper cannot be safely undone from
+sparse spectra.
 \item \textbf{Individual decoded pulses or raw ADC: further information is
 absent.} The pair sum does not determine its two inputs; matched filtering,
 range selection and discarded raw samples cannot be undone by an inverse FFT.
 \end{enumerate}
 Consequently, full-waveform reversibility would require an explicitly changed
 archive contract and additional stored data. That is distinct from the
-currently verified retained-spectrum FFT round trip; no such receiver or
-retention change is made by this documentation.
+currently verified retained-spectrum FFT round trip. Switching to rectangular
+weighting removes the taper loss but does not change sparse retention or undo
+the complementary-pair sum. Replacing historical Hann records requires
+reprocessing the original raw recordings, not manipulating old coefficients.
+
+\subsection{Changing the FFT length or window after downloading}
+For rectangular records, first recover the retained pair-voltage projection
+as above. A different analysis window or FFT length can then be applied to
+that complex time series. This is a reanalysis of retained information, not
+an exact recreation of an alternative processing chain applied to the full
+original decoded signal. Frequency coefficients discarded during detection
+remain unknown. Zero-padding interpolates the spectrum but does not improve
+true resolving power. Cropping or shortening looks changes their response;
+longer coherent integrations require phase-consistent, correctly timestamped
+samples and explicit handling of gaps and observing-mode boundaries.
+
+The 128-bin grid, rectangular constant normalization and retained-cell mask
+must therefore be kept as provenance even if a derived product uses another
+grid or window. For a noise-filled reanalysis, distinguish measured retained
+coefficients from synthetic omitted-bin coefficients as in Section~\ref{sec:noise}.
+
+\subsection{Historical Hann replacement}
+The requested rectangular backfill reprocesses available raw recordings
+oldest-first, using a separate one-core worker. Each new native record is
+written and read back before publication. Historical Hann groups are saved
+in a separate recovery location, then replaced atomically in the live archive;
+other records in the same file are preserved. Recovery copies are not part
+of the public download. While reprocessing is in progress, a day may contain
+both weightings: inspect each record's actual \field{look_window}.
+Expired raw recordings cannot be regenerated, so Hann records without
+available raw support cannot be converted by this procedure.
 
 \clearpage
 \section{Recovering noise information}
@@ -383,7 +457,7 @@ recovered.} What can be reconstructed is a specified statistical noise model,
 with a reproducible random seed if desired. This is a synthetic realization,
 not the original missing data.
 
-\subsection{A model consistent with the saved Hann window}
+\subsection{A model consistent with the saved coherent weights}
 
 Let $N_c=\field{noise_power}[c,b,r]$ for the chosen beam and range. Under a
 white, proper-complex Gaussian receiver-noise model, draw independent real
@@ -401,9 +475,11 @@ $\sum_m |w_{\ell m}|^2=1$, this gives
  \qquad
  \mathbb E|q^N_{\ell c m}|^2=N_c|w_{\ell m}|^2.
 \end{equation}
-This preserves Hann-induced correlation between neighboring Fourier bins.
-Drawing independent noise coefficients in every FFT bin would generally miss
-that correlation and the stored time-window/gap structure. The complementary
+This preserves the correlation induced by any saved gaps, padding, or historical
+Hann weighting. For a complete, gap-free rectangular look the modeled Fourier
+bins are independent under the white Gaussian assumption. Drawing independent
+coefficients in every bin would miss gaps, partial looks and historical taper
+correlations. The complementary
 pair sum has unit white-noise gain because of its $1/\sqrt{2}$ normalization.
 
 The following helper reads the saved windows and noise powers from an open

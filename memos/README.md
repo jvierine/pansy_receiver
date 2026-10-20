@@ -18,4 +18,8 @@ The memo includes executable retained-spectrum inverse-FFT and noise-model
 examples; `tests/test_pmse_download_memo.py` runs the printed Python examples,
 including the FFT round trip and preservation of observed bins during synthetic
 noise filling. `tests/test_pmse_reconstruction.py` tests the reversibility
-boundaries explicitly. Neither the guide nor noise simulation changes the archive.
+boundaries explicitly. The guide now covers rectangular constant-gain reversal,
+spectral resolution, and historical Hann compatibility. The noise simulation
+does not change measured coefficients; the separately requested oldest-first
+backfill reprocesses available raw recordings and replaces historical Hann
+records with recoverable, atomic publication.

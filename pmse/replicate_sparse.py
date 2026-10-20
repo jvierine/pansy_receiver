@@ -59,6 +59,20 @@ def catchup_files(files,root,now):
     return recent[:1],historical[-1:]
 
 
+def changed_files(root,receipt,relative_paths):
+    """Force changed chunks even when a Hann replacement has the same size."""
+    if not Path(receipt).exists():return list(relative_paths)
+    changed=[]
+    with h5py.File(receipt,'r') as h:
+        for relative in relative_paths:
+            if relative=='dmd_properties.h5':continue
+            st=(Path(root)/relative).stat()
+            g=h.get('files/'+relative)
+            if g is None or int(g.attrs.get('mtime_ns',-1))!=st.st_mtime_ns or int(g.attrs.get('bytes',-1))!=st.st_size:
+                changed.append(relative)
+    return changed
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--root',type=Path,default=Path('/mnt/data/juha/pansy/metadata/pmse_sparse16'))
@@ -100,11 +114,14 @@ def main():
             cutoff=time.time()-7*86400-600
             keep=['dmd_properties.h5']+[str(path.relative_to(a.root)) for path in a.root.glob('*T*/pmse@*.h5')
                 if int(path.stem.split('@')[1])>=cutoff]
+            receipt=a.metrics.with_name('rvd-revontuli-receipt.h5')
+            changed=changed_files(a.root,receipt,keep)
             values=rsync(str(a.root)+'/',f'{a.archive_host}:{a.archive_root}/',files_from=keep,preserve_times=False)
+            if changed:
+                rsync(str(a.root)+'/',f'{a.archive_host}:{a.archive_root}/',files_from=changed,preserve_times=False,force=True)
             save_metrics(a.metrics,'revontuli_to_shovel',values)
             # Only changed/new source files are rehashed. The receipt proves
             # preservation on Revontuli before any secondary expiration.
-            receipt=a.metrics.with_name('rvd-revontuli-receipt.h5')
             with h5py.File(receipt,'a') as h:
                 files=h.require_group('files')
                 for path in a.root.glob('*T*/pmse@*.h5'):

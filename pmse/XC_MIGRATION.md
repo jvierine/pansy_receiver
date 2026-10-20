@@ -26,7 +26,8 @@ available for historical reproducibility.
 Dense `noise_power[7,5,range]` and its uncertainty are stored for **every** full
 mode, even when no sparse signal cells are retained. Noise-model selection is
 therefore independent of detected echoes. Unit-energy measured-TX decoding and
-unit-L2 Hann weighting have unit white-noise gain. Export these noise estimates
+unit-L2 coherent weighting (rectangular for new data; Hann for historical data)
+have unit white-noise gain. Export these noise estimates
 with `python -m pmse.export_noise --metadata ROOT --day YYYY-MM-DD --output noise.h5`,
 then pass that HDF5 file to the existing fitter with `--measurements noise.h5`.
 It has mode-midpoint sampling, not cutout-pulse sampling. Validate colored-noise

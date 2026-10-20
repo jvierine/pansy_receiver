@@ -35,18 +35,23 @@ known-target check; the stored algebraic convention is f_D=2*f_radar*v/c.
   beams need slant ranges beyond 120 km. Store slant range and nominal height
   separately; a sidelobe return's true height depends on its recovered angle.
 - Sampling is 1 MHz, IPP 1600 samples, and the same beam repeats every 8 ms.
-  The unambiguous velocity interval is approximately +/-199.33 m/s at 47 MHz.
-- Default coherent FFT length 256 pulses per beam: 2.048 s and 1.557 m/s
-  Doppler spacing. Retain the nearest bins spanning +/-90 m/s (actual outer
-  bin centers +/-90.321 m/s). Do not reduce the Nyquist limit by pulse
-  presumming, notch the zero-Doppler region, or discard extreme Dopplers.
+  Production v2 forms adjacent complementary pairs at 16 ms spacing; its
+  full paired Nyquist interval is approximately +/-99.665 m/s at 47 MHz.
+- The production coherent FFT has 128 pair samples (256 decoded pulses per
+  beam): 2.048 s, 0.48828125 Hz and 1.557 m/s Doppler-bin spacing. Sparse
+  selection tests the full paired FFT band, without a zero-Doppler notch.
+  Partial final looks are padded to 128 but have shorter actual duration.
+  Legacy v1 used a 256-pulse, 8 ms FFT and a +/-90 m/s selected band; it is
+  not the default production product.
 - Decode with the recorded transmit pulse for each IPP, not an ideal code.
   Normalize the measured waveform to unit pulse energy. This is equivalent
   to unit mean pulse power followed by correlator division by sqrt(132).
   White receiver-noise gain is then one, independent of reference amplitude.
   Store measured transmit power summaries and the normalization convention.
-- Use linear cross-correlation, a Hann coherent window with unit L2 norm,
-  and an unnormalized forward FFT. Preserve the complex channel phases.
+- Use linear cross-correlation, rectangular valid-sample weighting (no taper),
+  and an unnormalized forward FFT. The weights are constant 1/sqrt(N_valid),
+  retaining unit white-noise gain; undo this constant after IFFT to restore
+  decoded pair-voltage units. No valid endpoints are zeroed. Preserve channel phases.
   Range spacing defaults to four samples, approximately 600 m, matching the
   old quicklook spacing. This spacing is distinct from range resolution.
 - Incoherently average **power**, preserving the complex spectrum from every
@@ -190,11 +195,44 @@ keep the regression fast; only this fixture lowers `min_looks` to four. The test
 also checks lossless complex64 serialization, completion, idempotence and gzip.
 Missing dependencies or an unbuilt Rust library fail the gate, rather than skip it.
 
-The proved contract is the **retained-bin projection of the windowed decoded
-complementary-pair voltage**, within float32 numerical precision. It does not
+The proved contract is the **retained-bin projection of the decoded
+complementary-pair voltage**, within float32 numerical precision, including
+removal of the known constant rectangular noise normalization. It does not
 claim to recover discarded Fourier coefficients, individual decoded pulses, or
 raw ADC. This is a synthetic end-to-end regression, not a validation against a
 particular live Antarctic recording. It writes only temporary local test data.
+
+New records identify `window_kind=rectangular` in `config_json`; their actual
+unit-L2 weights are stored in `look_window`. Historical Hann records remain
+unchanged and readable. The native field layout and noise units are unchanged,
+so both weightings may occur in one v2 archive: inspect each record, not just
+the schema name. Sparse selection still removes coefficients, and neither
+gaps nor the individual inputs of the pair sum become recoverable. Full FFT
+controls also check recovery of valid endpoints and zero-padded partial looks.
+`reconstruct(record, beam, restore_pair_scale=True)` (CLI `--pair-voltage`)
+undoes the rectangular constant and rejects historical nonconstant Hann
+weights. Default reconstruction preserves stored-FFT normalization for
+backward compatibility. Always retain the validity weights; nonzero projected
+values at gap or padding times do not represent measurements.
+
+### Oldest-first rectangular backfill
+
+`pansy-pmse-rectangular-backfill.service` runs the Rust processor on one additional
+logical core (affinity 1, 100% CPU quota, idle I/O, nice 19). It starts at the
+oldest currently retained eight-channel raw support, skips rectangular records,
+creates missing records, and reprocesses historical Hann records from raw data.
+It does not try to invert Hann or regenerate raw data that have expired.
+
+Replacements are first written/read through the native writer in a separate
+temporary channel. Under the shared native writer/snapshot lock, the old group
+is durably saved outside the live archive, then the complete HDF5 chunk is
+atomically replaced while preserving other groups. Existing rectangular groups
+are not overwritten; worse coverage, incompatible axes, insufficient looks and
+storage-budget exhaustion fail closed. Recovery groups are retained in the
+separate `pmse_sparse16_hann_recovery` directory and are not downloaded or mirrored
+as live data. Archive and viewer caches/transfer checks recognize replacements
+with unchanged record keys or byte lengths. This worker stops on completion;
+on failure systemd retries after five minutes. It never restarts acquisition.
 
 For commissioning on Syowa, use one worker and low scheduling priority:
 

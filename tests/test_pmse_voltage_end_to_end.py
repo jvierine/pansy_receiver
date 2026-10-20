@@ -74,7 +74,7 @@ class DecodedVoltageEndToEnd(unittest.TestCase):
             valid = np.ones(cycle_count, dtype=bool)
             if offset <= bad_cycle < offset + cycle_count:
                 valid[bad_cycle - offset] = False
-            window = np.hanning(cycle_count * 2) * np.repeat(valid, 2)
+            window = np.repeat(valid, 2).astype(float)
             window /= np.sqrt(np.sum(window**2))
             cls.windows.append(np.pad(window, (0, cfg.nfft - len(window))))
             offset += cycle_count
@@ -129,10 +129,16 @@ class DecodedVoltageEndToEnd(unittest.TestCase):
         self.assertIn("Rust DSP", saved["generator"])
         self.assertEqual(json.loads(saved["skipped_looks_json"]), [])
         self.assertEqual(int(saved["n_coherent_looks"]), 4)
+        self.assertEqual(json.loads(saved["config_json"])["window_kind"], "rectangular")
+        self.assertIn("rectangular", saved["normalization"])
         self.assertEqual(int(saved["n_recovered_cycle_markers"]), 1)
         self.assertEqual(int(np.count_nonzero(saved["tx_cycle_verified"] == 0)), 1)
         np.testing.assert_array_equal(saved["scheduled_pulses_per_beam_per_look"], [128, 128, 128, 64])
         np.testing.assert_allclose(saved["look_window"], self.windows, atol=3e-8)
+        # No artificial endpoint zeros, including the short final look.
+        self.assertTrue(np.all(saved["look_window"][:, 0] > 0))
+        for look, cycles in enumerate(self.cycle_counts):
+            self.assertGreater(saved["look_window"][look, 2 * cycles - 1], 0)
         np.testing.assert_array_equal(saved["spectra"], self.produced["spectra"])
         np.testing.assert_array_equal(saved["sparse_index"], self.produced["sparse_index"])
         self.assertEqual(saved["spectra"].dtype, np.dtype("complex64"))
@@ -171,6 +177,10 @@ class DecodedVoltageEndToEnd(unittest.TestCase):
             strong = abs(expected) > .01 * abs(expected).max()
             self.assertLess(float(abs(np.angle(actual[strong] * expected[strong].conj())).max()), 2e-5)
             self.assertGreater(np.linalg.norm(actual - expected.conj()), .1 * np.linalg.norm(expected))
+            # Constant normalization is reversible, even with gaps/short looks.
+            pair_voltage = reconstruct(self.saved, beam, restore_pair_scale=True)
+            pair_expected = expected / np.max(self.windows, axis=1)[:, None, None, None]
+            np.testing.assert_allclose(pair_voltage, pair_expected, rtol=4e-5, atol=8e-5)
         print("\nDecoded voltage E2E: retained cells=" + str(len(index)) +
               ", relative complex L2 errors by beam=" + str(errors))
 
@@ -183,6 +193,12 @@ class DecodedVoltageEndToEnd(unittest.TestCase):
             np.testing.assert_array_equal(h["decoded_echo"][()], reconstruct(self.saved, 3))
             np.testing.assert_array_equal(h["look_window"][()], self.saved["look_window"])
             self.assertEqual(h.attrs["axis_order"], "coherent_look,rx_channel,pair_time,range")
+        subprocess.run([sys.executable, "-m", "pmse.reconstruct_echoes", str(self.archive),
+                        "--key", str(self.key), "--beam", "3", "--pair-voltage", "--output", str(output)],
+                       cwd=Path(__file__).resolve().parents[1], check=True, capture_output=True)
+        with h5py.File(output) as h:
+            np.testing.assert_array_equal(h["decoded_echo"][()], reconstruct(self.saved, 3, restore_pair_scale=True))
+            self.assertEqual(h.attrs["amplitude_domain"], "decoded complementary pair voltage")
 
 
 if __name__ == "__main__":

@@ -41,8 +41,11 @@ class Config:
     false_alarm_per_record: float = 1e-3
     min_looks: int = 16
     beam_elevation_deg: tuple = (90., 80., 80., 80., 80.)
+    window_kind: str = 'rectangular'
 
     def validate(self):
+        if self.window_kind != 'rectangular':
+            raise ValueError('New spectra require rectangular weighting; historical windows remain in look_window')
         if self.nfft < 8 or self.nfft % 4 or self.ipp_samples <= self.tx_samples:
             raise ValueError('nfft must be a multiple of four >=8; pulse must fit IPP')
         nyquist = self.sample_rate_hz/(10*self.ipp_samples*(2 if self.complementary_pairs else 1))*C/(2*self.radar_frequency_hz)
@@ -89,9 +92,21 @@ def decode_pulses(rx,tx,cfg):
 
 
 def coherent_window(count,pulse_valid=None):
-    window=np.hanning(count).astype(np.float32)
+    """Constant valid-sample weight, no taper; unit L2 preserves noise units.
+
+    Multiplying the inverse FFT by sqrt(number of valid samples) removes this
+    constant gain. Only explicitly rejected samples have zero weight. Historical
+    Hann records must be interpreted using their saved look_window, not this
+    current-producer helper.
+    """
+    if count < 1:
+        raise ValueError('Need a positive coherent sample count')
+    window=np.ones(count,dtype=np.float32)
     if pulse_valid is not None:
-        window*=np.asarray(pulse_valid,dtype=np.float32)
+        valid=np.asarray(pulse_valid,dtype=bool)
+        if valid.shape != (count,):
+            raise ValueError('Invalid pulse mask length')
+        window*=valid
     norm=np.linalg.norm(window)
     if norm<=0:
         raise ValueError('No usable coherent window support')
@@ -170,8 +185,9 @@ def sparsify(spectra,cfg,noise_reference=None):
     noise = np.median(noise_mean[:,:,guard,:],axis=2)/median_bias
     if not np.isfinite(noise).all() or np.any(noise <= 0):
         raise ValueError('Invalid decoded-noise estimate')
-    # Hann adjacent spectral bins correlate. Half the guard count is a
-    # conservative effective count for the median-uncertainty approximation.
+    # Keep the conservative guard count: gaps and zero-padding still correlate
+    # bins even with rectangular weighting. Do not silently tighten detection
+    # significance when changing the taper.
     guard_neff = max(1.,guard.sum()/2.)
     noise_rel_se = 1.253314137/np.sqrt(k*guard_neff)
     normalized = power/noise[None,:,:,None,:]
@@ -216,7 +232,7 @@ def sparsify(spectra,cfg,noise_reference=None):
         snr_definition='10log10((ensemble_total_power/noise)-1); whitened channel-power mean',
         spectra_axis_order='coherent_look,rx_channel,sparse_cell',
         sparse_index_columns='beam,full_fft_bin,range_axis_index',
-        normalization='measured TX unit pulse energy; Hann window unit L2; unnormalized FFT',
+        normalization='measured TX unit pulse energy; rectangular valid-sample weights unit L2; unnormalized FFT',
         detection_statistics='F tail approximation; channel correlation conservatively bounded; Bonferroni per record',
         quality='insufficient_looks' if k<cfg.min_looks else 'ok',
         generator='pmse/sparse_record.py',
@@ -229,7 +245,7 @@ def sparsify(spectra,cfg,noise_reference=None):
             pair_normalization='(decoded_first+decoded_second)/sqrt(2); unit white-noise gain',
             pair_phase_reference='midpoint of two pulses separated by 8 ms',
             pair_voltage_doppler_response=np.cos(np.pi*freq*5*cfg.ipp_samples/cfg.sample_rate_hz),
-            normalization='measured TX unit pulse energy; complementary sum /sqrt(2); pair Hann unit L2; unnormalized FFT')
+            normalization='measured TX unit pulse energy; complementary sum /sqrt(2); rectangular pair weights unit L2; unnormalized FFT')
     return out
 
 

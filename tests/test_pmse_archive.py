@@ -5,11 +5,25 @@ import h5py
 from pmse.web_retention import expire,sha256
 from pmse.archive_inventory import inventory
 from pmse.snapshot_archive import snapshot
-from pmse.replicate_sparse import catchup_files
+from pmse.replicate_sparse import catchup_files,changed_files
 import numpy as np
 
 
 class ArchiveTests(unittest.TestCase):
+    def test_same_size_changed_native_chunk_is_forced_to_web(self):
+        import os
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);relative='2026-10-20T00-00-00/pmse@600.h5'
+            path=root/relative;path.parent.mkdir();path.write_bytes(b'Hann')
+            receipt=root/'receipt.h5';st=path.stat()
+            with h5py.File(receipt,'w') as h:
+                g=h.require_group('files/'+relative)
+                g.attrs.update(mtime_ns=st.st_mtime_ns,bytes=st.st_size)
+            self.assertEqual(changed_files(root,receipt,[relative]),[])
+            path.write_bytes(b'Rect')
+            os.utime(path,ns=(st.st_atime_ns,st.st_mtime_ns+1_000_000))
+            self.assertEqual(changed_files(root,receipt,[relative]),[relative])
+
     def test_snapshot_compacts_without_changing_scientific_values(self):
         with tempfile.TemporaryDirectory() as directory:
             source=Path(directory)/'source';source.mkdir();dest=Path(directory)/'copy'

@@ -17,6 +17,7 @@ from urllib.parse import urlparse, parse_qs
 
 import h5py
 import numpy as np
+from .publish_rvd import native_revision
 
 HEIGHT_KM=85.290954301
 _render_lock=threading.Lock()
@@ -66,12 +67,13 @@ def day_packet(root,day,manifest):
                     schema=g['schema_version'][()].decode()
                     if schema!='pansy_pmse_sparse16_v2':raise ValueError('Refusing mixed/legacy sparse product')
                     packets.append(dict(key=key,start_us=begin,stop_us=end,
+                        source_revision=native_revision(g),
                         duration_s=float(g['mode_duration_seconds'][()]),coverage_s=float(g['coverage_seconds'][()]),
                         looks=int(g['n_coherent_looks'][()]),quality=g['quality'][()].decode(),
                         product_schema=schema,index=g['sparse_index'][()].tolist(),snr_db=g['detector_snr_db'][()].tolist(),
                         look_dominance=None,look_persistence=None))
     packets.sort(key=lambda p:p['start_us'])
-    revision=hashlib.sha256(('16ms:'+day+','.join(p['key'] for p in packets)).encode()).hexdigest()[:16]
+    revision=hashlib.sha256(('16ms:'+day+','.join(p['key']+':'+p['source_revision'] for p in packets)).encode()).hexdigest()[:16]
     return dict(manifest,selected_day=day,revision=revision,axis_start_us=start,axis_stop_us=stop,
                 first_mode_us=min((p['start_us'] for p in packets),default=start),
                 latest_mode_us=max((p['stop_us'] for p in packets),default=start),

@@ -48,7 +48,7 @@ def export(root,day,output):
     with h5py.File(output,'w') as h:
         h.attrs.update(day=day,source=str(root),per_module=1,n_modules=7,guard_samples=0,
             power_estimator='median range of bias-corrected guard-bin mean periodograms',
-            calibration_h5='',normalization='unit-energy measured TX; unit-L2 Hann; raw receiver voltage power',
+            calibration_h5='',normalization='unit-energy measured TX; unit-L2 saved coherent weights (rectangular or historical Hann); raw receiver voltage power',
             description='Five beam rows per full mode; dense noise retained independently of detection. '
                         'White-noise gain is one. Colored-noise/filter response needs validation before Kelvin-fit reuse.',
             temporal_sampling='mode midpoints, not individual pulses')

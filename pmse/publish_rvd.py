@@ -9,11 +9,20 @@ import argparse
 from datetime import datetime,timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import time
 import h5py
 import numpy as np
+
+
+def native_revision(group):
+    """Invalidate cached packets when a historical native chunk is replaced."""
+    # Use the opened inode: an atomic replacement may change the pathname
+    # while this reader legitimately still holds the old complete file.
+    st=os.fstat(group.file.id.get_vfd_handle())
+    return hashlib.sha256(f'{group.name}:{st.st_ino}:{st.st_mtime_ns}:{st.st_size}'.encode()).hexdigest()[:16]
 
 
 def packet(group,key):
@@ -28,6 +37,7 @@ def packet(group,key):
     else:
         dominance=np.empty(0); persistence=np.empty(0,dtype=int)
     return dict(key=str(key),start_us=int(group['mode_start_sample'][()]),
+        source_revision=native_revision(group),
         product_schema=group['schema_version'][()].decode(),
         stop_us=int(group['mode_stop_sample_exclusive'][()]),
         duration_s=float(group['mode_duration_seconds'][()]),
@@ -75,7 +85,8 @@ def export(root,output,hours=0):
                                 beam_elevation_deg=g['beam_elevation_deg'][()].tolist())
                         path=output/'frames'/f'{name}.json'
                         item=json.loads(path.read_text()) if path.exists() else None
-                        if item is None or item.get('product_schema')!='pansy_pmse_sparse16_v2':
+                        if (item is None or item.get('product_schema')!='pansy_pmse_sparse16_v2'
+                                or item.get('source_revision')!=native_revision(g)):
                             item=packet(g,int(name)); atomic_json(path,item)
                         packets.append(item)
             except (OSError,KeyError,ValueError) as error:
@@ -84,7 +95,7 @@ def export(root,output,hours=0):
     if not packets:
         raise ValueError('No complete sparse records in viewer window')
     latest=packets[-1]
-    identity=hashlib.sha256(('16ms:'+','.join(p['key'] for p in packets)).encode()).hexdigest()[:16]
+    identity=hashlib.sha256(('16ms:'+','.join(p['key']+':'+p['source_revision'] for p in packets)).encode()).hexdigest()[:16]
     velocity=np.asarray(geometry['velocity_mps']);nyquist=abs(float(velocity[0]))
     manifest=dict(schema='pansy_rvd_plot_v2',source_schema='pansy_pmse_sparse16_v2',revision=identity,
         available_days=available_days,selected_day=available_days[-1],

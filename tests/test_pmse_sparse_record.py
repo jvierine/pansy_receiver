@@ -141,6 +141,15 @@ class SparseRecordTests(unittest.TestCase):
         window=coherent_window(cfg.nfft,valid)
         self.assertTrue(np.all(window[48:52]==0))
         self.assertAlmostEqual(float((window**2).sum()),1.,places=6)
+        np.testing.assert_array_equal(window[valid],np.full(valid.sum(),window[0],dtype='float32'))
+        self.assertGreater(window[0],0)
+        self.assertEqual(window[0],window[-1])
+
+    def test_rectangular_mask_validation(self):
+        with self.assertRaises(ValueError):coherent_window(0)
+        with self.assertRaises(ValueError):coherent_window(8,[True]*7)
+        with self.assertRaises(ValueError):coherent_window(8,np.zeros(8,bool))
+        with self.assertRaises(ValueError):replace(Config(),window_kind='hann').validate()
 
     def test_native_digital_metadata_roundtrip_empty_and_signal(self):
         z=self.noise(); ri,_,_,valid,_,_=axes(self.cfg)
