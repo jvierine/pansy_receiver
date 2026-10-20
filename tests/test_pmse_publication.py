@@ -49,6 +49,7 @@ class PublicationTests(unittest.TestCase):
                     self.assertIn(str(key),h['frames'])
 
     def test_source_worker_status_is_small_and_contains_no_access_details(self):
+        self.assertEqual(parse_worker(['0','null','[]','"started"','not json']),{})
         b=parse_worker(['Rectangular backfill 254/2374: 1791992495895760..1791992582199772',
                        '{"start":1791992277895729,"result":"created","selected":4,"seconds":86.9}'],True)
         self.assertEqual(b['current_index'],254)

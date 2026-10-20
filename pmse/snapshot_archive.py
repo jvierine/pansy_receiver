@@ -40,7 +40,11 @@ if __name__=='__main__':
     a=p.parse_args();print(snapshot(a.source,a.destination,force=a.compact_all))
     # Outside the writer lock. This tiny status copy makes processing progress
     # visible independently of multi-megabyte historical voltage transfers.
-    from .processing_status import status
-    temporary=a.destination/'processing-status.json.partial'
-    temporary.write_text(json.dumps(status()))
-    temporary.replace(a.destination/'processing-status.json')
+    try:
+        from .processing_status import status
+        temporary=a.destination/'processing-status.json.partial'
+        temporary.write_text(json.dumps(status()))
+        temporary.replace(a.destination/'processing-status.json')
+    except Exception as error:
+        # Optional telemetry must not prevent delivery of completed snapshots.
+        print(f'Worker status unavailable; native snapshots remain ready: {error}',flush=True)

@@ -12,6 +12,7 @@ def parse_worker(lines, backfill=False):
             value=json.loads(line)
         except (ValueError,TypeError):
             value={}
+        if not isinstance(value,dict):value={}
         if 'start' in value and ('result' in value or 'processing_seconds' in value):
             result['last_written_start_us']=int(value['start'])
             if 'seconds' in value and not backfill:
@@ -38,7 +39,7 @@ def status():
                                   text=True,capture_output=True,timeout=5)
             worker['state']=active.stdout.strip() or 'unknown'
             output[name]=worker
-        except (OSError,subprocess.SubprocessError):
+        except (OSError,subprocess.SubprocessError,ValueError,TypeError,KeyError):
             output[name]=dict(state='unknown')
     return output
 
