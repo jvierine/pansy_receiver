@@ -164,6 +164,38 @@ conda run -n base python -m pmse.sparse_record --output /path/to/new/channel --l
 conda run -n base python -m pmse.inspect_sparse_record /path/to/new/channel --output detected_cells.png
 ```
 
+### End-to-end decoded complex-voltage recovery gate
+
+After building the Rust DSP above, run (requires `digital-rf`, NumPy, SciPy,
+HDF5/h5py and pytest in the selected Python environment):
+
+```sh
+python -m pytest -q -s tests/test_pmse_voltage_end_to_end.py
+```
+
+This test creates real temporary eight-channel Digital RF recordings and TX
+Digital Metadata, calls `process_mode(..., backend='rust')`, performs production
+statistical sparsification, writes and rereads the actual compressed native
+archive, and runs both the inverse reconstruction function and its command-line
+interface. No production component is mocked. An independent oracle uses
+direct measured-TX matched-filter dot products and explicit DFT matrices, rather
+than production decoding, windowing or FFT functions. Assertions compare complex
+voltage, absolute amplitude and phase, not only power or FFT self-consistency.
+
+The deterministic fixture exercises all seven receiver channels and five beams,
+multiple ranges, positive and negative Doppler, nonconstant measured TX amplitude
+and phase, one rejected zero-TX cycle, one recovered missing metadata marker, and
+a partial final look with zero padding. Four looks and a reduced 64-point FFT
+keep the regression fast; only this fixture lowers `min_looks` to four. The test
+also checks lossless complex64 serialization, completion, idempotence and gzip.
+Missing dependencies or an unbuilt Rust library fail the gate, rather than skip it.
+
+The proved contract is the **retained-bin projection of the windowed decoded
+complementary-pair voltage**, within float32 numerical precision. It does not
+claim to recover discarded Fourier coefficients, individual decoded pulses, or
+raw ADC. This is a synthetic end-to-end regression, not a validation against a
+particular live Antarctic recording. It writes only temporary local test data.
+
 For commissioning on Syowa, use one worker and low scheduling priority:
 
 ```sh
