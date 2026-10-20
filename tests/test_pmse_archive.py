@@ -84,10 +84,31 @@ class ArchiveTests(unittest.TestCase):
                 self.assertEqual(result['dense_complex_samples'],14000)
                 self.assertEqual(result['dense_retention_records'],2)
                 self.assertAlmostEqual(result['dense_complex_sample_retained_fraction'],.01)
+                self.assertEqual(result['hourly_dense_retained_fraction'],[.01])
             with h5py.File(path,'a') as h:
                 g=h.create_group('1300000000');g['complete']=1;g['mode_stop_sample_exclusive']=1_400_000_000
             self.assertIsNone(inventory(directory)['complex_sample_retained_fraction'])
             self.assertIsNone(inventory(directory)['dense_complex_sample_retained_fraction'])
+            self.assertEqual(inventory(directory)['hourly_dense_retained_fraction'],[None])
+
+    def test_hourly_retention_uses_sample_totals_and_leaves_missing_hours_blank(self):
+        with tempfile.TemporaryDirectory() as directory:
+            hour=Path(directory)/'1970-01-01T00-00-00';hour.mkdir()
+            for seconds,looks,cells in [(600,2,10),(1200,8,0),(7200,2,40)]:
+                with h5py.File(hour/f'pmse@{seconds}.h5','w') as h:
+                    g=h.create_group(str(seconds*1_000_000));g['complete']=1
+                    g['mode_stop_sample_exclusive']=seconds*1_000_000+86_000_000
+                    g['n_tested_cells']=100
+                    g.create_dataset('noise_power',shape=(7,5,10),dtype='float32')
+                    g.create_dataset('radial_velocity_mps',shape=(4,),dtype='float64')
+                    g.create_dataset('slant_range_km',shape=(10,),dtype='float64')
+                    g.create_dataset('spectra',shape=(looks,7,cells),dtype='complex64')
+            for _ in range(2):
+                result=inventory(directory)
+                self.assertEqual(result['hourly_unix_s'],[0,3600,7200])
+                self.assertEqual(result['hourly_retained_complex_samples'],[140,0,560])
+                self.assertEqual(result['hourly_dense_complex_samples'],[14000,0,2800])
+                self.assertEqual(result['hourly_dense_retained_fraction'],[.01,None,.2])
 
 
 if __name__=='__main__':unittest.main()
