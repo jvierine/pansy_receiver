@@ -8,8 +8,11 @@ users require registered guest accounts and approved access.
 
 PANSY RVD uses ordinary outbound SSH, without port forwarding:
 Syowa publishes stable HDF5 snapshots to juha.no; Revontuli pulls its copy from
-juha.no. The public RVD API and plotting service run on juha.no against its
-local archive. Never proxy public requests into Revontuli.
+juha.no. Syowa produces the complex spectra. The browser computes imaging,
+moments and plots. juha.no serves the archive and lightweight GUI metadata;
+never run radar processing, complex-spectra reductions or periodic plot builds
+there. Cached native axis decorations and metadata indexing are permitted.
+Never proxy public requests into Revontuli.
 
 Date: 2026-06-03
 

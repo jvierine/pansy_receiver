@@ -5,10 +5,12 @@ import tempfile
 import io
 import tarfile
 import unittest
+from unittest.mock import patch
 import h5py
 import numpy as np
 from pmse.serve_browser import existing_packet,day_packet,day_archive_files,stream_day_archive
 from pmse.sparse_record import pending_modes,bounded_modes
+from pmse.publish_gui import MetadataCache
 
 
 class BrowserTransportTests(unittest.TestCase):
@@ -56,11 +58,19 @@ class BrowserTransportTests(unittest.TestCase):
             self.assertEqual(m['axis_stop_us']-m['axis_start_us'],86400_000_000)
             self.assertEqual(day_packet(root,'2026-10-18',{})['frame_count'],0)
             self.assertIsNone(m['frame_packets'][0]['look_dominance'])
+            cache=MetadataCache(root/'cache')
+            cached=day_packet(root,'2026-10-19',{},cache)
+            # A subsequent page refresh (even a fresh publisher process) must
+            # use local metadata and never reopen unchanged archive HDF5.
+            with patch('pmse.serve_browser.h5py.File',side_effect=AssertionError('Archive reopened')):
+                again=day_packet(root,'2026-10-19',{},MetadataCache(root/'cache'))
+            self.assertEqual(again,cached)
             with h5py.File(directory/'pmse@1792432800.h5','a') as h:
                 h[str(key)]['detector_snr_db'][...]=[9.]
             updated=day_packet(root,'2026-10-19',{})
             self.assertNotEqual(m['revision'],updated['revision'])
             self.assertEqual(updated['frame_packets'][0]['snr_db'],[9.])
+            self.assertEqual(day_packet(root,'2026-10-19',{},cache)['frame_packets'][0]['snr_db'],[9.])
 
     def test_selected_range_all_channels_and_bounded_looks(self):
         key=1792433051921664

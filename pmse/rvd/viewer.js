@@ -3,6 +3,8 @@ import init from './pkg/rustplotlib_web.js';
 import {imageSelection} from './imaging.js?v=sparse-1';
 import {InteractiveFieldPlot} from './lib/interactive_plot.js?v=colorbar-1';
 const $=id=>document.getElementById(id), names=['Zenith','North','East','South','West'];
+// Start data I/O while WebAssembly initializes.
+let initialResponse=fetch('./data/manifest.json',{cache:'no-cache'}).catch(error=>({error}));
 let manifest,frames=[],plots=[],rd,playing=null,selected=0,revision='',rtiPlot,rdPlot,tdPlot;
 let chosenDay='',refreshSequence=0;
 const axisStart=()=>manifest.axis_start_us??manifest.first_mode_us;
@@ -13,6 +15,7 @@ const edges=centers=>Float32Array.from([...centers.map((x,i)=>i?(centers[i-1]+x)
 async function mountPlots(){
  const hours=(axisStop()-axisStart())/3.6e9,origin=axisStart()/1e6;
  const spec={bounds:[0,50,Math.max(hours,.001),120],xlabel:'Time (UTC)',ylabel:'Nominal altitude (km)',colorbar_label:'SNR (dB)',panels:names,utc_origin_seconds:origin};
+ const mounts=[(async()=>{
  if(!rtiPlot){
   rtiPlot=await InteractiveFieldPlot.mount($('rti'),{id:'rti',spec,frameParameters:{day:dayNumber()},colorLimits:[+$('low').value,+$('high').value],onSelect:({panel,x,y})=>{
    const time=axisStart()+x*3.6e9;
@@ -24,9 +27,12 @@ async function mountPlots(){
   }});
   plots=rtiPlot.panels.map(p=>({canvas:p.canvas,view:p,owner:rtiPlot}));
  }else rtiPlot.setSpec(spec);
+ })(),(async()=>{
  const [v0,v1]=manifest.velocity_limits_mps;
  if(!rdPlot){rdPlot=await InteractiveFieldPlot.mount($('rd'),{id:'rd',frameParameters:{day:dayNumber()},spec:{bounds:[v0,50,v1,120],xlabel:'Radial velocity (m/s)',ylabel:'Nominal altitude (km)',colorbar_label:'SNR (dB)',panels:['Spectrum']},colorLimits:[+$('low').value,+$('high').value],onSelect:({y})=>imageSelection(frames[selected].key,y/Math.sin(manifest.geometry.beam_elevation_deg[+$('rdbeam').value]*Math.PI/180))});rd={view:rdPlot.panels[0],owner:rdPlot};}
  rdPlot.setFrameParameters({day:dayNumber()});
+ })(),(async()=>{
+ const [v0,v1]=manifest.velocity_limits_mps;
  const tdSpec={bounds:[0,v0,Math.max(hours,.001),v1],xlabel:'Time (UTC)',ylabel:'Radial velocity (m/s)',colorbar_label:'SNR (dB)',panels:names,utc_origin_seconds:origin};
  if(!tdPlot){tdPlot=await InteractiveFieldPlot.mount($('timeDoppler'),{id:'td',frameParameters:{day:dayNumber()},spec:tdSpec,colorLimits:[+$('low').value,+$('high').value],onSelect:({panel,x})=>{
   const time=axisStart()+x*3.6e9;
@@ -34,6 +40,8 @@ async function mountPlots(){
   $('rdbeam').value=String(panel);$('frame').value=String(selected);renderRD();
  }});}else tdPlot.setSpec(tdSpec);
  tdPlot.setFrameParameters({day:dayNumber()});
+ })()];
+ await Promise.all(mounts);
 }
 function scale(p){const [low,high]=p.owner.getColorLimits();p.view.set_scale(low,high,0,.1,2);}
 function summaries(frame,beam,nr){
@@ -86,7 +94,9 @@ function renderRD(){
 }
 async function refresh(){
   const request=++refreshSequence;
-  const response=await fetch('./data/manifest.json',{cache:'no-cache'});if(!response.ok)throw Error(`Data unavailable (${response.status})`);
+  const response=initialResponse?await initialResponse:await fetch('./data/manifest.json',{cache:'no-cache'});initialResponse=null;
+  if(response.error)throw response.error;
+  if(!response.ok)throw Error(`Data unavailable (${response.status})`);
   let m=await response.json();
   renderProcessingStatus(m);
   const days=m.available_days||[];
@@ -104,8 +114,11 @@ async function refresh(){
   $('archivePlot').hidden=m.plot_generation_status&&m.plot_generation_status!=='ready';
   if(!($('archivePlot').hidden)&&m.transfer?.archive?.hourly_unix_s?.length){const width=document.body.clientWidth<900?640:960;
     $('archivePlot').src=`./data/axes/archive-growth-${width}.svg?v=${m.generated_utc}`;$('archivePlot').style.width=width+'px';$('archivePlot').hidden=false;}
-  const daily=await fetch(`./api/day?day=${encodeURIComponent(chosenDay)}`,{cache:'no-cache'});if(!daily.ok)throw Error('Selected UTC day is unavailable');
-  m=await daily.json();if(request!==refreshSequence)return;
+  if(m.selected_day!==chosenDay||!m.frame_packets){
+   const daily=await fetch(`./api/day?day=${encodeURIComponent(chosenDay)}`,{cache:'no-cache'});if(!daily.ok)throw Error('Selected UTC day is unavailable');
+   m=await daily.json();
+  }
+  if(request!==refreshSequence)return;
   const age=(Date.now()-m.latest_mode_us/1000)/60000;
   $('status').textContent=m.frame_count?`${m.frame_count} observing modes · latest ${utc(m.latest_mode_us)} · ${Math.max(0,age).toFixed(0)} min behind now`:`${chosenDay} UTC · no observations delivered yet`;
   const download=$('downloadSpectra');
@@ -119,6 +132,7 @@ async function refresh(){
   if(!frames.length){$('status').textContent=`${chosenDay} UTC · no complete 16 ms records yet`;return;}
   await mountPlots();
   $('sidecar').href='./data/'+m.sidecar;renderRTI();renderRD();
+  requestAnimationFrame(()=>{document.body.dataset.plotsReadyMs=String(Math.round(performance.now()));});
 }
 function renderProcessingStatus(m){
   const s=m.source_processing,node=$('processingStatus');node.hidden=!s;

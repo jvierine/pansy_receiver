@@ -9,6 +9,7 @@ import struct
 import subprocess
 import threading
 import tarfile
+import gzip
 from datetime import datetime,timezone,timedelta
 from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -48,7 +49,7 @@ def stream_day_archive(output,root,files):
                 archive.addfile(info,source)
 
 
-def day_packet(root,day,manifest):
+def day_packet(root,day,manifest,cache=None):
     """One UTC day from existing native metadata; never read voltage spectra."""
     first=datetime.strptime(day,'%Y-%m-%d').replace(tzinfo=timezone.utc)
     if first.strftime('%Y-%m-%d')!=day:raise ValueError('Invalid UTC day')
@@ -57,21 +58,27 @@ def day_packet(root,day,manifest):
     dirs=list(root.glob(day+'T*'))+list(root.glob((first-timedelta(days=1)).strftime('%Y-%m-%d')+'T23*'))
     for directory in sorted(dirs):
         for path in sorted(directory.glob('pmse@*.h5')):
+            cached=cache.get(path) if cache is not None else None
+            if cached is not None:
+                packets.extend(p for p in cached if p['stop_us']>start and p['start_us']<stop)
+                continue
+            entries=[]
             with h5py.File(path,'r') as h:
                 for key in sorted(h):
                     if not key.isdigit():continue
                     g=h[key]
                     if 'complete' not in g or int(g['complete'][()])!=1:continue
                     begin=int(g['mode_start_sample'][()]);end=int(g['mode_stop_sample_exclusive'][()])
-                    if end<=start or begin>=stop:continue
                     schema=g['schema_version'][()].decode()
                     if schema!='pansy_pmse_sparse16_v2':raise ValueError('Refusing mixed/legacy sparse product')
-                    packets.append(dict(key=key,start_us=begin,stop_us=end,
+                    entries.append(dict(key=key,start_us=begin,stop_us=end,
                         source_revision=native_revision(g),
                         duration_s=float(g['mode_duration_seconds'][()]),coverage_s=float(g['coverage_seconds'][()]),
                         looks=int(g['n_coherent_looks'][()]),quality=g['quality'][()].decode(),
                         product_schema=schema,index=g['sparse_index'][()].tolist(),snr_db=g['detector_snr_db'][()].tolist(),
                         look_dominance=None,look_persistence=None))
+            if cache is not None:cache.put(path,entries)
+            packets.extend(p for p in entries if p['stop_us']>start and p['start_us']<stop)
     packets.sort(key=lambda p:p['start_us'])
     revision=hashlib.sha256(('16ms:'+day+','.join(p['key']+':'+p['source_revision'] for p in packets)).encode()).hexdigest()[:16]
     return dict(manifest,selected_day=day,revision=revision,axis_start_us=start,axis_stop_us=stop,
@@ -150,7 +157,10 @@ def main():
     renderer=Path(__file__).parent/'plotting/target/release/pansy-pmse-plots'
     class Handler(BaseHTTPRequestHandler):
         def send(self,data,kind='application/json',status=200):
+            compressed=kind=='application/json' and len(data)>1024 and 'gzip' in self.headers.get('Accept-Encoding','')
+            if compressed:data=gzip.compress(data,compresslevel=1)
             self.send_response(status);self.send_header('Content-Type',kind);self.send_header('Content-Length',str(len(data)))
+            if compressed:self.send_header('Content-Encoding','gzip');self.send_header('Vary','Accept-Encoding')
             self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(data)
         def do_GET(self):
             try:
@@ -170,6 +180,11 @@ def main():
                     return self.send(json.dumps(geo).encode())
                 if url.path.endswith('/day'):
                     q=parse_qs(url.query);m=json.loads(a.manifest.read_text())
+                    # Prepared local GUI packets avoid all archive I/O on page load.
+                    day=q['day'][0]
+                    if datetime.strptime(day,'%Y-%m-%d').strftime('%Y-%m-%d')!=day:raise ValueError('Invalid UTC day')
+                    prepared=a.manifest.parent/'days'/f'{day}.json'
+                    if prepared.exists():return self.send(prepared.read_bytes())
                     return self.send(json.dumps(day_packet(a.root,q['day'][0],m),separators=(',',':'),allow_nan=False).encode())
                 if url.path.endswith('/spectra'):
                     q=parse_qs(url.query);key=int(q['key'][0]);r=float(q['range_km'][0]);offset=float(q.get('offset_s',['0'])[0])

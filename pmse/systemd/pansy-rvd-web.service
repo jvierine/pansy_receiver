@@ -1,17 +1,17 @@
 [Unit]
-Description=PANSY sparse echo data publication for the RVD viewer
+Description=Prepare lightweight PANSY RVD GUI metadata (no radar processing)
 After=network-online.target
 
 [Service]
 Type=simple
 WorkingDirectory=/home/j/src/pansy_pmse_sparse
 Environment=OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
-ExecStart=/home/j/venv/pansy-rvd/bin/python -u -m pmse.publish_rvd --root /mnt/shovel/rvd/pmse_sparse16 --output /var/www/rvd-live/data --plot-archive-local /mnt/shovel/rvd/plot-data --loop
+ExecStart=/home/j/venv/pansy-rvd/bin/python -u -m pmse.publish_gui --root /mnt/shovel/rvd/pmse_sparse16 --output /var/www/rvd-live/data --loop
 Restart=on-failure
 RestartSec=60
 Nice=15
-CPUQuota=50%
-MemoryMax=2G
+CPUQuota=20%
+MemoryMax=512M
 
 [Install]
 WantedBy=default.target
