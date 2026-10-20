@@ -87,6 +87,7 @@ body[data-display=hsv] .hsv-settings { display: block; }
 .support-content .status { margin: 12px 0; }
 .figure-scroll { overflow: auto; background: var(--paper); border-radius: 6px; }
 .figure-scroll img { display: block; }
+.figure-scroll img[hidden] { display: none; }
 #error { white-space: pre-wrap; overflow-wrap: anywhere; color: #a13c35; font-size: .85rem; }
 #error:empty { display: none; }
 footer { color: var(--muted); font-size: .73rem; padding-top: 24px; margin-top: 8px; border-top: 1px solid var(--line); }

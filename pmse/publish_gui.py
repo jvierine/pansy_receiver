@@ -17,6 +17,7 @@ from .publish_rvd import atomic_json
 from .serve_browser import day_packet
 from .archive_inventory import inventory
 from .web_retention import sha256
+from .archive_plot import refresh_archive_plot
 
 
 class MetadataCache:
@@ -121,6 +122,7 @@ def publish(root, output, cache):
     current=json.loads(manifest_path.read_text())
     current.setdefault('transfer',{})['archive']=measured
     current['transfer']['archive'].update(destination=str(root),web_retention_days=7)
+    refresh_archive_plot(current,output)
     atomic_json(manifest_path,current)
 
 

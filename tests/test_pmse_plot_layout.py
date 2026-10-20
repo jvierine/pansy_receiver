@@ -25,6 +25,17 @@ class AuxiliaryLayoutTests(unittest.TestCase):
             for width in [640,960]:
                 for name in [f'noise-module-0-{width}.svg',f'archive-growth-{width}.svg']:
                     self.assertIn('<svg',(out/name).read_text())
+            # Metadata-only publication must not require an RTI time axis,
+            # noise arrays, or render any of the unrelated static frames.
+            archive_only=root/'archive-only'
+            manifest=json.loads(spec.read_text())
+            spec.write_text(json.dumps(dict(transfer=manifest['transfer'])))
+            result=subprocess.run([str(renderer),'--archive-only',str(spec),str(archive_only)],
+                                  capture_output=True,text=True,timeout=120)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertEqual(sorted(p.name for p in archive_only.glob('*.svg')),
+                             ['archive-growth-640.svg','archive-growth-960.svg'])
+            self.assertFalse((archive_only/'layouts.json').exists())
 
 
 if __name__=='__main__':unittest.main()

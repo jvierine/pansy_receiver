@@ -116,16 +116,14 @@ async function refresh(){
   const control=$('day');control.replaceChildren(...days.map(day=>{const option=document.createElement('option');option.value=day;option.textContent=day;return option;}));control.value=chosenDay;
   if(m.noise_model_status)renderNoise(m);
   if(m.transfer){const a=m.transfer.archive,t=m.transfer.syowa_to_revontuli;
-    $('transfer').textContent=`Revontuli native archive: ${(a.bytes/2**20).toFixed(2)} MiB · ${a.records} native records · ${a.files} HDF5 files. `+
+    $('transfer').textContent=`Delivered native archive: ${(a.bytes/2**20).toFixed(2)} MiB · ${a.records} native records · ${a.files} HDF5 files. `+
       (a.dense_complex_sample_retained_fraction!=null?`Complex spectra retain ${(100*a.dense_complex_sample_retained_fraction).toPrecision(3)}% of the full dense spectra (${a.retained_complex_samples.toLocaleString()} / ${a.dense_complex_samples.toLocaleString()} complex samples; all beams, Doppler bins, range gates, receiver channels and coherent looks, before altitude, velocity and detection masks). `:'Complex-spectra retained fraction: awaiting complete dense-spectrum counts. ')+
       'Storage: complex64 spectra (8 bytes/sample); float32 noise power and uncertainty (4 bytes/value), with lossless compression. '+
       (a.first_mode_us?`${utc(a.first_mode_us)} through ${utc(a.latest_mode_us)}. `:'')+
       (a.projected_bytes_per_day===null?'Daily growth: interval too short for extrapolation. ':`Provisional growth: ${(a.projected_bytes_per_day/2**20).toFixed(1)} MiB/day (${(a.projected_bytes_per_day/86400/1024).toFixed(2)} KiB/s average). `)+
       (t?`Latest Syowa replication: ${(t.literal_bytes/2**20).toFixed(2)} MiB in ${t.elapsed_seconds.toFixed(1)} s (${(t.payload_bytes_per_second/1024).toFixed(2)} KiB/s payload; cap ${t.bandwidth_cap_kib_s} KiB/s). `:'Transfer measurement pending. ')+
       'Web copy: seven-day retention; Revontuli archive retained.';}
-  $('archivePlot').hidden=m.plot_generation_status&&m.plot_generation_status!=='ready';
-  if(!($('archivePlot').hidden)&&m.transfer?.archive?.hourly_unix_s?.length){const width=document.body.clientWidth<900?640:960;
-    $('archivePlot').src=`./data/axes/archive-growth-${width}.svg?v=${m.generated_utc}`;$('archivePlot').style.width=width+'px';$('archivePlot').hidden=false;}
+  renderArchivePlot(m);
   if(m.selected_day!==chosenDay||!m.frame_packets){
    const daily=await fetch(`./api/day?day=${encodeURIComponent(chosenDay)}`,{cache:'no-cache'});if(!daily.ok)throw Error('Selected UTC day is unavailable');
    m=await daily.json();
@@ -146,6 +144,21 @@ async function refresh(){
   await mountPlots();
   $('sidecar').href='./data/'+m.sidecar;renderRTI();renderRD();
   requestAnimationFrame(()=>{document.body.dataset.plotsReadyMs=String(Math.round(performance.now()));});
+}
+function renderArchivePlot(m){
+  const plot=m.archive_plot,width=document.body.clientWidth<900?640:960;
+  const image=$('archivePlot'),status=$('archivePlotStatus');
+  // Storage diagnostics have their own lifecycle: unavailable static RTI
+  // decorations must not hide a successful (or explicitly stale) archive plot.
+  const file=plot?.files?.[width];
+  const legacy=!plot&&(!m.plot_generation_status||m.plot_generation_status==='ready')&&m.transfer?.archive?.hourly_unix_s?.length;
+  image.hidden=!(file||legacy);
+  status.textContent=plot?.generated_utc?`${plot.status==='delayed'?'Refresh delayed; showing last successful storage plots':'Storage plots updated'}: ${plot.generated_utc.replace('T',' ').slice(0,19)} UTC.`:
+    (image.hidden?'Storage plots are being prepared; archive measurements above remain available.':'');
+  if(image.hidden)return;
+  image.onerror=()=>{image.hidden=true;status.textContent='Storage plot could not be loaded; archive measurements above remain available.';};
+  image.src=`./data/${file||`axes/archive-growth-${width}.svg`}?v=${plot?.revision||m.generated_utc}`;
+  image.style.width=width+'px';
 }
 function renderProcessingStatus(m){
   const s=m.source_processing,node=$('processingStatus');node.hidden=!s;

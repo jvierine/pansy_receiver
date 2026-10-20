@@ -5,14 +5,14 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#082747">
   <title>PANSY PMSE Explorer</title>
-  <link rel="modulepreload" href="viewer.js?v=fast-start-2">
+  <link rel="modulepreload" href="viewer.js?v=storage-plots-1">
   <link rel="modulepreload" href="imaging.js?v=sparse-2">
   <link rel="modulepreload" href="lib/interactive_plot.js?v=fast-start-2">
   <link rel="modulepreload" href="pkg/rustplotlib_web.js">
   <link rel="preload" href="pkg/rustplotlib_web_bg.wasm" as="fetch" type="application/wasm" crossorigin>
   <link rel="icon" type="image/png" href="rogue-wave-logo.png?v=1">
   <link rel="apple-touch-icon" href="rogue-wave-logo.png?v=1">
-  <link rel="stylesheet" href="theme.css?v=download-guide-1">
+  <link rel="stylesheet" href="theme.css?v=storage-plots-1">
 </head>
 <body>
   <header class="site-header">
@@ -93,7 +93,7 @@
     </details>
     <details class="support-section">
       <summary>Archive &amp; transfer</summary>
-      <div class="support-content"><p class="status" id="transfer">Waiting for archive inventory…</p><p>Retained percentage per UTC hour = retained complex samples / full dense spectral samples × 100. Blank hours have no delivered measurements; zero-retention hours are marked at zero.</p><div class="figure-scroll"><img id="archivePlot" alt="Data per UTC hour, cumulative archive size, and percentage of full dense spectra retained per UTC hour" hidden></div></div>
+      <div class="support-content"><p class="status" id="transfer">Waiting for archive inventory…</p><p>Retained percentage per UTC hour = retained complex samples / full dense spectral samples × 100. Blank hours have no delivered measurements; zero-retention hours are marked at zero.</p><p class="status" id="archivePlotStatus" aria-live="polite">Preparing storage plots…</p><div class="figure-scroll"><img id="archivePlot" alt="Data per UTC hour, cumulative archive size, and percentage of full dense spectra retained per UTC hour" hidden></div></div>
     </details>
     <details class="support-section">
       <summary>About the observations &amp; downloads</summary>
@@ -107,6 +107,6 @@
     <pre id="error" role="alert"></pre>
   </main>
   <footer>PANSY · Mesospheric echoes at Syowa Station</footer>
-  <script type="module" src="viewer.js?v=fast-start-2"></script>
+  <script type="module" src="viewer.js?v=storage-plots-1"></script>
 </body>
 </html>
