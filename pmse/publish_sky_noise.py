@@ -1,7 +1,7 @@
 """Refresh sky-noise diagnostics on the analysis host, independently of the GUI.
 
 Read dense noise summaries, never complex spectra. Reuse the precomputed sky
-convolution; fit hourly, render native SVGs, publish their status last.
+convolution; fit hourly and publish numeric arrays for browser Rustplotlib.
 """
 import argparse
 from datetime import datetime, timezone
@@ -16,7 +16,6 @@ import numpy as np
 
 from .publish_rvd import atomic_json
 from .sky_noise import update
-from .archive_plot import publish_archive_plot
 
 
 def fit_specification(path):
@@ -35,7 +34,8 @@ def fit_specification(path):
               time_tick_labels=[datetime.fromtimestamp(t,timezone.utc).strftime('%m-%d %H:%M')
                                 for t in (times[0],(times[0]+times[-1])/2,times[-1])],
               sky_temperature_k=sky.tolist(),noise_power=noise.tolist())
-    return dict(noise_model_data=data),dict(schema='pansy_sky_noise_v1',noise_model_status=fits,
+    return dict(noise_model_data=data),dict(schema='pansy_sky_noise_v2',noise_model_status=fits,
+        noise_model_origin_unix_s=float(times[0]),
         noise_model_updated_unix_s=generated,noise_model_fit_unix_s=fitted,
         noise_model_observation_stop_unix_s=float(times[-1]))
 
@@ -45,21 +45,13 @@ def publish(root,cache,fit,output,destination=None,renderer=None):
     update(root,cache,fit)
     spec,status=fit_specification(fit)
     revision=hashlib.sha256(json.dumps(spec,sort_keys=True).encode()).hexdigest()[:16]
-    specification=output/'plot-spec.json';atomic_json(specification,spec)
-    renderer=Path(renderer) if renderer is not None else Path(__file__).parent/'plotting/target/release/pansy-pmse-plots'
-    subprocess.run([str(renderer),'--noise-only',str(specification),str(output)],
-                   check=True,capture_output=True,text=True,timeout=180)
-    files={str(ch):{str(w):f'noise-module-{ch}-{w}.svg' for w in (640,960)} for ch in range(7)}
-    if not all((output/name).is_file() for widths in files.values() for name in widths.values()):
-        raise OSError('Native renderer did not produce all sky-noise plots')
-    status['noise_plot']=dict(status='ready',revision=revision,files=files,
+    status.update(spec)
+    status['noise_plot']=dict(status='ready',revision=revision,format='rustplotlib-series-data-v1',
         generated_utc=datetime.now(timezone.utc).isoformat())
     atomic_json(output/'status.json',status)
     if destination:
-        subprocess.run(['rsync','-rt','--delay-updates','--exclude=.*','--exclude=*.json','--exclude=*.partial',
-                        str(output)+'/',destination],check=True,timeout=180)
         subprocess.run(['rsync','-rt','--delay-updates',str(output/'status.json'),destination],check=True,timeout=30)
-    print(f'Sky noise ready: seven modules, observations through {status["noise_model_observation_stop_unix_s"]}',flush=True)
+    print(f'Sky-noise arrays ready: seven modules, observations through {status["noise_model_observation_stop_unix_s"]}',flush=True)
     return status
 
 
@@ -76,11 +68,9 @@ def main():
             if getattr(error,'stderr',None):print(error.stderr,flush=True)
             traceback.print_exc()
             if not a.loop:raise
-        if a.archive_manifest:
-            try:publish_archive_plot(a.archive_manifest,a.output.with_name(a.output.name+'-archive'),a.archive_destination)
-            except Exception:
-                import traceback;traceback.print_exc()
-                if not a.loop:raise
+        # Legacy archive arguments remain accepted during service upgrades.
+        # Archive arrays already travel with the GUI inventory; never build
+        # auxiliary SVGs here or on the public host.
         if not a.loop:break
         time.sleep(600)
 

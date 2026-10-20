@@ -88,6 +88,11 @@ export class SeriesView {
     begin(width: number, height: number, dpr: number, x0: number, x1: number, y0: number, y1: number, left: string, right: string): void;
     constructor(canvas: HTMLCanvasElement);
     /**
+     * Render arrays, axes, automatic numeric/UTC ticks and a wrapping legend
+     * wholly in Rust/WASM. No image or axis request to a server is required.
+     */
+    render_plot(spec_json: string, width: number, height: number, dpr: number, viewport: Float64Array): Float64Array;
+    /**
      * Paired x,y samples; nonfinite samples break lines. Markers stay in CSS px.
      */
     series(xy: Float64Array, color: string, line: boolean, radius: number): void;
@@ -155,6 +160,7 @@ export interface InitOutput {
     readonly plotviewport_zoom_box: (a: number, b: number, c: number, d: number, e: number) => number;
     readonly seriesview_begin: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => [number, number];
     readonly seriesview_new: (a: any) => [number, number, number];
+    readonly seriesview_render_plot: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
     readonly seriesview_series: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
     readonly volumeview_draw: (a: number) => void;
     readonly volumeview_new: (a: any) => [number, number, number];

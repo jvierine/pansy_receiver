@@ -2,6 +2,7 @@
 import init from './pkg/rustplotlib_web.js';
 import {imageSelection,setEchoFilter} from './imaging.js?v=persistence-3';
 import {persistentEchoes} from './echo_filter.mjs?v=1';
+import {renderNoiseDiagnostics,renderArchiveDiagnostics} from './diagnostics.js?v=1';
 import {InteractiveFieldPlot} from './lib/interactive_plot.js?v=fast-start-2';
 const $=id=>document.getElementById(id), names=['Zenith','North','East','South','West'];
 // Start data I/O while WebAssembly initializes.
@@ -17,6 +18,7 @@ function applyEchoFilter(){
  $('filterStatus').textContent=filtered?`Single-mode filter: ${filtered.hiddenGates.toLocaleString()} beam/range detections hidden. Requires the same range gate in this beam in a neighboring mode (gap ≤10 min). New echoes wait for confirmation; short real echoes can also be hidden.`:'';
 }
 let skyNoise,noiseRequest;
+let archiveInventory;
 const secondaryMounts=new Map();
 const visiblePlots=new IntersectionObserver(entries=>{
  for(const entry of entries)if(entry.isIntersecting){
@@ -171,19 +173,12 @@ async function refresh(){
   requestAnimationFrame(()=>{document.body.dataset.plotsReadyMs=String(Math.round(performance.now()));});
 }
 function renderArchivePlot(m){
-  const plot=m.archive_plot,width=document.body.clientWidth<900?640:960;
-  const image=$('archivePlot'),status=$('archivePlotStatus');
-  // Storage diagnostics have their own lifecycle: unavailable static RTI
-  // decorations must not hide a successful (or explicitly stale) archive plot.
-  const file=plot?.files?.[width];
-  const legacy=!plot&&(!m.plot_generation_status||m.plot_generation_status==='ready')&&m.transfer?.archive?.hourly_unix_s?.length;
-  image.hidden=!(file||legacy);
-  status.textContent=plot?.generated_utc?`${plot.status==='delayed'?'Refresh delayed; showing last successful storage plots':'Storage plots updated'}: ${plot.generated_utc.replace('T',' ').slice(0,19)} UTC.`:
-    (image.hidden?'Storage plots are being prepared; archive measurements above remain available.':'');
-  if(image.hidden)return;
-  image.onerror=()=>{image.hidden=true;status.textContent='Storage plot could not be loaded; archive measurements above remain available.';};
-  image.src=`./data/${file||`axes/archive-growth-${width}.svg`}?v=${plot?.revision||m.generated_utc}`;
-  image.style.width=width+'px';
+  archiveInventory=m.transfer?.archive;
+  if($('archiveSection').open)void drawArchive();
+}
+async function drawArchive(){
+  try{await renderArchiveDiagnostics(archiveInventory);$('archivePlotStatus').textContent='Numeric inventory rendered in this browser by Rustplotlib. Zoom and pan each plot; no plot images are downloaded.';}
+  catch(error){$('archivePlotStatus').textContent=String(error);}
 }
 function renderProcessingStatus(m){
   const s=m.source_processing,node=$('processingStatus');node.hidden=!s;
@@ -208,11 +203,11 @@ async function refreshSkyNoise(){
       const response=await fetch('./data/sky-noise/status.json',{cache:'no-cache'});
       if(!response.ok)throw Error(`Sky-noise diagnostics unavailable (${response.status})`);
       const value=await response.json();
-      if(value.noise_model_status?.length!==7||!value.noise_plot?.files)throw Error('Sky-noise diagnostics are incomplete');
+      if(value.noise_model_status?.length!==7||!value.noise_model_data?.times_h?.length)throw Error('Numeric sky-noise data have not arrived yet');
       skyNoise=value;renderNoise();
     }catch(error){
       if(skyNoise){skyNoise.noise_plot.status='delayed';renderNoise();}
-      else{$('noiseStatus').textContent='Sky-noise diagnostics are not available yet; the independent analysis job will retry. Observations remain available.';$('noisePlot').hidden=true;}
+      else{$('noiseStatus').textContent='Numeric sky-noise data are not available yet; the independent analysis job will retry. Observations remain available.';}
     }
   })();
   try{await noiseRequest;}finally{noiseRequest=null;}
@@ -223,19 +218,9 @@ function renderNoise(model=skyNoise||manifest){
   $('noiseStatus').textContent=`PyGDSM GSM2008 · one-way receive pattern · 90% crossed-Yagi / 10% isotropic element. Module ${module}: `+
     (fit.receiver_temp_k===null?fit.status:`T_receiver = ${fit.receiver_temp_k.toFixed(0)} K; fractional RMS ${(fit.fractional_rms*100).toFixed(1)}%; ${fit.status}`)+
     '. Top: measured noise power; bottom: modeled sky temperature. Fits update hourly and require ≥12 hours of data.';
-  const plot=model.noise_plot;
-  if(!plot&&model.plot_generation_status&&model.plot_generation_status!=='ready'){
-    $('noisePlot').hidden=true;$('noiseStatus').textContent+=' Plot refresh delayed; native observations remain current.';return;
-  }
-  const width=document.body.clientWidth<900?640:960;
-  if(plot){
-    const generated=Date.parse(plot.generated_utc),stale=plot.status==='delayed'||Date.now()-generated>2*3600e3;
-    $('noiseStatus').textContent+=` ${stale?'Refresh delayed; last successful plots':'Plots updated'}: ${plot.generated_utc.replace('T',' ').slice(0,19)} UTC.`;
-    if(model.noise_model_observation_stop_unix_s)$('noiseStatus').textContent+=` Measurements through ${utc(model.noise_model_observation_stop_unix_s*1e6)}.`;
-  }
-  $('noisePlot').onerror=()=>{$('noisePlot').hidden=true;$('noiseStatus').textContent+=' Sky-noise plot could not be loaded; retry by reopening this section.';};
-  $('noisePlot').src=plot?`./data/sky-noise/${plot.files[module][width]}?v=${plot.revision}`:`./data/axes/noise-module-${module}-${width}.svg?v=${model.noise_model_updated_unix_s}`;
-  $('noisePlot').style.width=width+'px';$('noisePlot').hidden=false;
+  if(model.noise_model_observation_stop_unix_s)$('noiseStatus').textContent+=` Measurements through ${utc(model.noise_model_observation_stop_unix_s*1e6)}.`;
+  if(model.noise_plot?.status==='delayed')$('noiseStatus').textContent+=' Refresh delayed; using cached numeric data.';
+  if($('skyNoiseSection').open)void renderNoiseDiagnostics(model,module).catch(error=>{$('noiseStatus').textContent+=' '+String(error);});
 }
 function failure(e){revision='';$('error').textContent=e.message;console.error(e);}
 try{
@@ -250,6 +235,7 @@ try{
  $('hideSingleMode').onchange=()=>{applyEchoFilter();renderRTI();renderRD();};
  $('noiseModule').onchange=()=>renderNoise();
  $('skyNoiseSection').ontoggle=()=>{if($('skyNoiseSection').open)void refreshSkyNoise();};
+ $('archiveSection').ontoggle=()=>{if($('archiveSection').open)void drawArchive();};
  $('day').onchange=()=>{chosenDay=$('day').value;revision='';$('downloadSpectra').setAttribute('aria-disabled','true');$('downloadSpectra').removeAttribute('href');if(playing){clearInterval(playing);playing=null;$('play').textContent='Play';}refresh().catch(failure);};
  $('play').onclick=()=>{if(playing){clearInterval(playing);playing=null;$('play').textContent='Play';}else{$('play').textContent='Pause';playing=setInterval(()=>{selected=(selected+1)%frames.length;$('frame').value=selected;renderRD();},500);}};
  window.addEventListener('resize',()=>{if(frames.length){renderRTI();renderRD();}});

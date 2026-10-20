@@ -1,7 +1,8 @@
 Viewer renderer: https://github.com/jvierine/rustplotlib. MIT license; see
 rustplotlib repository LICENSE.
 
-- Checked-in Rust/WASM/WebGL package: branch `codex/pansy-rvd`, commit `74eff2d`.
+- Checked-in Rust/WASM package and interactive series API: branch
+  `codex/rvd-colorbar-endpoints`, commit `42971b5`.
 - Shared interactive controls: branch `codex/pansy-wave-theme`, commit `baa494c`.
 - Native axes/colorbars: pinned separately in `pmse/plotting/Cargo.toml`.
 
@@ -22,6 +23,12 @@ The sole local artifact adjustment is the missing-observation RGBA color
 `(0.6196, 0.6745, 0.7098, 1)` to match the page's grey missing-data key.
 The colorbar click targets, responsive editor, validation, live adjustment and
 reset are standard shared Rustplotlib behavior, not page-specific handlers.
+`InteractiveSeriesPlot` in `web/src/interactive_series.ts` uses Rust/WASM
+`SeriesView.render_plot` for axes, automatic ticks, UTC formatting, legends,
+line/marker geometry and white backgrounds. Its wheel/box zoom, Shift-pan,
+double-click/Home/Escape reset are shared library defaults. Auxiliary plots
+receive numeric JSON arrays, not SVG plot images. Rebuild its checked-in
+wrapper with esbuild, leaving `../pkg/rustplotlib_web.js` external.
 `npm run test:pmse-colorbars` exercises real WebGL pixels, native frame updates,
 HSV preservation, keyboard access and mobile layout against read-only APIs.
 

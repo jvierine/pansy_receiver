@@ -17,6 +17,13 @@ explicit host roles: `pansy-rvd-source-publish` on Syowa,
 `pansy-rvd-web` on juha.no. Do not install the public API on Revontuli or
 recreate the removed browser tunnel service.
 
+Sky-noise analysis on Revontuli publishes numeric arrays and fitted metadata
+in `data/sky-noise/status.json`; it no longer renders diagnostic SVGs. Archive
+arrays already arrive in the normal GUI inventory. Rustplotlib's shared
+interactive series API draws both sets of diagnostics, including axes and
+legends, entirely in the browser. No chart images or public requests to
+Revontuli are involved, and juha.no does not perform scientific reductions.
+
 Publication receipts record source versions only after completed transfers.
 Partial transfers remain pending. Revontuli receipts contain SHA256 hashes of
 its retained files, not hashes asserted from an unverified remote copy.

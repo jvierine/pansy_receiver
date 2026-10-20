@@ -377,6 +377,29 @@ export class SeriesView {
         return this;
     }
     /**
+     * Render arrays, axes, automatic numeric/UTC ticks and a wrapping legend
+     * wholly in Rust/WASM. No image or axis request to a server is required.
+     * @param {string} spec_json
+     * @param {number} width
+     * @param {number} height
+     * @param {number} dpr
+     * @param {Float64Array} viewport
+     * @returns {Float64Array}
+     */
+    render_plot(spec_json, width, height, dpr, viewport) {
+        const ptr0 = passStringToWasm0(spec_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArrayF64ToWasm0(viewport, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.seriesview_render_plot(this.__wbg_ptr, ptr0, len0, width, height, dpr, ptr1, len1);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v3 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
+        return v3;
+    }
+    /**
      * Paired x,y samples; nonfinite samples break lines. Markers stay in CSS px.
      * @param {Float64Array} xy
      * @param {string} color
@@ -602,6 +625,9 @@ function __wbg_get_imports() {
         __wbg_enable_cb4fc19b51148c37: function(arg0, arg1) {
             arg0.enable(arg1 >>> 0);
         },
+        __wbg_fillRect_0ef59adb9acb7d06: function(arg0, arg1, arg2, arg3, arg4) {
+            arg0.fillRect(arg1, arg2, arg3, arg4);
+        },
         __wbg_fillText_1bcec8b81ad73bd0: function() { return handleError(function (arg0, arg1, arg2, arg3, arg4) {
             arg0.fillText(getStringFromWasm0(arg1, arg2), arg3, arg4);
         }, arguments); },
@@ -680,6 +706,10 @@ function __wbg_get_imports() {
         __wbg_linkProgram_acdc299c43d734a0: function(arg0, arg1) {
             arg0.linkProgram(arg1);
         },
+        __wbg_measureText_1035b288be51876c: function() { return handleError(function (arg0, arg1, arg2) {
+            const ret = arg0.measureText(getStringFromWasm0(arg1, arg2));
+            return ret;
+        }, arguments); },
         __wbg_moveTo_037e3deefec91ae1: function(arg0, arg1, arg2) {
             arg0.moveTo(arg1, arg2);
         },
@@ -700,6 +730,9 @@ function __wbg_get_imports() {
         __wbg_restore_c93ba7571816b182: function(arg0) {
             arg0.restore();
         },
+        __wbg_rotate_5273f09fed0af920: function() { return handleError(function (arg0, arg1) {
+            arg0.rotate(arg1);
+        }, arguments); },
         __wbg_save_f32554f1747071d1: function(arg0) {
             arg0.save();
         },
@@ -752,6 +785,9 @@ function __wbg_get_imports() {
         __wbg_texSubImage2D_5e90c7a719d40256: function() { return handleError(function (arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
             arg0.texSubImage2D(arg1 >>> 0, arg2, arg3, arg4, arg5, arg6, arg7 >>> 0, arg8 >>> 0, arg9);
         }, arguments); },
+        __wbg_translate_b75b7d842d89a889: function() { return handleError(function (arg0, arg1, arg2) {
+            arg0.translate(arg1, arg2);
+        }, arguments); },
         __wbg_uniform1f_b5856e35a43b65a1: function(arg0, arg1, arg2) {
             arg0.uniform1f(arg1, arg2);
         },
@@ -780,6 +816,10 @@ function __wbg_get_imports() {
             arg0.viewport(arg1, arg2, arg3, arg4);
         },
         __wbg_width_3d0dce3d9892e35e: function(arg0) {
+            const ret = arg0.width;
+            return ret;
+        },
+        __wbg_width_e95ad291d52fe17e: function(arg0) {
             const ret = arg0.width;
             return ret;
         },

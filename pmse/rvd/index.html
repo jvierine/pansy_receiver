@@ -5,14 +5,14 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#082747">
   <title>PANSY PMSE Explorer</title>
-  <link rel="modulepreload" href="viewer.js?v=persistence-hsv-2">
+  <link rel="modulepreload" href="viewer.js?v=browser-diagnostics-1">
   <link rel="modulepreload" href="imaging.js?v=persistence-3">
   <link rel="modulepreload" href="lib/interactive_plot.js?v=fast-start-2">
   <link rel="modulepreload" href="pkg/rustplotlib_web.js">
   <link rel="preload" href="pkg/rustplotlib_web_bg.wasm" as="fetch" type="application/wasm" crossorigin>
   <link rel="icon" type="image/png" href="rogue-wave-logo.png?v=1">
   <link rel="apple-touch-icon" href="rogue-wave-logo.png?v=1">
-  <link rel="stylesheet" href="theme.css?v=white-page-2">
+  <link rel="stylesheet" href="theme.css?v=aligned-header-3">
 </head>
 <body>
   <header class="site-header">
@@ -91,11 +91,11 @@
     </section>
     <details class="support-section" id="skyNoiseSection">
       <summary>Sky noise &amp; receiver temperature</summary>
-      <div class="support-content"><label>Receiver module <select id="noiseModule"><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></label><p class="status" id="noiseStatus">Preparing the cached sky model…</p><div class="figure-scroll"><img id="noisePlot" alt="Measured noise and modeled sky temperature" hidden></div></div>
+      <div class="support-content"><label>Receiver module <select id="noiseModule"><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></label><p class="status" id="noiseStatus">Loading numeric sky-noise data…</p><div id="noisePowerPlot" class="diagnostic-plot"></div><div id="skyTemperaturePlot" class="diagnostic-plot"></div></div>
     </details>
-    <details class="support-section">
+    <details class="support-section" id="archiveSection">
       <summary>Archive &amp; transfer</summary>
-      <div class="support-content"><p class="status" id="transfer">Waiting for archive inventory…</p><p>Retained percentage per UTC hour = retained complex samples / full dense spectral samples × 100. Blank hours have no delivered measurements; zero-retention hours are marked at zero.</p><p class="status" id="archivePlotStatus" aria-live="polite">Preparing storage plots…</p><div class="figure-scroll"><img id="archivePlot" alt="Data per UTC hour, cumulative archive size, and percentage of full dense spectra retained per UTC hour" hidden></div></div>
+      <div class="support-content"><p class="status" id="transfer">Waiting for archive inventory…</p><p>Retained percentage per UTC hour = retained complex samples / full dense spectral samples × 100. Missing retention is unknown, not zero.</p><p class="status" id="archivePlotStatus" aria-live="polite">Preparing numeric inventory…</p><div id="hourlyDataPlot" class="diagnostic-plot"></div><div id="cumulativeDataPlot" class="diagnostic-plot"></div><div id="retentionPlot" class="diagnostic-plot"></div></div>
     </details>
     <details class="support-section">
       <summary>About the observations &amp; downloads</summary>
@@ -110,6 +110,6 @@
     <pre id="error" role="alert"></pre>
   </main>
   <footer>PANSY · Mesospheric echoes at Syowa Station</footer>
-  <script type="module" src="viewer.js?v=persistence-hsv-2"></script>
+  <script type="module" src="viewer.js?v=browser-diagnostics-1"></script>
 </body>
 </html>
