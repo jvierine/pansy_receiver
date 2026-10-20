@@ -6,6 +6,7 @@ The web host indexes only changed native files into atomic local HTTP packets.
 import argparse
 from datetime import datetime, timezone
 import hashlib
+import gzip
 import json
 from pathlib import Path
 import time
@@ -15,14 +16,23 @@ import h5py
 from .publish_rvd import atomic_json
 from .serve_browser import day_packet
 from .archive_inventory import inventory
+from .web_retention import sha256
 
 
 class MetadataCache:
     """Persistent per-file metadata; replacements invalidate even at equal size."""
-    def __init__(self, directory):
+    def __init__(self, directory, source=None):
         self.directory=Path(directory)
         self.directory.mkdir(parents=True,exist_ok=True)
         self.pending={}
+        self.source=Path(source) if source else None
+        self.hashes={}
+
+    def source_directories(self,root,patterns):
+        return [root/d.name for pattern in patterns for d in self.source.glob(pattern)] if self.source else []
+
+    def source_files(self,directory):
+        return [directory/p.name[:-8] for p in (self.source/directory.name).glob('pmse@*.h5.json.gz')] if self.source else []
 
     def location(self, path):
         return self.directory/(hashlib.sha256(str(path).encode()).hexdigest()+'.json')
@@ -33,6 +43,18 @@ class MetadataCache:
         return [st.st_ino,st.st_mtime_ns,st.st_size]
 
     def get(self, path):
+        if self.source:
+            source=self.source/path.parent.name/(path.name+'.json.gz')
+            if source.exists():
+                hint=json.loads(gzip.decompress(source.read_bytes()))
+                ready=False
+                if path.is_file() and path.stat().st_size==hint['native_bytes']:
+                    state=self.signature(path)
+                    previous=self.hashes.get(str(path))
+                    if previous is None or previous[0]!=state:
+                        previous=(state,sha256(path));self.hashes[str(path)]=previous
+                    ready=previous[1]==hint['native_sha256']
+                return [dict(p,spectra_ready=ready) for p in hint['packets']]
         state=self.signature(path);self.pending[str(path)]=state
         try:
             cached=json.loads(self.location(path).read_text())
@@ -53,7 +75,9 @@ def publish(root, output, cache):
     base=json.loads(manifest_path.read_text())
     # Daily files contain packets themselves; do not nest yesterday's packets.
     base.pop('frame_packets',None)
-    days=sorted({p.name[:10] for p in root.glob('20*T*') if any(p.glob('pmse@*.h5'))})
+    days={p.name[:10] for p in root.glob('20*T*') if any(p.glob('pmse@*.h5'))}
+    if cache.source:days.update(p.name[:10] for p in cache.source.glob('20*T*') if any(p.glob('pmse@*.h5.json.gz')))
+    days=sorted(days)
     if not days:return
     (output/'days').mkdir(exist_ok=True)
     base.update(available_days=days,generated_utc=datetime.now(timezone.utc).isoformat(),
@@ -106,7 +130,7 @@ def main():
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--cache',type=Path,default=Path.home()/'.cache/pansy-rvd-metadata')
     parser.add_argument('--loop',action='store_true')
-    args=parser.parse_args();cache=MetadataCache(args.cache)
+    args=parser.parse_args();cache=MetadataCache(args.cache,args.output/'source')
     while True:
         try:publish(args.root,args.output,cache)
         except Exception:

@@ -29,13 +29,13 @@ async function mountPlots(){
    $('rdbeam').value=String(panel);$('frame').value=String(selected);renderRD();
    const range=y/Math.sin(manifest.geometry.beam_elevation_deg[panel]*Math.PI/180);
    const offset=Math.max(0,Math.floor((time-frames[selected].start_us)/120e6)*120);
-   imageSelection(frames[selected].key,range,Math.min(offset,Math.max(0,Math.floor((frames[selected].duration_s-1)/120)*120)));
+   imageSelection(frames[selected].key,range,Math.min(offset,Math.max(0,Math.floor((frames[selected].duration_s-1)/120)*120)),frames[selected].spectra_ready!==false);
   }});
   plots=rtiPlot.panels.map(p=>({canvas:p.canvas,view:p,owner:rtiPlot}));
  }else rtiPlot.setSpec(spec);
  const mountRD=async()=>{
  const [v0,v1]=manifest.velocity_limits_mps;
- if(!rdPlot){rdPlot=await InteractiveFieldPlot.mount($('rd'),{id:'rd',frameParameters:{day:dayNumber()},spec:{bounds:[v0,50,v1,120],xlabel:'Radial velocity (m/s)',ylabel:'Nominal altitude (km)',colorbar_label:'SNR (dB)',panels:['Spectrum']},colorLimits:[+$('low').value,+$('high').value],onSelect:({y})=>imageSelection(frames[selected].key,y/Math.sin(manifest.geometry.beam_elevation_deg[+$('rdbeam').value]*Math.PI/180))});rd={view:rdPlot.panels[0],owner:rdPlot};}
+ if(!rdPlot){rdPlot=await InteractiveFieldPlot.mount($('rd'),{id:'rd',frameParameters:{day:dayNumber()},spec:{bounds:[v0,50,v1,120],xlabel:'Radial velocity (m/s)',ylabel:'Nominal altitude (km)',colorbar_label:'SNR (dB)',panels:['Spectrum']},colorLimits:[+$('low').value,+$('high').value],onSelect:({y})=>imageSelection(frames[selected].key,y/Math.sin(manifest.geometry.beam_elevation_deg[+$('rdbeam').value]*Math.PI/180),0,frames[selected].spectra_ready!==false)});rd={view:rdPlot.panels[0],owner:rdPlot};}
  rdPlot.setFrameParameters({day:dayNumber()});
  };
  const mountTD=async()=>{
@@ -133,6 +133,7 @@ async function refresh(){
   if(request!==refreshSequence)return;
   const age=(Date.now()-m.latest_mode_us/1000)/60000;
   $('status').textContent=m.frame_count?`${m.frame_count} observing modes · latest ${utc(m.latest_mode_us)} · ${Math.max(0,age).toFixed(0)} min behind now`:`${chosenDay} UTC · no observations delivered yet`;
+  if(m.spectra_transfer_pending)$('status').textContent+=` · complex spectra transferring for ${m.spectra_transfer_pending} modes`;
   const download=$('downloadSpectra');
   download.href=`./api/download?day=${encodeURIComponent(chosenDay)}`;
   download.setAttribute('download',`pansy-sparse-spectra-${chosenDay}.tar`);

@@ -49,42 +49,52 @@ def stream_day_archive(output,root,files):
                 archive.addfile(info,source)
 
 
+def file_packets(path):
+    """GUI metadata only; the native complex spectra are never loaded."""
+    entries=[]
+    with h5py.File(path,'r') as h:
+        for key in sorted(h):
+            if not key.isdigit():continue
+            g=h[key]
+            if 'complete' not in g or int(g['complete'][()])!=1:continue
+            schema=g['schema_version'][()].decode()
+            if schema!='pansy_pmse_sparse16_v2':raise ValueError('Refusing mixed/legacy sparse product')
+            entries.append(dict(key=key,start_us=int(g['mode_start_sample'][()]),
+                stop_us=int(g['mode_stop_sample_exclusive'][()]),source_revision=native_revision(g),
+                duration_s=float(g['mode_duration_seconds'][()]),coverage_s=float(g['coverage_seconds'][()]),
+                looks=int(g['n_coherent_looks'][()]),quality=g['quality'][()].decode(),
+                product_schema=schema,index=g['sparse_index'][()].tolist(),snr_db=g['detector_snr_db'][()].tolist(),
+                look_dominance=None,look_persistence=None))
+    return entries
+
+
 def day_packet(root,day,manifest,cache=None):
     """One UTC day from existing native metadata; never read voltage spectra."""
     first=datetime.strptime(day,'%Y-%m-%d').replace(tzinfo=timezone.utc)
     if first.strftime('%Y-%m-%d')!=day:raise ValueError('Invalid UTC day')
     start=round(first.timestamp()*1e6);stop=start+86_400_000_000
     packets=[]
-    dirs=list(root.glob(day+'T*'))+list(root.glob((first-timedelta(days=1)).strftime('%Y-%m-%d')+'T23*'))
+    patterns=[day+'T*',(first-timedelta(days=1)).strftime('%Y-%m-%d')+'T23*']
+    dirs={d for pattern in patterns for d in root.glob(pattern)}
+    if cache is not None:dirs.update(cache.source_directories(root,patterns))
     for directory in sorted(dirs):
-        for path in sorted(directory.glob('pmse@*.h5')):
+        paths=set(directory.glob('pmse@*.h5'))
+        if cache is not None:paths.update(cache.source_files(directory))
+        for path in sorted(paths):
             cached=cache.get(path) if cache is not None else None
             if cached is not None:
                 packets.extend(p for p in cached if p['stop_us']>start and p['start_us']<stop)
                 continue
-            entries=[]
-            with h5py.File(path,'r') as h:
-                for key in sorted(h):
-                    if not key.isdigit():continue
-                    g=h[key]
-                    if 'complete' not in g or int(g['complete'][()])!=1:continue
-                    begin=int(g['mode_start_sample'][()]);end=int(g['mode_stop_sample_exclusive'][()])
-                    schema=g['schema_version'][()].decode()
-                    if schema!='pansy_pmse_sparse16_v2':raise ValueError('Refusing mixed/legacy sparse product')
-                    entries.append(dict(key=key,start_us=begin,stop_us=end,
-                        source_revision=native_revision(g),
-                        duration_s=float(g['mode_duration_seconds'][()]),coverage_s=float(g['coverage_seconds'][()]),
-                        looks=int(g['n_coherent_looks'][()]),quality=g['quality'][()].decode(),
-                        product_schema=schema,index=g['sparse_index'][()].tolist(),snr_db=g['detector_snr_db'][()].tolist(),
-                        look_dominance=None,look_persistence=None))
+            entries=file_packets(path)
             if cache is not None:cache.put(path,entries)
             packets.extend(p for p in entries if p['stop_us']>start and p['start_us']<stop)
     packets.sort(key=lambda p:p['start_us'])
-    revision=hashlib.sha256(('16ms:'+day+','.join(p['key']+':'+p['source_revision'] for p in packets)).encode()).hexdigest()[:16]
+    revision=hashlib.sha256(('16ms:'+day+','.join(p['key']+':'+p['source_revision']+':'+str(p.get('spectra_ready',True)) for p in packets)).encode()).hexdigest()[:16]
     return dict(manifest,selected_day=day,revision=revision,axis_start_us=start,axis_stop_us=stop,
                 first_mode_us=min((p['start_us'] for p in packets),default=start),
                 latest_mode_us=max((p['stop_us'] for p in packets),default=start),
                 frame_packets=packets,frame_count=len(packets),
+                spectra_transfer_pending=sum(p.get('spectra_ready') is False for p in packets),
                 frames=[{k:p[k] for k in ('key','start_us','stop_us','duration_s','coverage_s','looks','quality')} for p in packets])
 
 

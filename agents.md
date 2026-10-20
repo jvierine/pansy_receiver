@@ -13,6 +13,9 @@ moments and plots. juha.no serves the archive and lightweight GUI metadata;
 never run radar processing, complex-spectra reductions or periodic plot builds
 there. Cached native axis decorations and metadata indexing are permitted.
 Never proxy public requests into Revontuli.
+Send source GUI metadata before large native files, mark observations awaiting
+their matching spectra, and give earlier live transfer holes a catch-up slot
+before multi-day historical backfill.
 
 Date: 2026-06-03
 

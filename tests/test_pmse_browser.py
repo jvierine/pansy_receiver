@@ -1,4 +1,6 @@
 import json
+import gzip
+import hashlib
 from pathlib import Path
 import struct
 import tempfile
@@ -71,6 +73,25 @@ class BrowserTransportTests(unittest.TestCase):
             self.assertNotEqual(m['revision'],updated['revision'])
             self.assertEqual(updated['frame_packets'][0]['snr_db'],[9.])
             self.assertEqual(day_packet(root,'2026-10-19',{},cache)['frame_packets'][0]['snr_db'],[9.])
+            # A source-produced GUI packet can arrive before its native file.
+            # Show the actual source observations and explicitly defer imaging
+            # until the matching original bytes have arrived.
+            path=directory/'pmse@1792432800.h5';original=path.read_bytes()
+            hints=root/'source';hint=hints/directory.name/(path.name+'.json.gz')
+            hint.parent.mkdir(parents=True)
+            hint.write_bytes(gzip.compress(json.dumps(dict(native_bytes=len(original),
+                native_sha256=hashlib.sha256(original).hexdigest(),packets=updated['frame_packets'])).encode()))
+            path.unlink()
+            directory.rmdir()
+            source_cache=MetadataCache(root/'cache',hints)
+            pending=day_packet(root,'2026-10-19',{},source_cache)
+            self.assertEqual(pending['frame_count'],1)
+            self.assertEqual(pending['spectra_transfer_pending'],1)
+            self.assertEqual(pending['frame_packets'][0]['snr_db'],[9.])
+            directory.mkdir();path.write_bytes(original)
+            delivered=day_packet(root,'2026-10-19',{},source_cache)
+            self.assertEqual(delivered['spectra_transfer_pending'],0)
+            self.assertNotEqual(delivered['revision'],pending['revision'])
 
     def test_selected_range_all_channels_and_bounded_looks(self):
         key=1792433051921664

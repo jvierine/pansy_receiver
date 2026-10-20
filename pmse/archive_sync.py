@@ -4,6 +4,7 @@ Syowa pushes stable snapshots to juha.no. Revontuli pulls from juha.no.
 No SSH port forwarding or inbound connection into Revontuli is used.
 """
 import argparse
+import gzip
 import json
 from pathlib import Path
 import shlex
@@ -79,6 +80,41 @@ def publication_selection(pending, now, turn, frontier=None):
     return selected
 
 
+def publish_metadata(a, pending):
+    """Send small source-produced GUI indexes ahead of bulky voltage files."""
+    from .serve_browser import file_packets
+    metadata=a.root.parent/'rvd-gui-metadata'
+    metadata.mkdir(parents=True,exist_ok=True)
+    cutoff=min(int(time.time())//86400*86400,time.time()-3*3600)
+    for path in pending:
+        if int(path.stem.split('@')[1])<cutoff:continue
+        relative=path.relative_to(a.root)
+        target=metadata/relative.parent/(relative.name+'.json.gz')
+        st=path.stat();state=[st.st_ino,st.st_mtime_ns,st.st_size]
+        if target.exists():
+            previous=json.loads(gzip.decompress(target.read_bytes()))
+            if previous['signature']==state:continue
+        value=dict(signature=state,native_bytes=st.st_size,native_sha256=sha256(path),packets=file_packets(path))
+        target.parent.mkdir(parents=True,exist_ok=True)
+        temporary=target.with_suffix('.gz.partial')
+        temporary.write_bytes(gzip.compress(json.dumps(value,separators=(',',':'),allow_nan=False).encode(),mtime=0))
+        temporary.replace(target)
+    # A completed metadata transfer is acknowledged separately from the much
+    # larger native archive. Retry interrupted packets on the next cycle.
+    receipt=metadata/'delivered.h5'
+    waiting=[]
+    with h5py.File(receipt,'a') as h:
+        for path in metadata.glob('20*T*/pmse@*.h5.json.gz'):
+            name=str(path.relative_to(metadata))
+            if int(h.attrs.get(name,-1))!=path.stat().st_mtime_ns:waiting.append(name)
+    if waiting:
+        result=rsync(str(metadata)+'/',f'{a.host}:/var/www/rvd-live/data/source/',a.bandwidth,
+                     shlex.join(SSH),files_from=waiting,preserve_times=False,force=True,timeout=120,partial_ok=True)
+        if not result['partial']:
+            with h5py.File(receipt,'a') as h:
+                for name in waiting:h.attrs[name]=(metadata/name).stat().st_mtime_ns
+
+
 def publish_once(a, turn):
     from .snapshot_archive import snapshot
     snapshot(a.source, a.root)
@@ -100,6 +136,8 @@ def publish_once(a, turn):
     pending = pending_files(a.root, a.receipt)
     if not pending:
         return
+    try:publish_metadata(a,pending)
+    except Exception as error:print(f'Optional GUI metadata transfer delayed: {error}',flush=True)
     frontier = None
     try:
         frontier = json.loads((a.root / 'processing-status.json').read_text()).get(
