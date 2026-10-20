@@ -13,7 +13,8 @@ from .web_retention import sha256
 
 def rsync(source,destination,bandwidth=None,remote_shell=None,files_from=None,preserve_times=True,force=False,timeout=900,partial_ok=False,checksum=False):
     cmd=['rsync','-rt','--no-perms','--no-owner','--no-group','--partial','--delay-updates',
-         '--timeout=120','--stats','--exclude=/.writer.lock']
+         '--timeout=120','--stats','--exclude=/.writer.lock',
+         '--exclude=*.partial','--exclude=.~tmp~/']
     if bandwidth: cmd.append(f'--bwlimit={bandwidth}')
     if remote_shell: cmd+=['-e',remote_shell]
     if files_from is not None:cmd+=['--files-from=-']

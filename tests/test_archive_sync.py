@@ -49,7 +49,12 @@ class ArchiveSyncTests(unittest.TestCase):
             destination = Path(temporary) / 'destination'
             destination.mkdir()
             path = self.make_archive(source)
+            (path.parent/'.~tmp~').mkdir()
+            (path.parent/'.~tmp~/unfinished.h5').write_bytes(b'incomplete transfer')
+            (path.parent/'snapshot.h5.partial').write_bytes(b'incomplete snapshot')
             rsync(str(source)+'/', str(destination)+'/', checksum=True)
+            self.assertFalse((destination/path.parent.relative_to(source)/'.~tmp~').exists())
+            self.assertFalse((destination/path.parent.relative_to(source)/'snapshot.h5.partial').exists())
             before = path.stat()
             with h5py.File(path, 'r+') as h:
                 h['spectra'][0] = 11-12j

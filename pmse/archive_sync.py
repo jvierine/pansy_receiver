@@ -17,7 +17,8 @@ from .web_retention import sha256
 
 
 SSH = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20',
-       '-o', 'StrictHostKeyChecking=yes']
+       '-o', 'StrictHostKeyChecking=yes', '-o', 'ControlMaster=auto',
+       '-o', 'ControlPersist=60', '-o', 'ControlPath=/tmp/pansy-rvd-outbound-%C']
 
 
 def check_archive(host, root):
