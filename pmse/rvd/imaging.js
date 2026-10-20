@@ -1,4 +1,4 @@
-import {InteractiveFieldPlot} from './lib/interactive_plot.js?v=colorbar-1';
+import {InteractiveFieldPlot} from './lib/interactive_plot.js?v=fast-start-2';
 const $=id=>document.getElementById(id);
 let worker,geometry,plot,plotMount,sequence=0,previousRange,lastMoments,lastPacket,busy=false,fetchAbort,timeout;
 const grid=61;

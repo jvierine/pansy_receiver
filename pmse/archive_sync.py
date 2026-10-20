@@ -61,6 +61,24 @@ def update_receipt(root, receipt, files):
                        generator='pmse/archive_sync.py')
 
 
+def publication_selection(pending, now, turn, frontier=None):
+    """Keep live chunks fresh while filling earlier holes before old backfill."""
+    # Do not let a missing chunk age out of the live queue during catch-up.
+    today=int(now)//86400*86400
+    cutoff=min(today,now-3*3600)
+    recent=[p for p in pending if int(p.stem.split('@')[1])>=cutoff]
+    historical=[p for p in pending if p not in recent]
+    selected=recent[:1]
+    catchup=recent[-1:] if len(recent)>1 else []
+    selected+=catchup
+    # Historical work keeps a share of the link, but cannot strand live holes.
+    if historical and (not catchup or turn%3==0):
+        names=[str(p) for p in historical]
+        choice=historical_turn(names,turn,processed_frontier_us=frontier)[0]
+        selected.append(Path(choice))
+    return selected
+
+
 def publish_once(a, turn):
     from .snapshot_archive import snapshot
     snapshot(a.source, a.root)
@@ -82,19 +100,13 @@ def publish_once(a, turn):
     pending = pending_files(a.root, a.receipt)
     if not pending:
         return
-    recent = [p for p in pending if int(p.stem.split('@')[1]) >= time.time() - 3 * 3600]
-    historical = [p for p in pending if p not in recent]
-    selected = recent[:1]
     frontier = None
     try:
         frontier = json.loads((a.root / 'processing-status.json').read_text()).get(
             'backfill', {}).get('current_start_us')
     except (OSError, ValueError):
         pass
-    if historical:
-        names = [str(p.relative_to(a.root)) for p in historical]
-        choice = historical_turn(names, turn, processed_frontier_us=frontier)[0]
-        selected.append(a.root / choice)
+    selected=publication_selection(pending,time.time(),turn,frontier)
     for path in selected:
         relative = str(path.relative_to(a.root))
         print(f'Publishing stable snapshot: {relative}', flush=True)

@@ -1,12 +1,19 @@
 // Scientific provenance: rustplotlib interactive API d3837b8; numerical imaging is Rust/WASM.
 import init from './pkg/rustplotlib_web.js';
-import {imageSelection} from './imaging.js?v=sparse-1';
-import {InteractiveFieldPlot} from './lib/interactive_plot.js?v=colorbar-1';
+import {imageSelection} from './imaging.js?v=sparse-2';
+import {InteractiveFieldPlot} from './lib/interactive_plot.js?v=fast-start-2';
 const $=id=>document.getElementById(id), names=['Zenith','North','East','South','West'];
 // Start data I/O while WebAssembly initializes.
 let initialResponse=fetch('./data/manifest.json',{cache:'no-cache'}).catch(error=>({error}));
 let manifest,frames=[],plots=[],rd,playing=null,selected=0,revision='',rtiPlot,rdPlot,tdPlot;
 let chosenDay='',refreshSequence=0;
+const secondaryMounts=new Map();
+const visiblePlots=new IntersectionObserver(entries=>{
+ for(const entry of entries)if(entry.isIntersecting){
+  visiblePlots.unobserve(entry.target);
+  secondaryMounts.get(entry.target)?.().then(()=>{renderRTI();renderRD();}).catch(failure);
+ }
+},{rootMargin:'200px'});
 const axisStart=()=>manifest.axis_start_us??manifest.first_mode_us;
 const axisStop=()=>manifest.axis_stop_us??manifest.latest_mode_us;
 const dayNumber=()=>Number(manifest.selected_day.replaceAll('-',''));
@@ -15,7 +22,6 @@ const edges=centers=>Float32Array.from([...centers.map((x,i)=>i?(centers[i-1]+x)
 async function mountPlots(){
  const hours=(axisStop()-axisStart())/3.6e9,origin=axisStart()/1e6;
  const spec={bounds:[0,50,Math.max(hours,.001),120],xlabel:'Time (UTC)',ylabel:'Nominal altitude (km)',colorbar_label:'SNR (dB)',panels:names,utc_origin_seconds:origin};
- const mounts=[(async()=>{
  if(!rtiPlot){
   rtiPlot=await InteractiveFieldPlot.mount($('rti'),{id:'rti',spec,frameParameters:{day:dayNumber()},colorLimits:[+$('low').value,+$('high').value],onSelect:({panel,x,y})=>{
    const time=axisStart()+x*3.6e9;
@@ -27,11 +33,12 @@ async function mountPlots(){
   }});
   plots=rtiPlot.panels.map(p=>({canvas:p.canvas,view:p,owner:rtiPlot}));
  }else rtiPlot.setSpec(spec);
- })(),(async()=>{
+ const mountRD=async()=>{
  const [v0,v1]=manifest.velocity_limits_mps;
  if(!rdPlot){rdPlot=await InteractiveFieldPlot.mount($('rd'),{id:'rd',frameParameters:{day:dayNumber()},spec:{bounds:[v0,50,v1,120],xlabel:'Radial velocity (m/s)',ylabel:'Nominal altitude (km)',colorbar_label:'SNR (dB)',panels:['Spectrum']},colorLimits:[+$('low').value,+$('high').value],onSelect:({y})=>imageSelection(frames[selected].key,y/Math.sin(manifest.geometry.beam_elevation_deg[+$('rdbeam').value]*Math.PI/180))});rd={view:rdPlot.panels[0],owner:rdPlot};}
  rdPlot.setFrameParameters({day:dayNumber()});
- })(),(async()=>{
+ };
+ const mountTD=async()=>{
  const [v0,v1]=manifest.velocity_limits_mps;
  const tdSpec={bounds:[0,v0,Math.max(hours,.001),v1],xlabel:'Time (UTC)',ylabel:'Radial velocity (m/s)',colorbar_label:'SNR (dB)',panels:names,utc_origin_seconds:origin};
  if(!tdPlot){tdPlot=await InteractiveFieldPlot.mount($('timeDoppler'),{id:'td',frameParameters:{day:dayNumber()},spec:tdSpec,colorLimits:[+$('low').value,+$('high').value],onSelect:({panel,x})=>{
@@ -40,8 +47,13 @@ async function mountPlots(){
   $('rdbeam').value=String(panel);$('frame').value=String(selected);renderRD();
  }});}else tdPlot.setSpec(tdSpec);
  tdPlot.setFrameParameters({day:dayNumber()});
- })()];
- await Promise.all(mounts);
+ };
+ // Paint the visible day overview first. Below-the-fold spectra mount only
+ // when approached, rather than delaying the whole page behind their frames.
+ for(const [root,mount,ready] of [[$('rd'),mountRD,rdPlot],[$('timeDoppler'),mountTD,tdPlot]]){
+  secondaryMounts.set(root,mount);
+  if(ready)await mount();else visiblePlots.observe(root);
+ }
 }
 function scale(p){const [low,high]=p.owner.getColorLimits();p.view.set_scale(low,high,0,.1,2);}
 function summaries(frame,beam,nr){
@@ -54,7 +66,7 @@ function summaries(frame,beam,nr){
   return {peak,moments};
 }
 function renderRTI(){
-  if(!rtiPlot||!tdPlot||!frames.length)return;
+  if(!rtiPlot||!frames.length)return;
   rtiPlot.setFrameParameters({day:dayNumber(),hsv:$('display').value==='hsv'?1:0,velocity_limit:+$('vlim').value,width_limit:+$('wlim').value});
   const geom=manifest.geometry,nr=geom.slant_range_km.length,first=axisStart(),columns=[],xb=[];
   for(let i=0;i<frames.length;i++){
@@ -66,7 +78,7 @@ function renderRTI(){
   }
   const x=Float32Array.from(xb,t=>(t-first)/3600e6),nx=columns.length;
   const nativeNf=geom.velocity_mps.length,nf=nativeNf+1;
-  tdPlot.panels.forEach((panel,beam)=>{
+  tdPlot?.panels.forEach((panel,beam)=>{
    const value=new Float32Array(nx*nf);
    columns.forEach((frame,c)=>{
     if(!frame){for(let f=0;f<nf;f++)value[f*nx+c]=NaN;return;}

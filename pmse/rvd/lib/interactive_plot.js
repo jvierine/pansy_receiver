@@ -46,7 +46,10 @@ class InteractiveFieldPlot {
     });
     this.selectionBox.style.cssText = "display:none;position:absolute;z-index:3;border:1px dashed var(--blue,#1d5577);background:#63a8c922;pointer-events:none";
     this.stage.append(this.selectionBox);
-    this.observer = new ResizeObserver(() => this.queueFrame());
+    this.observer = new ResizeObserver(() => {
+      const width=Math.max(360,Math.min(1200,Math.round(this.root.clientWidth)));
+      if(width!==this.frame?.width)this.queueFrame();
+    });
   }
   viewport = new PlotViewport();
   panels = [];
@@ -212,6 +215,7 @@ class InteractiveFieldPlot {
     this.reset();
   }
   setFrameParameters(parameters) {
+    if(JSON.stringify(parameters)===JSON.stringify(this.options.frameParameters))return;
     this.options.frameParameters = parameters;
     this.queueFrame();
   }

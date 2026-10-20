@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#082747">
   <title>PANSY PMSE Explorer</title>
+  <link rel="modulepreload" href="viewer.js?v=fast-start-2">
+  <link rel="modulepreload" href="imaging.js?v=sparse-2">
+  <link rel="modulepreload" href="lib/interactive_plot.js?v=fast-start-2">
+  <link rel="modulepreload" href="pkg/rustplotlib_web.js">
+  <link rel="preload" href="pkg/rustplotlib_web_bg.wasm" as="fetch" type="application/wasm" crossorigin>
   <link rel="icon" type="image/png" href="rogue-wave-logo.png?v=1">
   <link rel="apple-touch-icon" href="rogue-wave-logo.png?v=1">
   <link rel="stylesheet" href="theme.css?v=download-guide-1">
@@ -102,6 +107,6 @@
     <pre id="error" role="alert"></pre>
   </main>
   <footer>PANSY · Mesospheric echoes at Syowa Station</footer>
-  <script type="module" src="viewer.js?v=fast-start-1"></script>
+  <script type="module" src="viewer.js?v=fast-start-2"></script>
 </body>
 </html>

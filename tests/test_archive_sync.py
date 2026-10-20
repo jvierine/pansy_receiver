@@ -9,12 +9,21 @@ from unittest.mock import patch
 import h5py
 import numpy as np
 
-from pmse.archive_sync import pending_files, update_receipt, pull_once, publish_once
+from pmse.archive_sync import pending_files, update_receipt, pull_once, publish_once, publication_selection
 from pmse.replicate_sparse import rsync
 from types import SimpleNamespace
 
 
 class ArchiveSyncTests(unittest.TestCase):
+    def test_live_holes_get_a_transfer_slot_before_historical_backfill(self):
+        now=1792512000  # 2026-10-20 16:00 UTC
+        recent=[Path(f'2026-10-20T00-00-00/pmse@{t}.h5') for t in [now-600,now-3600,now-14400]]
+        old=Path('2026-10-11T00-00-00/pmse@1791676800.h5')
+        pending=recent+[old]
+        self.assertEqual(publication_selection(pending,now,1),[recent[0],recent[-1]])
+        self.assertEqual(publication_selection(pending,now,3),[recent[0],recent[-1],old])
+        self.assertEqual(publication_selection([recent[0],old],now,1),[recent[0],old])
+
     def make_archive(self, root):
         path = root / '2026-10-20T12-00-00/pmse@1792497600.h5'
         path.parent.mkdir(parents=True)
