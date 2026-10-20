@@ -1,5 +1,16 @@
 # PANSY Receiver Agent Notes
 
+## Network policy (2026-10-20)
+
+Only Juha's work laptop may originate a reverse SSH tunnel. Never deploy or
+restart reverse SSH forwarding on Revontuli or any other host. UiT external
+users require registered guest accounts and approved access.
+
+PANSY RVD uses ordinary outbound SSH, without port forwarding:
+Syowa publishes stable HDF5 snapshots to juha.no; Revontuli pulls its copy from
+juha.no. The public RVD API and plotting service run on juha.no against its
+local archive. Never proxy public requests into Revontuli.
+
 Date: 2026-06-03
 
 Local repo: `/Users/jvi019/src/pansy_receiver`

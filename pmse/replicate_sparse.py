@@ -11,7 +11,7 @@ import h5py
 from .web_retention import sha256
 
 
-def rsync(source,destination,bandwidth=None,remote_shell=None,files_from=None,preserve_times=True,force=False,timeout=900,partial_ok=False):
+def rsync(source,destination,bandwidth=None,remote_shell=None,files_from=None,preserve_times=True,force=False,timeout=900,partial_ok=False,checksum=False):
     cmd=['rsync','-rt','--no-perms','--no-owner','--no-group','--partial','--delay-updates',
          '--timeout=120','--stats','--exclude=/.writer.lock']
     if bandwidth: cmd.append(f'--bwlimit={bandwidth}')
@@ -19,6 +19,7 @@ def rsync(source,destination,bandwidth=None,remote_shell=None,files_from=None,pr
     if files_from is not None:cmd+=['--files-from=-']
     if not preserve_times:cmd+=['--no-times','--omit-dir-times','--size-only']
     if force:cmd+=['--ignore-times']
+    if checksum:cmd+=['--checksum']
     began=time.monotonic()
     process=subprocess.Popen(cmd+[source,destination],text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
         stdin=subprocess.PIPE,env=dict(os.environ,LC_ALL='C'),start_new_session=True)

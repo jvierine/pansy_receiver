@@ -1,11 +1,11 @@
 [Unit]
-Description=Read-only existing PANSY spectra transport and Rustplotlib axes
+Description=Serve PANSY RVD from the local juha.no archive without SSH forwarding
 After=network-online.target
 
 [Service]
 WorkingDirectory=/home/j/src/pansy_pmse_sparse
 Environment=OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
-ExecStart=/home/j/venv/pansy-monitor/bin/python -u -m pmse.serve_browser
+ExecStart=/home/j/venv/pansy-rvd/bin/python -u -m pmse.serve_browser --root /mnt/shovel/rvd/pmse_sparse16 --manifest /var/www/rvd-live/data/manifest.json
 Restart=on-failure
 RestartSec=10
 Nice=15

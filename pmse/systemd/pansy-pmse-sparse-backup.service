@@ -1,13 +1,12 @@
 [Unit]
-Description=PANSY sparse spectral archive replication from Syowa
-After=pansy-backup-tunnel.service
-Wants=pansy-backup-tunnel.service
+Description=Pull PANSY native HDF5 from juha.no using outbound SSH
+After=network-online.target
 
 [Service]
 Type=simple
 WorkingDirectory=/home/j/src/pansy_pmse_sparse
 Environment=OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
-ExecStart=/home/j/venv/pansy-monitor/bin/python -u -m pmse.replicate_sparse --loop
+ExecStart=/home/j/venv/pansy-monitor/bin/python -u -m pmse.archive_sync pull --root /mnt/data/juha/pansy/metadata/pmse_sparse16 --receipt /mnt/data/juha/pansy/rvd-revontuli-receipt.h5 --metrics /mnt/data/juha/pansy/rvd16-transfer.h5 --bandwidth 1024 --loop
 Restart=on-failure
 RestartSec=60
 Nice=15

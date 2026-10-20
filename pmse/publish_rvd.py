@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import time
 import h5py
 import numpy as np
@@ -193,11 +194,24 @@ def main():
     p.add_argument('--output',type=Path,default=Path('/mnt/data/juha/pansy/rvd-web/data'))
     p.add_argument('--rsync-dest'); p.add_argument('--hours',type=float,default=0)
     p.add_argument('--plot-archive-dest',default='j@juha.no:/mnt/shovel/rvd/plot-data/')
+    p.add_argument('--plot-archive-local',type=Path)
     p.add_argument('--loop',action='store_true')
     a=p.parse_args()
     while True:
         try:
             export(a.root,a.output,a.hours)
+            if a.plot_archive_local:
+                manifest=json.loads((a.output/'manifest.json').read_text())
+                sidecar=a.output/Path(manifest['sidecar']).name
+                a.plot_archive_local.mkdir(parents=True,exist_ok=True)
+                destination=a.plot_archive_local/sidecar.name
+                ready=False
+                if destination.exists():
+                    with h5py.File(destination,'r') as h:ready=h.attrs.get('revision','')==manifest['revision']
+                if not ready:
+                    temporary=destination.with_suffix('.h5.partial')
+                    shutil.copyfile(sidecar,temporary)
+                    temporary.replace(destination)
             if a.rsync_dest:
                 # Transfer data packets and sidecar first, manifest last.
                 subprocess.run(['rsync','-rt','--exclude=manifest.json','--exclude=*.partial','--exclude=*.h5',

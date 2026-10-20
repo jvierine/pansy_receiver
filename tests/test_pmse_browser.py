@@ -14,7 +14,7 @@ from pmse.sparse_record import pending_modes,bounded_modes
 class BrowserTransportTests(unittest.TestCase):
     def test_day_download_preserves_native_files_and_excludes_other_days(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root=Path(temporary)
+            root=Path(temporary).resolve()
             (root/'dmd_properties.h5').write_bytes(b'native properties')
             files=[]
             for day in ['2026-10-18','2026-10-19']:

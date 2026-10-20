@@ -1,0 +1,15 @@
+[Unit]
+Description=Publish stable PANSY HDF5 snapshots outward from Syowa to juha.no
+After=network-online.target
+
+[Service]
+WorkingDirectory=/home/radar/src/git/pansy_pmse_sparse
+Environment=OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
+ExecStart=/home/radar/testenv/bin/python -u -m pmse.archive_sync publish --root /media/analysis/metadata/pmse_sparse16_snapshot --receipt /media/analysis/metadata/rvd-published.h5 --metrics /media/analysis/metadata/rvd-source-transfer.h5 --bandwidth 10 --loop
+Restart=on-failure
+RestartSec=60
+Nice=15
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=default.target
