@@ -1,14 +1,16 @@
 // All numerical imaging runs in Rust/WASM, off the UI thread.
 import init,{BrowserImager} from './imaging_pkg/pansy_browser_imaging.js?v=sparse-1';
+import {filterImageCells} from './echo_filter.mjs?v=1';
 let ready=init({module_or_path:new URL('./imaging_pkg/pansy_browser_imaging_bg.wasm?v=sparse-1',import.meta.url)}),imager,identity='';
 self.onmessage=async({data})=>{
  try {
   await ready;
   const {id,packet,geometry,grid,options}=data;
   const view=new DataView(packet),length=view.getUint32(0,true);
-  const headerJSON=new TextDecoder().decode(new Uint8Array(packet,4,length));
-  const header=JSON.parse(headerJSON),offset=4+Math.ceil(length/4)*4;
-  const values=new Float32Array(packet,offset);
+  let headerJSON=new TextDecoder().decode(new Uint8Array(packet,4,length));
+  const decoded=JSON.parse(headerJSON),offset=4+Math.ceil(length/4)*4;
+  const {header,values}=filterImageCells(decoded,new Float32Array(packet,offset),data.allowedGates);
+  headerJSON=JSON.stringify(header);
   const key=JSON.stringify([geometry,header.selected_range_km,grid]);
   if(identity!==key){imager?.free();imager=new BrowserImager(JSON.stringify(geometry),header.selected_range_km,grid,true);identity=key;}
   const started=performance.now(),moments=imager.image_with_options(headerJSON,JSON.stringify(geometry),values,JSON.stringify(options));

@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#082747">
   <title>PANSY PMSE Explorer</title>
-  <link rel="modulepreload" href="viewer.js?v=sky-noise-1">
-  <link rel="modulepreload" href="imaging.js?v=sparse-2">
+  <link rel="modulepreload" href="viewer.js?v=persistence-hsv-2">
+  <link rel="modulepreload" href="imaging.js?v=persistence-3">
   <link rel="modulepreload" href="lib/interactive_plot.js?v=fast-start-2">
   <link rel="modulepreload" href="pkg/rustplotlib_web.js">
   <link rel="preload" href="pkg/rustplotlib_web_bg.wasm" as="fetch" type="application/wasm" crossorigin>
@@ -33,11 +33,12 @@
     <p class="status" id="processingStatus" role="status" hidden></p>
     <div class="view-toolbar">
       <label for="display">Display <select id="display"><option value="snr">Echo strength · SNR</option><option value="hsv">Velocity &amp; width · HSV</option></select></label>
+      <label><input id="hideSingleMode" type="checkbox"> Hide single-mode echoes</label>
       <details class="settings">
         <summary>Display settings</summary>
         <div class="settings-content">
           <div><h3>Echo strength</h3><p>Click any colorbar to adjust its limits directly.</p>
-            <div class="control-row"><label>Minimum SNR <input id="low" type="number" value="3" step="1"> <span>dB</span></label><label>Maximum SNR <input id="high" type="number" value="6" step="1"> <span>dB</span></label></div>
+            <div class="control-row"><label>Minimum SNR <input id="low" type="number" value="3" step="1"> <span>dB</span></label><label>Maximum SNR <input id="high" type="number" value="13" step="1"> <span>dB</span></label></div>
           </div>
           <div class="hsv-settings"><h3>Doppler colors</h3><p>Velocity sets hue; spectral width sets saturation.</p>
             <div class="control-row"><label>RTI velocity ± <input id="vlim" type="number" value="30" min="1"> <span>m/s</span></label><label>RTI width <input id="wlim" type="number" value="10" min="1"> <span>m/s</span></label></div>
@@ -46,6 +47,7 @@
         </div>
       </details>
     </div>
+    <p id="filterStatus" class="plot-note" role="status"></p>
     <section class="plot-section" aria-labelledby="rtiTitle">
       <div class="section-heading"><h2 id="rtiTitle">Echoes through the day</h2><span class="section-note">Five beams · 50–120 km</span></div>
       <p class="legend" id="colorLabel">Peak excess signal/noise (dB). Click a colorbar to adjust its limits.</p>
@@ -100,6 +102,7 @@
       <div class="support-content details">
         <p>The download button exports the selected UTC day's available native HDF5 files in a TAR archive, including sparse complex spectra for all seven receiver channels and all retained coherent looks, plus the Digital Metadata properties file. Today's archive grows as observations arrive.</p>
         <p>Only cells passing the 3 dB excess-signal SNR and statistical gates are retained. Missing cells are censored, not measured zero power. Grey indicates no delivered record, which may still be processing or transferring. A high radial velocity alone does not establish a vertical draft.</p>
+        <p>Hide single-mode echoes is an optional display-only meteor-trail suppression heuristic, applied to the RTIs, both Doppler plots and radar image. A detection needs another detection at the same range gate in the same beam in the previous or next delivered mode, with a gap no greater than ten minutes; Doppler may change. Newest echoes without prior support remain hidden until confirmed. Short real PMSE/PMWE echoes can also be hidden, and multi-mode meteor trails can remain. No archive data or downloads are changed.</p>
         <p>Altitude is the nominal beam-center height. HSV encodes Doppler centroid, spectral width, and peak SNR. Radar images use a selected slant-range shell and at most 120 seconds of looks; their intensity is relative reconstructed power, not calibrated SNR. Historical phase calibration has not been independently validated for these observations.</p>
         <p><a id="sidecar">Download derived plot data · HDF5</a> · <a href="https://github.com/jvierine/pansy_receiver/tree/main/pmse">Processing &amp; data format</a></p>
       </div>
@@ -107,6 +110,6 @@
     <pre id="error" role="alert"></pre>
   </main>
   <footer>PANSY · Mesospheric echoes at Syowa Station</footer>
-  <script type="module" src="viewer.js?v=sky-noise-1"></script>
+  <script type="module" src="viewer.js?v=persistence-hsv-2"></script>
 </body>
 </html>

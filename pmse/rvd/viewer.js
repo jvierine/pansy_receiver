@@ -1,12 +1,21 @@
 // Scientific provenance: rustplotlib interactive API d3837b8; numerical imaging is Rust/WASM.
 import init from './pkg/rustplotlib_web.js';
-import {imageSelection} from './imaging.js?v=sparse-2';
+import {imageSelection,setEchoFilter} from './imaging.js?v=persistence-3';
+import {persistentEchoes} from './echo_filter.mjs?v=1';
 import {InteractiveFieldPlot} from './lib/interactive_plot.js?v=fast-start-2';
 const $=id=>document.getElementById(id), names=['Zenith','North','East','South','West'];
 // Start data I/O while WebAssembly initializes.
 let initialResponse=fetch('./data/manifest.json',{cache:'no-cache'}).catch(error=>({error}));
 let manifest,frames=[],plots=[],rd,playing=null,selected=0,revision='',rtiPlot,rdPlot,tdPlot;
 let chosenDay='',refreshSequence=0;
+let originalFrames=[];
+function applyEchoFilter(){
+ const enabled=$('hideSingleMode').checked;
+ const filtered=enabled?persistentEchoes(originalFrames):null;
+ frames=filtered?filtered.frames:originalFrames;
+ setEchoFilter(filtered?key=>[...(filtered.allowed.get(String(key))||[])]:undefined);
+ $('filterStatus').textContent=filtered?`Single-mode filter: ${filtered.hiddenGates.toLocaleString()} beam/range detections hidden. Requires the same range gate in this beam in a neighboring mode (gap ≤10 min). New echoes wait for confirmation; short real echoes can also be hidden.`:'';
+}
 let skyNoise,noiseRequest;
 const secondaryMounts=new Map();
 const visiblePlots=new IntersectionObserver(entries=>{
@@ -68,7 +77,8 @@ function summaries(frame,beam,nr){
 }
 function renderRTI(){
   if(!rtiPlot||!frames.length)return;
-  rtiPlot.setFrameParameters({day:dayNumber(),hsv:$('display').value==='hsv'?1:0,velocity_limit:+$('vlim').value,width_limit:+$('wlim').value});
+  const style={day:dayNumber(),hsv:$('display').value==='hsv'?1:0,velocity_limit:+$('vlim').value,width_limit:+$('wlim').value};
+  rtiPlot.setFrameParameters(style);tdPlot?.setFrameParameters(style);
   const geom=manifest.geometry,nr=geom.slant_range_km.length,first=axisStart(),columns=[],xb=[];
   for(let i=0;i<frames.length;i++){
     const f=frames[i],previous=frames[i-1],next=frames[i+1];
@@ -80,12 +90,19 @@ function renderRTI(){
   const x=Float32Array.from(xb,t=>(t-first)/3600e6),nx=columns.length;
   const nativeNf=geom.velocity_mps.length,nf=nativeNf+1;
   tdPlot?.panels.forEach((panel,beam)=>{
-   const value=new Float32Array(nx*nf);
+   const value=new Float32Array(nx*nf),moment=new Float32Array(nx*nf*4);
    columns.forEach((frame,c)=>{
-    if(!frame){for(let f=0;f<nf;f++)value[f*nx+c]=NaN;return;}
-    frame.index.forEach(([b,f,r],i)=>{if(b===beam&&geom.altitude_km[beam][r]>=50&&geom.altitude_km[beam][r]<=120){value[f*nx+c]=Math.max(value[f*nx+c],frame.snr_db[i]);if(f===0)value[nativeNf*nx+c]=value[c];}});
+    if(!frame){for(let f=0;f<nf;f++){value[f*nx+c]=NaN;moment[4*(f*nx+c)]=NaN;}return;}
+    const summary=summaries(frame,beam,nr);
+    frame.index.forEach(([b,f,r],i)=>{if(b===beam&&geom.altitude_km[beam][r]>=50&&geom.altitude_km[beam][r]<=120){
+      const cell=f*nx+c,snr=frame.snr_db[i];if(snr>value[cell]){
+       value[cell]=snr;moment[4*cell]=snr;moment[4*cell+1]=geom.velocity_mps[f];moment[4*cell+2]=summary.moments[4*r+2];
+       if(f===0){const last=nativeNf*nx+c;value[last]=snr;moment.set(moment.subarray(4*cell,4*cell+4),4*last);moment[4*last+1]=manifest.velocity_limits_mps[1];}
+      }
+    }});
    });
    panel.set_rectilinear_data(x,edges([...geom.velocity_mps,manifest.velocity_limits_mps[1]]),value);panel.set_scale(...tdPlot.getColorLimits());
+   if(style.hsv)panel.set_moment_data(moment,...(tdPlot.getHsvLimits()||[+$('vlim').value,+$('wlim').value]));
   });
   plots.forEach((p,beam)=>{
     const val=new Float32Array(nx*nr),moment=new Float32Array(nx*nr*4);
@@ -100,9 +117,15 @@ function renderRD(){
   if(!rd||!frames.length)return;
   const frame=frames[selected],beam=+$('rdbeam').value,g=manifest.geometry,nr=g.slant_range_km.length;
   const bins=g.velocity_mps.map((v,i)=>i),nx=bins.length+1;
-  const lookup=new Map(bins.map((f,i)=>[f,i])),value=new Float32Array(nx*nr);let count=0,transients=0;
-  frame.index.forEach(([b,f,r],i)=>{if(b===beam&&lookup.has(f)){value[r*nx+lookup.get(f)]=frame.snr_db[i];if(f===0)value[r*nx+nx-1]=frame.snr_db[i];count++;if(frame.look_dominance?.[i]>.5)transients++;}});
+  const lookup=new Map(bins.map((f,i)=>[f,i])),value=new Float32Array(nx*nr),moment=new Float32Array(nx*nr*4),summary=summaries(frame,beam,nr);let count=0,transients=0;
+  frame.index.forEach(([b,f,r],i)=>{if(b===beam&&lookup.has(f)){
+    const cell=r*nx+lookup.get(f);value[cell]=frame.snr_db[i];moment[4*cell]=frame.snr_db[i];moment[4*cell+1]=g.velocity_mps[f];moment[4*cell+2]=summary.moments[4*r+2];
+    if(f===0){const last=r*nx+nx-1;value[last]=value[cell];moment.set(moment.subarray(4*cell,4*cell+4),4*last);moment[4*last+1]=manifest.velocity_limits_mps[1];}
+    count++;if(frame.look_dominance?.[i]>.5)transients++;
+  }});
   rd.view.set_rectilinear_data(edges([...g.velocity_mps,manifest.velocity_limits_mps[1]]),edges(g.altitude_km[beam]),value);scale(rd);
+  const hsv=$('display').value==='hsv';rdPlot.setFrameParameters({day:dayNumber(),hsv:hsv?1:0,velocity_limit:+$('vlim').value,width_limit:+$('wlim').value});
+  if(hsv)rd.view.set_moment_data(moment,...(rdPlot.getHsvLimits()||[+$('vlim').value,+$('wlim').value]));
   $('frameStatus').textContent=`${utc(frame.start_us)} · ${names[beam]} · ${frame.duration_s.toFixed(2)} s mode, ${frame.coverage_s.toFixed(2)} s valid support · ${frame.looks} looks · ${count} retained cells · 16 ms complementary pairs · ${frame.quality}`;
 }
 async function refresh(){
@@ -141,7 +164,7 @@ async function refresh(){
   download.title=`Native complex spectra and metadata for ${chosenDay} UTC (.tar)`;
   $('status').className=age>10?'status warn':'status';$('error').textContent='';
   if(m.revision===revision)return;manifest=m;
-  frames=m.frame_packets;revision=m.revision;selected=frames.length-1;$('frame').max=String(Math.max(0,selected));$('frame').value=String(Math.max(0,selected));
+  originalFrames=m.frame_packets;applyEchoFilter();revision=m.revision;selected=frames.length-1;$('frame').max=String(Math.max(0,selected));$('frame').value=String(Math.max(0,selected));
   if(!frames.length){$('status').textContent=`${chosenDay} UTC · no complete 16 ms records yet`;return;}
   await mountPlots();
   $('sidecar').href='./data/'+m.sidecar;renderRTI();renderRD();
@@ -221,9 +244,10 @@ try{
  for(const id of ['display','low','high','vlim','wlim'])$(id).onchange=()=>{try{
   document.body.dataset.display=$('display').value;
   if(id==='low'||id==='high')for(const plot of [rtiPlot,rdPlot,tdPlot])plot?.setColorLimits(+$('low').value,+$('high').value);
-  if(id==='vlim'||id==='wlim')rtiPlot?.setHsvLimits(+$('vlim').value,+$('wlim').value);
+  if(id==='vlim'||id==='wlim')for(const plot of [rtiPlot,rdPlot,tdPlot])plot?.setHsvLimits(+$('vlim').value,+$('wlim').value);
   renderRTI();renderRD();}catch(e){failure(e);}};
  $('rdbeam').onchange=renderRD;$('frame').oninput=()=>{selected=+$('frame').value;renderRD();};
+ $('hideSingleMode').onchange=()=>{applyEchoFilter();renderRTI();renderRD();};
  $('noiseModule').onchange=()=>renderNoise();
  $('skyNoiseSection').ontoggle=()=>{if($('skyNoiseSection').open)void refreshSkyNoise();};
  $('day').onchange=()=>{chosenDay=$('day').value;revision='';$('downloadSpectra').setAttribute('aria-disabled','true');$('downloadSpectra').removeAttribute('href');if(playing){clearInterval(playing);playing=null;$('play').textContent='Play';}refresh().catch(failure);};

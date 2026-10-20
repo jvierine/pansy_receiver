@@ -1,6 +1,7 @@
 import {InteractiveFieldPlot} from './lib/interactive_plot.js?v=fast-start-2';
 const $=id=>document.getElementById(id);
-let worker,geometry,plot,plotMount,sequence=0,previousRange,lastMoments,lastPacket,busy=false,fetchAbort,timeout;
+let worker,geometry,plot,plotMount,sequence=0,previousRange,lastMoments,lastPacket,lastKey,echoFilter,busy=false,fetchAbort,timeout;
+export function setEchoFilter(resolver){echoFilter=resolver;if(lastPacket)reconstruct();}
 const grid=61;
 function edges(extent){const d=2*extent/(grid-1);return Float32Array.from({length:grid+1},(_,i)=>-extent-d/2+i*d);}
 function styleParameters(range){return {range_km:range,hsv:$('display').value==='hsv'?1:0,velocity_limit:+$('imageVelocity').value,width_limit:+$('imageWidth').value};}
@@ -17,7 +18,7 @@ function methodNote(){
   o.method==='sparse'?'Positive pixel ℓ₁ for compact echoes; optional reweighting and selected-support power refit.':'Legacy 18-mode TSVD comparison: squared inverse magnitude, not sparse source-power reconstruction.';
 }
 function makeWorker(){
- const active=worker=new Worker(new URL('./imaging_worker.js?v=sparse-1',import.meta.url),{type:'module'});
+ const active=worker=new Worker(new URL('./imaging_worker.js?v=persistence-2',import.meta.url),{type:'module'});
    worker.onmessage=async({data})=>{
     if(data.id!==sequence)return;
     busy=false;clearTimeout(timeout);
@@ -37,7 +38,7 @@ function makeWorker(){
      const signal=Array.from({length:grid*grid},(_,i)=>moments[4*i+3]).some(x=>x>0);
      const d=data.diagnostics,method=d.method==='wavelet'?'PMSE wavelet ℓ₁':d.method==='sparse'?'Compact pixel ℓ₁':'Legacy TSVD';
      $('imageStatus').textContent=`${new Date(header.start_us/1000).toISOString()} — ${new Date(header.stop_us/1000).toISOString().slice(11,19)} UTC · slant range ${range.toFixed(2)} km · all five beams · ${header.looks} looks · ${header.index.length} retained spectral cells · Rust/WASM ${data.compute_ms.toFixed(0)} ms. `+
-       `${method}. `+(signal?'':'No reconstructed power at this selection. ')+`Historical calibration: not independently validated for this observation.`;
+       `${method}. `+(header.hidden_single_mode_cells!=null?`${header.hidden_single_mode_cells} single-mode spectral cells hidden. `:'')+(signal?'':'No reconstructed power at this selection. ')+`Historical calibration: not independently validated for this observation.`;
      $('imageDiagnostics').textContent=d.cells?`Covariance fit: mean relative residual ${(100*d.relative_residual).toFixed(1)}% · weighted RMS ${d.residual_rms.toFixed(2)} · ${d.cells} cells · ${(d.iterations/d.cells).toFixed(0)} mean iterations. `+
       (d.unconverged?`${d.unconverged} cells reached the iteration limit; reconstruction is approximate. `:'Iterate tolerance reached. ')+
       'Noise weights assume independent Gaussian looks; correlated noise and detection censoring are not modeled.':'Legacy TSVD: no sparse-fit residual available.';
@@ -58,10 +59,11 @@ function reconstruct(){
  $('imagePlot').setAttribute('aria-busy','true');
  $('imageDiagnostics').textContent='';
   $('imageStatus').textContent='Reconstructing all five beams in Rust/WebAssembly…';
- worker.postMessage({id,packet,geometry,grid,options:options()},[packet]);
+ worker.postMessage({id,packet,geometry,grid,options:options(),allowedGates:echoFilter?.(lastKey)},[packet]);
  timeout=setTimeout(()=>{if(id===sequence&&busy){worker.terminate();worker=undefined;busy=false;$('imagePlot').setAttribute('aria-busy','false');$('imageStatus').textContent='Reconstruction exceeded 60 seconds. Select a different method or echo to retry.';}},60000);
 }
 export async function imageSelection(key,slantRange,offsetSeconds=0,spectraReady=true){
+ lastKey=key;
  const id=++sequence;fetchAbort?.abort();fetchAbort=new AbortController();const signal=fetchAbort.signal;lastPacket=undefined;
  if(busy){worker.terminate();worker=undefined;busy=false;}clearTimeout(timeout);
  if(!spectraReady){$('imagePlot').setAttribute('aria-busy','false');$('imageStatus').textContent='These observations are available in the RTI; their complex spectra are still transferring from Syowa. Retry after the next update.';$('imageDiagnostics').textContent='';return;}
