@@ -14,6 +14,18 @@ from pmse.sparse_record import Config, read_complete, write_record
 
 
 class RectangularBackfillTests(unittest.TestCase):
+    def test_worker_services_have_separate_single_core_budgets(self):
+        root=Path(__file__).resolve().parents[1]/'pmse/systemd'
+        live=(root/'pansy-pmse-sparse.service').read_text()
+        backfill=(root/'pansy-pmse-rectangular-backfill.service').read_text()
+        self.assertIn('CPUAffinity=0',live)
+        self.assertIn('--lookback-hours 3',live)
+        self.assertIn('CPUAffinity=1',backfill)
+        self.assertIn('--replace-hann',backfill)
+        for text in (live,backfill):
+            self.assertIn('CPUQuota=100%',text)
+            self.assertIn('OPENBLAS_NUM_THREADS=1',text)
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)

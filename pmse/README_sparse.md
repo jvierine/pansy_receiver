@@ -222,6 +222,9 @@ logical core (affinity 1, 100% CPU quota, idle I/O, nice 19). It starts at the
 oldest currently retained eight-channel raw support, skips rectangular records,
 creates missing records, and reprocesses historical Hann records from raw data.
 It does not try to invert Hann or regenerate raw data that have expired.
+The realtime worker stays on affinity 0 with a three-hour discovery horizon;
+its former whole-ring background index is disabled, leaving the oldest-first
+whole-ring pass exclusively to the additional worker instead of duplicating it.
 
 Replacements are first written/read through the native writer in a separate
 temporary channel. Under the shared native writer/snapshot lock, the old group
