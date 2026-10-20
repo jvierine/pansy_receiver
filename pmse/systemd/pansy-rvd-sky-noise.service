@@ -6,7 +6,7 @@ After=network-online.target
 Type=simple
 WorkingDirectory=/home/j/src/pansy_pmse_sparse
 Environment=OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 MPLBACKEND=Agg
-ExecStart=/home/j/venv/pansy-monitor/bin/python -u -m pmse.publish_sky_noise --root /mnt/data/juha/pansy/metadata/pmse_sparse16 --cache /mnt/data/juha/pansy/sky-model-gsm2008-47MHz.h5 --fit /mnt/data/juha/pansy/rvd-noise16-fit.h5 --output /mnt/data/juha/pansy/rvd-sky-noise --destination j@juha.no:/var/www/rvd-live/data/sky-noise/ --loop
+ExecStart=/home/j/venv/pansy-monitor/bin/python -u -m pmse.publish_sky_noise --root /mnt/data/juha/pansy/metadata/pmse_sparse16 --cache /mnt/data/juha/pansy/sky-model-gsm2008-47MHz.h5 --fit /mnt/data/juha/pansy/rvd-noise16-fit.h5 --output /mnt/data/juha/pansy/rvd-sky-noise --destination j@juha.no:/var/www/rvd-live/data/sky-noise/ --archive-manifest https://juha.no/rvd/data/manifest.json --archive-destination j@juha.no:/var/www/rvd-live/data/ --loop
 Restart=on-failure
 RestartSec=60
 Nice=15

@@ -17,7 +17,7 @@ from .publish_rvd import atomic_json
 from .serve_browser import day_packet
 from .archive_inventory import inventory
 from .web_retention import sha256
-from .archive_plot import refresh_archive_plot
+from .archive_plot import attach_archive_plot
 
 
 class MetadataCache:
@@ -76,6 +76,7 @@ def publish(root, output, cache):
     base=json.loads(manifest_path.read_text())
     # Daily files contain packets themselves; do not nest yesterday's packets.
     base.pop('frame_packets',None)
+    attach_archive_plot(base,output)
     days={p.name[:10] for p in root.glob('20*T*') if any(p.glob('pmse@*.h5'))}
     if cache.source:days.update(p.name[:10] for p in cache.source.glob('20*T*') if any(p.glob('pmse@*.h5.json.gz')))
     days=sorted(days)
@@ -122,7 +123,7 @@ def publish(root, output, cache):
     current=json.loads(manifest_path.read_text())
     current.setdefault('transfer',{})['archive']=measured
     current['transfer']['archive'].update(destination=str(root),web_retention_days=7)
-    refresh_archive_plot(current,output)
+    attach_archive_plot(current,output)
     atomic_json(manifest_path,current)
 
 

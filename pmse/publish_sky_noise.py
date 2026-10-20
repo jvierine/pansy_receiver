@@ -16,6 +16,7 @@ import numpy as np
 
 from .publish_rvd import atomic_json
 from .sky_noise import update
+from .archive_plot import publish_archive_plot
 
 
 def fit_specification(path):
@@ -65,7 +66,9 @@ def publish(root,cache,fit,output,destination=None,renderer=None):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('root','cache','fit','output'):p.add_argument('--'+name,type=Path,required=True)
-    p.add_argument('--destination');p.add_argument('--loop',action='store_true');a=p.parse_args()
+    p.add_argument('--destination');p.add_argument('--archive-manifest');p.add_argument('--archive-destination')
+    p.add_argument('--loop',action='store_true');a=p.parse_args()
+    if bool(a.archive_manifest)!=bool(a.archive_destination):p.error('Archive manifest and destination must be supplied together')
     while True:
         try:publish(a.root,a.cache,a.fit,a.output,a.destination)
         except Exception as error:
@@ -73,6 +76,11 @@ def main():
             if getattr(error,'stderr',None):print(error.stderr,flush=True)
             traceback.print_exc()
             if not a.loop:raise
+        if a.archive_manifest:
+            try:publish_archive_plot(a.archive_manifest,a.output.with_name(a.output.name+'-archive'),a.archive_destination)
+            except Exception:
+                import traceback;traceback.print_exc()
+                if not a.loop:raise
         if not a.loop:break
         time.sleep(600)
 

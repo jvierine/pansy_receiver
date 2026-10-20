@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+from urllib.request import urlopen
 
 from .publish_rvd import atomic_json
 
@@ -41,3 +42,30 @@ def refresh_archive_plot(manifest, output, renderer=None):
             fallback=dict(status='delayed',revision=previous.get('revision','previous'),
                           generated_utc=generated,files=files)
         manifest['archive_plot']=fallback
+
+
+def attach_archive_plot(manifest,output):
+    """Web-host metadata only: use analysis-produced plots, never build them."""
+    output=Path(output)
+    try:
+        status=json.loads((output/'archive-plot-status.json').read_text())
+        expected={str(w):f'axes/archive-growth-{w}.svg' for w in (640,960)}
+        if status.get('files')!=expected or not all((output/p).is_file() for p in expected.values()):
+            raise ValueError('Archive diagnostic files have not arrived yet')
+        manifest['archive_plot']=status
+    except (OSError,ValueError):
+        if 'archive_plot' in manifest:manifest['archive_plot']['status']='delayed'
+        else:manifest['archive_plot']=dict(status='unavailable')
+
+
+def publish_archive_plot(manifest_url,output,destination):
+    """Render the delivered web inventory on the analysis host, then push it."""
+    output=Path(output);output.mkdir(parents=True,exist_ok=True)
+    with urlopen(manifest_url,timeout=30) as response:manifest=json.load(response)
+    refresh_archive_plot(manifest,output)
+    status=manifest['archive_plot']
+    if status['status']!='ready':raise RuntimeError('Archive plot rendering is not ready')
+    atomic_json(output/'archive-plot-status.json',status)
+    subprocess.run(['rsync','-rt','--delay-updates','--exclude=.*','--exclude=*.json','--exclude=*.partial',
+                    str(output)+'/',destination],check=True,timeout=120)
+    subprocess.run(['rsync','-rt','--delay-updates',str(output/'archive-plot-status.json'),destination],check=True,timeout=30)

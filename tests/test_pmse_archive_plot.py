@@ -1,12 +1,14 @@
 """Storage plots remain independent of unavailable static radar decorations."""
 import copy
+import io
+import json
 import subprocess
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from pmse.archive_plot import refresh_archive_plot
+from pmse.archive_plot import refresh_archive_plot,attach_archive_plot,publish_archive_plot
 
 
 class ArchivePlotTests(unittest.TestCase):
@@ -59,6 +61,27 @@ class ArchivePlotTests(unittest.TestCase):
             with patch('pmse.archive_plot.subprocess.run',side_effect=self.render):
                 refresh_archive_plot(m,temp)
             self.assertEqual(m['archive_plot']['status'],'ready')
+
+    def test_web_host_attaches_analysis_status_without_running_renderer(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);m=self.manifest()
+            self.render(['renderer','--archive-only','spec',str(root/'axes')])
+            status=dict(status='ready',revision='analysis',files={str(w):f'axes/archive-growth-{w}.svg' for w in (640,960)})
+            (root/'archive-plot-status.json').write_text(json.dumps(status))
+            with patch('pmse.archive_plot.subprocess.run',side_effect=AssertionError('Periodic web plot build')):
+                attach_archive_plot(m,root)
+            self.assertEqual(m['archive_plot'],status)
+
+    def test_analysis_uses_delivered_inventory_and_transfers_status_last(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            def run(command,**kwargs):
+                if command[0]!='rsync':self.render(command,**kwargs)
+            with patch('pmse.archive_plot.urlopen',return_value=io.BytesIO(json.dumps(self.manifest()).encode())),patch(
+                    'pmse.archive_plot.subprocess.run',side_effect=run) as calls:
+                publish_archive_plot('https://example/manifest.json',root,'web:data/')
+            self.assertEqual(json.loads((root/'archive-plot-status.json').read_text())['status'],'ready')
+            self.assertEqual(calls.call_args_list[-1].args[0][-2:],[str(root/'archive-plot-status.json'),'web:data/'])
 
 
 if __name__=='__main__':unittest.main()
