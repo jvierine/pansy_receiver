@@ -68,8 +68,10 @@ def main():
     p.add_argument('--destination');p.add_argument('--loop',action='store_true');a=p.parse_args()
     while True:
         try:publish(a.root,a.cache,a.fit,a.output,a.destination)
-        except Exception:
-            import traceback;traceback.print_exc()
+        except Exception as error:
+            import traceback
+            if getattr(error,'stderr',None):print(error.stderr,flush=True)
+            traceback.print_exc()
             if not a.loop:raise
         if not a.loop:break
         time.sleep(600)

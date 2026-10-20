@@ -127,7 +127,9 @@ fn main()->Result<()> {
                 let pad=((hi-lo)*0.15).max(if panel==0{0.1}else{10.});
                 let mut axes=Axes::new([0.,xmax],[lo-pad,hi+pad],"Time (UTC)","");
                 axes.xticks=vec![0.,xmax/2.,xmax];axes.xticklabels=Some(labels.clone());
-                let rect=Rect::new(AUX_LEFT_MM,10.+panel as f64*68.,f.width_mm-AUX_LEFT_MM-8.,43.);
+                // Multi-day UTC tick labels include the date. Reserve their
+                // half-width at the right edge without rescaling typography.
+                let rect=Rect::new(AUX_LEFT_MM,10.+panel as f64*68.,f.width_mm-AUX_LEFT_MM-16.,43.);
                 auxiliary_ylabel(&mut f,rect,if panel==0{"Receiver noise power (dB)"}else{r"Modeled $T_{\rm sky}$ (K)"});
                 let mut p=Panel::new(rect,axes);
                 for beam in 0..5 {

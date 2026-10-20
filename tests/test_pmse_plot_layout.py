@@ -37,6 +37,7 @@ class AuxiliaryLayoutTests(unittest.TestCase):
                              ['archive-growth-640.svg','archive-growth-960.svg'])
             self.assertFalse((archive_only/'layouts.json').exists())
             noise_only=root/'noise-only'
+            manifest['noise_model_data']['time_tick_labels']=['10-19 18:00','10-20 06:00','10-20 18:00']
             spec.write_text(json.dumps(dict(noise_model_data=manifest['noise_model_data'])))
             result=subprocess.run([str(renderer),'--noise-only',str(spec),str(noise_only)],
                                   capture_output=True,text=True,timeout=120)
