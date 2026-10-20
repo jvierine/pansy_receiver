@@ -9,6 +9,13 @@ test('single-mode suppression is checked on initial page load',async()=>{
  assert.match(html,/<input\b[^>]*id="hideSingleMode"[^>]*\bchecked\b[^>]*>/);
 });
 
+test('page and native decorations remain white independently of the colormap',async()=>{
+ const css=await readFile(new URL('../pmse/rvd/theme.css',import.meta.url),'utf8');
+ const renderer=await readFile(new URL('../pmse/plotting/src/main.rs',import.meta.url),'utf8');
+ assert.match(css,/--paper:\s*#ffffff;/);assert.match(css,/--foam:\s*#ffffff;/);
+ assert.match(renderer,/const WAVE_PAPER:\[f64;3\]=\[1\.,1\.,1\.\];/);
+});
+
 test('same beam and exact range survive Doppler changes; isolated gates disappear',()=>{
  const source=[frame(0,[[0,1,10],[0,1,20]]),frame(1,[[0,8,10],[1,1,20],[0,8,30]]),frame(2,[[0,2,30]])];
  const before=JSON.stringify(source),out=persistentEchoes(source);

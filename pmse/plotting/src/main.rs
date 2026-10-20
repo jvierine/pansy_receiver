@@ -5,7 +5,7 @@ use anyhow::Result;
 use serde_json::{json,Value};
 use std::{fs,path::Path};
 
-const WAVE_PAPER:[f64;3]=[250./255.,247./255.,237./255.];
+const WAVE_PAPER:[f64;3]=[1.,1.,1.];
 // Scientific-notation tick labels (e.g. 1.00 x 10^4 K) exceed the former
 // 20 mm gutter. Keep geometry checks enabled and reserve actual label space.
 const AUX_LEFT_MM:f64=32.;
