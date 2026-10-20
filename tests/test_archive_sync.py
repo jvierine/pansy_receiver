@@ -20,8 +20,9 @@ class ArchiveSyncTests(unittest.TestCase):
         recent=[Path(f'2026-10-20T00-00-00/pmse@{t}.h5') for t in [now-600,now-3600,now-14400]]
         old=Path('2026-10-11T00-00-00/pmse@1791676800.h5')
         pending=recent+[old]
-        self.assertEqual(publication_selection(pending,now,1),[recent[0],recent[-1]])
-        self.assertEqual(publication_selection(pending,now,3),[recent[0],recent[-1],old])
+        self.assertEqual(publication_selection(pending,now,1),[recent[0],recent[1]])
+        self.assertEqual(publication_selection(pending,now,3),[recent[0],recent[1],old])
+        self.assertEqual(publication_selection([recent[0],recent[-1],old],now,1),[recent[0],recent[-1]])
         self.assertEqual(publication_selection([recent[0],old],now,1),[recent[0],old])
 
     def make_archive(self, root):

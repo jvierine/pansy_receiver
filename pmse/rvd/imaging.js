@@ -64,7 +64,7 @@ function reconstruct(){
 export async function imageSelection(key,slantRange,offsetSeconds=0,spectraReady=true){
  const id=++sequence;fetchAbort?.abort();fetchAbort=new AbortController();const signal=fetchAbort.signal;lastPacket=undefined;
  if(busy){worker.terminate();worker=undefined;busy=false;}clearTimeout(timeout);
- if(!spectraReady){$('imageStatus').textContent='These observations are available in the RTI; their complex spectra are still transferring from Syowa. Retry after the next update.';$('imageDiagnostics').textContent='';return;}
+ if(!spectraReady){$('imagePlot').setAttribute('aria-busy','false');$('imageStatus').textContent='These observations are available in the RTI; their complex spectra are still transferring from Syowa. Retry after the next update.';$('imageDiagnostics').textContent='';return;}
  $('imageStatus').textContent='Fetching existing complex spectra…';$('imageDiagnostics').textContent='';
  try {
   geometry??=await (await fetch('./api/geometry')).json();

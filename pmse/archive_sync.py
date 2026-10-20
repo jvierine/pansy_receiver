@@ -70,7 +70,9 @@ def publication_selection(pending, now, turn, frontier=None):
     recent=[p for p in pending if int(p.stem.split('@')[1])>=cutoff]
     historical=[p for p in pending if p not in recent]
     selected=recent[:1]
-    catchup=recent[-1:] if len(recent)>1 else []
+    catchup_candidates=recent[1:]
+    urgent=[p for p in catchup_candidates if int(p.stem.split('@')[1])>=now-3*3600]
+    catchup=(urgent or catchup_candidates)[-1:]
     selected+=catchup
     # Historical work keeps a share of the link, but cannot strand live holes.
     if historical and (not catchup or turn%3==0):
