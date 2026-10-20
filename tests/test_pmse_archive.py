@@ -53,6 +53,12 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(historical_turn(historical,0),['oldest.h5'])
         self.assertEqual(historical_turn(historical,1),['newest-backfilled.h5'])
         self.assertEqual(historical_turn(historical,2),['oldest.h5'])
+        advanced=['even-newer.h5']+historical
+        # A large partially transferred frontier chunk must finish, rather
+        # than chasing a new file on every turn and exposing no complete data.
+        self.assertEqual(historical_turn(advanced,3,'newest-backfilled.h5'),['newest-backfilled.h5'])
+        self.assertEqual(historical_turn(advanced,4,'newest-backfilled.h5'),['oldest.h5'])
+        self.assertEqual(historical_turn(advanced,5,'already-complete.h5'),['even-newer.h5'])
         self.assertEqual(historical_turn([],3),[])
         with tempfile.TemporaryDirectory() as directory:
             files=[(f'2026-10-19T20-00-00/pmse@{t}.h5',100,1.) for t in [50000,49400,19400,600]]

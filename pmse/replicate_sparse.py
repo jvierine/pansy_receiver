@@ -59,10 +59,11 @@ def catchup_files(files,root,now):
     return recent[:1],historical
 
 
-def historical_turn(historical,turn):
+def historical_turn(historical,turn,frontier_target=None):
     """FIFO must progress, but today's backfill frontier must not wait days."""
     if not historical:return []
-    return [historical[-1] if turn%2==0 else historical[0]]
+    return [historical[-1] if turn%2==0 else
+            frontier_target if frontier_target in historical else historical[0]]
 
 
 def changed_files(root,receipt,relative_paths):
@@ -90,7 +91,7 @@ def main():
     p.add_argument('--loop',action='store_true');a=p.parse_args();a.root.mkdir(parents=True,exist_ok=True)
     if not 30<=a.backfill_slice_seconds<=180 or a.syowa_kib_s<=0:
         p.error('Require a positive link cap and historical slices of 30..180 seconds')
-    turn=0
+    turn=0;frontier_target=None
     while True:
         try:
             ssh=['ssh','-p','2222','-o','BatchMode=yes','-o','ConnectTimeout=30',
@@ -121,11 +122,13 @@ def main():
                 values=rsync(source,str(a.root)+'/',a.syowa_kib_s,shell,files_from=recent,timeout=120,partial_ok=True)
                 save_metrics(a.metrics,'syowa_to_revontuli_catchup',values)
             if cold:
-                selected=historical_turn(cold,turn)
+                selected=historical_turn(cold,turn,frontier_target)
+                if turn%2:frontier_target=selected[0]
                 print(f'Historical transfer ({"oldest" if turn%2==0 else "frontier"}): {selected[0]}',flush=True)
                 values=rsync(source,str(a.root)+'/',a.syowa_kib_s,shell,files_from=selected,
                              timeout=a.backfill_slice_seconds,partial_ok=True)
                 save_metrics(a.metrics,'syowa_to_revontuli_backfill',values)
+                if turn%2 and not values['partial']:frontier_target=None
                 turn+=1
             # Fail closed if shovel is unmounted; never fill the server root disk.
             subprocess.run(['ssh',a.archive_host,'mountpoint -q /mnt/shovel && test -d /mnt/shovel/rvd/pmse_sparse16'],check=True,timeout=30)
