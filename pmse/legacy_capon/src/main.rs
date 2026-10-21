@@ -87,7 +87,15 @@ fn string(g: &Group, n: &str, s: &str) -> Result<()> {
     Ok(())
 }
 fn write<T: H5Type>(g: &Group, n: &str, v: &[T]) -> Result<()> {
-    g.new_dataset_builder().with_data(v).create(n)?;
+    if v.len() >= 256 {
+        g.new_dataset_builder()
+            .with_data(v)
+            .shuffle()
+            .deflate(4)
+            .create(n)?;
+    } else {
+        g.new_dataset_builder().with_data(v).create(n)?;
+    }
     Ok(())
 }
 fn optional_axis(g: &Group, n: &str) -> Result<Option<Vec<f64>>> {
