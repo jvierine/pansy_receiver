@@ -107,3 +107,33 @@ source. An angle-only filter does not distinguish them from real high-speed
 scatter. The synthetic regression demonstrates the mechanism, not the actual
 historical TX sequence. No automatic quarter-PRF exclusion is applied. Treat
 these bands as suspect pending source-spectrum/TX checks, not extreme winds.
+
+### What can be corrected from legacy files
+
+An exact conversion to complementary-pair spectra cannot in general be made
+from these files. They retain `E[X_i(k) conj(X_j(k))]`, not the cross-frequency
+terms. Pair addition followed by factor-two decimation mixes `X(k)` and
+`X(k+N/2)` coherently. Its covariance therefore needs terms such as
+`E[X_i(k) conj(X_j(k+N/2))]`. Those phases are absent, including in full-band
+xc_rvd. A regression constructs two records with identical stored covariance
+but different pair-summed power. Spectral folding is not a replacement for
+complementary decoding; the narrower XC2 band loses additional information.
+
+For legacy analysis, use a forward model of the actual code-cycle ambiguity
+response to test possible parent echoes at the appropriate range and Doppler
+offsets. Any power-domain deconvolution additionally assumes sufficiently
+uncorrelated scattering cells and a known response/averaging rule; it is not
+lossless recovery. Keep candidate flags and original spectra, and do not
+silently subtract a template or notch the quarter-PRF bands. Exact re-decoding
+requires the original complex pulse records (and measured TX templates).
+
+For raw-data decoding, a simple adjacent complementary sum also has a
+Doppler-dependent residual. In the equal-energy stop-and-hop model, if a
+nonzero-lag code response is `+c,-c`, the main response is `L,L`, and the pulse
+separation is `dt`, the residual-to-main power ratio is
+`(c/L)^2 tan^2(pi*f*dt)`. Thus 16 ms output spacing alone does not demonstrate
+sidelobe-free decoding. Validate a Doppler-aware decoder against the measured
+TX sequence across the full retained velocity band, including its aliases,
+before interpreting high-speed candidates as atmospheric motion. The current
+tests establish these limitations; they do not claim a historical-data
+correction or change the live processor.

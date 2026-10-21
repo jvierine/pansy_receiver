@@ -402,4 +402,62 @@ mod tests {
         let quarter_prf_velocity = LIGHT / (2. * 47e6) * 1e6 / (20. * 1600.);
         assert!((quarter_prf_velocity - 99.66504587765958).abs() < 1e-8);
     }
+
+    #[test]
+    fn same_frequency_covariances_do_not_determine_complementary_pair_spectrum() {
+        // Two eight-pulse voltage records have identical spectral powers and
+        // identical same-frequency inter-channel covariance for ANY common
+        // seven-channel steering vector. Their cross-frequency phase differs.
+        // Adjacent-pair addition mixes bins k and k+N/2 before decimation, so
+        // their four-pair spectra differ. Folding legacy powers is not decoding.
+        let make = |sign: f64| -> Vec<C> {
+            (0..8)
+                .map(|n| {
+                    C::from_polar(1., 2. * PI * n as f64 / 8.)
+                        + C::new(0., sign) * C::from_polar(1., 2. * PI * 5. * n as f64 / 8.)
+                })
+                .collect()
+        };
+        let dft = |x: &[C]| -> Vec<C> {
+            (0..x.len())
+                .map(|k| {
+                    x.iter()
+                        .enumerate()
+                        .map(|(n, &z)| {
+                            z * C::from_polar(1., -2. * PI * k as f64 * n as f64 / x.len() as f64)
+                        })
+                        .sum()
+                })
+                .collect()
+        };
+        let x = make(1.);
+        let z = make(-1.);
+        for (a, b) in dft(&x).iter().zip(dft(&z)) {
+            assert!((a.norm_sqr() - b.norm_sqr()).abs() < 1e-10);
+        }
+        let pair = |x: &[C]| -> Vec<C> {
+            (0..x.len() / 2)
+                .map(|k| (x[2 * k] + x[2 * k + 1]) / 2_f64.sqrt())
+                .collect()
+        };
+        assert!((dft(&pair(&x))[1].norm_sqr() - dft(&pair(&z))[1].norm_sqr()).abs() > 1.);
+    }
+
+    #[test]
+    fn adjacent_complementary_sum_has_doppler_dependent_residual() {
+        // Stop-and-hop model, equal-energy complementary A/B, lag response
+        // +c/-c and peak response L/L. The lag-to-main POWER ratio after an
+        // uncorrected pair sum is (c/L)^2 tan^2(pi*f*dt), not zero at f != 0.
+        let dt = 0.008;
+        let c = 4.;
+        let length = 16.;
+        for f in [0., 5., 15., 31.25] {
+            let phase = C::from_polar(1., 2. * PI * f * dt);
+            let main = length * (C::new(1., 0.) + phase);
+            let sidelobe = c * (C::new(1., 0.) - phase);
+            let ratio = sidelobe.norm_sqr() / main.norm_sqr();
+            let expected = (c / length).powi(2) * (PI * f * dt).tan().powi(2);
+            assert!((ratio - expected).abs() < 1e-12);
+        }
+    }
 }

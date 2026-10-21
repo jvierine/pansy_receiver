@@ -545,6 +545,7 @@ fn main() -> Result<()> {
     let meta = out.create_group("metadata")?;
     string(&meta, "schema", "pansy-legacy-extreme-capon-v1")?;
     string(&meta, "options", &format!("{a:?}"))?;
+    string(&meta, "complementary_code_status", "uncorrected: legacy same-frequency covariance lacks cross-frequency phase needed for exact pair summation; code-cycle range-Doppler ambiguity can pass the angle filter")?;
     string(&meta,"definitions","Candidate cells, not confirmed vertical drafts. decision: 0 accepted angle; 1 off-zenith; 2 invalid covariance; 3 search boundary. Noise is the median of outer-band total power, an uncalibrated legacy proxy. No three-width spectral clipping. Event components join neighboring cells within a mode and the immediately previous successfully read mode; singleton events retained. Histogram counts are correlated spectral-cell occupancy, not independent events.")?;
     write(&meta, "phasecal_radians", &phases)?;
     let flat: Vec<_> = positions.iter().flatten().copied().collect();

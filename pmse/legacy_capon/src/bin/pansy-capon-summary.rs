@@ -24,6 +24,7 @@ fn main() -> Result<()> {
     );
     let f = File::open(path)?;
     let m = f.group("metadata")?;
+    eprintln!("WARNING: Legacy complementary-code range-Doppler ambiguity is not corrected. A near-zenith Capon peak does not exclude code sidelobes. These are candidate events, not validated extreme winds.");
     let mut counts = [0u64; 4];
     let mut raw = 0u64;
     for name in f.group("blocks")?.member_names()? {
