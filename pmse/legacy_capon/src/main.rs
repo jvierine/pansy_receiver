@@ -136,6 +136,8 @@ fn reference(root: &Path, beam: usize) -> Result<([[f64; 3]; 7], [f64; 7])> {
 
 #[derive(Clone)]
 struct Cell {
+    block: u64,
+    candidate: u64,
     start: u64,
     stop: u64,
     range: f64,
@@ -237,6 +239,16 @@ impl Events {
             write(&g, "start_us", &[start])?;
             write(&g, "stop_us_exclusive", &[stop])?;
             write(&g, "cell_count", &[c.len() as u64])?;
+            write(
+                &g,
+                "member_block_index",
+                &c.iter().map(|x| x.block).collect::<Vec<_>>(),
+            )?;
+            write(
+                &g,
+                "member_candidate_index",
+                &c.iter().map(|x| x.candidate).collect::<Vec<_>>(),
+            )?;
             write(&g, "mode_count", &[modes.len() as u64])?;
             write(
                 &g,
@@ -419,6 +431,8 @@ fn process(
             if flag == 0 {
                 accepted_counts[f] += 1;
                 accepted.push(Cell {
+                    block: index as u64,
+                    candidate: (fi.len() - 1) as u64,
                     start,
                     stop,
                     range: axes.range_km[r + lo],
@@ -537,6 +551,7 @@ fn main() -> Result<()> {
             Err(e) => {
                 eprintln!("FILE_ERROR {}: {e}", path.display());
                 errors += 1;
+                events.previous.clear();
                 continue;
             }
         };
@@ -703,6 +718,8 @@ mod tests {
         let a = args();
         let mut e = Events::new();
         let cell = |start, range, velocity| Cell {
+            block: 0,
+            candidate: 0,
             start,
             stop: start + 86_000_000,
             range,
