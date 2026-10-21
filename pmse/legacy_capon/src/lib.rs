@@ -1,11 +1,13 @@
 //! Legacy dense XC2/xc_rvd adapter and diagonally loaded Capon kernels.
 //! Cross-products are C_ij = <z_i conj(z_j)>, positive baseline phase;
 //! the matching sensor steering is exp(-ik r_i.s). No eigenvalue clipping.
+// Fixed seven-sensor triangular kernels deliberately use explicit indices.
+#![allow(clippy::needless_range_loop)]
 use anyhow::{bail, ensure, Result};
-use nalgebra::{Complex, SMatrix, SVector};
+use num_complex::Complex64;
 use std::f64::consts::PI;
-pub type C = Complex<f64>;
-pub type Matrix = SMatrix<C, 7, 7>;
+pub type C = Complex64;
+pub type Matrix = [[C; 7]; 7];
 pub const LIGHT: f64 = 299_792_458.;
 
 #[derive(Clone, Debug)]
@@ -126,7 +128,7 @@ pub fn covariance(packed: &[C], pairs: &[[usize; 2]], phases: &[f64; 7]) -> Resu
         packed.len() == 28 && pairs.len() == 28 && phases.iter().all(|p| p.is_finite()),
         "invalid covariance input"
     );
-    let mut r = Matrix::zeros();
+    let mut r = [[C::new(0., 0.); 7]; 7];
     for (&z, &[i, j]) in packed.iter().zip(pairs) {
         ensure!(
             i < 7 && j < 7 && z.re.is_finite() && z.im.is_finite(),
@@ -137,11 +139,11 @@ pub fn covariance(packed: &[C], pairs: &[[usize; 2]], phases: &[f64; 7]) -> Resu
                 z.re > 0. && z.im.abs() <= 1e-4 * z.re,
                 "invalid autocorrelation"
             );
-            r[(i, i)] = C::new(z.re, 0.);
+            r[i][i] = C::new(z.re, 0.);
         } else {
             let calibrated = z * C::from_polar(1., phases[i] - phases[j]);
-            r[(i, j)] = calibrated;
-            r[(j, i)] = calibrated.conj();
+            r[i][j] = calibrated;
+            r[j][i] = calibrated.conj();
         }
     }
     Ok(r)
@@ -149,7 +151,7 @@ pub fn covariance(packed: &[C], pairs: &[[usize; 2]], phases: &[f64; 7]) -> Resu
 
 pub struct Capon {
     pub directions: Vec<[f64; 3]>,
-    steering: Vec<SVector<C, 7>>,
+    steering: Vec<[C; 7]>,
     pub grid_step_sine: f64,
     radius_sine: f64,
 }
@@ -193,7 +195,7 @@ impl Capon {
                 }
                 let d = [u, v, -(1. - u * u - v * v).sqrt()];
                 directions.push(d);
-                steering.push(SVector::from_fn(|c, _| {
+                steering.push(std::array::from_fn(|c| {
                     C::from_polar(1., -k * (0..3).map(|a| positions[c][a] * d[a]).sum::<f64>())
                 }));
             }
@@ -207,51 +209,51 @@ impl Capon {
     }
     pub fn peak(&self, r: Matrix, epsilon: f64) -> Result<Peak> {
         ensure!(epsilon.is_finite() && epsilon > 0., "invalid loading");
-        let scale = r.trace().re / 7.;
+        let scale = (0..7).map(|i| r[i][i].re).sum::<f64>() / 7.;
         ensure!(scale.is_finite() && scale > 0., "invalid covariance trace");
         // Scale for numerical stability. Retain all measured noise and powers.
-        let mut loaded = r / C::new(scale, 0.);
+        let mut loaded = r.map(|row| row.map(|v| v / scale));
         for c in 0..7 {
-            loaded[(c, c)] += C::new(epsilon, 0.);
+            loaded[c][c] += C::new(epsilon, 0.);
         }
         // Complex Cholesky APIs may take a complex square root of a negative
         // pivot. Require a real positive Hermitian pivot explicitly instead.
-        let mut lower = Matrix::zeros();
+        let mut lower = [[C::new(0., 0.); 7]; 7];
         for i in 0..7 {
             for j in 0..=i {
                 ensure!(
-                    (loaded[(i, j)] - loaded[(j, i)].conj()).norm() < 1e-8
-                        && loaded[(i, j)].re.is_finite()
-                        && loaded[(i, j)].im.is_finite(),
+                    (loaded[i][j] - loaded[j][i].conj()).norm() < 1e-8
+                        && loaded[i][j].re.is_finite()
+                        && loaded[i][j].im.is_finite(),
                     "non-Hermitian covariance"
                 );
-                let mut value = loaded[(i, j)];
+                let mut value = loaded[i][j];
                 for k in 0..j {
-                    value -= lower[(i, k)] * lower[(j, k)].conj();
+                    value -= lower[i][k] * lower[j][k].conj();
                 }
                 if i == j {
                     ensure!(
                         value.re > 0. && value.re.is_finite() && value.im.abs() < 1e-8,
                         "loaded covariance is not positive definite"
                     );
-                    lower[(i, i)] = C::new(value.re.sqrt(), 0.);
+                    lower[i][i] = C::new(value.re.sqrt(), 0.);
                 } else {
-                    lower[(i, j)] = value / lower[(j, j)].re;
+                    lower[i][j] = value / lower[j][j].re;
                 }
             }
         }
         let mut best = (f64::INFINITY, 0usize);
         // a^H R^-1 a = ||L^-1 a||^2: only one triangular solve per pixel.
         for (p, a) in self.steering.iter().enumerate() {
-            let mut y = SVector::<C, 7>::zeros();
+            let mut y = [C::new(0., 0.); 7];
             for i in 0..7 {
                 let mut s = a[i];
                 for j in 0..i {
-                    s -= lower[(i, j)] * y[j];
+                    s -= lower[i][j] * y[j];
                 }
-                y[i] = s / lower[(i, i)];
+                y[i] = s / lower[i][i];
             }
-            let den = y.norm_squared();
+            let den = y.iter().map(|z| z.norm_sqr()).sum::<f64>();
             if den < best.0 {
                 best = (den, p);
             }
@@ -333,7 +335,7 @@ mod tests {
             .unwrap();
         let a = c.steering[p];
         let phases = [0., 0.7, -0.3, 1.2, -1., 0.1, 0.4];
-        let raw = SVector::<C, 7>::from_fn(|i, _| a[i] * C::from_polar(1., -phases[i]));
+        let raw: [C; 7] = std::array::from_fn(|i| a[i] * C::from_polar(1., -phases[i]));
         let pairs: Vec<_> = (0..7).flat_map(|i| (i..7).map(move |j| [i, j])).collect();
         validate_pairs(&pairs).unwrap();
         let packed: Vec<_> = pairs
@@ -352,14 +354,21 @@ mod tests {
         assert!((peak.u - c.directions[p][0]).abs() < 1e-12);
         assert!((peak.v - c.directions[p][1]).abs() < 1e-12);
         // A rank-one covariance remains solvable with positive loading.
-        assert!(c.peak(a * a.adjoint(), 0.01).is_ok());
+        assert!(c
+            .peak(
+                std::array::from_fn(|i| std::array::from_fn(|j| a[i] * a[j].conj())),
+                0.01
+            )
+            .is_ok());
     }
     #[test]
     fn invalid_covariance_is_not_silently_repaired() {
         let c = Capon::new(&[[0.; 3]; 7], 47e6, 9., 11).unwrap();
-        let mut r = Matrix::identity();
-        r[(0, 1)] = C::new(2., 0.);
-        r[(1, 0)] = C::new(2., 0.);
+        let mut r: Matrix = std::array::from_fn(|i| {
+            std::array::from_fn(|j| C::new(if i == j { 1. } else { 0. }, 0.))
+        });
+        r[0][1] = C::new(2., 0.);
+        r[1][0] = C::new(2., 0.);
         assert!(c.peak(r, 0.01).is_err());
         assert!(validate_pairs(&[[0, 0]; 28]).is_err());
     }

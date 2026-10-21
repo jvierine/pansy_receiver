@@ -9,7 +9,7 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 hdf5 = { package = "hdf5-metno", version = "=0.12.6" }
 ndarray = "0.17"
-nalgebra = { version = "0.33", default-features = false, features = ["std"] }
+num-complex = "0.4"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 
 [profile.release]
