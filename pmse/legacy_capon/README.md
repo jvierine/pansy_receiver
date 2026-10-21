@@ -27,6 +27,9 @@ For XC2 choose `/media/old_analysis/metadata/xc2` or
 duplicate integration starts use the first encountered copy and are logged.
 An invalid first copy is not silently replaced with a second copy.
 
+Keep the station's live processing checkout unchanged. Create a separate Git
+worktree at `/home/radar/src/git/pansy_legacy_capon` for this analysis and place
+the built binaries under its `pmse/legacy_capon/target/release/` directory.
 Install `pmse/systemd/pansy-legacy-capon@.service` in the station user's systemd
 directory, reload, and start `pansy-legacy-capon@2026-01-30.service`.
 It has a **100% CPU quota (one core total)**, no worker pool, low CPU/I/O
