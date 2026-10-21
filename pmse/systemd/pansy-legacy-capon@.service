@@ -1,0 +1,20 @@
+[Unit]
+Description=PANSY legacy dense XC Capon candidates for UTC day %i
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/radar/src/git/pansy_pmse_sparse
+Environment=PANSY_LEGACY_ROOT=/media/archive/metadata/xc_rvd
+Environment=PANSY_LEGACY_OUTPUT=/media/analysis/metadata/legacy_capon
+EnvironmentFile=-%h/.config/pansy-legacy-capon.env
+ExecStart=/home/radar/src/git/pansy_pmse_sparse/pmse/legacy_capon/target/release/pansy-legacy-capon --root ${PANSY_LEGACY_ROOT} --day %i --reference /home/radar/src/git/pansy_pmse_sparse --output ${PANSY_LEGACY_OUTPUT}/%i.h5
+CPUQuota=100%
+Nice=19
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+MemoryHigh=512M
+MemoryMax=1G
+TasksMax=8
+TimeoutStartSec=infinity
+TimeoutStopSec=30
+

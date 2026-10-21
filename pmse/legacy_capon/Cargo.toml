@@ -1,0 +1,18 @@
+[package]
+name = "pansy-legacy-capon"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+hdf5 = { package = "hdf5-metno", version = "=0.12.6" }
+ndarray = "0.17"
+nalgebra = { version = "0.33", default-features = false, features = ["std"] }
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
