@@ -1,5 +1,5 @@
 // ../rustplotlib-rvd-ticks.1baCo4/web/src/interactive_series.ts
-import init, { SeriesView, PlotViewport } from "../pkg/rustplotlib_web.js";
+import init, { SeriesView, PlotViewport } from "../pkg/releases/c70022f0996b1a74/rustplotlib_web.js";
 var ready;
 var InteractiveSeriesPlot = class _InteractiveSeriesPlot {
   constructor(root, spec, height) {

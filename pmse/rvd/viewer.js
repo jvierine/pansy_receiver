@@ -1,9 +1,9 @@
 // Scientific provenance: rustplotlib interactive API d3837b8; numerical imaging is Rust/WASM.
-import init from './pkg/rustplotlib_web.js';
-import {imageSelection,setEchoFilter} from './imaging.js?v=persistence-3';
+import init from './pkg/releases/c70022f0996b1a74/rustplotlib_web.js';
+import {imageSelection,setEchoFilter} from './imaging.js?v=gpu-lifecycle-1';
 import {persistentEchoes} from './echo_filter.mjs?v=1';
-import {renderNoiseDiagnostics,renderArchiveDiagnostics} from './diagnostics.js?v=1';
-import {InteractiveFieldPlot} from './lib/interactive_plot.js?v=fast-start-2';
+import {renderNoiseDiagnostics,renderArchiveDiagnostics} from './diagnostics.js?v=runtime-c70022f0';
+import {InteractiveFieldPlot} from './lib/interactive_plot.js?v=gpu-lifecycle-1';
 const $=id=>document.getElementById(id), names=['Zenith','North','East','South','West'];
 // Start data I/O while WebAssembly initializes.
 let initialResponse=fetch('./data/manifest.json',{cache:'no-cache'}).catch(error=>({error}));

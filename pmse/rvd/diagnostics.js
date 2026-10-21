@@ -1,4 +1,4 @@
-import {InteractiveSeriesPlot} from './lib/interactive_series.js?v=1';
+import {InteractiveSeriesPlot} from './lib/interactive_series.js?v=runtime-c70022f0';
 import {noiseSeries,archiveSeries} from './diagnostic_data.mjs?v=1';
 const plots=new Map(),mounting=new Map();
 async function draw(id,spec){

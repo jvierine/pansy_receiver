@@ -1,4 +1,4 @@
-import {InteractiveFieldPlot} from './lib/interactive_plot.js?v=fast-start-2';
+import {InteractiveFieldPlot} from './lib/interactive_plot.js?v=gpu-lifecycle-1';
 const $=id=>document.getElementById(id);
 let worker,geometry,plot,plotMount,sequence=0,previousRange,lastMoments,lastPacket,lastKey,echoFilter,busy=false,fetchAbort,timeout;
 export function setEchoFilter(resolver){echoFilter=resolver;if(lastPacket)reconstruct();}

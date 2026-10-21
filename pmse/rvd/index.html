@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#082747">
   <title>PANSY PMSE Explorer</title>
-  <link rel="modulepreload" href="viewer.js?v=browser-diagnostics-1">
-  <link rel="modulepreload" href="imaging.js?v=persistence-3">
-  <link rel="modulepreload" href="lib/interactive_plot.js?v=fast-start-2">
-  <link rel="modulepreload" href="pkg/rustplotlib_web.js">
-  <link rel="preload" href="pkg/rustplotlib_web_bg.wasm" as="fetch" type="application/wasm" crossorigin>
+  <link rel="modulepreload" href="viewer.js?v=gpu-lifecycle-1">
+  <link rel="modulepreload" href="imaging.js?v=gpu-lifecycle-1">
+  <link rel="modulepreload" href="lib/interactive_plot.js?v=gpu-lifecycle-1">
+  <link rel="modulepreload" href="pkg/releases/c70022f0996b1a74/rustplotlib_web.js">
+  <link rel="preload" href="pkg/releases/c70022f0996b1a74/rustplotlib_web_bg.wasm" as="fetch" type="application/wasm" crossorigin>
   <link rel="icon" type="image/png" href="rogue-wave-logo.png?v=1">
   <link rel="apple-touch-icon" href="rogue-wave-logo.png?v=1">
   <link rel="stylesheet" href="theme.css?v=aligned-header-3">
@@ -110,6 +110,14 @@
     <pre id="error" role="alert"></pre>
   </main>
   <footer>PANSY · Mesospheric echoes at Syowa Station</footer>
-  <script type="module" src="viewer.js?v=browser-diagnostics-1"></script>
+  <script type="module">
+    // Module/WASM startup errors happen before viewer.js can install its own
+    // handler. Never leave a phone showing an unexplained empty dashboard.
+    const showStartupError = error => {
+      document.getElementById('error').textContent = `Plot startup failed: ${error?.message || error}. Please reload this page. If it persists, include this message when reporting the browser problem.`;
+    };
+    window.addEventListener('error', event => { if (event.error) showStartupError(event.error); });
+    import('./viewer.js?v=gpu-lifecycle-1').catch(showStartupError);
+  </script>
 </body>
 </html>

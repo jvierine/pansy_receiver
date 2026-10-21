@@ -1,4 +1,4 @@
-import init, { FieldView, PlotViewport } from "../pkg/rustplotlib_web.js";
+import init, { FieldView, PlotViewport } from "../pkg/releases/c70022f0996b1a74/rustplotlib_web.js";
 let initialization;
 const clamp = (v) => Math.max(0, Math.min(1, v));
 const svgURL = (svg) => URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
@@ -47,8 +47,8 @@ class InteractiveFieldPlot {
     this.selectionBox.style.cssText = "display:none;position:absolute;z-index:3;border:1px dashed var(--blue,#1d5577);background:#63a8c922;pointer-events:none";
     this.stage.append(this.selectionBox);
     this.observer = new ResizeObserver(() => {
-      const width=Math.max(360,Math.min(1200,Math.round(this.root.clientWidth)));
-      if(width!==this.frame?.width)this.queueFrame();
+      const width = Math.max(360, Math.min(1200, Math.round(this.root.clientWidth)));
+      if (width !== this.frame?.width) this.queueFrame();
     });
   }
   viewport = new PlotViewport();
@@ -85,14 +85,17 @@ class InteractiveFieldPlot {
     if (!Number.isFinite(low) || !Number.isFinite(high) || high <= low) throw Error("Invalid color limits");
     if (this.limits[0] === low && this.limits[1] === high) return;
     this.limits = [low, high];
-    this.panels.forEach((p) => {
-      p.field.set_scale(low, high, 0, 0.1, 2);
-      if (this.frame?.color_stops) p.field.set_colormap(Float32Array.from(this.frame.color_stops));
-    });
+    this.panels.forEach((p) => p.applyView());
     this.queueFrame();
   }
   getColorLimits() {
     return [...this.limits];
+  }
+  getColorStops() {
+    return this.frame?.color_stops;
+  }
+  getDefaultHsvLimits() {
+    return [...this.initialMomentLimits];
   }
   getHsvLimits() {
     return this.momentLimits ? [...this.momentLimits] : void 0;
@@ -215,7 +218,7 @@ class InteractiveFieldPlot {
     this.reset();
   }
   setFrameParameters(parameters) {
-    if(JSON.stringify(parameters)===JSON.stringify(this.options.frameParameters))return;
+    if (JSON.stringify(parameters) === JSON.stringify(this.options.frameParameters)) return;
     this.options.frameParameters = parameters;
     this.queueFrame();
   }
@@ -279,8 +282,6 @@ class InteractiveFieldPlot {
       p.label.style.display = this.options.spec.panels[i] ? "block" : "none";
       p.label.style.left = `calc(${x * 100}% + 4px)`;
       p.label.style.top = `calc(${y * 100}% + 4px)`;
-      p.field.set_scale(this.limits[0], this.limits[1], 0, 0.1, 2);
-      if (frame.color_stops) p.field.set_colormap(Float32Array.from(frame.color_stops));
       p.applyView();
     });
     this.axes.style.visibility = "visible";
@@ -367,7 +368,7 @@ class InteractiveFieldPlot {
     this.observer.disconnect();
     clearTimeout(this.timer);
     this.abort?.abort();
-    this.panels.forEach((p) => p.field.free());
+    this.panels.forEach((p) => p.dispose());
     this.viewport.free();
     if (this.frameURL) URL.revokeObjectURL(this.frameURL);
     this.labelURLs.forEach(URL.revokeObjectURL);
@@ -380,17 +381,79 @@ class InteractiveFieldPanel {
     this.canvas = canvas;
     this.label = label;
     this.index = index;
-    this.field = new FieldView(canvas);
-    this.field.set_missing_color(0.6196, 0.6745, 0.7098, 1);
+    this.visibility = new IntersectionObserver(() => this.applyView(), { rootMargin: "40px" });
+    this.visibility.observe(canvas);
+    canvas.addEventListener("webglcontextlost", this.onLost);
+    canvas.addEventListener("webglcontextrestored", this.onRestored);
   }
-  field;
+  gpu;
   dataBounds;
+  data;
+  dirty = true;
+  lost = false;
+  canRestore = false;
+  restoring = false;
+  disposed = false;
+  extension = null;
+  visibility;
+  restoreTimer;
   moments;
+  onLost = (event) => {
+    event.preventDefault();
+    this.lost = true;
+    this.canRestore = true;
+    this.gpu?.free();
+    this.gpu = void 0;
+    delete this.canvas.dataset.gpuReady;
+    if (this.isVisible()) this.restoreTimer = setTimeout(() => this.applyView(), 50);
+  };
+  onRestored = () => {
+    this.lost = false;
+    this.canRestore = this.restoring = false;
+    if (!this.disposed) this.applyView();
+  };
+  /** Low-level debug/pixel access may be temporarily unavailable while the GPU restores. */
+  get field() {
+    const field = this.ensureField();
+    if (field && this.dataBounds) this.renderField(field);
+    return field;
+  }
+  isVisible() {
+    const r = this.canvas.getBoundingClientRect();
+    return this.canvas.isConnected && r.width > 0 && r.height > 0 && r.bottom > -40 && r.top < innerHeight + 40 && r.right > 0 && r.left < innerWidth;
+  }
+  ensureField() {
+    if (this.disposed) return;
+    if (this.lost) {
+      if (this.canRestore && !this.restoring) {
+        this.restoring = true;
+        this.extension?.restoreContext();
+      }
+      return;
+    }
+    if (!this.gpu) {
+      this.gpu = new FieldView(this.canvas);
+      this.extension = this.canvas.getContext("webgl2").getExtension("WEBGL_lose_context");
+      this.gpu.set_missing_color(0.6196, 0.6745, 0.7098, 1);
+      this.dirty = true;
+    }
+    return this.gpu;
+  }
+  suspend() {
+    if (!this.gpu || !this.extension) return;
+    this.gpu.free();
+    this.gpu = void 0;
+    this.lost = true;
+    this.canRestore = this.restoring = false;
+    delete this.canvas.dataset.gpuReady;
+    this.extension.loseContext();
+  }
   set_rectilinear_data(x, y, z) {
     this.moments = void 0;
     this.plot.setMomentMode(false);
     this.dataBounds = [x[0], y[0], x[x.length - 1], y[y.length - 1]];
-    this.field.set_rectilinear_data(x, y, z);
+    this.data = { x, y, z };
+    this.dirty = true;
     this.applyView();
   }
   set_scale(low, high, _mode = 0, _width = 0.1, _palette = 2) {
@@ -399,20 +462,49 @@ class InteractiveFieldPanel {
   set_moment_data(values, velocity, width) {
     this.moments = values;
     this.plot.setMomentMode(true);
-    this.field.set_moment_data(values, velocity, width);
+    this.dirty = true;
     this.plot.setHsvLimits(velocity, width);
     this.applyView();
   }
-  applyHsvLimits(velocity, width) {
+  applyHsvLimits(_velocity, _width) {
     if (this.moments) {
-      this.field.set_moment_data(this.moments, velocity, width);
+      this.dirty = true;
       this.applyView();
     }
   }
   applyView() {
+    if (this.disposed) return;
+    if (!this.isVisible()) {
+      this.suspend();
+      return;
+    }
     if (!this.dataBounds) return;
+    const field = this.ensureField();
+    if (field) this.renderField(field);
+  }
+  renderField(field) {
+    if (this.dirty && this.data) {
+      field.set_rectilinear_data(this.data.x, this.data.y, this.data.z);
+      if (this.moments) field.set_moment_data(this.moments, ...this.plot.getHsvLimits() || this.plot.getDefaultHsvLimits());
+      this.dirty = false;
+    }
+    field.set_scale(...this.plot.getColorLimits(), 0, 0.1, 2);
+    const stops = this.plot.getColorStops();
+    if (stops) field.set_colormap(Float32Array.from(stops));
     const b = this.plot.physicalBounds(), d = this.dataBounds;
-    this.field.set_view((b[0] - d[0]) / (d[2] - d[0]), (b[1] - d[1]) / (d[3] - d[1]), (b[2] - d[0]) / (d[2] - d[0]), (b[3] - d[1]) / (d[3] - d[1]));
+    field.set_view((b[0] - d[0]) / (d[2] - d[0]), (b[1] - d[1]) / (d[3] - d[1]), (b[2] - d[0]) / (d[2] - d[0]), (b[3] - d[1]) / (d[3] - d[1]));
+    this.canvas.dataset.gpuReady = "true";
+  }
+  dispose() {
+    this.disposed = true;
+    clearTimeout(this.restoreTimer);
+    this.visibility.disconnect();
+    this.canvas.removeEventListener("webglcontextlost", this.onLost);
+    this.canvas.removeEventListener("webglcontextrestored", this.onRestored);
+    this.suspend();
+    this.gpu?.free();
+    this.gpu = void 0;
+    this.data = this.moments = void 0;
   }
 }
 export {
