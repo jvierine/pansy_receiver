@@ -372,4 +372,34 @@ mod tests {
         assert!(c.peak(r, 0.01).is_err());
         assert!(validate_pairs(&[[0, 0]; 28]).is_err());
     }
+
+    #[test]
+    fn four_pulse_code_cycle_can_make_quarter_prf_range_sidelobes() {
+        // Configured zenith sequence is A,B,B,A (including code sign changes,
+        // which vanish in autocorrelations). This is a synthetic explanation,
+        // not proof of the historical measured TX sequence for any given day.
+        let a = [
+            -1., -1., -1., -1., -1., -1., 1., 1., 1., -1., -1., 1., 1., -1., 1., -1.,
+        ];
+        let b = [
+            -1., -1., -1., -1., 1., 1., -1., -1., 1., -1., -1., 1., -1., 1., -1., 1.,
+        ];
+        let ac = |x: &[f64; 16], lag: usize| (0..16 - lag).map(|i| x[i] * x[i + lag]).sum::<f64>();
+        let lag = (1..16).find(|&lag| ac(&a, lag) != 0.).unwrap();
+        assert_eq!(ac(&a, lag), -ac(&b, lag));
+        let cycle = [ac(&a, lag), ac(&b, lag), ac(&b, lag), ac(&a, lag)];
+        let fft: Vec<C> = (0..4)
+            .map(|k| {
+                cycle
+                    .iter()
+                    .enumerate()
+                    .map(|(j, x)| C::from_polar(*x, -2. * PI * k as f64 * j as f64 / 4.))
+                    .sum()
+            })
+            .collect();
+        assert!(fft[0].norm() < 1e-10 && fft[2].norm() < 1e-10);
+        assert!(fft[1].norm() > 1. && fft[3].norm() > 1.);
+        let quarter_prf_velocity = LIGHT / (2. * 47e6) * 1e6 / (20. * 1600.);
+        assert!((quarter_prf_velocity - 99.66504587765958).abs() < 1e-8);
+    }
 }

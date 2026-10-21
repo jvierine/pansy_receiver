@@ -37,6 +37,10 @@ priority, and a 1 GiB memory cap. No cron or automatic retries. Override the
 input/output directories with `~/.config/pansy-legacy-capon.env` if needed.
 Outputs and stale partial outputs are never overwritten automatically.
 
+Summarize a completed result with `pansy-capon-summary RESULT.h5`; an optional
+second argument bounds the maximum event speed shown, e.g. `RESULT.h5 80`.
+This is a descriptive event-level view, not a new cell-level rejection rule.
+
 ## Axis compatibility
 
 - Read `xc_arr` shape first: `[28,5,nfrequency,nrange]`.
@@ -92,3 +96,14 @@ independence assumptions. Mode counts distinguish single-mode candidates;
 no meteor-duration rejection is silently applied. File/group failures break
 temporal linkage. The output is flushed per block and atomically published at
 the end; partial files remain inspectable if interrupted.
+
+## Legacy code-cycle warning
+
+The full xc_rvd band includes potential code-cycle range-Doppler sidelobes
+near +/-99.665 m/s for a 32 ms four-pulse cycle. Complementary autocorrelation
+sidelobes in an A,B,B,A cycle have a zero DC term but nonzero quarter-PRF terms;
+they can therefore have a near-zenith Capon peak inherited from a real PMSE
+source. An angle-only filter does not distinguish them from real high-speed
+scatter. The synthetic regression demonstrates the mechanism, not the actual
+historical TX sequence. No automatic quarter-PRF exclusion is applied. Treat
+these bands as suspect pending source-spectrum/TX checks, not extreme winds.

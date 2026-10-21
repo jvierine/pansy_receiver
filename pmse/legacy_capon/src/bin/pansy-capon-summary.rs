@@ -9,9 +9,19 @@ fn value<T: hdf5::H5Type>(g: &Group, name: &str) -> Result<T> {
         .context("empty summary field")
 }
 fn main() -> Result<()> {
-    let path = std::env::args()
-        .nth(1)
-        .context("usage: pansy-capon-summary RESULT.h5")?;
+    let args: Vec<_> = std::env::args().collect();
+    let path = args
+        .get(1)
+        .context("usage: pansy-capon-summary RESULT.h5 [MAX_EVENT_SPEED_MPS]")?;
+    let max_speed: f64 = args
+        .get(2)
+        .map(|v| v.parse())
+        .transpose()?
+        .unwrap_or(f64::INFINITY);
+    anyhow::ensure!(
+        max_speed > 0. && !max_speed.is_nan(),
+        "invalid maximum event speed"
+    );
     let f = File::open(path)?;
     let m = f.group("metadata")?;
     let mut counts = [0u64; 4];
@@ -77,8 +87,16 @@ fn main() -> Result<()> {
         rows.len(),
         rows.len() - multi
     );
-    println!("Top 20 by maximum absolute radial velocity; these are candidates, not confirmed vertical drafts:");
-    for (_, id, start, stop, modes, cells, r0, r1, v, snr, theta) in rows.into_iter().take(20) {
+    let below: Vec<_> = rows.iter().filter(|r| r.0 < max_speed).collect();
+    println!(
+        "events_with_maximum_speed_below_{max_speed}={} multiple_modes={}",
+        below.len(),
+        below.iter().filter(|r| r.4 > 1).count()
+    );
+    println!("Top 20 within the requested event-speed bound; candidates, not confirmed vertical drafts. Bounding an event's maximum is NOT cell-level reclassification:");
+    for (_, id, start, stop, modes, cells, r0, r1, v, snr, theta) in
+        rows.into_iter().filter(|r| r.0 < max_speed).take(20)
+    {
         let utc = chrono::DateTime::from_timestamp_micros(start as i64).context("invalid UTC")?;
         println!("{id} {utc} span_s={:.2} modes={modes} cells={cells} range_km={r0:.2}..{r1:.2} radial_mps={v:+.2} peak_total_noise_db={snr:.2} max_theta_deg={theta:.2}",(stop-start)as f64/1e6);
     }
