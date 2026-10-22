@@ -6,6 +6,18 @@ const SSH: &str = "ssh -o BatchMode=yes -o ConnectTimeout=60 -o ControlMaster=au
 // Transfers run sequentially. Reserve headroom below 10,000 byte/s for the
 // existing low-rate archive transfers and SSH overhead.
 const TRANSFER_LIMIT: &str = "--bwlimit=6";
+fn publish_day(out:&std::path::Path,date:&str,html:&str)->Result<()> {
+    // Finish and expose one day at a time instead of hiding the index behind
+    // a whole-season image upload on the rate-limited link.
+    ensure!(Command::new("rsync").args(["-r",TRANSFER_LIMIT,"--size-only","--no-times","--omit-dir-times","--no-perms","--no-owner","--no-group","--timeout=120","--exclude=/*-XC2-KOKI-event-*-v1.png","--exclude=/*-XC2-KOKI-events-v1.html"])
+        .arg(format!("--include=/{date}-XC2-KOKI-*"))
+        .args(["--exclude=*","-e","ssh -o BatchMode=yes -o ConnectTimeout=30"])
+        .arg(format!("{}/",out.display())).arg("j@juha.no:/mnt/shovel/share/pansy-zenith-main-peaks/").status()?.success(),"daily plot publication failed");
+    fs::write(out.join("index.html"),html)?;
+    ensure!(Command::new("rsync").args(["-r",TRANSFER_LIMIT,"--checksum","--no-times","--omit-dir-times","--no-perms","--no-owner","--no-group","--timeout=120","-e","ssh -o BatchMode=yes -o ConnectTimeout=30"])
+        .arg(out.join("index.html")).arg("j@juha.no:/mnt/shovel/share/pansy-zenith-main-peaks/index.html").status()?.success(),"daily index publication failed");
+    Ok(())
+}
 fn koki_bytes(out:&std::path::Path)->Result<u64> {
     let mut bytes=0;
     for e in fs::read_dir(out)? {let e=e?;let name=e.file_name().to_string_lossy().into_owned();
@@ -121,6 +133,7 @@ fn main() -> Result<()> {
                     );
                 }
                 html.push_str(&format!("<article><h3>{date}: {} accepted extreme spectral cells</h3><a href='{plot}.png'><img src='{plot}.png' loading='lazy' alt='{date} binwise Capon detections'></a><p><a href='{date}-XC2-KOKI-events-v2.html'>Individual event plots</a> · <a href='{plot}.pdf'>Spectrum PDF</a> · <a href='{hist}.png'>Velocity histograms</a> · <a href='{hist}.pdf'>Histogram PDF</a></p></article>",kn[i]));
+                if publish && local {publish_day(&out,&date,&html)?;}
             }
         }
         if capon {
