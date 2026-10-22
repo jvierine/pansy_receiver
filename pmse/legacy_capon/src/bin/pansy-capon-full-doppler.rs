@@ -49,6 +49,10 @@ fn main() -> Result<()> {
     ensure!(!dest.exists(), "output exists");
     let partial = dest.with_extension("h5.partial");
     let out = File::create_excl(&partial)?;
+    write(&out,"catalogue_source",a[1].as_bytes())?;
+    write(&out,"radar_frequency_hz",&[47e6_f64])?;
+    write(&out,"beam_index",&[0u32])?;
+    write(&out,"selected_range_km",&[80_f64,92.])?;
     let mut frequency = Vec::new();
     let mut start = Vec::new();
     let mut stop = Vec::new();
