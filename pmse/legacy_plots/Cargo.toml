@@ -2,6 +2,7 @@
 name = "pansy-legacy-event-plots"
 version = "0.1.0"
 edition = "2024"
+default-run = "pansy-full-doppler"
 
 [dependencies]
 anyhow = "1"

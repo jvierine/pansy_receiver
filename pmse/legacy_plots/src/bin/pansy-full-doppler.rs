@@ -94,6 +94,7 @@ fn main() -> Result<()> {
         Ok(p)
     };
     let mut f = figure(out, 112.);
+    f.raster_dpi = 600.;
     f.scales.push(scale.clone());
     f.labels.push(Label::new(
         format!("PANSY {date}: full stored Doppler spectrum"),
@@ -119,7 +120,7 @@ fn main() -> Result<()> {
     f.height_mm = 119.;
     save(&f, out, &format!("{date}-FULL-doppler-overview"))?;
     let mut f = figure(out, 205.);
-    f.scales.push(scale);
+    f.scales.push(scale.clone());
     f.labels.push(Label::new(
         format!("Candidate intervals: full Doppler context, {date}"),
         98.,
@@ -141,6 +142,30 @@ fn main() -> Result<()> {
             rect.x + rect.width / 2.,
             rect.y - 4.,
         ));
+        let mut individual = figure(out, 119.);
+        individual.raster_dpi = 600.;
+        individual.scales.push(scale.clone());
+        individual.labels.push(Label::new(
+            format!("Candidate {name}: full Doppler spectrum, {date}"),
+            98.,
+            5.,
+        ));
+        individual
+            .panels
+            .push(panel(Rect::new(24., 20., 147., 62.), [x0, x1])?);
+        let mut cb = Colorbar::new(
+            Rect::new(24., 99., 147., 2.),
+            0,
+            "Peak total/noise (dB)",
+            vec![0., 5., 10., 15., 20., 25., 30.],
+        );
+        cb.horizontal = true;
+        individual.colorbars.push(cb);
+        save(
+            &individual,
+            out,
+            &format!("{date}-candidate-{name}-FULL-doppler"),
+        )?;
     }
     let mut bar = Colorbar::new(
         Rect::new(25., 184., 148., 2.),
