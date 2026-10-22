@@ -1,0 +1,16 @@
+[Unit]
+Description=PANSY small HDF5 plot projections for completed legacy sweep days
+ConditionPathExists=/media/analysis/metadata/legacy_capon_ghost_v2/sweep-index.h5
+
+[Service]
+Type=exec
+ExecStart=/home/radar/src/git/pansy_legacy_capon/pmse/legacy_capon/target/release/pansy-capon-plot-watch /media/analysis/metadata/legacy_capon_ghost_v2
+# Set the sweep's runtime quota to 99% before starting this service, keeping
+# the two analysis services at <=100% total. Acquisition is not changed.
+CPUQuota=1%
+Nice=19
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+MemoryMax=256M
+TasksMax=8
+TimeoutStopSec=30

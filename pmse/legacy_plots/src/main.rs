@@ -52,7 +52,7 @@ fn main() -> Result<()> {
         let ylim = if panel == 2 {
             [-60., 60.]
         } else {
-            [-150., 150.]
+            [-200., 200.]
         };
         let mut axes = Axes::new(
             [0., 24.],
@@ -70,7 +70,7 @@ fn main() -> Result<()> {
         axes.yticks = if panel == 2 {
             vec![-60., -30., 0., 30., 60.]
         } else {
-            vec![-150., -100., -50., 0., 50., 100., 150.]
+            vec![-200., -100., 0., 100., 200.]
         };
         axes.show_x_axis = panel == 2;
         let mut p = Panel::new(rect, axes);
@@ -100,7 +100,7 @@ fn main() -> Result<()> {
         vec![5., 10., 15., 20., 25., 30.],
     ));
     save(&f, out, &format!("{date}-doppler-overview"))?;
-    let mut f = figure(out, 192.);
+    let mut f = figure(out, 203.);
     f.scales.push(scale.clone());
     f.labels.push(Label::new(
         format!("Longest retained candidate events: {date}"),
@@ -144,7 +144,11 @@ fn main() -> Result<()> {
                 })
                 .collect(),
         );
-        axes.yticks = vec![y0 - dy, (y0 + y1) / 2., y1 + dy];
+        axes.yticks = vec![
+            (y0 - dy).ceil(),
+            ((y0 + y1) / 2.).round(),
+            (y1 + dy).floor(),
+        ];
         let mut p = Panel::new(rect, axes);
         p.scatter_colored(
             &t.iter().zip(&v).map(|(&t, &v)| [t, v]).collect::<Vec<_>>(),

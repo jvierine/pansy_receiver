@@ -6,11 +6,15 @@ fn read<T: H5Type>(g: &Group, n: &str) -> Result<Vec<T>> {
     Ok(g.dataset(n)?.read_raw()?)
 }
 fn write<T: H5Type>(g: &Group, n: &str, v: &[T]) -> Result<()> {
-    g.new_dataset_builder()
-        .with_data(v)
-        .shuffle()
-        .deflate(4)
-        .create(n)?;
+    if v.len() < 256 {
+        g.new_dataset_builder().with_data(v).create(n)?;
+    } else {
+        g.new_dataset_builder()
+            .with_data(v)
+            .shuffle()
+            .deflate(4)
+            .create(n)?;
+    }
     Ok(())
 }
 struct Block {
@@ -28,7 +32,10 @@ fn main() -> Result<()> {
         "usage: pansy-capon-plot-data INPUT.h5 SMALL_OUTPUT.h5"
     );
     let input = File::open(&a[1])?;
-    let output = File::create_excl(&a[2])?;
+    let destination = std::path::Path::new(&a[2]);
+    anyhow::ensure!(!destination.exists(), "plot projection exists");
+    let partial = destination.with_extension("h5.partial");
+    let output = File::create_excl(&partial)?;
     let mut times = Vec::new();
     let mut velocities = Vec::new();
     let mut snrs = Vec::new();
@@ -131,6 +138,10 @@ fn main() -> Result<()> {
         }
     }
     output.flush()?;
+    drop(eroot);
+    drop(o);
+    drop(output);
+    std::fs::rename(partial, destination)?;
     println!(
         "small_plot_projection_bytes={}",
         std::fs::metadata(&a[2])?.len()

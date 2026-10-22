@@ -183,3 +183,22 @@ not labeled clean. A real echo coincident in range, Doppler and spatial
 covariance with a predicted ghost can also be excluded: the data cannot
 distinguish them. These tests are not an empirical false-rejection rate on
 atmospheric data. Compare threshold settings before interpreting extremes.
+
+## Archive sweep and small plot transfers
+
+`pansy-capon-sweep` visits populated days across all three supplied metadata
+roots, prioritizes January 30, and invokes the processor sequentially. Each
+completed day is atomically published; `sweep-index.h5` records pending,
+completed and failed days. Existing v2 results are reused, never overwritten.
+The `pansy-legacy-capon-sweep.service` quota is 99% of one CPU; the companion
+`pansy-legacy-capon-plots.service` quota is 1%, keeping total analysis <=one
+core. The companion exits when the sweep has finished and creates compressed
+HDF5 plotting projections, not copies of the source spectra. No cron.
+
+Keep full catalogues on Syowa. Transfer only plotting projections below 5 MiB
+and rendered plots; use rsync `--max-size=5m --no-perms --no-owner --no-group`.
+The Rustplotlib renderer in `pmse/legacy_plots` makes before/after Doppler-UTC
+overviews and individual event tracks with native axes and colourbars. It
+uses 10 pt type at 190 mm figure width, and saves both PNG and PDF. Each point
+is the maximum power/noise across selected ranges in one integration and a
+0.5 m/s bin. Blank central velocities were not selected, not measured absent.
