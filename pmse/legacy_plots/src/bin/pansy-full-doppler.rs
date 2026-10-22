@@ -27,8 +27,8 @@ fn save(f: &Figure, out: &Path, name: &str) -> Result<()> {
 fn main() -> Result<()> {
     let a: Vec<_> = std::env::args().collect();
     ensure!(
-        a.len() == 3,
-        "usage: pansy-full-doppler FULL_DOPPLER.h5 OUTPUT_DIR"
+        a.len() == 3 || (a.len() == 4 && a[3] == "--candidate-context"),
+        "usage: pansy-full-doppler FULL_DOPPLER.h5 OUTPUT_DIR [--candidate-context]"
     );
     let input = File::open(&a[1])?;
     let out = Path::new(&a[2]);
@@ -147,6 +147,15 @@ fn main() -> Result<()> {
     // Horizontal colorbar labels need a real lower margin at article font size.
     f.height_mm = 119.;
     save(&f, out, &format!("{date}-FULL-doppler-overview"))?;
+    // The overview is the default product. Event ranking is exploratory and
+    // must never silently determine which spectra are presented to the user.
+    if a.len() == 3 {
+        println!(
+            "Rendered {date}: ALL {nf} native Dopplers, {} modes, no candidate mask",
+            start.len()
+        );
+        return Ok(());
+    }
     let mut f = figure(out, 205.);
     f.scales.push(scale.clone());
     f.labels.push(Label::new(
