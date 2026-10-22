@@ -55,13 +55,13 @@ fn main() -> Result<()> {
         let mut raw_deferred = 0;
         let mut capon_pending = 0;
         if capon {
-            pull_from("xc2_peak_capon_v1", "capon-index.h5", &out)?;
+            pull_from("xc2_peak_capon_v2", "capon-index.h5", &out)?;
             let c = File::open(out.join("capon-index.h5"))?;
             let cd = c.dataset("utc_day_yyyymmdd")?.read_raw::<u32>()?;
             let cs = c.dataset("status")?.read_raw::<u8>()?;
             let cn = c.dataset("detection_count")?.read_raw::<u64>()?;
             capon_pending = cs.iter().filter(|&&s| s == 0).count();
-            html.push_str(&format!("<h2>XC2 Capon detections</h2><p>Main peak |v| ≥ 30 m/s within ±90 m/s; arrival within 2° of zenith. Diagonal loading: 1%. Cyan diamonds mark detections; grey crosses show other extreme main peaks.</p><p>{} XC2 dates; {} processed; {capon_pending} pending; {} dates with errors.</p>",cd.len(),cd.len()-capon_pending,cs.iter().filter(|&&s|s==2).count()));
+            html.push_str(&format!("<h2>XC2 Capon detections</h2><p>Main peak |v| ≥ 30 m/s within ±90 m/s; total/noise ≥ 5 dB; arrival within 2° of zenith. Diagonal loading: 1%. Cyan diamonds mark detections; grey crosses show other extreme main peaks.</p><p>{} XC2 dates; {} processed; {capon_pending} pending; {} dates with errors.</p>",cd.len(),cd.len()-capon_pending,cs.iter().filter(|&&s|s==2).count()));
             for i in 0..cd.len() {
                 if cs[i] == 0 || cn[i] == 0 {
                     continue;
@@ -69,13 +69,13 @@ fn main() -> Result<()> {
                 let n = cd[i];
                 let date = format!("{:04}-{:02}-{:02}", n / 10000, (n / 100) % 100, n % 100);
                 let data = format!("{date}.full-doppler.h5");
-                let sidecar = format!("{date}.capon.h5");
-                let plot = format!("{date}-XC2-CAPON-overview");
+                let sidecar = format!("{date}.capon-v2.h5");
+                let plot = format!("{date}-XC2-CAPON-overview-v2");
                 if !out.join(&data).exists() {
                     pull(&data, &out)?;
                 }
                 if !out.join(&sidecar).exists() {
-                    pull_from("xc2_peak_capon_v1", &sidecar, &out)?;
+                    pull_from("xc2_peak_capon_v2", &sidecar, &out)?;
                 }
                 if !out.join(format!("{plot}.png")).exists()
                     || !out.join(format!("{plot}.pdf")).exists()
@@ -162,8 +162,8 @@ fn main() -> Result<()> {
                         "--no-group",
                         "--include=/*-FULL-doppler-overview.png",
                         "--include=/*-FULL-doppler-overview.pdf",
-                        "--include=/*-XC2-CAPON-overview.png",
-                        "--include=/*-XC2-CAPON-overview.pdf",
+                        "--include=/*-XC2-CAPON-overview-v2.png",
+                        "--include=/*-XC2-CAPON-overview-v2.pdf",
                         "--exclude=*",
                         "-e",
                         "ssh -o BatchMode=yes -o ConnectTimeout=30"

@@ -270,7 +270,7 @@ fn main() -> Result<()> {
     // Horizontal colorbar labels need a real lower margin at article font size.
     f.height_mm = 119.;
     let plot_name = if capon_mode {
-        format!("{date}-XC2-CAPON-overview")
+        format!("{date}-XC2-CAPON-overview-v2")
     } else {
         format!("{date}-FULL-doppler-overview")
     };

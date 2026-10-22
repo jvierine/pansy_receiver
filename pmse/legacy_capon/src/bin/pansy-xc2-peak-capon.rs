@@ -155,7 +155,7 @@ fn process(
     positions: &[[f64; 3]; 7],
     phases: &[f64; 7],
 ) -> Result<(u64, u64, u64)> {
-    let dest = a.output.join(format!("{date}.capon.h5"));
+    let dest = a.output.join(format!("{date}.capon-v2.h5"));
     if dest.exists() {
         let f = File::open(dest)?;
         return Ok((
@@ -168,6 +168,7 @@ fn process(
     let flags = read::<u8>(&input, "extreme_peak_flag")?;
     let v = read::<f64>(&input, "main_peak_velocity_mps")?;
     let ranges = read::<f64>(&input, "main_peak_range_km")?;
+    let peak_db = read::<f32>(&input, "main_peak_total_noise_db")?;
     ensure!(
         flags.len() == v.len() && v.len() == ranges.len(),
         "main peak shape mismatch"
@@ -187,6 +188,10 @@ fn process(
             "non-XC2 source in XC2 day"
         );
         if flags[i] == 0 {
+            continue;
+        }
+        if peak_db[i] < 5. {
+            decision[i] = 6;
             continue;
         }
         ensure!(
@@ -209,13 +214,19 @@ fn process(
             }
         }
     }
-    let tested = flags.iter().filter(|&&f| f != 0).count() as u64;
+    let tested = decision.iter().filter(|&&f| (1..=5).contains(&f)).count() as u64;
     let detected = decision.iter().filter(|&&f| f == 1).count() as u64;
     let input_errors = read::<u64>(&input, "input_errors")?[0] + errors.len() as u64;
     let tmp = dest.with_extension("h5.partial");
     ensure!(!tmp.exists(), "partial output exists");
     let f = File::create_excl(&tmp)?;
-    write(&f, "schema", b"pansy-xc2-main-peak-capon-v1")?;
+    write(&f, "schema", b"pansy-xc2-main-peak-capon-v2")?;
+    write(&f, "minimum_total_noise_db", &[5_f64])?;
+    write(
+        &f,
+        "below_power_floor_count",
+        &[decision.iter().filter(|&&f| f == 6).count() as u64],
+    )?;
     write(&f, "date_utc", date.as_bytes())?;
     write(&f, "capon_decision", &decision)?;
     write(&f, "capon_theta_deg", &theta)?;
@@ -232,7 +243,7 @@ fn process(
         "positions_m_xyz",
         &positions.iter().flatten().copied().collect::<Vec<_>>(),
     )?;
-    write(&f,"definitions",b"XC2 only, zenith. Main peak in available +/-90 m/s; abs(v)>=30 m/s. Calibrated covariance Cij=<zi conj(zj)>, Rij=Cij exp(+i(phi_i-phi_j)); steering exp(-ik r.s), historical negative vertical cosine. Retain measured noise; load 0.01 trace(R)/7 I, no subtraction or eigenvalue clipping. 61x61 grid within 9 deg; detection theta<=2 deg, not boundary. Decisions: 0 not extreme,1 detection,2 off-zenith,3 invalid covariance,4 search boundary,5 source or IO error. No additional SNR cut or complementary-code exclusion.")?;
+    write(&f,"definitions",b"XC2 only, zenith. Main peak in available +/-90 m/s; abs(v)>=30 m/s; total/noise >=5 dB (not excess SNR). Calibrated covariance Cij=<zi conj(zj)>, Rij=Cij exp(+i(phi_i-phi_j)); steering exp(-ik r.s), historical negative vertical cosine. Retain measured noise; load 0.01 trace(R)/7 I, no subtraction or eigenvalue clipping. 61x61 grid within 9 deg; detection theta<=2 deg, not boundary. Decisions: 0 not extreme,1 detection,2 off-zenith,3 invalid covariance,4 search boundary,5 source or IO error,6 below 5 dB total/noise. No complementary-code exclusion.")?;
     write(
         &f,
         "overview_source",

@@ -3,7 +3,7 @@ Description=XC2-only Capon screening of extreme zenith main peaks
 
 [Service]
 Type=oneshot
-ExecStart=%h/src/git/pansy_legacy_capon/pmse/legacy_capon/target/release/pansy-xc2-peak-capon --input /media/analysis/metadata/zenith_peak_overviews_v1 --output /media/analysis/metadata/xc2_peak_capon_v1 --reference %h/src/git/pansy_legacy_capon --root /media/analysis/metadata/xc2 --root /media/old_analysis/metadata/xc2
+ExecStart=%h/src/git/pansy_legacy_capon/pmse/legacy_capon/target/release/pansy-xc2-peak-capon --input /media/analysis/metadata/zenith_peak_overviews_v1 --output /media/analysis/metadata/xc2_peak_capon_v2 --reference %h/src/git/pansy_legacy_capon --root /media/analysis/metadata/xc2 --root /media/old_analysis/metadata/xc2
 CPUQuota=50%
 Nice=19
 IOSchedulingClass=best-effort
