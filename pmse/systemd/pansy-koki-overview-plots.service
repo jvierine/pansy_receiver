@@ -1,0 +1,12 @@
+[Unit]
+Description=Collect compact binwise XC2 results and publish Rustplotlib figures
+
+[Service]
+Type=oneshot
+ExecStart=%h/src/pansy_spectra_overviews_build/pmse/legacy_plots/target/release/pansy-overview-collect %h/pansy_zenith_peak_overviews --publish --capon --koki
+CPUQuota=100%
+Nice=15
+MemoryMax=1G
+TimeoutStartSec=infinity
+Restart=on-failure
+RestartSec=120

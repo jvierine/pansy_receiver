@@ -6,6 +6,12 @@ const SSH: &str = "ssh -o BatchMode=yes -o ConnectTimeout=60 -o ControlMaster=au
 // Transfers run sequentially. Reserve headroom below 10,000 byte/s for the
 // existing low-rate archive transfers and SSH overhead.
 const TRANSFER_LIMIT: &str = "--bwlimit=7";
+fn koki_bytes(out:&std::path::Path)->Result<u64> {
+    let mut bytes=0;
+    for e in fs::read_dir(out)? {let e=e?;let name=e.file_name().to_string_lossy().into_owned();
+        if name.ends_with(".koki.h5") || name.contains("-XC2-KOKI-") {bytes+=e.metadata()?.len();}
+    } Ok(bytes)
+}
 fn pull(name: &str, dest: &std::path::Path) -> Result<()> {
     pull_from("zenith_peak_overviews_v1", name, dest)
 }
@@ -39,6 +45,7 @@ fn main() -> Result<()> {
     fs::create_dir_all(&out)?;
     let publish = std::env::args().any(|v| v == "--publish");
     let capon = std::env::args().any(|v| v == "--capon");
+    let koki = std::env::args().any(|v| v == "--koki");
     let renderer = std::env::current_exe()?.with_file_name("pansy-full-doppler");
     loop {
         pull("overview-index.h5", &out)?;
@@ -58,6 +65,52 @@ fn main() -> Result<()> {
         let mut new_raw = 0;
         let mut raw_deferred = 0;
         let mut capon_pending = 0;
+        let mut koki_running = false;
+        if koki {
+            pull_from("xc2_koki_v1", "koki-index.h5", &out)?;
+            let k = File::open(out.join("koki-index.h5"))?;
+            let kd = k.dataset("utc_day_yyyymmdd")?.read_raw::<u32>()?;
+            let ks = k.dataset("status")?.read_raw::<u8>()?;
+            let kn = k.dataset("extreme_cell_count")?.read_raw::<u64>()?;
+            koki_running = k.dataset("sweep_complete")?.read_raw::<u8>()?[0] == 0;
+            html.push_str(&format!("<h2>XC2 bin-by-bin leakage and Capon screening</h2><p>Zenith, 80–92 km; total/noise ≥5 dB. Peaks above 30 dB trigger the 3σ primary-cluster mask. Capon acceptance ≤2°; extreme bins |v| ≥15 m/s are marked in cyan. Covariance normalization and PSD projection follow the supplied procedure. Full stored Doppler range remains visible.</p><p>{} dates processed; sweep {}. {} dates with source errors. Histograms count spectral cells, not independent events.</p>",kd.len(),if koki_running{"running"}else{"complete"},ks.iter().filter(|&&s|s==2).count()));
+            for i in 0..kd.len() {
+                let n = kd[i];
+                let date = format!("{:04}-{:02}-{:02}", n / 10000, (n / 100) % 100, n % 100);
+                let data = format!("{date}.full-doppler.h5");
+                let sidecar = format!("{date}.koki.h5");
+                let plot = format!("{date}-XC2-KOKI-overview-v1");
+                let hist = format!("{date}-XC2-KOKI-histogram-v1");
+                // Along with the 400 MB station limit, bound collected results
+                // and their static web mirror well below 1,000 MB combined.
+                ensure!(koki_bytes(&out)?+8_000_000<=200_000_000,"Koki collection budget reached; retain results at source, no further transfer or rendering");
+                // A hard-error day may not have produced a transferable summary.
+                if ks[i] == 2 && kn[i] == 0 {
+                    continue;
+                }
+                if !out.join(&data).exists() {
+                    pull(&data, &out)?;
+                }
+                if !out.join(&sidecar).exists() {
+                    pull_from("xc2_koki_v1", &sidecar, &out)?;
+                }
+                if !out.join(format!("{plot}.png")).exists()
+                    || !out.join(format!("{hist}.png")).exists()
+                {
+                    ensure!(
+                        Command::new(&renderer)
+                            .arg(out.join(&data))
+                            .arg(&out)
+                            .arg("--koki")
+                            .arg(out.join(&sidecar))
+                            .status()?
+                            .success(),
+                        "binwise render failed: {date}"
+                    );
+                }
+                html.push_str(&format!("<article><h3>{date}: {} accepted extreme spectral cells</h3><a href='{plot}.png'><img src='{plot}.png' loading='lazy' alt='{date} binwise Capon detections'></a><p><a href='{plot}.pdf'>Spectrum PDF</a> · <a href='{hist}.png'>Velocity histograms</a> · <a href='{hist}.pdf'>Histogram PDF</a></p></article>",kn[i]));
+            }
+        }
         if capon {
             pull_from("xc2_peak_capon_v2", "capon-index.h5", &out)?;
             let c = File::open(out.join("capon-index.h5"))?;
@@ -169,6 +222,8 @@ fn main() -> Result<()> {
                         "--include=/*-FULL-doppler-overview.pdf",
                         "--include=/*-XC2-CAPON-overview-v2.png",
                         "--include=/*-XC2-CAPON-overview-v2.pdf",
+                        "--include=/*-XC2-KOKI-*-v1.png",
+                        "--include=/*-XC2-KOKI-*-v1.pdf",
                         "--exclude=*",
                         "-e",
                         "ssh -o BatchMode=yes -o ConnectTimeout=30"
@@ -207,7 +262,7 @@ fn main() -> Result<()> {
             "PLOT_PROGRESS plots={plots} pending={pending} input_error_days={failed} total={}",
             days.len()
         );
-        if pending == 0 && capon_pending == 0 && raw_deferred == 0 {
+        if pending == 0 && capon_pending == 0 && raw_deferred == 0 && !koki_running {
             break;
         }
         std::thread::sleep(Duration::from_secs(30));

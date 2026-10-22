@@ -62,8 +62,9 @@ fn main() -> Result<()> {
         return Ok(());
     }
     let capon_mode = a.len() == 5 && a[3] == "--capon";
+    let koki_mode = a.len() == 5 && a[3] == "--koki";
     ensure!(
-        a.len() == 3 || (a.len() == 4 && a[3] == "--candidate-context") || capon_mode,
+        a.len() == 3 || (a.len() == 4 && a[3] == "--candidate-context") || capon_mode || koki_mode,
         "usage: pansy-full-doppler FULL_DOPPLER.h5 OUTPUT_DIR [--candidate-context | --capon SIDECAR.h5]"
     );
     let input = File::open(&a[1])?;
@@ -101,6 +102,30 @@ fn main() -> Result<()> {
     };
     ensure!(decisions.len() == start.len(), "Capon mode count mismatch");
     let detections = decisions.iter().filter(|&&x| x == 1).count();
+    let koki = if koki_mode {
+        Some(File::open(&a[4])?)
+    } else {
+        None
+    };
+    let cells = if let Some(k) = &koki {
+        ensure!(
+            String::from_utf8(read(k, "date_utc")?)? == date,
+            "Koki date mismatch"
+        );
+        let v = read::<f64>(k, "velocity_mps")?;
+        ensure!(
+            v.len() == velocity.len() && v.iter().zip(&velocity).all(|(a, b)| (a - b).abs() < 1e-6),
+            "Koki axis mismatch"
+        );
+        let c = read::<u32>(k, "accepted_extreme_cells_mode_frequency")?;
+        ensure!(
+            c.len() == start.len() * velocity.len(),
+            "Koki shape mismatch"
+        );
+        c
+    } else {
+        vec![]
+    };
     if input.link_exists("main_peak_range_km") {
         let ranges = read::<f64>(&input, "main_peak_range_km")?;
         let powers = read::<f32>(&input, "main_peak_total_noise_db")?;
@@ -198,6 +223,14 @@ fn main() -> Result<()> {
             0,
         )?));
         for m in 0..start.len() {
+            if koki_mode {
+                for j in 0..velocity.len() {if cells[m*velocity.len()+j]>0 {
+                    let x=centers[m];let y=velocity[j];let dx=(xlim[1]-xlim[0])*0.0017;let dy=limit*0.009;
+                    let mut marker=Line::new(vec![[x-dx,y],[x,y+dy],[x+dx,y],[x,y-dy],[x-dx,y]],"#00e6a8");
+                    marker.width_pt=0.7;p.push(Layer::Line(marker));
+                }}
+                continue;
+            }
             if peak_flags[m] != 0 {
                 let x = centers[m];
                 let y = peak_velocity[m];
@@ -239,7 +272,7 @@ fn main() -> Result<()> {
         Ok(p)
     };
     let mut f = figure(out, 112.);
-    f.raster_dpi = 600.;
+    f.raster_dpi = if koki_mode {300.} else {600.};
     f.scales.push(scale.clone());
     f.labels.push(Label::new(
         format!("PANSY {date}: full stored Doppler spectrum"),
@@ -247,7 +280,9 @@ fn main() -> Result<()> {
         5.,
     ));
     f.labels.push(Label::new(
-        if capon_mode {
+        if koki_mode {
+            format!("XC2 zenith, 80--92 km; binwise leakage + Capon; |v| >= 15 m/s marked")
+        } else if capon_mode {
             format!("XC2 zenith, 80--92 km; {detections} Capon detections; cyan diamonds, grey velocity flags")
         } else if input.link_exists("extreme_peak_flag") {
             format!("Zenith, 80--92 km; {flagged} flags: main peak within +/-90 has |v| >= 30 m/s")
@@ -269,15 +304,86 @@ fn main() -> Result<()> {
     f.colorbars.push(bar);
     // Horizontal colorbar labels need a real lower margin at article font size.
     f.height_mm = 119.;
-    let plot_name = if capon_mode {
+    let plot_name = if koki_mode {
+        format!("{date}-XC2-KOKI-overview-v1")
+    } else if capon_mode {
         format!("{date}-XC2-CAPON-overview-v2")
     } else {
         format!("{date}-FULL-doppler-overview")
     };
     save(&f, out, &plot_name)?;
+    if let Some(k) = &koki {
+        let vx = read::<f64>(k, "histogram_velocity_mps")?;
+        let series = [
+            ("histogram_raw", "#737373", "Raw bins"),
+            ("histogram_leakage_cleaned", "#df9518", "After leakage"),
+            ("histogram_capon", "#087b9a", "After Capon"),
+        ];
+        let max = read::<u64>(k, "histogram_raw")?
+            .into_iter()
+            .max()
+            .unwrap_or(1)
+            .max(1) as f64;
+        let mut h = figure(out, 142.);
+        h.labels.push(Label::new(
+            format!("PANSY {date}: zenith velocity distributions"),
+            98.,
+            5.,
+        ));
+        for row in 0..2 {
+            let mut ax = Axes::new(
+                [-90., 90.],
+                [
+                    0.,
+                    if row == 0 {
+                        max * 1.08
+                    } else {
+                        max.log10().max(1.) * 1.08
+                    },
+                ],
+                "Radial velocity (m/s)",
+                if row == 0 {
+                    "Bin count"
+                } else {
+                    "log10(bin count)"
+                },
+            );
+            ax.xticks = vec![-90., -60., -30., 0., 30., 60., 90.];
+            let mut p = Panel::new(Rect::new(25., 15. + row as f64 * 60., 145., 45.), ax);
+            for (name, color, _) in &series {
+                let c = read::<u64>(k, name)?;
+                let points = vx
+                    .iter()
+                    .zip(&c)
+                    .map(|(&v, &n)| {
+                        [
+                            v,
+                            if row == 0 {
+                                n as f64
+                            } else if n > 0 {
+                                (n as f64).log10()
+                            } else {
+                                f64::NAN
+                            },
+                        ]
+                    })
+                    .collect();
+                let mut line = Line::new(points, *color);
+                line.width_pt = 0.9;
+                p.push(Layer::Line(line));
+            }
+            h.panels.push(p);
+        }
+        for (i, (_, color, label)) in series.iter().enumerate() {
+            let mut l = Label::new(*label, 48. + i as f64 * 48., 136.);
+            l.color = (*color).to_owned();
+            h.labels.push(l);
+        }
+        save(&h, out, &format!("{date}-XC2-KOKI-histogram-v1"))?;
+    }
     // The overview is the default product. Event ranking is exploratory and
     // must never silently determine which spectra are presented to the user.
-    if a.len() == 3 || capon_mode {
+    if a.len() == 3 || capon_mode || koki_mode {
         println!(
             "Rendered {date}: ALL {nf} native Dopplers, {} modes, no candidate mask",
             start.len()

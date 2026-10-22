@@ -11,6 +11,7 @@ pub type Matrix = [[C; 7]; 7];
 pub const LIGHT: f64 = 299_792_458.;
 pub mod ambiguity;
 pub mod calibration;
+pub mod koki;
 
 #[derive(Clone, Debug)]
 pub struct Axes {
@@ -179,7 +180,6 @@ impl Capon {
                 && radius > 0.
                 && radius < 90.
                 && (3..=129).contains(&side)
-                && side % 2 == 1
                 && positions.iter().flatten().all(|x| x.is_finite()),
             "invalid Capon geometry"
         );

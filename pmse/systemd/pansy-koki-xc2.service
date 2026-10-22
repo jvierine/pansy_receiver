@@ -1,0 +1,12 @@
+[Unit]
+Description=XC2 binwise leakage and Capon screening
+
+[Service]
+Type=oneshot
+ExecStart=%h/src/git/pansy_legacy_capon/pmse/legacy_capon/target/release/pansy-koki-xc2 --input /media/analysis/metadata/zenith_peak_overviews_v1 --output /media/analysis/metadata/xc2_koki_v1 --reference %h/src/git/pansy_legacy_capon
+CPUQuota=100%
+Nice=15
+IOSchedulingClass=idle
+MemoryMax=1G
+TimeoutStartSec=infinity
+Restart=no
