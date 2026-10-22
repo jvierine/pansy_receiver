@@ -9,6 +9,7 @@ use std::f64::consts::PI;
 pub type C = Complex64;
 pub type Matrix = [[C; 7]; 7];
 pub const LIGHT: f64 = 299_792_458.;
+pub mod ambiguity;
 
 #[derive(Clone, Debug)]
 pub struct Axes {

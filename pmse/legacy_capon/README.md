@@ -57,7 +57,7 @@ This is a descriptive event-level view, not a new cell-level rejection rule.
 
 ## Method and efficiency
 
-One beam and the selected range slab are read at a time; the full day is never
+One beam and its full stored range span are read at a time; the full day is never
 loaded. Subarray geometry and sensor steering vectors are cached once. Only
 bins above the configured power/noise threshold and absolute-velocity limit
 are imaged. The threshold retains the supplied legacy definition:
@@ -80,15 +80,16 @@ Acceptance is a peak-angle criterion, not an angular confidence interval or
 proof that grating-lobe alternatives do not exist. Grid resolution and
 loading are user-configurable and retained in the output.
 
-Every tested extreme bin is retained with decision 0 (accepted angle), 1
-(off-zenith), 2 (invalid covariance), or 3 (search boundary). The spectral
+Every tested extreme bin is retained with decision 0 (retained), 1
+(off-zenith), 2 (invalid covariance), 3 (search boundary), or 4
+(excluded as parent-compatible code contamination). The spectral
 array is not copied. Source file/group, frequency/range indices, axes, phase
 and geometry snapshots, SNR proxy, loading, and angles permit inspection.
 The full raw above-threshold occupancy and accepted **extreme** occupancy are
 stored separately on each block's native frequency axis: the latter is not a
 full-velocity filtered histogram.
 
-Accepted cells are grouped as connected components with default links <=0.7 km
+Retained cells are grouped as connected components with default links <=0.7 km
 and <=2 m/s within a mode or the immediately previous successfully read mode,
 with <=600 s separation between mode intervals and matching velocity sign.
 Links are transitively closed. These configurable event definitions are not
@@ -137,3 +138,48 @@ TX sequence across the full retained velocity band, including its aliases,
 before interpreting high-speed candidates as atmospheric motion. The current
 tests establish these limitations; they do not claim a historical-data
 correction or change the live processor.
+
+## Parent-compatible exclusion (v2, default enabled)
+
+The catalogue now excludes plausible code ghosts from its event membership,
+without subtracting power, reconstructing voltages, altering source spectra,
+or notching a velocity band. `--no-code-ghost-filter` reproduces the angle-only
+selection for comparison. This is an explicit conservative exclusion rule,
+not a calibrated posterior probability that an echo is artificial.
+
+For each angularly accepted candidate, search all stored ranges for stronger
+parents at the configured code's nonzero range-sidelobe lags, and frequencies
+displaced by +/- PRF/4. Wrap frequencies at the original 8 ms Nyquist, never
+at the narrower XC2 crop edges. Compute the harmonic power gain from the
+aperiodic autocorrelations of the actual configured 16-chip A/B arrays with
+8 us rectangular chips and ABBA sequencing (BAAB has identical harmonic power).
+This is an equal-energy stop-and-hop model; historical measured TX shapes and
+pair-dependent averaging may differ. The filter fails explicitly outside the
+configured 1 MHz / 1600 sample IPP mode.
+
+A parent must exceed 10 dB total/noise and the candidate's excess power. Its
+predicted ghost excess power must explain at least 50% of the observed
+candidate excess, and its 21 complex off-diagonal covariances must have real
+cosine similarity >=0.95 with the candidate. Covariances are not phase-rotated
+to force agreement. The power estimate subtracts the per-range noise proxy;
+the Capon covariance itself still retains noise. Configure these thresholds
+with `--ghost-parent-db`, `--ghost-min-fraction`, `--ghost-min-similarity`.
+
+Decision 4 retains the strongest supporting parent's frequency/range indices,
+code power gain, predicted fraction and spatial similarity in HDF5. Only
+decision 0 enters the new event catalogue; source data and rejected candidates
+are preserved. `ghost_parent_search_complete=0` records missing possible
+parents outside the stored range/frequency extent (or a cell not tested due
+to another decision / diagnostic opt-out). Such retained cells are uncertain,
+not demonstrated free of ghosts. There is no automatic cross-mode tracking
+requirement: tracking would lose single-mode contamination. Event grouping
+still allows inspecting persistence of the surviving candidates.
+
+Voltage-domain synthetic tests verify the code's response at all 128 sample
+lags and all four cycle harmonics. Injection tests require that model ghosts
+are excluded, different-direction echoes and echoes without parent support
+survive, stronger independent excess survives, and cropped parent coverage is
+not labeled clean. A real echo coincident in range, Doppler and spatial
+covariance with a predicted ghost can also be excluded: the data cannot
+distinguish them. These tests are not an empirical false-rejection rate on
+atmospheric data. Compare threshold settings before interpreting extremes.

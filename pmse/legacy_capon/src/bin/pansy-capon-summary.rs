@@ -24,16 +24,28 @@ fn main() -> Result<()> {
     );
     let f = File::open(path)?;
     let m = f.group("metadata")?;
-    eprintln!("WARNING: Legacy complementary-code range-Doppler ambiguity is not corrected. A near-zenith Capon peak does not exclude code sidelobes. These are candidate events, not validated extreme winds.");
-    let mut counts = [0u64; 4];
+    eprintln!("WARNING: Candidate events, not validated extreme winds. Parent-compatible exclusion is conservative, not exact decoding; missing/unmodelled parents can leave contamination.");
+    let mut counts = [0u64; 5];
     let mut raw = 0u64;
+    let mut uncertain = 0u64;
     for name in f.group("blocks")?.member_names()? {
         let g = f.group(&format!("blocks/{name}"))?;
         if !g.link_exists("decision") {
             continue;
         }
-        for x in g.dataset("decision")?.read_raw::<u8>()? {
-            if x < 4 {
+        let decisions = g.dataset("decision")?.read_raw::<u8>()?;
+        if g.link_exists("ghost_parent_search_complete") {
+            uncertain += decisions
+                .iter()
+                .zip(
+                    g.dataset("ghost_parent_search_complete")?
+                        .read_raw::<u8>()?,
+                )
+                .filter(|(d, c)| **d == 0 && *c == 0)
+                .count() as u64;
+        }
+        for x in decisions {
+            if x < 5 {
                 counts[x as usize] += 1;
             }
         }
@@ -76,11 +88,12 @@ fn main() -> Result<()> {
         value::<f64>(&m, "elapsed_seconds")?
     );
     println!(
-        "extreme_cells: accepted={} off_zenith={} invalid_covariance={} boundary={} total={}",
+        "extreme_cells: retained={} off_zenith={} invalid_covariance={} boundary={} code_ghost_excluded={} total={} retained_incomplete_parent_coverage={uncertain}",
         counts[0],
         counts[1],
         counts[2],
         counts[3],
+        counts[4],
         counts.iter().sum::<u64>()
     );
     println!(

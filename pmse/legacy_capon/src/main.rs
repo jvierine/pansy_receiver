@@ -60,6 +60,18 @@ struct Args {
     /// Bound a pilot without changing selection thresholds. Zero scans the day.
     #[arg(long, default_value_t = 0)]
     max_blocks: usize,
+    /// Diagnostic opt-out; default catalogue excludes parent-compatible ghosts.
+    #[arg(long)]
+    no_code_ghost_filter: bool,
+    /// Predicted ghost excess power / observed candidate excess power.
+    #[arg(long, default_value_t = 0.5)]
+    ghost_min_fraction: f64,
+    /// Real cosine similarity of 21 complex off-diagonal covariances.
+    #[arg(long, default_value_t = 0.95)]
+    ghost_min_similarity: f64,
+    /// Parent total/noise threshold, dB; parent must also exceed candidate.
+    #[arg(long, default_value_t = 10.)]
+    ghost_parent_db: f64,
 }
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -342,10 +354,15 @@ fn process(
         .filter_map(|(i, &r)| (r >= a.range_min && r <= a.range_max).then_some(i))
         .collect();
     ensure!(!ranges.is_empty(), "selected range interval absent");
-    let lo = ranges[0];
-    let hi = ranges[ranges.len() - 1] + 1;
-    let n = hi - lo;
-    let data: Array3<StoredComplex> = ds.read_slice(s![.., a.beam, .., lo..hi])?;
+    // Search parents over ALL stored ranges, not just the candidate interval.
+    // One beam of one block remains bounded (~28 MiB for full xc_rvd).
+    let n = nr;
+    ensure!(nr >= 2, "need at least two range bins for ambiguity search");
+    if !a.no_code_ghost_filter {
+        ensure!((a.sample_rate_hz-1e6).abs()<1e-6 && scalar(g,"ipp")?==1600,
+            "configured ambiguity model only supports 1 MHz / 1600 sample IPP; use explicit diagnostic opt-out for other modes");
+    }
+    let data: Array3<StoredComplex> = ds.read_slice(s![.., a.beam, .., ..])?;
     let maxf = axes.frequency_hz.iter().map(|v| v.abs()).fold(0., f64::max);
     let guard: Vec<_> = axes
         .frequency_hz
@@ -354,8 +371,15 @@ fn process(
         .filter_map(|(i, f)| (f.abs() >= a.noise_outer_fraction * maxf).then_some(i))
         .collect();
     ensure!(guard.len() >= 8, "insufficient noise guards");
-    let power =
-        |f: usize, r: usize| -> f64 { autos.iter().map(|&c| data[[c, f, r]].r as f64).sum() };
+    let powers: Vec<f64> = (0..nf)
+        .flat_map(|f| (0..nr).map(move |r| (f, r)))
+        .map(|(f, r)| autos.iter().map(|&c| data[[c, f, r]].r as f64).sum())
+        .collect();
+    ensure!(
+        powers.iter().all(|p| p.is_finite() && *p >= 0.),
+        "invalid signal power"
+    );
+    let power = |f: usize, r: usize| powers[f * nr + r];
     let mut noise = vec![0.; n];
     let mut scratch = Vec::with_capacity(guard.len());
     for (r, v) in noise.iter_mut().enumerate() {
@@ -381,7 +405,7 @@ fn process(
     write(&block, "mode_stop_us_exclusive", &[stop])?;
     write(&block, "frequency_hz", &axes.frequency_hz)?;
     write(&block, "range_km", &axes.range_km)?;
-    write(&block, "noise_range_start_index", &[lo as u64])?;
+    write(&block, "noise_range_start_index", &[0u64])?;
     write(&block, "estimated_total_noise_power", &noise)?;
     let mut fi = Vec::new();
     let mut ri = Vec::new();
@@ -392,13 +416,50 @@ fn process(
     let mut flags = Vec::new();
     let mut loadings = Vec::new();
     let mut accepted = Vec::new();
+    let mut ghost_parent_f = Vec::new();
+    let mut ghost_parent_r = Vec::new();
+    let mut ghost_gain = Vec::new();
+    let mut ghost_fraction = Vec::new();
+    let mut ghost_similarity = Vec::new();
+    let mut ghost_coverage = Vec::new();
     let mut raw_counts = vec![0u64; nf];
     let mut accepted_counts = vec![0u64; nf];
     let threshold = 10f64.powf(a.snr_db / 10.);
     let mut packed = [C::new(0., 0.); 28];
+    let offsets = pansy_legacy_capon::ambiguity::offsets(
+        axes.range_km[1] - axes.range_km[0],
+        a.sample_rate_hz,
+    );
+    ensure!(
+        a.no_code_ghost_filter || !offsets.is_empty(),
+        "range grid does not resolve configured code sidelobes"
+    );
+    let search = pansy_legacy_capon::ambiguity::Search {
+        frequencies: &axes.frequency_hz,
+        ranges: &axes.range_km,
+        pulse_prf: a.sample_rate_hz / (5. * scalar(g, "ipp")? as f64),
+        sample_rate: a.sample_rate_hz,
+        power: &powers,
+        noise: &noise,
+        min_fraction: a.ghost_min_fraction,
+        min_similarity: a.ghost_min_similarity,
+        parent_threshold: 10f64.powf(a.ghost_parent_db / 10.),
+        offsets: &offsets,
+    };
+    let offdiagonal = |f: usize, r: usize| -> Vec<C> {
+        pairs
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p[0] != p[1])
+            .map(|(c, _)| {
+                let z = data[[c, f, r]];
+                C::new(z.r as f64, z.i as f64)
+            })
+            .collect()
+    };
     for f in 0..nf {
         let velocity = axes.frequency_hz[f] * LIGHT / (2. * a.radar_frequency_hz);
-        for r in 0..n {
+        for &r in &ranges {
             let total = power(f, r);
             ensure!(total.is_finite() && total >= 0., "invalid signal power");
             let ratio = total / noise[r];
@@ -415,7 +476,7 @@ fn process(
                 packed[c] = C::new(z.r as f64, z.i as f64);
             }
             let peak = covariance(&packed, &pairs, phases).and_then(|r| imager.peak(r, a.loading));
-            let (t, u, v, flag, loading) = match peak {
+            let (t, u, v, mut flag, loading) = match peak {
                 Ok(p) => {
                     let flag = if p.boundary {
                         3u8
@@ -428,8 +489,22 @@ fn process(
                 }
                 Err(_) => (f64::NAN, f64::NAN, f64::NAN, 2, f64::NAN),
             };
+            let (evidence, coverage) = if flag == 0 && !a.no_code_ghost_filter {
+                search.find(f, r, offdiagonal)
+            } else {
+                (None, false)
+            };
+            if evidence.is_some() {
+                flag = 4;
+            }
+            ghost_parent_f.push(evidence.map_or(u32::MAX, |e| e.parent_frequency as u32));
+            ghost_parent_r.push(evidence.map_or(u32::MAX, |e| e.parent_range as u32));
+            ghost_gain.push(evidence.map_or(f64::NAN, |e| e.gain));
+            ghost_fraction.push(evidence.map_or(f64::NAN, |e| e.predicted_fraction));
+            ghost_similarity.push(evidence.map_or(f64::NAN, |e| e.similarity));
+            ghost_coverage.push(u8::from(coverage));
             fi.push(f as u32);
-            ri.push((r + lo) as u32);
+            ri.push(r as u32);
             snrs.push(snr);
             theta.push(t);
             us.push(u);
@@ -443,7 +518,7 @@ fn process(
                     candidate: (fi.len() - 1) as u64,
                     start,
                     stop,
-                    range: axes.range_km[r + lo],
+                    range: axes.range_km[r],
                     velocity,
                     snr,
                     theta: t,
@@ -458,6 +533,12 @@ fn process(
     write(&block, "capon_u", &us)?;
     write(&block, "capon_v", &vs)?;
     write(&block, "decision", &flags)?;
+    write(&block, "ghost_parent_frequency_index", &ghost_parent_f)?;
+    write(&block, "ghost_parent_range_index", &ghost_parent_r)?;
+    write(&block, "ghost_model_power_gain", &ghost_gain)?;
+    write(&block, "ghost_predicted_excess_fraction", &ghost_fraction)?;
+    write(&block, "ghost_spatial_similarity", &ghost_similarity)?;
+    write(&block, "ghost_parent_search_complete", &ghost_coverage)?;
     write(&block, "diagonal_loading_power", &loadings)?;
     write(&block, "raw_snr_cell_counts_by_frequency", &raw_counts)?;
     write(
@@ -466,12 +547,13 @@ fn process(
         &accepted_counts,
     )?;
     println!(
-        "BLOCK {start} source={} axis={} tested_extreme={} accepted={} invalid_covariance={}",
+        "BLOCK {start} source={} axis={} tested_extreme={} accepted={} invalid_covariance={} code_ghost={}",
         path.display(),
         axes.frequency_source,
         fi.len(),
         accepted.len(),
-        flags.iter().filter(|&&x| x == 2).count()
+        flags.iter().filter(|&&x| x == 2).count(),
+        flags.iter().filter(|&&x| x == 4).count()
     );
     Ok((accepted, start))
 }
@@ -503,6 +585,15 @@ fn main() -> Result<()> {
             && a.event_velocity_link_mps.is_finite()
             && a.event_velocity_link_mps > 0.,
         "invalid options"
+    );
+    ensure!(
+        a.ghost_min_fraction.is_finite()
+            && a.ghost_min_fraction > 0.
+            && a.ghost_min_similarity.is_finite()
+            && a.ghost_min_similarity > 0.
+            && a.ghost_min_similarity <= 1.
+            && a.ghost_parent_db.is_finite(),
+        "invalid ghost filter settings"
     );
     ensure!(
         !a.output.exists(),
@@ -543,10 +634,20 @@ fn main() -> Result<()> {
     let out = File::create_excl(&partial)?;
     out.create_group("blocks")?;
     let meta = out.create_group("metadata")?;
-    string(&meta, "schema", "pansy-legacy-extreme-capon-v1")?;
+    string(&meta, "schema", "pansy-legacy-extreme-capon-v2")?;
     string(&meta, "options", &format!("{a:?}"))?;
-    string(&meta, "complementary_code_status", "uncorrected: legacy same-frequency covariance lacks cross-frequency phase needed for exact pair summation; code-cycle range-Doppler ambiguity can pass the angle filter")?;
-    string(&meta,"definitions","Candidate cells, not confirmed vertical drafts. decision: 0 accepted angle; 1 off-zenith; 2 invalid covariance; 3 search boundary. Noise is the median of outer-band total power, an uncalibrated legacy proxy. No three-width spectral clipping. Event components join neighboring cells within a mode and the immediately previous successfully read mode; singleton events retained. Histogram counts are correlated spectral-cell occupancy, not independent events.")?;
+    string(
+        &meta,
+        "complementary_code_status",
+        if a.no_code_ghost_filter {
+            "unfiltered"
+        } else {
+            "conservative parent-compatible exclusion; not voltage reconstruction or deconvolution"
+        },
+    )?;
+    string(&meta, "ghost_model", "configured 16-chip A/B, rectangular 8 us chips, ABBA (BAAB gives identical harmonic power), equal-energy stop-and-hop, quarter-PRF harmonics; historical measured TX and pair-dependent averaging may differ. Decision 4 excludes plausible contamination, not proven ghosts. No empirical false-discovery confidence. Unmatched cells with incomplete parent coverage remain uncertain.")?;
+    string(&meta, "ghost_missing_parent_sentinel", "u32::MAX; NaN for absent evidence; search_complete=0 includes not tested due prior angular/invalid decision or diagnostic opt-out")?;
+    string(&meta,"definitions","Candidate cells, not confirmed vertical drafts. decision: 0 retained; 1 off-zenith; 2 invalid covariance; 3 search boundary; 4 parent-compatible code ghost excluded. Noise is the median of outer-band total power, an uncalibrated legacy proxy. No three-width spectral clipping. Event components join neighboring retained cells within a mode and the immediately previous successfully read mode; singleton events retained. Histogram counts are correlated spectral-cell occupancy, not independent events.")?;
     write(&meta, "phasecal_radians", &phases)?;
     let flat: Vec<_> = positions.iter().flatten().copied().collect();
     write(&meta, "positions_m_xyz_flat", &flat)?;
