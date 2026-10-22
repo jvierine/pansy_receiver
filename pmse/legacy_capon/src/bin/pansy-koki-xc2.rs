@@ -93,6 +93,7 @@ fn source(g: &Group) -> Result<(String, String)> {
 fn xc2(p: &str) -> bool {
     Path::new(p).components().any(|c| c.as_os_str() == "xc2")
 }
+fn pmse_date(d:&str)->bool {matches!(d.get(5..7),Some("11"|"12"|"01"|"02"))}
 struct Block {
     fi: Vec<u32>,
     ri: Vec<u32>,
@@ -462,7 +463,7 @@ fn main() -> Result<()> {
         }
         days=unique.into_iter().collect();
     }
-    if a.pmse_season {days.retain(|d|matches!(&d[5..7],"11"|"12"|"01"|"02"));}
+    if a.pmse_season {days.retain(|d|pmse_date(d));}
     days.sort_by_key(|d|(d!="2025-01-30",d.clone()));
     if let Some(d) = &a.day {
         days.retain(|v| v == d);
@@ -527,6 +528,10 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test] fn summer_dates_only() {
+        for d in ["2024-11-01","2024-12-31","2025-01-30","2025-02-28"] {assert!(pmse_date(d));}
+        for d in ["2025-03-01","2025-06-21","2025-10-20",""] {assert!(!pmse_date(d));}
+    }
     #[test]
     fn binwise_passes_a_fast_bin_without_dominant_peak_selection() {
         let path=std::env::temp_dir().join(format!("pansy-koki-fixture-{}.h5",std::process::id()));
