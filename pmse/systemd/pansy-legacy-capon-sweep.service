@@ -1,0 +1,17 @@
+[Unit]
+Description=PANSY native Rust legacy XC ambiguity-screened archive sweep
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/radar/src/git/pansy_legacy_capon
+ExecStart=/home/radar/src/git/pansy_legacy_capon/pmse/legacy_capon/target/release/pansy-capon-sweep --root /media/archive/metadata/xc_rvd --root /media/old_analysis/metadata/xc2 --root /media/analysis/metadata/xc2 --reference /home/radar/src/git/pansy_legacy_capon --output /media/analysis/metadata/legacy_capon_ghost_v2 --first-day 2026-01-30
+CPUQuota=100%
+Nice=19
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+MemoryHigh=512M
+MemoryMax=1G
+TasksMax=8
+TimeoutStartSec=infinity
+TimeoutStopSec=30
+KillMode=control-group
