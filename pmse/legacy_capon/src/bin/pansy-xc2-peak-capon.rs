@@ -170,7 +170,7 @@ fn process(
     let ranges = read::<f64>(&input, "main_peak_range_km")?;
     let peak_db = read::<f32>(&input, "main_peak_total_noise_db")?;
     ensure!(
-        flags.len() == v.len() && v.len() == ranges.len(),
+        flags.len() == v.len() && v.len() == ranges.len() && peak_db.len() == flags.len(),
         "main peak shape mismatch"
     );
     let mut decision = vec![0u8; flags.len()];
