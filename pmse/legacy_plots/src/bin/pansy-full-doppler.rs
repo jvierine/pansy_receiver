@@ -1,6 +1,7 @@
 //! Full native spectral context. No threshold, candidate mask, velocity cut,
 //! Doppler interpolation or cropping. Raster fields and all labels are native
-//! Rustplotlib. Time gaps remain blank because no mode was observed there.
+//! Rustplotlib. One display column per mode, bounded by adjacent midpoints;
+//! genuine long gaps (>10 minutes between integration centers) remain blank.
 use anyhow::{Result, ensure};
 use hdf5::{File, Group, H5Type};
 use rustplotlib::*;
@@ -41,11 +42,39 @@ fn main() -> Result<()> {
         values.len() == start.len() * velocity.len(),
         "full native spectrum shape mismatch"
     );
-    let mut xe = vec![0., 24.];
-    xe.extend_from_slice(&start);
-    xe.extend_from_slice(&stop);
-    xe.sort_by(f64::total_cmp);
-    xe.dedup();
+    let centers: Vec<_> = start.iter().zip(&stop).map(|(a, b)| (a + b) / 2.).collect();
+    ensure!(
+        centers.windows(2).all(|w| w[1] > w[0]),
+        "integration times not increasing"
+    );
+    let mut xe = vec![0.];
+    let mut columns = Vec::new();
+    for m in 0..start.len() {
+        let left = if m > 0 && centers[m] - centers[m - 1] <= 1. / 6. {
+            (centers[m - 1] + centers[m]) / 2.
+        } else {
+            start[m]
+        };
+        let right = if m + 1 < start.len() && centers[m + 1] - centers[m] <= 1. / 6. {
+            (centers[m] + centers[m + 1]) / 2.
+        } else {
+            stop[m]
+        };
+        if left > *xe.last().unwrap() + 1e-10 {
+            xe.push(left);
+            columns.push(None);
+        }
+        ensure!(
+            right > *xe.last().unwrap(),
+            "invalid integration display edges"
+        );
+        xe.push(right);
+        columns.push(Some(m));
+    }
+    if *xe.last().unwrap() < 24. {
+        xe.push(24.);
+        columns.push(None);
+    }
     let step = velocity[1] - velocity[0];
     let mut ye: Vec<_> = velocity.iter().map(|v| v - step / 2.).collect();
     ye.push(velocity.last().unwrap() + step / 2.);
@@ -53,8 +82,7 @@ fn main() -> Result<()> {
     let nf = velocity.len();
     let mut pixels = vec![f64::NAN; nx * nf];
     for x in 0..nx {
-        let mid = (xe[x] + xe[x + 1]) / 2.;
-        if let Some(m) = (0..start.len()).find(|&m| start[m] <= mid && stop[m] >= mid) {
+        if let Some(m) = columns[x] {
             for v in 0..nf {
                 pixels[v * nx + x] = values[m * nf + v] as f64;
             }
@@ -102,7 +130,7 @@ fn main() -> Result<()> {
         5.,
     ));
     f.labels.push(Label::new(
-        "Zenith, 80--92 km; no velocity or SNR selection",
+        "Zenith, 80--92 km; one column per integration; all Dopplers",
         98.,
         11.,
     ));

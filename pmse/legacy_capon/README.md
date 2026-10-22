@@ -221,6 +221,9 @@ the +/-100 m/s sidebands. XC2 can only show its narrower **stored** band;
 missing frequencies are not reconstructed. The Rustplotlib renderer makes
 a full-day overview, shared-full-axis candidate panels and individual
 full-size candidate plots. No central-Doppler hole or zoomed velocity axes.
+Display columns use adjacent integration midpoints, avoiding artificial white
+stripes between regular mode integrations; gaps longer than 10 minutes remain
+blank. This is display binning only, not interpolation of the measured spectra.
 
 All computation and compilation belongs on Revontuli or Syowa. **juha.no is
 a thin web/transfer host, not a build or processing host.** Build portable
