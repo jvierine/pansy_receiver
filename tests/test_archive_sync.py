@@ -1,5 +1,6 @@
 import hashlib
 import os
+import subprocess
 from pathlib import Path
 import shutil
 import tempfile
@@ -15,6 +16,24 @@ from types import SimpleNamespace
 
 
 class ArchiveSyncTests(unittest.TestCase):
+    def test_concurrent_legacy_channels_stay_within_one_shared_budget(self):
+        script = Path(__file__).resolve().parents[1]/'backup/scripts/pansy_backup_rsync.sh'
+        functions = script.read_text().split('trap cleanup EXIT INT TERM')[0]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = root/'backup.env'
+            config.write_text(f'LOCAL_METADATA_ROOT={root}/metadata\nSTATE_DIR={root}/state\n'
+                              'METADATA_CHANNELS="clock cut detections mesomode phase simple_meteor_fit tx"\n'
+                              'RSYNC_TOTAL_BWLIMIT_KB=10\n')
+            result = subprocess.run(['bash', '-s'], input=functions+'\n'
+                                    'for channel in $METADATA_CHANNELS; do channel_bwlimit_kb "$channel"; done\n',
+                                    env=dict(os.environ, PANSY_BACKUP_CONFIG=str(config)),
+                                    text=True, capture_output=True, check=True)
+            limits = list(map(int, result.stdout.split()))
+            self.assertEqual(len(limits), 7)
+            self.assertTrue(all(limit > 0 for limit in limits))
+            self.assertLessEqual(sum(limits), 10)
+
     def test_live_holes_get_a_transfer_slot_before_historical_backfill(self):
         now=1792512000  # 2026-10-20 16:00 UTC
         recent=[Path(f'2026-10-20T00-00-00/pmse@{t}.h5') for t in [now-600,now-3600,now-14400]]

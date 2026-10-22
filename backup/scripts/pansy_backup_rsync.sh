@@ -13,13 +13,31 @@ LOCK_DIR="$STATE_DIR/rsync_locks"
 tmp_dir=""
 pids=()
 
+# The channels run concurrently. Partition one shared payload budget instead
+# of allowing every channel (including cutouts) its own full-rate transfer.
+read -r -a bandwidth_channels <<< "$METADATA_CHANNELS"
+total_bwlimit_kb="${RSYNC_TOTAL_BWLIMIT_KB:-10}"
+if ! [[ "$total_bwlimit_kb" =~ ^[1-9][0-9]*$ ]] ||
+   [ "${#bandwidth_channels[@]}" -eq 0 ] ||
+   [ "$total_bwlimit_kb" -lt "${#bandwidth_channels[@]}" ]; then
+  echo "RSYNC_TOTAL_BWLIMIT_KB must be at least the number of metadata channels" >&2
+  exit 1
+fi
+channel_budget_kb=$((total_bwlimit_kb / ${#bandwidth_channels[@]}))
+
 channel_bwlimit_kb() {
   local channel="$1"
+  local requested
   if [ "$channel" = "cut" ]; then
-    echo "${RSYNC_BWLIMIT_CUT_KB:-50}"
+    requested="${RSYNC_BWLIMIT_CUT_KB:-50}"
   else
-    echo "${RSYNC_BWLIMIT_DEFAULT_KB:-10}"
+    requested="${RSYNC_BWLIMIT_DEFAULT_KB:-10}"
   fi
+  if ! [[ "$requested" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Channel bandwidth must be a positive integer KiB/s" >&2
+    return 1
+  fi
+  echo "$((requested < channel_budget_kb ? requested : channel_budget_kb))"
 }
 
 rsync_ssh_cmd() {
