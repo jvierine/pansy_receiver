@@ -397,6 +397,36 @@ fn main() -> Result<()> {
             h.labels.push(l);
         }
         save(&h, out, &format!("{date}-XC2-KOKI-histogram-v1"))?;
+        let mut html=format!("<!doctype html><meta charset=utf-8><title>PANSY {date} event spectra</title><style>body{{font:17px system-ui;max-width:1100px;margin:2em auto;padding:0 1em;background:white;color:#172432}}img{{width:100%;height:auto}}article{{margin:2em 0}}</style><h1>PANSY {date}: detected integrations</h1><p>One plot per flagged integration, with all accepted extreme Doppler bins marked. These are not independent-event classifications. Full native Doppler range; range-max power over 80–92 km.</p>");
+        for m in 0..start.len() {
+            let row=&cells[m*nf..(m+1)*nf];
+            if !row.iter().any(|&n|n>0) {continue;}
+            let seconds=(centers[m]*3600.).round() as usize;
+            let time=format!("{:02}:{:02}:{:02}",seconds/3600,(seconds/60)%60,seconds%60);
+            let stem=format!("{date}-XC2-KOKI-event-{m:06}-v1");
+            if !out.join(format!("{stem}.png")).exists() {
+                let used=fs::read_dir(out)?.filter_map(|e|e.ok()).filter(|e|e.file_name().to_string_lossy().contains("-XC2-KOKI-")).filter_map(|e|e.metadata().ok()).map(|m|m.len()).sum::<u64>();
+                ensure!(used+1_000_000<=190_000_000,"event figure budget reached; no further rendering");
+                let mut e=figure(out,151.);e.raster_dpi=180.;
+                e.scales.push(Scale::new([0.,15.],Normalization::Linear,ColorMap::plasma())?);
+                e.labels.push(Label::new(format!("PANSY {date}, {time} UTC"),98.,5.));
+                e.labels.push(Label::new("Zenith, 80--92 km; accepted Doppler bins marked",98.,11.));
+                e.panels.push(panel(Rect::new(25.,20.,145.,50.),[(centers[m]-0.5).max(0.),(centers[m]+0.5).min(24.)])?);
+                let mut cb=Colorbar::new(Rect::new(25.,84.,145.,2.),0,"Peak total/noise (dB)",vec![0.,5.,10.,15.]);cb.horizontal=true;e.colorbars.push(cb);
+                let peak=values[m*nf..(m+1)*nf].iter().copied().fold(10f32,f32::max) as f64;
+                let mut ax=Axes::new([-limit,limit],[0.,(peak+2.).max(15.)],"Radial velocity (m/s)","Peak total/noise (dB)");
+                ax.xticks=vec![-limit,-limit/2.,0.,limit/2.,limit];
+                let mut p=Panel::new(Rect::new(25.,108.,145.,28.),ax);
+                p.push(Layer::Line(Line::new(velocity.iter().enumerate().map(|(j,&v)|[v,values[m*nf+j] as f64]).collect(),"#31205c")));
+                for j in 0..nf {if row[j]>0 {
+                    let v=velocity[j];let y=values[m*nf+j] as f64;
+                    let mut marker=Line::new(vec![[v-0.8,y],[v,y+0.4],[v+0.8,y],[v,y-0.4],[v-0.8,y]],"#008b73");marker.width_pt=1.;p.push(Layer::Line(marker));
+                }}
+                e.panels.push(p);e.save(out.join(format!("{stem}.png")))?;
+            }
+            html.push_str(&format!("<article><h2>{time} UTC: {} accepted extreme cells</h2><a href='{stem}.png'><img loading='lazy' src='{stem}.png' alt='{date} {time} full Doppler event context'></a></article>",row.iter().sum::<u32>()));
+        }
+        fs::write(out.join(format!("{date}-XC2-KOKI-events-v1.html")),html)?;
     }
     // The overview is the default product. Event ranking is exploratory and
     // must never silently determine which spectra are presented to the user.

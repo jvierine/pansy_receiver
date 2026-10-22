@@ -43,6 +43,21 @@ Use the user service `pmse/systemd/pansy-koki-xc2.service` on Syowa and
 `pansy-koki-overview-plots.service` on Revontuli. Both have one-core quotas;
 only the latter publishes static artifacts to juha.no. No cron or tunnels.
 
+For the PMSE summer archive on Revontuli, use `pansy-koki-pmse.service`
+and `pansy-koki-pmse-plots.service`. These share a one-core user slice. Native
+XC2 roots are scanned directly for November–February dates; 2025-01-30 is
+processed first. Dedicated XC2-only context overviews avoid substituting an
+xc_rvd copy of the same day. Context HDF5 has a separate 100 MB ceiling;
+400 MB results plus 100 MB context plus 200 MB collected figures/summaries
+and a <=200 MB static mirror remain below the aggregate 1,000 MB budget.
+
+Each detected integration also gets a compact PNG with +/-30 minutes of
+full-native-Doppler context and the integration's range-maximum spectrum.
+All accepted extreme bins are marked; nearby detections share a context but
+are not declared independent physical events. A daily event index links all
+integration plots. The spectrum is explicitly the maximum over 80–92 km,
+not the spectrum at a single candidate range gate.
+
 Tests cover complex PSD projection, preservation of rank-one PSD covariance,
 leakage threshold behavior, and a complete HDF5 binwise fixture where a fast
 wing passes despite a stronger near-zero main peak. The synthetic fixture

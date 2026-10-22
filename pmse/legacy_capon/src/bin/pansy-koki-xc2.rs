@@ -20,6 +20,11 @@ struct Args {
     output: PathBuf,
     #[arg(long)]
     reference: PathBuf,
+    /// Discover and prepare XC2 days directly, without mixed-product overviews.
+    #[arg(long)]
+    root: Vec<PathBuf>,
+    #[arg(long)]
+    pmse_season: bool,
     #[arg(long)]
     day: Option<String>,
     #[arg(long, default_value_t = 0)]
@@ -429,6 +434,7 @@ fn main() -> Result<()> {
     let a = Args::parse();
     ensure!(a.max_output_bytes<=450_000_000,"maximum sweep output budget is 450 MB; leave room for mirrored summaries within 1000 MB");
     fs::create_dir_all(&a.output)?;
+    fs::create_dir_all(&a.input)?;
     let (positions, phases) = pansy_legacy_capon::calibration::load_reference(&a.reference, 0)?;
     let imager = Capon::new(&positions, 47e6, 9., 60)?;
     let mut days: Vec<String> = fs::read_dir(&a.input)?
@@ -441,6 +447,23 @@ fn main() -> Result<()> {
         })
         .collect();
     days.sort();
+    if !a.root.is_empty() {
+        let mut unique=std::collections::BTreeSet::new();
+        for root in &a.root {
+            ensure!(root.file_name().is_some_and(|n|n=="xc2"),"only XC2 roots allowed");
+            for e in fs::read_dir(root)? {
+                let e=e?;let n=e.file_name().to_string_lossy().into_owned();
+                if n.len()>=11 && n.as_bytes()[10]==b'T' && e.file_type()?.is_dir()
+                    && chrono::NaiveDate::parse_from_str(&n[..10],"%Y-%m-%d").is_ok()
+                    && fs::read_dir(e.path())?.filter_map(|x|x.ok()).any(|x|x.file_name().to_string_lossy().starts_with("xc@")) {
+                    unique.insert(n[..10].to_owned());
+                }
+            }
+        }
+        days=unique.into_iter().collect();
+    }
+    if a.pmse_season {days.retain(|d|matches!(&d[5..7],"11"|"12"|"01"|"02"));}
+    days.sort_by_key(|d|(d!="2025-01-30",d.clone()));
     if let Some(d) = &a.day {
         days.retain(|v| v == d);
         ensure!(!days.is_empty(), "requested day absent");
@@ -450,7 +473,18 @@ fn main() -> Result<()> {
     let mut counts = Vec::new();
     let mut failures = 0;
     for d in &days {
-        match day(d, &a, &imager, &positions, &phases) {
+        let result=(||->Result<Option<(u64,u64)>> {
+            if !a.input.join(format!("{d}.full-doppler.h5")).exists() {
+                ensure!(!a.root.is_empty(),"no XC2 source roots for missing overview");
+                ensure!(output_bytes(&a.input)?+5_000_000<=100_000_000,"ARCHIVE_BUDGET_STOP: overview context limit 100 MB");
+                let mut cmd=std::process::Command::new(std::env::current_exe()?.with_file_name("pansy-spectra-overviews"));
+                for root in &a.root {cmd.arg("--root").arg(root);}
+                let status=cmd.arg("--day").arg(d).arg("--output").arg(&a.input).status()?;
+                ensure!(a.input.join(format!("{d}.full-doppler.h5")).exists(),"XC2 overview preparation failed: {status}");
+            }
+            day(d, &a, &imager, &positions, &phases)
+        })();
+        match result {
             Ok(Some((n, e))) => {
                 dates.push(d.replace('-', "").parse::<u32>()?);
                 status.push(if e == 0 { 1u8 } else { 2 });

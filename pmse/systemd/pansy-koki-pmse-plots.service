@@ -1,0 +1,15 @@
+[Unit]
+Description=Summer XC2 event figures and static publication
+
+[Service]
+Type=oneshot
+Slice=pansy-koki-pmse.slice
+Environment=PANSY_KOKI_LOCAL=%h/pansy_koki_pmse/results
+Environment=PANSY_OVERVIEWS_LOCAL=%h/pansy_koki_pmse/context
+ExecStart=%h/src/pansy_spectra_overviews_build/pmse/legacy_plots/target/release/pansy-overview-collect %h/pansy_koki_pmse/figures --publish --koki
+CPUQuota=100%
+Nice=15
+MemoryMax=1G
+TimeoutStartSec=infinity
+Restart=on-failure
+RestartSec=60

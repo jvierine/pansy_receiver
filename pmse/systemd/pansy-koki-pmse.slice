@@ -1,0 +1,6 @@
+[Unit]
+Description=One-core aggregate budget for PMSE processing and figures
+
+[Slice]
+CPUQuota=100%
+MemoryMax=1G

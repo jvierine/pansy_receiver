@@ -16,6 +16,16 @@ fn pull(name: &str, dest: &std::path::Path) -> Result<()> {
     pull_from("zenith_peak_overviews_v1", name, dest)
 }
 fn pull_from(folder: &str, name: &str, dest: &std::path::Path) -> Result<()> {
+    let local=match folder {
+        "xc2_koki_v1"=>std::env::var_os("PANSY_KOKI_LOCAL"),
+        "zenith_peak_overviews_v1"=>std::env::var_os("PANSY_OVERVIEWS_LOCAL"),
+        _=>None,
+    };
+    if let Some(root)=local {
+        let src=PathBuf::from(root).join(name);
+        ensure!(fs::metadata(&src)?.len()<=5*1024*1024,"oversized local summary");
+        fs::copy(src,dest.join(name))?;return Ok(());
+    }
     let status = Command::new("rsync")
         .args([
             "-az",
@@ -47,13 +57,13 @@ fn main() -> Result<()> {
     let capon = std::env::args().any(|v| v == "--capon");
     let koki = std::env::args().any(|v| v == "--koki");
     let renderer = std::env::current_exe()?.with_file_name("pansy-full-doppler");
+    let local=std::env::var_os("PANSY_KOKI_LOCAL").is_some();
     loop {
-        pull("overview-index.h5", &out)?;
-        let f = File::open(out.join("overview-index.h5"))?;
-        let days = f.dataset("utc_day_yyyymmdd")?.read_raw::<u32>()?;
-        let status = f.dataset("status")?.read_raw::<u8>()?;
-        let flags = f.dataset("flagged_integrations")?.read_raw::<u64>()?;
-        drop(f);
+        let (days,status,flags)=if local {(vec![],vec![],vec![])} else {
+            pull("overview-index.h5", &out)?;
+            let f=File::open(out.join("overview-index.h5"))?;
+            (f.dataset("utc_day_yyyymmdd")?.read_raw::<u32>()?,f.dataset("status")?.read_raw::<u8>()?,f.dataset("flagged_integrations")?.read_raw::<u64>()?)
+        };
         let pending = status.iter().filter(|&&v| v == 0).count();
         let failed = status.iter().filter(|&&v| v == 2).count();
         let mut html = format!(
@@ -61,6 +71,7 @@ fn main() -> Result<()> {
             days.len(),
             days.len() - pending
         );
+        if local {html="<!doctype html><meta charset=utf-8><title>PANSY PMSE-season XC2 events</title><style>body{font:17px system-ui;max-width:1200px;margin:2em auto;padding:0 1em;background:white;color:#172432}img{width:100%;height:auto}article{margin:2em 0}a{color:#075ba0}</style><h1>PANSY PMSE-season XC2 events</h1><p>Austral summer: November–February. Full stored Doppler spectra, event context plots and velocity histograms.</p>".to_owned();}
         let mut plots = 0;
         let mut new_raw = 0;
         let mut raw_deferred = 0;
@@ -96,6 +107,7 @@ fn main() -> Result<()> {
                 }
                 if !out.join(format!("{plot}.png")).exists()
                     || !out.join(format!("{hist}.png")).exists()
+                    || !out.join(format!("{date}-XC2-KOKI-events-v1.html")).exists()
                 {
                     ensure!(
                         Command::new(&renderer)
@@ -108,7 +120,7 @@ fn main() -> Result<()> {
                         "binwise render failed: {date}"
                     );
                 }
-                html.push_str(&format!("<article><h3>{date}: {} accepted extreme spectral cells</h3><a href='{plot}.png'><img src='{plot}.png' loading='lazy' alt='{date} binwise Capon detections'></a><p><a href='{plot}.pdf'>Spectrum PDF</a> · <a href='{hist}.png'>Velocity histograms</a> · <a href='{hist}.pdf'>Histogram PDF</a></p></article>",kn[i]));
+                html.push_str(&format!("<article><h3>{date}: {} accepted extreme spectral cells</h3><a href='{plot}.png'><img src='{plot}.png' loading='lazy' alt='{date} binwise Capon detections'></a><p><a href='{date}-XC2-KOKI-events-v1.html'>Individual event plots</a> · <a href='{plot}.pdf'>Spectrum PDF</a> · <a href='{hist}.png'>Velocity histograms</a> · <a href='{hist}.pdf'>Histogram PDF</a></p></article>",kn[i]));
             }
         }
         if capon {
@@ -224,6 +236,7 @@ fn main() -> Result<()> {
                         "--include=/*-XC2-CAPON-overview-v2.pdf",
                         "--include=/*-XC2-KOKI-*-v1.png",
                         "--include=/*-XC2-KOKI-*-v1.pdf",
+                        "--include=/*-XC2-KOKI-events-v1.html",
                         "--exclude=*",
                         "-e",
                         "ssh -o BatchMode=yes -o ConnectTimeout=30"
