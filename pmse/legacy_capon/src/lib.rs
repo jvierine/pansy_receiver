@@ -10,6 +10,7 @@ pub type C = Complex64;
 pub type Matrix = [[C; 7]; 7];
 pub const LIGHT: f64 = 299_792_458.;
 pub mod ambiguity;
+pub mod calibration;
 
 #[derive(Clone, Debug)]
 pub struct Axes {
