@@ -107,7 +107,7 @@ fn main() -> Result<()> {
                 }
                 if !out.join(format!("{plot}.png")).exists()
                     || !out.join(format!("{hist}.png")).exists()
-                    || !out.join(format!("{date}-XC2-KOKI-events-v1.html")).exists()
+                    || !out.join(format!("{date}-XC2-KOKI-events-v2.html")).exists()
                 {
                     ensure!(
                         Command::new(&renderer)
@@ -120,7 +120,7 @@ fn main() -> Result<()> {
                         "binwise render failed: {date}"
                     );
                 }
-                html.push_str(&format!("<article><h3>{date}: {} accepted extreme spectral cells</h3><a href='{plot}.png'><img src='{plot}.png' loading='lazy' alt='{date} binwise Capon detections'></a><p><a href='{date}-XC2-KOKI-events-v1.html'>Individual event plots</a> · <a href='{plot}.pdf'>Spectrum PDF</a> · <a href='{hist}.png'>Velocity histograms</a> · <a href='{hist}.pdf'>Histogram PDF</a></p></article>",kn[i]));
+                html.push_str(&format!("<article><h3>{date}: {} accepted extreme spectral cells</h3><a href='{plot}.png'><img src='{plot}.png' loading='lazy' alt='{date} binwise Capon detections'></a><p><a href='{date}-XC2-KOKI-events-v2.html'>Individual event plots</a> · <a href='{plot}.pdf'>Spectrum PDF</a> · <a href='{hist}.png'>Velocity histograms</a> · <a href='{hist}.pdf'>Histogram PDF</a></p></article>",kn[i]));
             }
         }
         if capon {
@@ -234,9 +234,11 @@ fn main() -> Result<()> {
                         "--include=/*-FULL-doppler-overview.pdf",
                         "--include=/*-XC2-CAPON-overview-v2.png",
                         "--include=/*-XC2-CAPON-overview-v2.pdf",
+                        "--exclude=/*-XC2-KOKI-event-*-v1.png",
                         "--include=/*-XC2-KOKI-*-v1.png",
                         "--include=/*-XC2-KOKI-*-v1.pdf",
-                        "--include=/*-XC2-KOKI-events-v1.html",
+                        "--include=/*-XC2-KOKI-event-*-v2.png",
+                        "--include=/*-XC2-KOKI-events-v2.html",
                         "--exclude=*",
                         "-e",
                         "ssh -o BatchMode=yes -o ConnectTimeout=30"
