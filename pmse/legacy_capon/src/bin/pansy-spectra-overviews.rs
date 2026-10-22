@@ -13,6 +13,8 @@ use std::{
 };
 #[derive(Parser, Debug)]
 struct Args {
+    #[arg(long)]
+    day: Option<String>,
     #[arg(long, required = true)]
     root: Vec<PathBuf>,
     #[arg(long)]
@@ -233,7 +235,14 @@ fn day(root: &Path, date: &str, files: &[PathBuf]) -> Result<(u64, u64)> {
             if !g.link_exists("xc_arr") {
                 continue;
             }
-            let t = scalar(&g, "i0")?;
+            let t = match scalar(&g, "i0") {
+                Ok(t) => t,
+                Err(e) => {
+                    errors.push(format!("{} {name}: {e:#}", path.display()));
+                    eprintln!("BLOCK_ERROR {date} {} {name}: {e:#}", path.display());
+                    continue;
+                }
+            };
             if modes.contains_key(&t) {
                 continue;
             }
@@ -348,6 +357,9 @@ fn main() -> Result<()> {
                 continue;
             }
             let date = &name[..10];
+            if a.day.as_ref().is_some_and(|d| d != date) {
+                continue;
+            }
             if chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").is_err() {
                 continue;
             }
@@ -361,6 +373,16 @@ fn main() -> Result<()> {
         }
     }
     let mut days: Vec<_> = dates.keys().cloned().collect();
+    if let Some(date) = &a.day {
+        let files = dates.get_mut(date).context("no files for requested day")?;
+        files.sort_by_key(|p| p.file_name().unwrap().to_os_string());
+        let (_, errors) = day(&a.output, date, files)?;
+        ensure!(
+            errors == 0,
+            "day output preserved with {errors} explicit source errors"
+        );
+        return Ok(());
+    }
     if let Some(i) = days.iter().position(|d| d == &a.first_day) {
         let d = days.remove(i);
         days.insert(0, d);
