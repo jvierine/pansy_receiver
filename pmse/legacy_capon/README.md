@@ -202,3 +202,29 @@ overviews and individual event tracks with native axes and colourbars. It
 uses 10 pt type at 190 mm figure width, and saves both PNG and PDF. Each point
 is the maximum power/noise across selected ranges in one integration and a
 0.5 m/s bin. Blank central velocities were not selected, not measured absent.
+
+## Full Doppler context: default plots
+
+The selected-cell plots above are diagnostic only and are not full spectra.
+The default plotting executable is now `pansy-full-doppler`. First run
+`pansy-capon-full-doppler CATALOGUE.h5 SMALL_FULL_DOPPLER.h5` **on Syowa or
+Revontuli**, with a one-core quota on Syowa. It reads the original source
+autocorrelations referenced by the catalogue and retains every native
+frequency bin, including zero Doppler, without velocity, angular, candidate
+or SNR cuts. The plotted quantity is the maximum seven-channel total/noise
+over zenith ranges 80--92 km. A colour limit clips colour only, never removes
+bins. The projection retains original mode start/stop times and source
+provenance in HDF5. Only small projections and plots leave the processing host.
+
+For xc_rvd this is all 1248 bins over approximately +/-199.33 m/s, not just
+the +/-100 m/s sidebands. XC2 can only show its narrower **stored** band;
+missing frequencies are not reconstructed. The Rustplotlib renderer makes
+a full-day overview, shared-full-axis candidate panels and individual
+full-size candidate plots. No central-Doppler hole or zoomed velocity axes.
+
+All computation and compilation belongs on Revontuli or Syowa. **juha.no is
+a thin web/transfer host, not a build or processing host.** Build portable
+station binaries on Revontuli using the musl target and `--features portable`
+(bundled HDF5 and zlib), `CC_x86_64_unknown_linux_musl=musl-gcc`,
+`LIBZ_SYS_STATIC=1`, and native `CMAKE=/usr/bin/cmake`. This avoids transferring
+a compiler to Syowa or depending on Revontuli's newer glibc/HDF5 ABI.
