@@ -97,12 +97,14 @@ fn main() -> Result<()> {
             ensure!(
                 Command::new("rsync")
                     .args([
-                        "-rt",
+                        "-r",
+                        "--size-only",
+                        "--no-times",
+                        "--omit-dir-times",
                         "--timeout=120",
                         "--no-perms",
                         "--no-owner",
                         "--no-group",
-                        "--include=/index.html",
                         "--include=/*-FULL-doppler-overview.png",
                         "--include=/*-FULL-doppler-overview.pdf",
                         "--exclude=*",
@@ -114,6 +116,28 @@ fn main() -> Result<()> {
                     .status()?
                     .success(),
                 "publishing static plots failed"
+            );
+            // The destination does not support timestamp preservation. Plot
+            // files are immutable; the small changing index needs content checks.
+            ensure!(
+                Command::new("rsync")
+                    .args([
+                        "-r",
+                        "--checksum",
+                        "--no-times",
+                        "--omit-dir-times",
+                        "--no-perms",
+                        "--no-owner",
+                        "--no-group",
+                        "--timeout=120",
+                        "-e",
+                        "ssh -o BatchMode=yes -o ConnectTimeout=30"
+                    ])
+                    .arg(out.join("index.html"))
+                    .arg("j@juha.no:/mnt/shovel/share/pansy-zenith-main-peaks/index.html")
+                    .status()?
+                    .success(),
+                "publishing gallery index failed"
             );
         }
         println!(
