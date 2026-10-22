@@ -82,9 +82,39 @@ class ArchiveSyncTests(unittest.TestCase):
                  patch('pmse.archive_sync.rsync', return_value={'partial':True}) as transfer:
                 pull_once(a)
             self.assertEqual(transfer.call_count, 1)
-            self.assertTrue(transfer.call_args.kwargs['checksum'])
+            self.assertFalse(transfer.call_args.kwargs['checksum'])
             self.assertTrue(transfer.call_args.args[0].startswith('j@juha.no:'))
             self.assertFalse(a.receipt.exists())
+
+    def test_explicit_audit_keeps_full_checksum_verification_available(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            a = SimpleNamespace(host='j@juha.no', archive_root='/mnt/shovel/rvd/pmse_sparse16',
+                                root=Path(temporary), receipt=Path(temporary)/'receipt.h5',
+                                metrics=Path(temporary)/'metrics.h5', bandwidth=1024,
+                                checksum_audit=True)
+            with patch('pmse.archive_sync.check_archive'), patch('pmse.archive_sync.save_metrics'), \
+                 patch('pmse.archive_sync.rsync', return_value={'partial':True}) as transfer:
+                pull_once(a)
+            self.assertTrue(transfer.call_args.kwargs['checksum'])
+
+    @unittest.skipUnless(shutil.which('rsync'), 'rsync is required')
+    def test_routine_pull_detects_same_size_atomic_republication_without_checksum_scan(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary)/'source'
+            destination = Path(temporary)/'destination'
+            destination.mkdir()
+            path = self.make_archive(source)
+            rsync(str(source)+'/', str(destination)+'/')
+            before = path.stat()
+            replacement = path.with_suffix('.partial')
+            shutil.copyfile(path, replacement)
+            with h5py.File(replacement, 'r+') as h:
+                h['spectra'][0] = 11-12j
+            os.utime(replacement, ns=(before.st_atime_ns, before.st_mtime_ns+2_000_000_000))
+            replacement.replace(path)
+            self.assertEqual(path.stat().st_size, before.st_size)
+            rsync(str(source)+'/', str(destination)+'/')
+            self.assertEqual(path.read_bytes(), (destination/path.relative_to(source)).read_bytes())
 
     def test_partial_source_publication_does_not_mark_snapshot_delivered(self):
         with tempfile.TemporaryDirectory() as temporary:

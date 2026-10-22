@@ -161,8 +161,13 @@ def publish_once(a, turn):
 
 def pull_once(a):
     check_archive(a.host, a.archive_root)
+    # Publication atomically replaces files and assigns a fresh archive mtime.
+    # Routine rsync size/mtime checks therefore find reprocessed snapshots too.
+    # Reading all remote HDF5 contents every poll bypassed the transfer cap and
+    # saturated the cloud share even when there was nothing to transfer.
     values = rsync(f'{a.host}:{a.archive_root}/', str(a.root) + '/',
-                   a.bandwidth, shlex.join(SSH), checksum=True,
+                   a.bandwidth, shlex.join(SSH),
+                   checksum=getattr(a, 'checksum_audit', False),
                    timeout=600, partial_ok=True)
     save_metrics(a.metrics, 'juha_no_to_revontuli', values)
     if values['partial']:
@@ -185,9 +190,19 @@ def main():
     parser.add_argument('--bandwidth', type=int, required=True,
                         help='Transfer cap in KiB/s; source publication remains capped at 10')
     parser.add_argument('--loop', action='store_true')
+    parser.add_argument('--checksum-audit', action='store_true',
+                        help='One-off full content audit; routine pulls use size/mtime checks')
+    parser.add_argument('--interval', type=float,
+                        help='Polling seconds (default: publish 30, pull 120)')
     a = parser.parse_args()
     if a.bandwidth <= 0 or (a.mode == 'publish' and a.bandwidth > 10):
         parser.error('Require positive bandwidth; Syowa publication may not exceed 10 KiB/s')
+    if a.checksum_audit and (a.mode != 'pull' or a.loop):
+        parser.error('--checksum-audit requires a one-off pull without --loop')
+    if a.interval is None:
+        a.interval = 30 if a.mode == 'publish' else 120
+    if a.interval <= 0:
+        parser.error('--interval must be positive')
     a.root.mkdir(parents=True, exist_ok=True)
     turn = 1
     while True:
@@ -204,7 +219,7 @@ def main():
                 raise
         if not a.loop:
             break
-        time.sleep(30)
+        time.sleep(a.interval)
 
 
 if __name__ == '__main__':
