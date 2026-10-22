@@ -5,7 +5,7 @@ use std::{fs, path::PathBuf, process::Command, time::Duration};
 const SSH: &str = "ssh -o BatchMode=yes -o ConnectTimeout=60 -o ControlMaster=auto -o ControlPersist=600 -o ControlPath=/home/j/.ssh/rvd-zenith-plot-%C -J j@juha.no -p3131";
 // Transfers run sequentially. Reserve headroom below 10,000 byte/s for the
 // existing low-rate archive transfers and SSH overhead.
-const TRANSFER_LIMIT: &str = "--bwlimit=7";
+const TRANSFER_LIMIT: &str = "--bwlimit=6";
 fn koki_bytes(out:&std::path::Path)->Result<u64> {
     let mut bytes=0;
     for e in fs::read_dir(out)? {let e=e?;let name=e.file_name().to_string_lossy().into_owned();

@@ -35,8 +35,9 @@ The collector permits at most 200,000,000 bytes of new Koki summaries and
 figures. Its static web mirror is a subset of those files. Combined with the
 station limit, this leaves substantial headroom below 1,000 MB, including
 mirrored results. PNGs use 300 dpi at article dimensions; labels remain 10 pt.
-Only small summaries and plots travel, sequentially with `rsync --bwlimit=7`,
-leaving headroom for existing 1 KiB/s transfers under the 10 kB/s link budget.
+Only small summaries and plots travel, sequentially with `rsync --bwlimit=6`,
+leaving headroom for existing 1 KiB/s transfers and occasional small diagnostic
+downloads under the 10 kB/s link budget.
 Do not start parallel result collectors.
 
 Use the user service `pmse/systemd/pansy-koki-xc2.service` on Syowa and
