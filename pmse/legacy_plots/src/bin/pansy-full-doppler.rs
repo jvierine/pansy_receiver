@@ -26,6 +26,23 @@ fn save(f: &Figure, out: &Path, name: &str) -> Result<()> {
 }
 fn main() -> Result<()> {
     let a: Vec<_> = std::env::args().collect();
+    if a.len()==3 && a[1]=="--audit-koki" {
+        let f=File::open(&a[2])?;
+        let velocity=read::<f64>(&f,"velocity_mps")?;
+        let start=read::<f64>(&f,"mode_start_hours")?;
+        let stop=read::<f64>(&f,"mode_stop_hours")?;
+        let cells=read::<u32>(&f,"accepted_extreme_cells_mode_frequency")?;
+        ensure!(cells.len()==start.len()*velocity.len() && start.len()==stop.len(),"invalid binwise summary");
+        for m in 0..start.len() {
+            let row=&cells[m*velocity.len()..(m+1)*velocity.len()];
+            if row.iter().any(|&x|x>0) {
+                let bins:Vec<_>=row.iter().enumerate().filter(|(_,n)|**n>0).map(|(j,n)|format!("{:.2}({n})",velocity[j])).collect();
+                println!("DETECTION mode={m} start_utc_hours={:.6} stop_utc_hours={:.6} velocity_mps(cells)={}",start[m],stop[m],bins.join(","));
+            }
+        }
+        println!("TOTAL tested={} extreme_cells={} detected_modes={} input_errors={}",read::<u64>(&f,"tested_count")?[0],read::<u64>(&f,"extreme_cell_count")?[0],read::<u64>(&f,"detected_mode_count")?[0],read::<u64>(&f,"input_errors")?[0]);
+        return Ok(());
+    }
     if a.len() == 3 && a[1] == "--audit" {
         let f = File::open(&a[2])?;
         let start = read::<f64>(&f, "mode_start_hours")?;
