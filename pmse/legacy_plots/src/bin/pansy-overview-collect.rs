@@ -3,6 +3,9 @@ use anyhow::{Result, ensure};
 use hdf5::File;
 use std::{fs, path::PathBuf, process::Command, time::Duration};
 const SSH: &str = "ssh -o BatchMode=yes -o ConnectTimeout=60 -o ControlMaster=auto -o ControlPersist=600 -o ControlPath=/home/j/.ssh/rvd-zenith-plot-%C -J j@juha.no -p3131";
+// Transfers run sequentially. Reserve headroom below 10,000 byte/s for the
+// existing low-rate archive transfers and SSH overhead.
+const TRANSFER_LIMIT: &str = "--bwlimit=7";
 fn pull(name: &str, dest: &std::path::Path) -> Result<()> {
     pull_from("zenith_peak_overviews_v1", name, dest)
 }
@@ -10,6 +13,7 @@ fn pull_from(folder: &str, name: &str, dest: &std::path::Path) -> Result<()> {
     let status = Command::new("rsync")
         .args([
             "-az",
+            TRANSFER_LIMIT,
             "--timeout=120",
             "--max-size=5m",
             "--no-perms",
@@ -153,6 +157,7 @@ fn main() -> Result<()> {
                 Command::new("rsync")
                     .args([
                         "-r",
+                        TRANSFER_LIMIT,
                         "--size-only",
                         "--no-times",
                         "--omit-dir-times",
@@ -180,6 +185,7 @@ fn main() -> Result<()> {
                 Command::new("rsync")
                     .args([
                         "-r",
+                        TRANSFER_LIMIT,
                         "--checksum",
                         "--no-times",
                         "--omit-dir-times",
