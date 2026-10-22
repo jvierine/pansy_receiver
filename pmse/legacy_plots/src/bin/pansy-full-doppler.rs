@@ -53,6 +53,21 @@ fn main() -> Result<()> {
         "flag shape mismatch"
     );
     let flagged = peak_flags.iter().filter(|&&x| x != 0).count();
+    if input.link_exists("main_peak_range_km") {
+        let ranges = read::<f64>(&input, "main_peak_range_km")?;
+        let powers = read::<f32>(&input, "main_peak_total_noise_db")?;
+        for m in 0..start.len() {
+            if peak_flags[m] != 0 {
+                println!(
+                    "PEAK_FLAG date={date} center_utc_hours={:.6} velocity_mps={:.3} range_km={:.3} total_noise_db={:.2}",
+                    (start[m] + stop[m]) / 2.,
+                    peak_velocity[m],
+                    ranges[m],
+                    powers[m]
+                );
+            }
+        }
+    }
     ensure!(
         values.len() == start.len() * velocity.len(),
         "full native spectrum shape mismatch"
