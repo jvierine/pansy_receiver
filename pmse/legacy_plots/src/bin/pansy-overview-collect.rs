@@ -4,6 +4,9 @@ use hdf5::File;
 use std::{fs, path::PathBuf, process::Command, time::Duration};
 const SSH: &str = "ssh -o BatchMode=yes -o ConnectTimeout=60 -o ControlMaster=auto -o ControlPersist=600 -o ControlPath=/home/j/.ssh/rvd-zenith-plot-%C -J j@juha.no -p3131";
 fn pull(name: &str, dest: &std::path::Path) -> Result<()> {
+    pull_from("zenith_peak_overviews_v1", name, dest)
+}
+fn pull_from(folder: &str, name: &str, dest: &std::path::Path) -> Result<()> {
     let status = Command::new("rsync")
         .args([
             "-az",
@@ -16,7 +19,7 @@ fn pull(name: &str, dest: &std::path::Path) -> Result<()> {
             SSH,
         ])
         .arg(format!(
-            "radar@localhost:/media/analysis/metadata/zenith_peak_overviews_v1/{name}"
+            "radar@localhost:/media/analysis/metadata/{folder}/{name}"
         ))
         .arg(dest)
         .status()?;
@@ -31,6 +34,7 @@ fn main() -> Result<()> {
     );
     fs::create_dir_all(&out)?;
     let publish = std::env::args().any(|v| v == "--publish");
+    let capon = std::env::args().any(|v| v == "--capon");
     let renderer = std::env::current_exe()?.with_file_name("pansy-full-doppler");
     loop {
         pull("overview-index.h5", &out)?;
@@ -47,6 +51,48 @@ fn main() -> Result<()> {
             days.len() - pending
         );
         let mut plots = 0;
+        let mut capon_pending = 0;
+        if capon {
+            pull_from("xc2_peak_capon_v1", "capon-index.h5", &out)?;
+            let c = File::open(out.join("capon-index.h5"))?;
+            let cd = c.dataset("utc_day_yyyymmdd")?.read_raw::<u32>()?;
+            let cs = c.dataset("status")?.read_raw::<u8>()?;
+            let cn = c.dataset("detection_count")?.read_raw::<u64>()?;
+            capon_pending = cs.iter().filter(|&&s| s == 0).count();
+            html.push_str(&format!("<h2>XC2 Capon detections</h2><p>Main peak |v| ≥ 30 m/s within ±90 m/s; arrival within 2° of zenith. Diagonal loading: 1%. Cyan diamonds mark detections; grey crosses show other extreme main peaks.</p><p>{} XC2 dates; {} processed; {capon_pending} pending; {} dates with errors.</p>",cd.len(),cd.len()-capon_pending,cs.iter().filter(|&&s|s==2).count()));
+            for i in 0..cd.len() {
+                if cs[i] == 0 || cn[i] == 0 {
+                    continue;
+                }
+                let n = cd[i];
+                let date = format!("{:04}-{:02}-{:02}", n / 10000, (n / 100) % 100, n % 100);
+                let data = format!("{date}.full-doppler.h5");
+                let sidecar = format!("{date}.capon.h5");
+                let plot = format!("{date}-XC2-CAPON-overview");
+                if !out.join(&data).exists() {
+                    pull(&data, &out)?;
+                }
+                if !out.join(&sidecar).exists() {
+                    pull_from("xc2_peak_capon_v1", &sidecar, &out)?;
+                }
+                if !out.join(format!("{plot}.png")).exists()
+                    || !out.join(format!("{plot}.pdf")).exists()
+                {
+                    ensure!(
+                        Command::new(&renderer)
+                            .arg(out.join(&data))
+                            .arg(&out)
+                            .arg("--capon")
+                            .arg(out.join(&sidecar))
+                            .status()?
+                            .success(),
+                        "Capon render failed: {date}"
+                    );
+                }
+                html.push_str(&format!("<article><h3>{date}: {} Capon detections</h3><a href='{plot}.png'><img src='{plot}.png' loading='lazy' alt='{date} XC2 Capon detections'></a><p><a href='{plot}.pdf'>PDF</a></p></article>",cn[i]));
+            }
+            html.push_str("<h2>All-data main-peak flags</h2>");
+        }
         for i in 0..days.len() {
             if status[i] == 0 || flags[i] == 0 {
                 continue;
@@ -107,6 +153,8 @@ fn main() -> Result<()> {
                         "--no-group",
                         "--include=/*-FULL-doppler-overview.png",
                         "--include=/*-FULL-doppler-overview.pdf",
+                        "--include=/*-XC2-CAPON-overview.png",
+                        "--include=/*-XC2-CAPON-overview.pdf",
                         "--exclude=*",
                         "-e",
                         "ssh -o BatchMode=yes -o ConnectTimeout=30"
@@ -144,7 +192,7 @@ fn main() -> Result<()> {
             "PLOT_PROGRESS plots={plots} pending={pending} input_error_days={failed} total={}",
             days.len()
         );
-        if pending == 0 {
+        if pending == 0 && capon_pending == 0 {
             break;
         }
         std::thread::sleep(Duration::from_secs(30));

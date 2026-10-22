@@ -26,9 +26,45 @@ fn save(f: &Figure, out: &Path, name: &str) -> Result<()> {
 }
 fn main() -> Result<()> {
     let a: Vec<_> = std::env::args().collect();
+    if a.len() == 3 && a[1] == "--audit" {
+        let f = File::open(&a[2])?;
+        let start = read::<f64>(&f, "mode_start_hours")?;
+        let stop = read::<f64>(&f, "mode_stop_hours")?;
+        let errors = read::<u64>(&f, "input_errors")?[0];
+        println!("AUDIT modes={} input_errors={errors}", start.len());
+        let mut count = 0;
+        for i in 1..start.len() {
+            let gap = (start[i] + stop[i] - start[i - 1] - stop[i - 1]) * 30.;
+            if gap > 10. {
+                count += 1;
+                if count <= 12 {
+                    println!(
+                        "WHITE_GAP previous_stop_utc_hours={:.6} next_start_utc_hours={:.6} uncovered_minutes={:.3} center_gap_minutes={gap:.3}",
+                        stop[i - 1],
+                        start[i],
+                        (start[i] - stop[i - 1]) * 60.
+                    );
+                }
+            }
+        }
+        println!("WHITE_GAPS count={count}");
+        return Ok(());
+    }
+    if a.len() == 3 && a[1] == "--audit-index" {
+        let f = File::open(&a[2])?;
+        let days = read::<u32>(&f, "utc_day_yyyymmdd")?;
+        let status = read::<u8>(&f, "status")?;
+        for (d, s) in days.iter().zip(status) {
+            if s == 2 {
+                println!("FAILED_DAY {d}");
+            }
+        }
+        return Ok(());
+    }
+    let capon_mode = a.len() == 5 && a[3] == "--capon";
     ensure!(
-        a.len() == 3 || (a.len() == 4 && a[3] == "--candidate-context"),
-        "usage: pansy-full-doppler FULL_DOPPLER.h5 OUTPUT_DIR [--candidate-context]"
+        a.len() == 3 || (a.len() == 4 && a[3] == "--candidate-context") || capon_mode,
+        "usage: pansy-full-doppler FULL_DOPPLER.h5 OUTPUT_DIR [--candidate-context | --capon SIDECAR.h5]"
     );
     let input = File::open(&a[1])?;
     let out = Path::new(&a[2]);
@@ -53,6 +89,18 @@ fn main() -> Result<()> {
         "flag shape mismatch"
     );
     let flagged = peak_flags.iter().filter(|&&x| x != 0).count();
+    let decisions = if capon_mode {
+        let c = File::open(&a[4])?;
+        ensure!(
+            String::from_utf8(read(&c, "date_utc")?)? == date,
+            "Capon date mismatch"
+        );
+        read::<u8>(&c, "capon_decision")?
+    } else {
+        vec![0; start.len()]
+    };
+    ensure!(decisions.len() == start.len(), "Capon mode count mismatch");
+    let detections = decisions.iter().filter(|&&x| x == 1).count();
     if input.link_exists("main_peak_range_km") {
         let ranges = read::<f64>(&input, "main_peak_range_km")?;
         let powers = read::<f32>(&input, "main_peak_total_noise_db")?;
@@ -155,17 +203,36 @@ fn main() -> Result<()> {
                 let y = peak_velocity[m];
                 let dx = (xlim[1] - xlim[0]) * 0.003;
                 let dy = limit * 0.015;
-                let mut marker = Line::new(
+                let points = if capon_mode && decisions[m] == 1 {
+                    vec![
+                        [x - dx, y],
+                        [x, y + dy],
+                        [x + dx, y],
+                        [x, y - dy],
+                        [x - dx, y],
+                    ]
+                } else {
                     vec![
                         [x - dx, y - dy],
                         [x + dx, y + dy],
                         [f64::NAN, f64::NAN],
                         [x - dx, y + dy],
                         [x + dx, y - dy],
-                    ],
-                    "#00e6a8",
+                    ]
+                };
+                let mut marker = Line::new(
+                    points,
+                    if capon_mode && decisions[m] != 1 {
+                        "#a0a0a0"
+                    } else {
+                        "#00e6a8"
+                    },
                 );
-                marker.width_pt = 1.3;
+                marker.width_pt = if capon_mode && decisions[m] != 1 {
+                    0.6
+                } else {
+                    1.5
+                };
                 p.push(Layer::Line(marker));
             }
         }
@@ -180,7 +247,9 @@ fn main() -> Result<()> {
         5.,
     ));
     f.labels.push(Label::new(
-        if input.link_exists("extreme_peak_flag") {
+        if capon_mode {
+            format!("XC2 zenith, 80--92 km; {detections} Capon detections; cyan diamonds, grey velocity flags")
+        } else if input.link_exists("extreme_peak_flag") {
             format!("Zenith, 80--92 km; {flagged} flags: main peak within +/-90 has |v| >= 30 m/s")
         } else {
             "Zenith, 80--92 km; one column per integration; all Dopplers".to_string()
@@ -200,10 +269,15 @@ fn main() -> Result<()> {
     f.colorbars.push(bar);
     // Horizontal colorbar labels need a real lower margin at article font size.
     f.height_mm = 119.;
-    save(&f, out, &format!("{date}-FULL-doppler-overview"))?;
+    let plot_name = if capon_mode {
+        format!("{date}-XC2-CAPON-overview")
+    } else {
+        format!("{date}-FULL-doppler-overview")
+    };
+    save(&f, out, &plot_name)?;
     // The overview is the default product. Event ranking is exploratory and
     // must never silently determine which spectra are presented to the user.
-    if a.len() == 3 {
+    if a.len() == 3 || capon_mode {
         println!(
             "Rendered {date}: ALL {nf} native Dopplers, {} modes, no candidate mask",
             start.len()

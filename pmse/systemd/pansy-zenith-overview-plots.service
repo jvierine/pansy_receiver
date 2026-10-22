@@ -3,7 +3,7 @@ Description=Collect and render flagged full-day PANSY zenith spectra
 
 [Service]
 Type=oneshot
-ExecStart=%h/src/pansy_spectra_overviews_build/pmse/legacy_plots/target/release/pansy-overview-collect %h/pansy_zenith_peak_overviews --publish
+ExecStart=%h/src/pansy_spectra_overviews_build/pmse/legacy_plots/target/release/pansy-overview-collect %h/pansy_zenith_peak_overviews --publish --capon
 CPUQuota=100%
 Nice=15
 MemoryMax=1G
