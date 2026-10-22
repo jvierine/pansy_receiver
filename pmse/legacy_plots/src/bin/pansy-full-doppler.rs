@@ -1,0 +1,161 @@
+//! Full native spectral context. No threshold, candidate mask, velocity cut,
+//! Doppler interpolation or cropping. Raster fields and all labels are native
+//! Rustplotlib. Time gaps remain blank because no mode was observed there.
+use anyhow::{Result, ensure};
+use hdf5::{File, Group, H5Type};
+use rustplotlib::*;
+use std::{fs, path::Path};
+fn read<T: H5Type>(g: &Group, n: &str) -> Result<Vec<T>> {
+    Ok(g.dataset(n)?.read_raw()?)
+}
+fn figure(out: &Path, height: f64) -> Figure {
+    let mut f = Figure::new(IntendedUse::ArticleWide);
+    f.width_mm = 190.;
+    f.height_mm = height;
+    f.font_pt = 10.;
+    f.raster_dpi = 220.;
+    f.latex.cache = out.join(".latex-cache");
+    f
+}
+fn save(f: &Figure, out: &Path, name: &str) -> Result<()> {
+    for ext in ["png", "pdf"] {
+        f.save(out.join(format!("{name}.{ext}")))?;
+    }
+    Ok(())
+}
+fn main() -> Result<()> {
+    let a: Vec<_> = std::env::args().collect();
+    ensure!(
+        a.len() == 3,
+        "usage: pansy-full-doppler FULL_DOPPLER.h5 OUTPUT_DIR"
+    );
+    let input = File::open(&a[1])?;
+    let out = Path::new(&a[2]);
+    fs::create_dir_all(out)?;
+    let date = String::from_utf8(read(&input, "date_utc")?)?;
+    let velocity = read::<f64>(&input, "velocity_mps")?;
+    let start = read::<f64>(&input, "mode_start_hours")?;
+    let stop = read::<f64>(&input, "mode_stop_hours")?;
+    let values = read::<f32>(&input, "peak_total_noise_db_mode_frequency")?;
+    ensure!(
+        values.len() == start.len() * velocity.len(),
+        "full native spectrum shape mismatch"
+    );
+    let mut xe = vec![0., 24.];
+    xe.extend_from_slice(&start);
+    xe.extend_from_slice(&stop);
+    xe.sort_by(f64::total_cmp);
+    xe.dedup();
+    let step = velocity[1] - velocity[0];
+    let mut ye: Vec<_> = velocity.iter().map(|v| v - step / 2.).collect();
+    ye.push(velocity.last().unwrap() + step / 2.);
+    let nx = xe.len() - 1;
+    let nf = velocity.len();
+    let mut pixels = vec![f64::NAN; nx * nf];
+    for x in 0..nx {
+        let mid = (xe[x] + xe[x + 1]) / 2.;
+        if let Some(m) = (0..start.len()).find(|&m| start[m] <= mid && stop[m] >= mid) {
+            for v in 0..nf {
+                pixels[v * nx + x] = values[m * nf + v] as f64;
+            }
+        }
+    }
+    let scale = Scale::new([0., 30.], Normalization::Linear, ColorMap::plasma())?;
+    let limit = (ye.iter().map(|v| v.abs()).fold(0., f64::max) / 10.).ceil() * 10.;
+    let panel = |rect: Rect, xlim: [f64; 2]| -> Result<Panel> {
+        let mut axes = Axes::new(
+            xlim,
+            [-limit, limit],
+            "Time (UTC)",
+            r"Radial velocity (m s$^{-1}$)",
+        );
+        axes.yticks = vec![-limit, -limit / 2., 0., limit / 2., limit];
+        axes.xticks = if xlim == [0., 24.] {
+            vec![0., 4., 8., 12., 16., 20., 24.]
+        } else {
+            vec![xlim[0], (xlim[0] + xlim[1]) / 2., xlim[1]]
+        };
+        axes.xticklabels = Some(
+            axes.xticks
+                .iter()
+                .map(|h| {
+                    let min = (h * 60.).round() as i32;
+                    format!("{:02}:{:02}", min / 60, min % 60)
+                })
+                .collect(),
+        );
+        let mut p = Panel::new(rect, axes);
+        p.push(Layer::Pcolormesh(Field::new(
+            xe.clone(),
+            ye.clone(),
+            pixels.clone(),
+            0,
+        )?));
+        Ok(p)
+    };
+    let mut f = figure(out, 112.);
+    f.scales.push(scale.clone());
+    f.labels.push(Label::new(
+        format!("PANSY {date}: full stored Doppler spectrum"),
+        98.,
+        5.,
+    ));
+    f.labels.push(Label::new(
+        "Zenith, 80--92 km; no velocity or SNR selection",
+        98.,
+        11.,
+    ));
+    f.panels
+        .push(panel(Rect::new(24., 20., 147., 62.), [0., 24.])?);
+    let mut bar = Colorbar::new(
+        Rect::new(24., 99., 147., 2.),
+        0,
+        "Peak total/noise (dB)",
+        vec![0., 5., 10., 15., 20., 25., 30.],
+    );
+    bar.horizontal = true;
+    f.colorbars.push(bar);
+    // Horizontal colorbar labels need a real lower margin at article font size.
+    f.height_mm = 119.;
+    save(&f, out, &format!("{date}-FULL-doppler-overview"))?;
+    let mut f = figure(out, 205.);
+    f.scales.push(scale);
+    f.labels.push(Label::new(
+        format!("Candidate intervals: full Doppler context, {date}"),
+        98.,
+        5.,
+    ));
+    for (k, name) in input.group("events")?.member_names()?.iter().enumerate() {
+        let g = input.group(&format!("events/{name}"))?;
+        let x0 = read::<f64>(&g, "start_hours")?[0];
+        let x1 = read::<f64>(&g, "stop_hours")?[0];
+        let rect = Rect::new(
+            24. + (k % 2) as f64 * 86.,
+            19. + (k / 2) as f64 * 56.,
+            64.,
+            37.,
+        );
+        f.panels.push(panel(rect, [x0, x1])?);
+        f.labels.push(Label::new(
+            format!("Candidate {name}"),
+            rect.x + rect.width / 2.,
+            rect.y - 4.,
+        ));
+    }
+    let mut bar = Colorbar::new(
+        Rect::new(25., 184., 148., 2.),
+        0,
+        "Peak total/noise (dB)",
+        vec![0., 5., 10., 15., 20., 25., 30.],
+    );
+    bar.horizontal = true;
+    f.colorbars.push(bar);
+    save(&f, out, &format!("{date}-candidate-FULL-doppler"))?;
+    println!(
+        "Rendered ALL {nf} Doppler bins for {} modes; min={:.3} max={:.3} m/s",
+        start.len(),
+        velocity[0],
+        velocity[nf - 1]
+    );
+    Ok(())
+}

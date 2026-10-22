@@ -95,7 +95,7 @@ fn main() -> Result<()> {
         let selected: Vec<_> = ranges
             .iter()
             .enumerate()
-            .filter_map(|(i, &r)| (r >= 80. && r <= 92.).then_some(i))
+            .filter_map(|(i, &r)| (80. ..=92.).contains(&r).then_some(i))
             .collect();
         ensure!(!selected.is_empty(), "80--92 km range interval absent");
         let nf = frequency.len();
