@@ -337,9 +337,27 @@ fn main() -> Result<()> {
                         .zip(&source_status)
                         .any(|(&day, &s)| day == n && s == 2)
                 {
-                    status[i] = 2;
+                    // Recover the readable part of a failed overview day in
+                    // this same one-core cgroup; retain explicit source errors.
+                    let reader = std::env::current_exe()?.with_file_name("pansy-spectra-overviews");
+                    let mut cmd = Command::new(reader);
+                    for root in &a.root {
+                        cmd.arg("--root").arg(root);
+                    }
+                    let result = cmd
+                        .arg("--day")
+                        .arg(d)
+                        .arg("--output")
+                        .arg(&a.input)
+                        .status();
+                    eprintln!("OVERVIEW_RECOVERY {d}: {result:?}");
+                    if !a.input.join(format!("{d}.full-doppler.h5")).exists() {
+                        status[i] = 2;
+                        continue;
+                    }
+                } else {
+                    continue;
                 }
-                continue;
             }
             match process(d, &a, &imager, &positions, &phases) {
                 Ok((t, n, e)) => {
