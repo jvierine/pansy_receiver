@@ -82,7 +82,7 @@ fn evaluate(
     r: f64,
     imager: &Capon,
     phases: &[f64; 7],
-) -> Result<pansy_legacy_capon::Peak> {
+) -> Result<Option<pansy_legacy_capon::Peak>> {
     let path = PathBuf::from(String::from_utf8(read(source, "source_file")?)?);
     ensure!(is_xc2(&path), "XC2 only: rejected non-XC2 source");
     let file = File::open(path)?;
@@ -144,7 +144,9 @@ fn evaluate(
         .iter()
         .map(|z| C::new(z.r as f64, z.i as f64))
         .collect();
-    imager.peak(covariance(&packed, &pairs, phases)?, 0.01)
+    Ok(covariance(&packed, &pairs, phases)
+        .and_then(|r| imager.peak(r, 0.01))
+        .ok())
 }
 fn process(
     date: &str,
@@ -192,7 +194,7 @@ fn process(
             "invalid extreme main peak"
         );
         match evaluate(&source, v[i], ranges[i], imager, phases) {
-            Ok(p) => {
+            Ok(Some(p)) => {
                 decision[i] = classify(p.theta_deg, p.boundary);
                 theta[i] = p.theta_deg;
                 u[i] = p.u;
@@ -200,18 +202,10 @@ fn process(
                 power[i] = p.power;
                 loading[i] = p.loading;
             }
+            Ok(None) => decision[i] = 3,
             Err(e) => {
-                // Distinguish invalid covariance from missing source/axis/IO failures.
-                let message = format!("{e:#}");
-                if message.contains("positive definite")
-                    || message.contains("covariance")
-                    || message.contains("Hermitian")
-                {
-                    decision[i] = 3;
-                } else {
-                    decision[i] = 5;
-                    errors.push(format!("mode {i}: {message}"));
-                }
+                decision[i] = 5;
+                errors.push(format!("mode {i}: {e:#}"));
             }
         }
     }
