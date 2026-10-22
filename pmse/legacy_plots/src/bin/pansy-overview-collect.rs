@@ -51,6 +51,8 @@ fn main() -> Result<()> {
             days.len() - pending
         );
         let mut plots = 0;
+        let mut new_raw = 0;
+        let mut raw_deferred = 0;
         let mut capon_pending = 0;
         if capon {
             pull_from("xc2_peak_capon_v1", "capon-index.h5", &out)?;
@@ -101,6 +103,12 @@ fn main() -> Result<()> {
             let date = format!("{:04}-{:02}-{:02}", n / 10000, (n / 100) % 100, n % 100);
             let data = format!("{date}.full-doppler.h5");
             let plot = format!("{date}-FULL-doppler-overview");
+            let needs_render = !out.join(format!("{plot}.png")).exists()
+                || !out.join(format!("{plot}.pdf")).exists();
+            if capon && needs_render && new_raw >= 2 {
+                raw_deferred += 1;
+                continue;
+            }
             if !out.join(&data).exists() {
                 pull(&data, &out)?;
                 ensure!(
@@ -111,6 +119,7 @@ fn main() -> Result<()> {
             if !out.join(format!("{plot}.png")).exists()
                 || !out.join(format!("{plot}.pdf")).exists()
             {
+                new_raw += 1;
                 ensure!(
                     Command::new(&renderer)
                         .arg(out.join(&data))
@@ -192,7 +201,7 @@ fn main() -> Result<()> {
             "PLOT_PROGRESS plots={plots} pending={pending} input_error_days={failed} total={}",
             days.len()
         );
-        if pending == 0 && capon_pending == 0 {
+        if pending == 0 && capon_pending == 0 && raw_deferred == 0 {
             break;
         }
         std::thread::sleep(Duration::from_secs(30));
