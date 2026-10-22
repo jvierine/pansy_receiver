@@ -30,6 +30,7 @@ fn main() -> Result<()> {
             .expect("usage: pansy-overview-collect OUTPUT_DIR"),
     );
     fs::create_dir_all(&out)?;
+    let publish = std::env::args().any(|v| v == "--publish");
     let renderer = std::env::current_exe()?.with_file_name("pansy-full-doppler");
     loop {
         pull("overview-index.h5", &out)?;
@@ -78,6 +79,43 @@ fn main() -> Result<()> {
         }
         fs::write(out.join("index.partial.html"), html)?;
         fs::rename(out.join("index.partial.html"), out.join("index.html"))?;
+        if publish {
+            ensure!(
+                Command::new("ssh")
+                    .args([
+                        "-o",
+                        "BatchMode=yes",
+                        "-o",
+                        "ConnectTimeout=30",
+                        "j@juha.no",
+                        "mkdir -p /mnt/shovel/share/pansy-zenith-main-peaks"
+                    ])
+                    .status()?
+                    .success(),
+                "creating plot destination failed"
+            );
+            ensure!(
+                Command::new("rsync")
+                    .args([
+                        "-rt",
+                        "--timeout=120",
+                        "--no-perms",
+                        "--no-owner",
+                        "--no-group",
+                        "--include=/index.html",
+                        "--include=/*-FULL-doppler-overview.png",
+                        "--include=/*-FULL-doppler-overview.pdf",
+                        "--exclude=*",
+                        "-e",
+                        "ssh -o BatchMode=yes -o ConnectTimeout=30"
+                    ])
+                    .arg(format!("{}/", out.display()))
+                    .arg("j@juha.no:/mnt/shovel/share/pansy-zenith-main-peaks/")
+                    .status()?
+                    .success(),
+                "publishing static plots failed"
+            );
+        }
         println!(
             "PLOT_PROGRESS plots={plots} pending={pending} input_error_days={failed} total={}",
             days.len()
