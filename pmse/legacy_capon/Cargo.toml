@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 
+[features]
+# Build on Revontuli without depending on the station's glibc/HDF5 versions.
+portable = ["hdf5/static", "hdf5/zlib"]
+
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
