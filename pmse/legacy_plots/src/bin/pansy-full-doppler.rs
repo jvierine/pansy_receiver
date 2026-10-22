@@ -38,6 +38,21 @@ fn main() -> Result<()> {
     let start = read::<f64>(&input, "mode_start_hours")?;
     let stop = read::<f64>(&input, "mode_stop_hours")?;
     let values = read::<f32>(&input, "peak_total_noise_db_mode_frequency")?;
+    let peak_flags = if input.link_exists("extreme_peak_flag") {
+        read::<u8>(&input, "extreme_peak_flag")?
+    } else {
+        vec![0; start.len()]
+    };
+    let peak_velocity = if input.link_exists("main_peak_velocity_mps") {
+        read::<f64>(&input, "main_peak_velocity_mps")?
+    } else {
+        vec![f64::NAN; start.len()]
+    };
+    ensure!(
+        peak_flags.len() == start.len() && peak_velocity.len() == start.len(),
+        "flag shape mismatch"
+    );
+    let flagged = peak_flags.iter().filter(|&&x| x != 0).count();
     ensure!(
         values.len() == start.len() * velocity.len(),
         "full native spectrum shape mismatch"
@@ -119,6 +134,26 @@ fn main() -> Result<()> {
             pixels.clone(),
             0,
         )?));
+        for m in 0..start.len() {
+            if peak_flags[m] != 0 {
+                let x = centers[m];
+                let y = peak_velocity[m];
+                let dx = (xlim[1] - xlim[0]) * 0.003;
+                let dy = limit * 0.015;
+                let mut marker = Line::new(
+                    vec![
+                        [x - dx, y - dy],
+                        [x + dx, y + dy],
+                        [f64::NAN, f64::NAN],
+                        [x - dx, y + dy],
+                        [x + dx, y - dy],
+                    ],
+                    "#00e6a8",
+                );
+                marker.width_pt = 1.3;
+                p.push(Layer::Line(marker));
+            }
+        }
         Ok(p)
     };
     let mut f = figure(out, 112.);
@@ -130,7 +165,11 @@ fn main() -> Result<()> {
         5.,
     ));
     f.labels.push(Label::new(
-        "Zenith, 80--92 km; one column per integration; all Dopplers",
+        if input.link_exists("extreme_peak_flag") {
+            format!("Zenith, 80--92 km; {flagged} flags: main peak within +/-90 has |v| >= 30 m/s")
+        } else {
+            "Zenith, 80--92 km; one column per integration; all Dopplers".to_string()
+        },
         98.,
         11.,
     ));
