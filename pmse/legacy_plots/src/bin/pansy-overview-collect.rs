@@ -42,7 +42,7 @@ fn main() -> Result<()> {
         let pending = status.iter().filter(|&&v| v == 0).count();
         let failed = status.iter().filter(|&&v| v == 2).count();
         let mut html = format!(
-            "<!doctype html><meta charset=utf-8><title>PANSY zenith main-peak flags</title><style>body{{font:17px system-ui;max-width:1200px;margin:2em auto;padding:0 1em;background:white;color:#172432}}img{{width:100%;height:auto}}article{{margin:2em 0}}a{{color:#075ba0}}</style><h1>PANSY zenith spectra</h1><p>Main peak within ±90 m/s; flagged when |v| ≥ 30 m/s. All stored Dopplers shown. Zenith, maximum total/noise over 80–92 km. No Capon or SNR selection. Flags are inspection markers, not validated winds.</p><p>{} dates; {} processed; {pending} pending; {failed} dates with errors.</p>",
+            "<!doctype html><meta charset=utf-8><title>PANSY zenith main-peak flags</title><style>body{{font:17px system-ui;max-width:1200px;margin:2em auto;padding:0 1em;background:white;color:#172432}}img{{width:100%;height:auto}}article{{margin:2em 0}}a{{color:#075ba0}}</style><h1>PANSY zenith spectra</h1><p>Main peak within ±90 m/s; flagged when |v| ≥ 30 m/s. All stored Dopplers shown. Zenith, maximum total/noise over 80–92 km.</p><p>{} dates; {} processed; {pending} pending; {failed} dates with errors.</p>",
             days.len(),
             days.len() - pending
         );
