@@ -1,0 +1,13 @@
+[Unit]
+Description=PANSY full-day zenith spectra and extreme main-peak flags
+
+[Service]
+Type=oneshot
+ExecStart=%h/src/git/pansy_legacy_capon/pmse/legacy_capon/target/release/pansy-spectra-overviews --root /media/archive/metadata/xc_rvd --root /media/analysis/metadata/xc2 --root /media/old_analysis/metadata/xc2 --output /media/analysis/metadata/zenith_peak_overviews_v1
+CPUQuota=100%
+Nice=19
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+MemoryMax=512M
+TimeoutStartSec=infinity
+UMask=0002
