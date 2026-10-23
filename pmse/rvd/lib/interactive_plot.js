@@ -77,7 +77,13 @@ class InteractiveFieldPlot {
     initialization ??= init();
     await initialization;
     const plot = new InteractiveFieldPlot(root, options);
-    await plot.requestFrame();
+    try {
+      await plot.requestFrame();
+    } catch (error) {
+      // A retry must not retain failed canvases, GPU resources or observers.
+      plot.dispose();
+      throw error;
+    }
     plot.observer.observe(root);
     return plot;
   }

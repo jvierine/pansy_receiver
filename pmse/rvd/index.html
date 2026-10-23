@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#082747">
   <title>PANSY PMSE Explorer</title>
-  <link rel="modulepreload" href="viewer.js?v=gpu-lifecycle-1">
+  <link rel="modulepreload" href="viewer.js?v=startup-retry-2">
   <link rel="modulepreload" href="imaging.js?v=gpu-lifecycle-1">
   <link rel="modulepreload" href="lib/interactive_plot.js?v=gpu-lifecycle-1">
   <link rel="modulepreload" href="pkg/releases/c70022f0996b1a74/rustplotlib_web.js">
@@ -117,7 +117,7 @@
       document.getElementById('error').textContent = `Plot startup failed: ${error?.message || error}. Please reload this page. If it persists, include this message when reporting the browser problem.`;
     };
     window.addEventListener('error', event => { if (event.error) showStartupError(event.error); });
-    import('./viewer.js?v=gpu-lifecycle-1').catch(showStartupError);
+    import('./viewer.js?v=startup-retry-2').catch(showStartupError);
   </script>
 </body>
 </html>

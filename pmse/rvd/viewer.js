@@ -3,7 +3,7 @@ import init from './pkg/releases/c70022f0996b1a74/rustplotlib_web.js';
 import {imageSelection,setEchoFilter} from './imaging.js?v=gpu-lifecycle-1';
 import {persistentEchoes} from './echo_filter.mjs?v=1';
 import {renderNoiseDiagnostics,renderArchiveDiagnostics} from './diagnostics.js?v=runtime-c70022f0';
-import {InteractiveFieldPlot} from './lib/interactive_plot.js?v=gpu-lifecycle-1';
+import {InteractiveFieldPlot} from './lib/interactive_plot.js?v=startup-retry-2';
 const $=id=>document.getElementById(id), names=['Zenith','North','East','South','West'];
 // Start data I/O while WebAssembly initializes.
 let initialResponse=fetch('./data/manifest.json',{cache:'no-cache'}).catch(error=>({error}));
@@ -239,5 +239,12 @@ try{
  $('day').onchange=()=>{chosenDay=$('day').value;revision='';$('downloadSpectra').setAttribute('aria-disabled','true');$('downloadSpectra').removeAttribute('href');if(playing){clearInterval(playing);playing=null;$('play').textContent='Play';}refresh().catch(failure);};
  $('play').onclick=()=>{if(playing){clearInterval(playing);playing=null;$('play').textContent='Play';}else{$('play').textContent='Pause';playing=setInterval(()=>{selected=(selected+1)%frames.length;$('frame').value=selected;renderRD();},500);}};
  window.addEventListener('resize',()=>{if(frames.length){renderRTI();renderRD();}});
- await refresh();setInterval(()=>refresh().catch(failure),60000);
+ // A failed first request must not prevent all future refreshes. Schedule after
+ // completion so slow requests cannot accumulate overlapping polling work.
+ async function pollObservations(){
+  let delay=60000;
+  try{await refresh();}catch(e){failure(e);delay=5000;}
+  finally{setTimeout(pollObservations,delay);}
+ }
+ await pollObservations();
 }catch(e){failure(e);}
