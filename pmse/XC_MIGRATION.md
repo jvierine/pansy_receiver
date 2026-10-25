@@ -5,11 +5,27 @@ Do not change `xc_metadata_dir` to point to sparse data: its schema, normalizati
 frequency resolution, and selection are different. The old readers must remain
 available for historical reproducibility.
 
+## Operational retirement (2026-10-25)
+
+At Juha's explicit request, `pansy-meso-xc.service` was stopped and disabled.
+Acquisition, TX-mode finding, mesomode boundaries, meteor processing, and the live
+compressed-spectra producer remain independent. Historical XC2 files are intact.
+The monitor now uses complete sparse-record stop times (including noise-only
+records), and plots retained zenith SNR metadata without reading voltage arrays.
+Its required-active service list uses `pansy-pmse-sparse.service`. The receiver
+installer keeps the retired XC unit available but requires an explicit
+`PANSY_ENABLE_LEGACY_XC=1` to re-enable it. Do not run the full installer to update
+the monitor; restart only the status service.
+
+This operational retirement is not a claim that every scientific calibration
+gate below has passed. In particular, preserve the historical noise/calibration
+inputs and the stated sparse-reconstruction limits.
+
 ## Consumer inventory (repository audit, 2026-10-19)
 
 | Consumer | Dependency and disposition |
 | --- | --- |
-| `status_plot.py` | Active monitor reads XC and reports FXC lag. Must be migrated before stopping XC. New PMSE panels render independently at `/rvd/`; meteor/raw/status monitoring must continue. |
+| `status_plot.py` | Live monitor migrated to compressed-spectra metadata and Spectra lag on 2026-10-25; historical `get_xc` reader retained but not called. New PMSE panels render independently at `/rvd/`; meteor/raw/status monitoring continues. |
 | `paper_plot_noise.py:read_xc2_day` | Legacy dense XC-based noise/peak-range figure. Retain for historical inputs. Never give it a sparse channel or reuse its XC power scale. |
 | `save_cut_noise_measurements.py`, `fit_cut_noise_pygdsm.py` | Adopted noise-fit workflow uses guarded raw meteor cutouts and HDF5 measurements, not XC. Unaffected. New `pmse.export_noise` produces compatible per-module measurement datasets from dense sparse-archive noise fields. |
 | `meso_cal.py` | Offline zenith calibration reads XC; leave historical implementation intact. `pmse.sparse_readers.cross_products` supplies all 28 equivalent pair products at retained cells with an explicit calibration sign. A sparse calibration selection/fit still needs real-data validation. |
@@ -64,5 +80,6 @@ Do not describe absent bins as zero or threshold-censored moments as unbiased.
    mesomode/TX services, or alter receiver acquisition. Keep the old service unit
    as a rollback path. Check unaffected services and fresh output after cutover.
 
-Until these gates pass, XC remains enabled. An audit or successful synthetic
-test alone is not permission to claim a completed operational replacement.
+These were the original automatic-cutover gates; the explicit operational
+retirement above supersedes the recommendation to leave XC enabled. An audit or
+successful synthetic test alone is not evidence of scientific equivalence.
