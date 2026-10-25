@@ -16,11 +16,21 @@ The service set includes:
 - `pansy-cluster-mf.service`: runs `cluster_mf.py`
 - `pansy-quick-search-meteor.service`: runs
   `mpirun -np 6 python3 quick_search_meteor.py`
-- `pansy-meso-xc.service`: runs `meso_xc.py`
+- `pansy-meso-xc.service`: retired XC2 producer; disabled by default. Historical
+  XC2 data and its readers remain available. An intentional installer rollback
+  requires `PANSY_ENABLE_LEGACY_XC=1`; routine installation must not re-enable it.
+  The live spectra producer is the separately managed `pansy-pmse-sparse.service`.
 - `pansy-tx-xphase.service`: runs `tx_xphase.py`
 - `pansy-cut-meteors.service`: runs `cut_meteors.py`
 - `pansy-process-cut-meteor.service`: runs
   `mpirun -np 2 python3 process_cut_meteor.py`
+
+The status monitor reads completed compressed-spectra metadata, including empty
+noise-only modes, instead of using XC2 for its live PMSE panel or processing lag.
+Its archive path can be overridden with `PANSY_PMSE_SPARSE_METADATA`. The panel
+shows only retained zenith detections (peak SNR in dB); blank cells are not zero
+power. It does not read complex-voltage arrays or change acquisition. Do not run
+the full installer just to update this panel: restart only the status service.
 
 Install or update on the receiver computer with:
 

@@ -26,11 +26,17 @@ UNITS=(
   pansy-mesomode-boundary.service
   pansy-cluster-mf.service
   pansy-quick-search-meteor.service
-  pansy-meso-xc.service
   pansy-tx-xphase.service
   pansy-cut-meteors.service
   pansy-process-cut-meteor.service
 )
+
+# XC2 is retired. Keep its unit as an explicit rollback option, but never
+# accidentally re-enable the producer during an ordinary receiver install.
+INSTALL_UNITS=("${UNITS[@]}" pansy-meso-xc.service)
+if [ "${PANSY_ENABLE_LEGACY_XC:-0}" = "1" ]; then
+  UNITS+=(pansy-meso-xc.service)
+fi
 
 mkdir -p "$CONFIG_DIR" "$SYSTEMD_DIR" "$REPO_DIR/logs"
 
@@ -47,7 +53,7 @@ else
   done < "$REPO_DIR/receiver/pansy-receiver.env"
 fi
 
-for unit in "${UNITS[@]}"; do
+for unit in "${INSTALL_UNITS[@]}"; do
   sed "s#__PANSY_RECEIVER_REPO__#$REPO_DIR#g" \
     "$REPO_DIR/receiver/systemd/$unit" > "$SYSTEMD_DIR/$unit"
 done
@@ -68,6 +74,9 @@ if command -v sudo >/dev/null 2>&1; then
 fi
 
 systemctl --user daemon-reload
+if [ "${PANSY_ENABLE_LEGACY_XC:-0}" != "1" ]; then
+  systemctl --user disable --now pansy-meso-xc.service
+fi
 
 # Stop existing services and any manually started legacy processes before
 # systemd takes ownership of the receiver and processing chain.

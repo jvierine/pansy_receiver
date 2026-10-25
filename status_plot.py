@@ -16,9 +16,12 @@ import plot_simple_fits as psf
 import process_cut_meteor as pcm
 import healpix_radiant as hpr
 import pansy_plot
+from pmse.status_monitor import read_sparse_status, plot_sparse_status
 
 STATUS_RSYNC_BWLIMIT = os.environ.get("PANSY_STATUS_RSYNC_BWLIMIT", "1")
+STATUS_DESTINATION = "j@4.235.86.214:/var/www/html/pansy/"
 OPS_STATUS_PATH = "ops_status.json"
+SPARSE_METADATA_PATH = os.environ.get("PANSY_PMSE_SPARSE_METADATA", "/media/analysis/metadata/pmse_sparse16")
 PANSY_SERVICE_NAMES = [
     "pansy-uhd-rx.service",
     "pansy-uhd-watchdog.service",
@@ -28,7 +31,7 @@ PANSY_SERVICE_NAMES = [
     "pansy-mesomode-boundary.service",
     "pansy-cluster-mf.service",
     "pansy-quick-search-meteor.service",
-    "pansy-meso-xc.service",
+    "pansy-pmse-sparse.service",
     "pansy-tx-xphase.service",
     "pansy-cut-meteors.service",
     "pansy-process-cut-meteor.service",
@@ -271,6 +274,13 @@ def get_xc(fig,ax,dt=24*3600*1000000):
 def plot_status():
     #hpr.plot_last_48()
     write_ops_status()
+    # Publish the small service report before the slow, bandwidth-limited plots.
+    # A failed image transfer must not leave the retired XC2 status on the page.
+    try:
+        subprocess.run(["rsync", "-az", "--bwlimit", STATUS_RSYNC_BWLIMIT,
+                        OPS_STATUS_PATH, STATUS_DESTINATION], check=True, timeout=120)
+    except (OSError, subprocess.SubprocessError) as exc:
+        print("status_plot: service status publication delayed: %s" % exc)
     try:
         psf.plot_latest_fits(save_png=True)
     except Exception as exc:
@@ -285,7 +295,11 @@ def plot_status():
     d2,detb=metadata_bounds(pc.detections_metadata_dir, "detections")
     d3,cutb=metadata_bounds(pc.cut_metadata_dir, "cut")
     d4,modeb=metadata_bounds(pc.mesomode_metadata_dir, "mesomode")
-    d5,xcb=metadata_bounds(pc.xc_metadata_dir, "xc")
+    try:
+        sparse_bounds, sparse_records = read_sparse_status(SPARSE_METADATA_PATH)
+    except Exception as exc:
+        print("status_plot: compressed spectra unavailable: %s" % exc)
+        sparse_bounds, sparse_records = [-1, -1], []
     d6,fitb=metadata_bounds(pc.simple_fit_metadata_dir, "simple_fit")
     dr,b=raw_bounds(pc.raw_voltage_dir, "ch000")
     #dgps=drf.DigitalMetadataReader(pc.gpslock_metadata_dir)
@@ -304,7 +318,7 @@ def plot_status():
     latest_det=latest_label(detb)
     latest_cut=latest_label(cutb)
     latest_mode=latest_label(modeb)
-    latest_xc=latest_label(xcb)
+    latest_sparse=latest_label(sparse_bounds)
     latest_fit=latest_label(fitb)
     latest_raw=latest_label(b)
 
@@ -340,13 +354,13 @@ def plot_status():
     print("latest cut %s (%1.0f s behind)"%(latest_cut,cut_delay))
     mode_delay=(tnow-modeb[1])/1e6 if modeb[1] != -1 else n.nan
     print("latest mode %s (%1.0f s behind)"%(latest_mode,mode_delay))
-    xc_delay=(tnow-xcb[1])/1e6 if xcb[1] != -1 else n.nan
-    print("latest xc %s (%1.0f s behind)"%(latest_xc,xc_delay))
+    sparse_delay=(tnow-sparse_bounds[1])/1e6 if sparse_bounds[1] != -1 else n.nan
+    print("latest compressed spectra %s (%1.0f s behind)"%(latest_sparse,sparse_delay))
     fit_delay=(tnow-fitb[1])/1e6 if fitb[1] != -1 else n.nan
     print("latest fit %s (%1.0f s behind)"%(latest_fit,fit_delay))
 #    print("gpslock %s (%1.0f s holdover)"%(stuffr.unix2datestr(holdovert/1e6),holdover))
 
-    labels=["Raw (s)","TX det","MF","Events","Cutting","Modes","FXC","fit"]
+    labels=["Raw (s)","TX det","MF","Events","Cutting","Modes","Spectra","fit"]
     delays=n.array([
         delay_hours(tnow,b,scale=3600.0),
         delay_hours(tnow,txb),
@@ -354,16 +368,17 @@ def plot_status():
         delay_hours(tnow,detb),
         delay_hours(tnow,cutb),
         delay_hours(tnow,modeb),
-        delay_hours(tnow,xcb),
+        delay_hours(tnow,sparse_bounds),
         delay_hours(tnow,fitb),
     ])
 
     fig,(ax0,ax1)=plt.subplots(2,1,sharex=True,figsize=(8,8))
     try:
-        get_xc(fig,ax0)
+        if sparse_bounds[1] == -1:
+            raise ValueError("No complete compressed-spectra records available")
+        plot_sparse_status(fig,ax0,sparse_records,time.time())
     except Exception as exc:
         plot_unavailable(ax0, "Latest PMSE", exc)
-    ax0.set_title(stuffr.unix2datestr(time.time()))
     try:
         get_meteors(fig,ax1)
     except Exception as exc:
@@ -385,7 +400,7 @@ def plot_status():
         pansy_plot.plot_raw(show_plot=False,fname="/tmp/raw.png")
     except Exception as exc:
         print("status_plot: raw plot unavailable: %s"%(exc))
-    os.system("rsync -avz --bwlimit %s /tmp/fit_data.h5 /tmp/raw.png /tmp/latest_meteor.png /tmp/latest_radiants.png /tmp/latest_hist.png status.png processing.png %s j@4.235.86.214:/var/www/html/pansy/"%(STATUS_RSYNC_BWLIMIT, OPS_STATUS_PATH))
+    os.system("rsync -avz --bwlimit %s /tmp/fit_data.h5 /tmp/raw.png /tmp/latest_meteor.png /tmp/latest_radiants.png /tmp/latest_hist.png status.png processing.png %s"%(STATUS_RSYNC_BWLIMIT, STATUS_DESTINATION))
 
 
 if __name__ == "__main__":
