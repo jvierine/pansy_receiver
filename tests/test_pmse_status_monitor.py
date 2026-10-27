@@ -86,7 +86,39 @@ class SparseStatusTests(unittest.TestCase):
                                key / 1e6 + 100)
             self.assertEqual(len(ax.collections), 0)
             self.assertIn("No retained", ax.texts[0].get_text())
+            np.testing.assert_allclose(ax.get_facecolor(), matplotlib.colormaps["viridis"](0.0))
             fig.canvas.draw()
+        finally:
+            plt.close(fig)
+
+    def test_nan_gap_and_zero_have_identical_rendered_colors(self):
+        key = 1792920000000000
+        row = self.row(key + 80_000_000,
+                       index=((0, 1, 0), (0, 1, 1), (0, 1, 2)), snr=(0., 5., np.nan))
+        fig, ax = plt.subplots()
+        try:
+            plot_sparse_status(fig, ax, [(key, key + 80_000_000, row)], key / 1e6 + 100)
+            ax.set_ylim(79.5, 82.5)
+            collection = ax.collections[0]
+            zero = collection.to_rgba(0.)
+            np.testing.assert_array_equal(collection.to_rgba(np.nan), zero)
+            np.testing.assert_array_equal(ax.get_facecolor(), zero)
+            np.testing.assert_array_equal(collection.to_rgba(5.),
+                                          matplotlib.colormaps["viridis"](collection.norm(5.)))
+            # Rendering, not just colormap settings: zero, a missing range bin,
+            # and an unobserved time gap must have identical opaque pixels.
+            fig.canvas.draw()
+            pixels = np.asarray(fig.canvas.buffer_rgba())
+            import matplotlib.dates as dates
+            from datetime import datetime, timezone
+            def pixel(offset, altitude):
+                date = dates.date2num(datetime.fromtimestamp(key / 1e6 + offset, timezone.utc))
+                x, y = ax.transData.transform((date, altitude))
+                return pixels[pixels.shape[0] - 1 - int(y), int(x)]
+            np.testing.assert_array_equal(pixel(40, 80), pixel(40, 82))
+            np.testing.assert_array_equal(pixel(40, 80), pixel(90, 80))
+            self.assertFalse(np.array_equal(pixel(40, 80), pixel(40, 81)))
+            np.testing.assert_array_equal(row["detector_snr_db"], [0., 5., np.nan])
         finally:
             plt.close(fig)
 

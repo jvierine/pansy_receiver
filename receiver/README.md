@@ -29,7 +29,9 @@ The status monitor reads completed compressed-spectra metadata, including empty
 noise-only modes, instead of using XC2 for its live PMSE panel or processing lag.
 Its archive path can be overridden with `PANSY_PMSE_SPARSE_METADATA`. The panel
 shows only retained zenith detections (peak SNR in dB); blank cells are not zero
-power. It does not read complex-voltage arrays or change acquisition. Do not run
+power. Missing cells and NaNs use the colorbar's zero-level color for display
+only; no zero-valued measurements are inserted. It does not read complex-voltage
+arrays or change acquisition. Do not run
 the full installer just to update this panel: restart only the status service.
 
 Install or update on the receiver computer with:

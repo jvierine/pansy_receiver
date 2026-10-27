@@ -1,7 +1,8 @@
 """Lightweight sparse-archive monitoring, without reading complex spectra.
 
-Missing cells are not zero power. Only retained zenith detections are drawn;
-complete noise-only records still advance the processing frontier.
+Missing cells are not zero power, but use the zero-level display color. Only
+retained zenith detections are drawn; complete noise-only records still advance
+the processing frontier.
 """
 from datetime import datetime, timezone
 from pathlib import Path
@@ -78,8 +79,15 @@ def zenith_cells(row):
 
 
 def plot_sparse_status(fig, ax, records, now_seconds):
+    from matplotlib import colormaps
     import matplotlib.dates as dates
     from matplotlib.collections import PolyCollection
+
+    # Sparse gaps have no polygons. Match their background and explicit NaNs to
+    # the zero-level color without inserting fabricated zero-valued samples.
+    cmap = colormaps["viridis"].copy()
+    cmap.set_bad(cmap(0.0))
+    ax.set_facecolor(cmap(0.0))
 
     def date_number(sample):
         return dates.date2num(datetime.fromtimestamp(sample / 1e6, timezone.utc))
@@ -96,7 +104,7 @@ def plot_sparse_status(fig, ax, records, now_seconds):
                         for y0, y1 in zip(low, high))
         colors.extend(peak)
     if polygons:
-        collection = PolyCollection(polygons, array=np.asarray(colors), cmap="viridis",
+        collection = PolyCollection(polygons, array=np.asarray(colors), cmap=cmap,
                                     edgecolors="none")
         collection.set_clim(0, max(10, float(np.max(colors))))
         ax.add_collection(collection)
@@ -104,7 +112,7 @@ def plot_sparse_status(fig, ax, records, now_seconds):
         fig.colorbar(collection, ax=ax, label="Peak retained SNR (dB)")
     else:
         ax.text(0.5, 0.5, "No retained zenith detections in the last 24 hours",
-                ha="center", va="center", transform=ax.transAxes)
+                ha="center", va="center", color="white", transform=ax.transAxes)
     ax.set_xlim(date_number(start), date_number(end))
     ax.xaxis_date(tz=timezone.utc)
     ax.set_xlabel("Date (UTC)")
