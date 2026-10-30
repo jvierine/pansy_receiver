@@ -59,8 +59,8 @@ class ReceiverMonitorTests(unittest.TestCase):
         for legacy in ['status.png','latest_hist.png','latest_radiants.png','latest_meteor.png','raw.png','processing.png']:
             self.assertNotIn(legacy,html)
         source=(root/'web/monitor.js').read_text()
-        self.assertIn("from '/rvd/lib/interactive_plot.js",source)
-        self.assertIn("from '/rvd/lib/interactive_series.js",source)
+        self.assertIn("from './lib/interactive_series.js",source)
+        self.assertNotIn('/rvd/api/frame',source)
         self.assertIn("'/rvd/data/manifest.json'",source)
         self.assertIn("'/rvd/data/sky-noise/status.json'",source)
         self.assertNotIn('48 hours',html)

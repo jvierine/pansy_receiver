@@ -18,6 +18,7 @@ from .serve_browser import day_packet
 from .archive_inventory import inventory
 from .web_retention import sha256
 from .archive_plot import attach_archive_plot
+from .monitor_overview import overview
 
 
 class MetadataCache:
@@ -116,6 +117,7 @@ def publish(root, output, cache):
         if day==days[-1] and packet['frame_count']:
             # One compressed static fetch contains everything for the first plots.
             atomic_json(manifest_path,packet)
+            atomic_json(output/'monitor-overview.json',overview(packet))
             print(f'GUI ready: {day}, {packet["frame_count"]} modes',flush=True)
     # Inventory reads dimensions and counts only; its per-file cache skips
     # unchanged chunks. It never loads the complex-valued spectra dataset.
