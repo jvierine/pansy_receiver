@@ -150,14 +150,30 @@ def publish(metadata, raw, output, destination=None):
     output = Path(output)
     ops = output / "ops_status.json"
     atomic_json(ops, operations())
+    def transfer(path):
+        subprocess.run(["rsync", "-az", "--timeout=120", "--bwlimit",
+                        os.environ.get("PANSY_STATUS_RSYNC_BWLIMIT", "1"), str(path), destination],
+                       check=True, timeout=600)
+    if destination:
+        transfer(ops)
     data = output / "monitor-data.json"
-    atomic_json(data, packet(metadata, raw))
+    telemetry = packet(metadata, raw)
+    atomic_json(data, telemetry)
+    # Preserve the legacy publisher's operational clock-offset measurement.
+    # This is telemetry only, not a write to science/acquisition products.
+    if telemetry.get("raw") is not None:
+        try:
+            from digital_rf import DigitalMetadataWriter
+            clock = Path(metadata) / "clock"
+            clock.mkdir(parents=True, exist_ok=True)
+            writer = DigitalMetadataWriter(str(clock), 3600, 60, 1_000_000, 1, "clock")
+            now = telemetry["generated_unix_s"]
+            writer.write(int(now * 1e6), dict(pc_tnow=now, raw_b1=telemetry["freshness"]["Raw"]))
+        except Exception as exc:
+            print("Clock telemetry delayed:", exc, flush=True)
     if destination:
         # Small service status first; keep the established satellite-link cap.
-        for path in (ops, data):
-            subprocess.run(["rsync", "-az", "--timeout=120", "--bwlimit",
-                            os.environ.get("PANSY_STATUS_RSYNC_BWLIMIT", "1"), str(path), destination],
-                           check=True, timeout=600)
+        transfer(data)
     print("Numeric receiver telemetry published", data.stat().st_size, "bytes", flush=True)
 
 
