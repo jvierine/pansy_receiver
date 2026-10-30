@@ -37,7 +37,7 @@ async function refreshNoise(){
 }
 async function refreshRTI(){
  try{
-  if(!rti){const cached=snapshot('overview');if(cached){await draw('rti',rtiChart(cached));rti=plots.get('rti');message('pmseStatus',`${cached.selected_day} · source spectra through ${utc(cached.latest_mode_us/1e6)} · checking for updates…`);}}
+  if(!rti){const cached=snapshot('overview');if(cached){try{await draw('rti',rtiChart(cached));rti=plots.get('rti');message('pmseStatus',`${cached.selected_day} · source spectra through ${utc(cached.latest_mode_us/1e6)} · checking for updates…`);}catch{/* Retry from the live feed if a cached packet is unusable. */}}}
   let latest;
   try{latest=await json('/rvd/data/monitor-overview.json');}catch{latest=await json('/rvd/data/manifest.json');}
   const days=latest.available_days||[];
@@ -77,9 +77,9 @@ async function renderTelemetry(data,checking=false){
 async function refreshTelemetry(){
  const incoming=json('./monitor-data.json').then(data=>({data})).catch(error=>({error}));
  try{
-  if(!telemetry){const cached=snapshot('telemetry');if(cached)await renderTelemetry(cached,true);}
+  if(!telemetry){const cached=snapshot('telemetry');if(cached){try{await renderTelemetry(cached,true);}catch{/* Do not let an invalid cache block fresh observations. */}}}
   const {data,error}=await incoming;if(error)throw error;
-  saveSnapshot('telemetry',data);await renderTelemetry(data);
+  await renderTelemetry(data);saveSnapshot('telemetry',data);
  }catch(error){message('freshness',`Telemetry refresh delayed: ${error.message}. Last successful data are retained.`);$('freshness').classList.add('stale');}
 }
 async function refreshOperations(){

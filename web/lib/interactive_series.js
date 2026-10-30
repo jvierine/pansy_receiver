@@ -83,7 +83,10 @@ class InteractiveSeriesPlot {
   pending = 0;
   specJSON;
   static async mount(root, spec, options = {}) {
-    ready ??= init();
+    ready ??= init().catch((error) => {
+      ready = void 0;
+      throw error;
+    });
     await ready;
     return new InteractiveSeriesPlot(root, spec, options.height || 300, options.compact);
   }

@@ -13,14 +13,20 @@ for file in monitor.js monitor_data.mjs monitor.css; do
   mv "$web_dir/$file.partial" "$web_dir/$file"
 done
 mkdir -p "$web_dir/lib" "$web_dir/pkg"
-install -m 0644 "$repo_dir/web/lib/interactive_series.js" "$web_dir/lib/interactive_series.js"
+if ! cmp -s "$repo_dir/web/lib/interactive_series.js" "$web_dir/lib/interactive_series.js"; then
+  install -m 0644 "$repo_dir/web/lib/interactive_series.js" "$web_dir/lib/interactive_series.js.partial"
+  mv "$web_dir/lib/interactive_series.js.partial" "$web_dir/lib/interactive_series.js"
+fi
 for file in rustplotlib_web.js rustplotlib_web_bg.wasm; do
-  install -m 0644 "$repo_dir/web/pkg/$file" "$web_dir/pkg/$file"
+  if ! cmp -s "$repo_dir/web/pkg/$file" "$web_dir/pkg/$file"; then
+    install -m 0644 "$repo_dir/web/pkg/$file" "$web_dir/pkg/$file.partial"
+    mv "$web_dir/pkg/$file.partial" "$web_dir/pkg/$file"
+  fi
 done
 install -m 0644 "$repo_dir/web/index.html" "$web_dir/index.html.partial"
 mv "$web_dir/index.html.partial" "$web_dir/index.html"
 echo "Installed static Rustplotlib monitor; previous HTML retained as a timestamped backup."
-if command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
+if command -v sudo >/dev/null && sudo -n true 2>/dev/null && ! cmp -s "$repo_dir/web/pansy-monitor-compression.conf" /etc/apache2/conf-enabled/pansy-monitor-compression.conf; then
   sudo install -m 0644 "$repo_dir/web/pansy-monitor-compression.conf" /etc/apache2/conf-available/pansy-monitor-compression.conf
   sudo a2enconf pansy-monitor-compression
   sudo apache2ctl configtest
