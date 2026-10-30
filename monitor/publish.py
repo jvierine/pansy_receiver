@@ -119,6 +119,23 @@ def packet(metadata, raw, now=None, reader_factory=None):
                 seconds=finite((row["txidx"] - row["txidx"][0]) / 1e6, 7),
                 east_km=finite(row["ew"]), north_km=finite(row["ns"]), up_km=finite(row["up"]),
                 snr_db=finite(10 * np.log10(np.maximum(row["snr"], np.finfo(float).tiny))))
+        # Read saved fit parameters/residuals, without recomputing the fit.
+        for key,row in metadata_rows(metadata/'simple_meteor_fit',latest/1e6,latest/1e6,
+                                     ('r0','v0','std','mfs')):
+            if 'meteor' in output:
+                output['meteor'].update(r0_km=finite(row['r0']),v0_km_s=finite(row['v0']),
+                                         residual_std_km=finite(row['std']),match_function=finite(row['mfs']/21))
+        event=Path.home()/'.local/state/pansy-monitor/latest-event.h5'
+        if event.exists() and 'meteor' in output:
+            try:
+                with h5py.File(event,'r') as h:
+                    if int(h['key'][()])==latest:
+                        output['meteor']['range_time']=dict(
+                            seconds=finite(h['time_unix_s'][()]-latest/1e6,7),
+                            range_km=finite(h['range_km'][()]),
+                            snr_db=finite(10*np.log10(np.maximum(h['power_snr'][()],np.finfo(float).tiny)),2))
+                        output['meteor']['doppler_km_s']=finite(h['doppler_mps'][()]/1000)
+            except OSError as exc:output['errors']['meteor_diagnostics']=str(exc)
     previous_bucket = None
     for key, row in metadata_rows(metadata / "phase", now - 24 * 3600, now, ("xphase",)):
         bucket = key // 600_000_000

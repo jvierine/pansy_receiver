@@ -345,6 +345,15 @@ def process_cut(data,
             print("%d %s %1.2f km %1.2f km/s %1.2f %1.2f %1.2f"%(rank,stuffr.unix2datestr(txidxs[0]/1e6),
                                                                  n.linalg.norm(r0),n.linalg.norm(v0),eres*1e3,nres*1e3,ures*1e3))
             if write_dm:
+                # Export the existing arrays for one current browser diagnostic.
+                # This is bounded, overwritten telemetry, not science metadata.
+                try:
+                    from monitor.event import save_event
+                    lo=int(n.min(delays));hi=int(n.max(delays)+rds.n_rg)
+                    save_event(int(txidxs[0]),tx_idx/1e6,n.arange(lo,hi)*0.15,
+                               RTI[:,lo:hi].T,peak_dops)
+                except Exception as exc:
+                    print("Current meteor telemetry unavailable:",exc)
                 try:
                     write_simple_fit_metadata(dmw, txidxs[0], dout)
                 except Exception as exc:
