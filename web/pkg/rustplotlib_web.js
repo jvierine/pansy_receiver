@@ -585,6 +585,9 @@ function __wbg_get_imports() {
         __wbg_clip_275e70d2dc182fec: function(arg0) {
             arg0.clip();
         },
+        __wbg_closePath_355eb6da179dd9c2: function(arg0) {
+            arg0.closePath();
+        },
         __wbg_compileShader_c2b53ff3a8851f60: function(arg0, arg1) {
             arg0.compileShader(arg1);
         },

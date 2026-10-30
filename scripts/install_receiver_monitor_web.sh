@@ -12,15 +12,16 @@ for file in monitor.js monitor_data.mjs monitor.css; do
   install -m 0644 "$repo_dir/web/$file" "$web_dir/$file.partial"
   mv "$web_dir/$file.partial" "$web_dir/$file"
 done
-mkdir -p "$web_dir/lib" "$web_dir/pkg"
+runtime_release=1301344d0a86620e
+mkdir -p "$web_dir/lib" "$web_dir/pkg/releases/$runtime_release"
 if ! cmp -s "$repo_dir/web/lib/interactive_series.js" "$web_dir/lib/interactive_series.js"; then
   install -m 0644 "$repo_dir/web/lib/interactive_series.js" "$web_dir/lib/interactive_series.js.partial"
   mv "$web_dir/lib/interactive_series.js.partial" "$web_dir/lib/interactive_series.js"
 fi
 for file in rustplotlib_web.js rustplotlib_web_bg.wasm; do
-  if ! cmp -s "$repo_dir/web/pkg/$file" "$web_dir/pkg/$file"; then
-    install -m 0644 "$repo_dir/web/pkg/$file" "$web_dir/pkg/$file.partial"
-    mv "$web_dir/pkg/$file.partial" "$web_dir/pkg/$file"
+  if ! cmp -s "$repo_dir/web/pkg/releases/$runtime_release/$file" "$web_dir/pkg/releases/$runtime_release/$file"; then
+    install -m 0644 "$repo_dir/web/pkg/releases/$runtime_release/$file" "$web_dir/pkg/releases/$runtime_release/$file.partial"
+    mv "$web_dir/pkg/releases/$runtime_release/$file.partial" "$web_dir/pkg/releases/$runtime_release/$file"
   fi
 done
 install -m 0644 "$repo_dir/web/index.html" "$web_dir/index.html.partial"

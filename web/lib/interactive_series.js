@@ -1,4 +1,4 @@
-import init, { SeriesView, PlotViewport } from "../pkg/rustplotlib_web.js";
+import init, { SeriesView, PlotViewport } from "../pkg/releases/1301344d0a86620e/rustplotlib_web.js";
 let ready;
 class InteractiveSeriesPlot {
   constructor(root, spec, height, compact = false) {

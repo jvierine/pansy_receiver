@@ -1,9 +1,12 @@
 # Browser plotting runtime
 
-Generated from `jvierine/rustplotlib` commit `4a1d509` on branch
+Generated from `jvierine/rustplotlib` commit `d50c095` on branch
 `codex/monitor-map-latency`, including the native Mollweide/HEALPix density,
 categorical bar and rectilinear field features.
 The interaction wrapper includes initialization retry from commit `51c0e7b`.
+Runtime release `1301344d0a86620e` is the SHA-256 prefix of the concatenated
+generated JavaScript and WASM. Only content-addressed releases use immutable
+HTTP caching; HTML, wrappers and telemetry are revalidated.
 
 Build locally with the rustup-managed Rust toolchain:
 
