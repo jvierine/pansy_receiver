@@ -3,10 +3,10 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PANSY Receiver Monitor</title>
 <link rel="icon" href="favicon.svg"><link rel="stylesheet" href="assets/monitor.b73f8a06bfd08e8d.css">
-<link rel="modulepreload" href="assets/monitor.5b16aca25103aa72.js">
-<link rel="modulepreload" href="pkg/releases/ca8e45af62e5fd59/rustplotlib_web.js">
-<link rel="preload" href="pkg/releases/ca8e45af62e5fd59/rustplotlib_web_bg.wasm" as="fetch" type="application/wasm" crossorigin>
-<script type="module" src="assets/monitor.5b16aca25103aa72.js"></script>
+<link rel="modulepreload" href="assets/monitor.0ef2423f8331a548.js">
+<link rel="modulepreload" href="pkg/releases/bd9a933aa64c942c/rustplotlib_web.js">
+<link rel="preload" href="pkg/releases/bd9a933aa64c942c/rustplotlib_web_bg.wasm" as="fetch" type="application/wasm" crossorigin>
+<script type="module" src="assets/monitor.0ef2423f8331a548.js"></script>
 </head><body>
 <header><div><h1>PANSY Receiver Monitor</h1><p>Syowa, Antarctica · <span id="utc">UTC</span></p></div>
 <nav><a href="/rvd/">PMSE Explorer ↗</a><a href="#operations">Operations</a><button id="refresh" type="button">Refresh</button></nav>
@@ -17,7 +17,7 @@
 <section class="card"><div class="heading"><h2>PMSE · zenith</h2><label>UTC day <select id="day" aria-label="PMSE UTC day"></select></label></div>
 <p id="pmseStatus" class="caption">Loading mode summaries…</p><div id="rti" class="plot"></div><p class="caption">Peak retained SNR · 50–120 km. Missing or unretained cells use the zero-level color. <a href="/rvd/">All five beams and radar imaging ↗</a></p></section>
 <section class="card"><h2>Processing latency</h2><div id="processing" class="plot"></div><p class="caption">Stage lag at source report time: green &lt;10 min (raw &lt;30 s), red above. Delivery age is shown above. Event-driven stages can age during quiet periods; service health is reported separately below.</p></section>
-<section class="card"><h2>Latest 24 hours · fitted radiants</h2><div id="radiant" class="plot"></div><p class="caption">Mollweide equal-area map · HEALPix NSIDE 32 · apex (270°) at center.</p></section>
+<section class="card"><h2>Latest 24 hours · fitted radiants</h2><div id="radiant" class="plot"></div><p class="caption">Hammer equal-area map · logarithmic count density · apex (270°) at center.</p></section>
 <section class="card"><h2>Latest 24 hours · fitted meteor counts</h2><div id="counts" class="plot"></div></section>
 <section class="card full"><div class="heading"><h2>Latest fitted meteor · event diagnostics</h2><span id="meteorStatus" class="caption"></span></div>
 <div id="meteor" class="event-grid">

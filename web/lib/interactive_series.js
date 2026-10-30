@@ -1,4 +1,4 @@
-import init, { SeriesView, PlotViewport } from "../pkg/releases/ca8e45af62e5fd59/rustplotlib_web.js";
+import init, { SeriesView, PlotViewport } from "../pkg/releases/bd9a933aa64c942c/rustplotlib_web.js";
 let ready;
 class InteractiveSeriesPlot {
   constructor(root, spec, height, compact = false) {
@@ -121,9 +121,10 @@ class InteractiveSeriesPlot {
       label.textContent = name + " ";
       input.type = "range";
       input.setAttribute("aria-label", name);
-      input.min = String(Math.min(0, limits[0] * 2));
-      input.max = String(Math.max(30, limits[1] * 2));
-      input.step = "0.1";
+      const logarithmic = this.spec.sky?.paper_style;
+      input.min = String(logarithmic ? limits[0] / 10 : Math.min(0, limits[0] * 2));
+      input.max = String(logarithmic ? limits[1] * 2 : Math.max(30, limits[1] * 2));
+      input.step = logarithmic ? String(limits[0] / 10) : "0.1";
       input.value = String(limits[i]);
       output.value = String(limits[i]);
       input.style.display = "block";

@@ -31,7 +31,7 @@ export function fitCharts(packet){
  const speed=chart([{color:colors[0],line:false,radius:1.4,
   points:fits.map(r=>[(r[0]-origin)/3600,r[1]])}],'Time (UTC)','Meteor speed (km/s)',{origin,...!fits.length?{bounds:[0,0,24,80]}:{}});
  const radiant={...chart([], 'Solar-centered ecliptic longitude (deg)','Ecliptic latitude (deg)',{bounds:[-180,-90,180,90]}),
-  sky:{lonlat:fits.filter(r=>Number.isFinite(r[3])&&Number.isFinite(r[4])).map(r=>[r[3],r[4]]),nside:32,central_longitude:270,west_positive:true}};
+  sky:{lonlat:fits.filter(r=>Number.isFinite(r[3])&&Number.isFinite(r[4])).map(r=>[r[3],r[4]]),nside:32,central_longitude:270,west_positive:true,paper_style:true}};
  return {counts,speed,radiant};
 }
 export function phaseChart(packet){
