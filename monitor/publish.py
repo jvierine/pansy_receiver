@@ -132,6 +132,7 @@ def packet(metadata, raw, now=None, reader_factory=None):
             reader_factory = DigitalRFReader
         reader = reader_factory(str(raw))
         bounds = reader.get_bounds("ch000")
+        raw_read_time = time.time()
         output["freshness"]["Raw"] = bounds[1] / 1e6
         # Display-only stride, no averaging or acquisition/normalization changes.
         begin = bounds[1] - 1_000_000
@@ -139,7 +140,7 @@ def packet(metadata, raw, now=None, reader_factory=None):
         for channel in range(8):
             voltage = reader.read_vector_1d(begin, 3200, "ch%03d" % channel)[::8]
             channels.append(dict(real=finite(voltage.real, 2), imag=finite(voltage.imag, 2)))
-        output["raw"] = dict(start_unix_s=begin / 1e6, sample_step_us=8, channels=channels,
+        output["raw"] = dict(start_unix_s=begin / 1e6, read_unix_s=raw_read_time, sample_step_us=8, channels=channels,
                              units="raw ADC units; display stride 8, no receiver equalization")
     except Exception as exc:
         output["errors"]["raw"] = str(exc)
@@ -167,7 +168,7 @@ def publish(metadata, raw, output, destination=None):
             clock = Path(metadata) / "clock"
             clock.mkdir(parents=True, exist_ok=True)
             writer = DigitalMetadataWriter(str(clock), 3600, 60, 1_000_000, 1, "clock")
-            now = telemetry["generated_unix_s"]
+            now = telemetry["raw"]["read_unix_s"]
             writer.write(int(now * 1e6), dict(pc_tnow=now, raw_b1=telemetry["freshness"]["Raw"]))
         except Exception as exc:
             print("Clock telemetry delayed:", exc, flush=True)
