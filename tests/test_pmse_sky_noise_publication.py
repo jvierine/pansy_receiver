@@ -10,6 +10,7 @@ import h5py
 import numpy as np
 
 from pmse.publish_sky_noise import fit_specification,publish
+from pmse.sky_noise import update as update_fit
 
 
 class SkyNoisePublicationTests(unittest.TestCase):
@@ -65,6 +66,29 @@ class SkyNoisePublicationTests(unittest.TestCase):
             path=Path(temp)/'fit.h5';self.fit_file(path)
             with h5py.File(path,'a') as h:h['noise_power'][0,0,0]=0
             with self.assertRaises(ValueError):fit_specification(path)
+
+    def test_zenith_fits_use_only_beam_zero_and_keep_existing_rvd_fits(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);hour=root/'2026-10-30T12-00-00';hour.mkdir()
+            with h5py.File(hour/'pmse@1793361600.h5','w') as h:
+                g=h.create_group('1793361600000000')
+                power=np.arange(1,8)[:,None,None]*np.ones((7,5,3))
+                power[:,1:]*=1000
+                for name,value in dict(complete=1,mode_start_sample=1793361600000000,
+                    mode_stop_sample_exclusive=1793361680000000,noise_power=power,
+                    noise_power_standard_error=power*.1,altitude_valid=np.ones((5,3),bool)).items():g[name]=value
+            sky=np.array([[10000.,20000.,30000.,40000.,50000.]])
+            with patch('pmse.sky_noise.time.time',return_value=1793361700.),patch(
+                'pmse.sky_noise.interpolate_cache',return_value=sky),patch('pmse.sky_noise.fit_module',
+                return_value=dict(status='test',receiver_temp_k=300,power_per_kelvin=2)) as fit:
+                update_fit(root,root/'cache.h5',root/'fit.h5')
+            self.assertEqual(fit.call_count,14)
+            for ch,call in enumerate(fit.call_args_list[7:]):
+                np.testing.assert_array_equal(call.args[0],sky[:,0])
+                np.testing.assert_array_equal(call.args[1],[ch+1])
+            data,status=fit_specification(root/'fit.h5')
+            self.assertEqual(len(status['noise_zenith_model_status']),7)
+            self.assertEqual(len(status['noise_model_status']),7)
 
 
 if __name__=='__main__':unittest.main()
