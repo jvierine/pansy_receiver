@@ -434,7 +434,7 @@ class InteractiveFieldPanel {
     if (!this.gpu) {
       this.gpu = new FieldView(this.canvas);
       this.extension = this.canvas.getContext("webgl2").getExtension("WEBGL_lose_context");
-      this.gpu.set_missing_color(0.6196, 0.6745, 0.7098, 1);
+      this.gpu.set_missing_color(...this.plot.options.missingColor || [0.6196, 0.6745, 0.7098, 1]);
       this.dirty = true;
     }
     return this.gpu;
