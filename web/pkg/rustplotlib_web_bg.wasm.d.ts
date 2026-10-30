@@ -33,6 +33,7 @@ export const plotviewport_reset: (a: number) => void;
 export const plotviewport_zoom: (a: number, b: number, c: number, d: number) => void;
 export const plotviewport_zoom_box: (a: number, b: number, c: number, d: number, e: number) => number;
 export const seriesview_begin: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => [number, number];
+export const seriesview_color_limits: (a: number) => [number, number];
 export const seriesview_new: (a: any) => [number, number, number];
 export const seriesview_render_plot: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
 export const seriesview_series: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
