@@ -195,14 +195,14 @@ def build_products(args) -> dict:
     return status
 
 
-def rsync_products(output_dir: Path, dest: str, bwlimit: str) -> None:
+def rsync_products(output_dir: Path, dest: str, bwlimit: str, animations: bool = True) -> None:
     files = [
         "current_fitted_radiant_distribution.png",
         "current_fitted_radiant_distribution_healpix.png",
-        "current_radiant_scatter_daily.gif",
-        "current_radiant_histogram_daily.gif",
         "radiant_monitor.json",
     ]
+    if animations:
+        files += ["current_radiant_scatter_daily.gif", "current_radiant_histogram_daily.gif"]
     cmd = ["rsync", "-avz", "--bwlimit", str(bwlimit), *[str(output_dir / name) for name in files], dest]
     subprocess.run(cmd, check=True)
 
@@ -230,7 +230,7 @@ def main() -> None:
     while True:
         status = build_products(args)
         if not args.no_rsync:
-            rsync_products(args.output_dir, args.rsync_dest, args.rsync_bwlimit)
+            rsync_products(args.output_dir, args.rsync_dest, args.rsync_bwlimit, animations=not args.skip_animations)
         print(
             "radiant_monitor_publish",
             status.get("latest_analyzed_day"),
