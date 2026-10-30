@@ -20,6 +20,9 @@ DEPLOY_FILES=(
 if [ "$INCLUDE_STATIC" -eq 1 ]; then
   cp \
     "$REPO_DIR/web/index.html" \
+    "$REPO_DIR/web/monitor.js" \
+    "$REPO_DIR/web/monitor_data.mjs" \
+    "$REPO_DIR/web/monitor.css" \
     "$REPO_DIR/web/pansy-title.svg" \
     "$REPO_DIR/web/uit-logo.png" \
     "$REPO_DIR/web/iap-logo.svg" \
@@ -29,6 +32,9 @@ if [ "$INCLUDE_STATIC" -eq 1 ]; then
     "$WEB_BUILD_DIR/"
   DEPLOY_FILES=(
     "$WEB_BUILD_DIR/index.html"
+    "$WEB_BUILD_DIR/monitor.js"
+    "$WEB_BUILD_DIR/monitor_data.mjs"
+    "$WEB_BUILD_DIR/monitor.css"
     "$WEB_BUILD_DIR/pansy-title.svg"
     "$WEB_BUILD_DIR/uit-logo.png"
     "$WEB_BUILD_DIR/iap-logo.svg"
