@@ -14,7 +14,7 @@ function freshness(){
 }
 function snapshot(name){try{return JSON.parse(sessionStorage.getItem('pansy-monitor-v2:'+name)||'null');}catch{return null;}}
 function saveSnapshot(name,data){try{sessionStorage.setItem('pansy-monitor-v2:'+name,JSON.stringify(data));}catch{/* Storage availability must never block the monitor. */}}
-async function json(url){const response=await fetch(url,{cache:'no-cache'});if(!response.ok)throw Error(`HTTP ${response.status}`);return response.json();}
+async function json(url){const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),30000);try{const response=await fetch(url,{cache:'no-cache',signal:controller.signal});if(!response.ok)throw Object.assign(Error(`HTTP ${response.status}`),{status:response.status});return await response.json();}finally{clearTimeout(timer);}}
 async function draw(id,spec){
  const height=id.startsWith('raw-')?170:id==='meteorGround'?280:id.startsWith('meteor')?220:['rti','processing'].includes(id)?255:id==='speed'?275:300;
  if(!plots.has(id)){
@@ -32,7 +32,10 @@ function table(root,headers,rows){
 }
 async function refreshNoise(){
  try{
-  const model=await json('/rvd/data/sky-noise/status.json');
+  message('noiseStatus','Loading receiver temperatures…');
+  let model;
+  try{model=await json('/rvd/data/monitor-noise.json');}
+  catch(error){if(error.status!==404)throw error;model=await json('/rvd/data/sky-noise/status.json');}
   await draw('noiseTemperature',zenithTemperature(model));
   const fits=model.noise_zenith_model_status;
   table($('noiseFits'),['Receiver','Zenith fitted Trec (K)','Fit RMS','Calibration status'],fits.map((f,ch)=>[

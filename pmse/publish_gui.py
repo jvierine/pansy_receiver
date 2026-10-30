@@ -18,7 +18,7 @@ from .serve_browser import day_packet
 from .archive_inventory import inventory
 from .web_retention import sha256
 from .archive_plot import attach_archive_plot
-from .monitor_overview import overview
+from .monitor_overview import overview,noise_display
 
 
 class MetadataCache:
@@ -74,6 +74,10 @@ def publish(root, output, cache):
     """Refresh changed metadata in the background, latest day first."""
     root=Path(root);output=Path(output)
     manifest_path=output/'manifest.json'
+    noise=output/'sky-noise/status.json'
+    if noise.exists():
+        try:atomic_json(output/'monitor-noise.json',noise_display(json.loads(noise.read_text())))
+        except (OSError,ValueError,KeyError) as error:print('Noise display cache delayed:',error,flush=True)
     base=json.loads(manifest_path.read_text())
     # Daily files contain packets themselves; do not nest yesterday's packets.
     base.pop('frame_packets',None)
