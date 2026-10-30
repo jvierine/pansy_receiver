@@ -3,8 +3,15 @@ import {zenithTemperature,fitCharts,phaseChart,rawChart,meteorCharts,rtiChart,la
 const $=id=>document.getElementById(id),plots=new Map(),pending=new Map();
 let telemetry,rti,chosenDay='',manifest,followLive=true;
 let rtiRetry;
+let checkingTelemetry=false,telemetryError='';
 const utc=t=>new Date(t*1000).toISOString().replace('T',' ').slice(0,19)+' UTC';
 function message(id,text){$(id).textContent=text;}
+function freshness(){
+ if(!telemetry||!Number.isFinite(telemetry.generated_unix_s))return;
+ const age=Date.now()/1000-telemetry.generated_unix_s,raw=telemetry.freshness?.Raw,rawAge=Date.now()/1000-raw;
+ message('freshness',`Source telemetry ${utc(telemetry.generated_unix_s)} · raw voltage ${Number.isFinite(rawAge)?Math.max(0,rawAge).toFixed(0)+' s old':'unavailable'}${age>1800?' · telemetry delayed':''}${checkingTelemetry?' · checking for updates…':''}${telemetryError?' · '+telemetryError:''}`);
+ $('freshness').classList.toggle('stale',!!telemetryError||age>1800||!Number.isFinite(raw)||rawAge>600);
+}
 function snapshot(name){try{return JSON.parse(sessionStorage.getItem('pansy-monitor-v2:'+name)||'null');}catch{return null;}}
 function saveSnapshot(name,data){try{sessionStorage.setItem('pansy-monitor-v2:'+name,JSON.stringify(data));}catch{/* Storage availability must never block the monitor. */}}
 async function json(url){const response=await fetch(url,{cache:'no-cache'});if(!response.ok)throw Error(`HTTP ${response.status}`);return response.json();}
@@ -55,10 +62,7 @@ async function refreshRTI(){
 }
 function renderRaw(){if(!telemetry?.raw)return;return Promise.all(telemetry.raw.channels.map((_,ch)=>attempt(`raw-${ch}`,()=>draw(`raw-${ch}`,rawChart(telemetry.raw,ch)))));}
 async function renderTelemetry(data,checking=false){
-  telemetry=data;
-  const age=Date.now()/1000-data.generated_unix_s,rawAge=Date.now()/1000-data.freshness.Raw;
-  message('freshness',`Source telemetry ${utc(data.generated_unix_s)} · raw voltage ${Number.isFinite(rawAge)?Math.max(0,rawAge).toFixed(0)+' s old':'unavailable'}${age>1800?' · telemetry delayed':''}${checking?' · checking for updates…':''}`);
-  $('freshness').classList.toggle('stale',age>1800||!data.freshness.Raw||rawAge>600);
+  telemetry=data;checkingTelemetry=checking;freshness();
   const fits=fitCharts(data);
   for(const [id,select] of [['counts','counts'],['speed','speed'],['radiant','radiant']])await attempt(id,()=>draw(id,fits[select]));
   await attempt('phase',()=>draw('phase',phaseChart(data)));
@@ -75,12 +79,13 @@ async function renderTelemetry(data,checking=false){
   if(!document.body.dataset.primaryReadyMs)document.body.dataset.primaryReadyMs=String(Math.round(performance.now()));
 }
 async function refreshTelemetry(){
+ checkingTelemetry=true;freshness();
  const incoming=json('./monitor-data.json').then(data=>({data})).catch(error=>({error}));
  try{
   if(!telemetry){const cached=snapshot('telemetry');if(cached){try{await renderTelemetry(cached,true);}catch{/* Do not let an invalid cache block fresh observations. */}}}
   const {data,error}=await incoming;if(error)throw error;
-  await renderTelemetry(data);saveSnapshot('telemetry',data);
- }catch(error){message('freshness',`Telemetry refresh delayed: ${error.message}. Last successful data are retained.`);$('freshness').classList.add('stale');}
+  telemetryError='';await renderTelemetry(data);saveSnapshot('telemetry',data);
+ }catch(error){telemetryError=`Refresh delayed: ${error.message}`;checkingTelemetry=false;if(telemetry)freshness();else message('freshness',`Telemetry refresh delayed: ${error.message}.`);$('freshness').classList.add('stale');}
 }
 async function refreshOperations(){
  try{const ops=await json('./ops_status.json');message('operationsStatus',`Source service report ${ops.generated_utc}`);
@@ -102,7 +107,7 @@ async function refreshOperations(){
 for(let ch=0;ch<8;ch++){const root=document.createElement('div');root.id=`raw-${ch}`;root.className='plot';$('rawVoltage').append(root);}
 $('noiseSection').ontoggle=()=>{if($('noiseSection').open)void refreshNoise();};
 $('day').onchange=()=>{chosenDay=$('day').value;followLive=chosenDay===$('day').options[$('day').options.length-1]?.value;void refreshRTI();};
-function clock(){message('utc',utc(Date.now()/1000));}clock();setInterval(clock,1000);
+function clock(){message('utc',utc(Date.now()/1000));freshness();}clock();setInterval(clock,1000);
 // Failures in one feed must not prevent the remaining independent panels.
 let refreshing=false;
 async function refresh(){if(refreshing)return;refreshing=true;$('refresh').disabled=true;
