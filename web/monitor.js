@@ -5,6 +5,8 @@ let telemetry,rti,chosenDay='',manifest,followLive=true;
 let rtiRetry;
 const utc=t=>new Date(t*1000).toISOString().replace('T',' ').slice(0,19)+' UTC';
 function message(id,text){$(id).textContent=text;}
+function snapshot(name){try{return JSON.parse(sessionStorage.getItem('pansy-monitor-v2:'+name)||'null');}catch{return null;}}
+function saveSnapshot(name,data){try{sessionStorage.setItem('pansy-monitor-v2:'+name,JSON.stringify(data));}catch{/* Storage availability must never block the monitor. */}}
 async function json(url){const response=await fetch(url,{cache:'no-cache'});if(!response.ok)throw Error(`HTTP ${response.status}`);return response.json();}
 async function draw(id,spec){
  const height=id.startsWith('raw-')?170:id.startsWith('meteor')?220:['rti','processing'].includes(id)?255:id==='speed'?275:300;
@@ -35,6 +37,7 @@ async function refreshNoise(){
 }
 async function refreshRTI(){
  try{
+  if(!rti){const cached=snapshot('overview');if(cached){await draw('rti',rtiChart(cached));rti=plots.get('rti');message('pmseStatus',`${cached.selected_day} · source spectra through ${utc(cached.latest_mode_us/1e6)} · checking for updates…`);}}
   let latest;
   try{latest=await json('/rvd/data/monitor-overview.json');}catch{latest=await json('/rvd/data/manifest.json');}
   const days=latest.available_days||[];
@@ -43,6 +46,7 @@ async function refreshRTI(){
   const data=latest.selected_day===chosenDay?latest:await json(`/rvd/data/days/${chosenDay}.json`);
   if(!(data.frame_count||data.frame_packets?.length))throw Error('No completed mesosphere modes available');
   manifest=data;
+  if(data.schema==='pansy_zenith_display_v1')saveSnapshot('overview',data);
   await draw('rti',rtiChart(data));rti=plots.get('rti');
   clearTimeout(rtiRetry);
   message('pmseStatus',`${chosenDay} · ${data.frame_count??data.frame_packets.length} completed modes · source spectra through ${utc(data.latest_mode_us/1e6)}`);
@@ -50,11 +54,10 @@ async function refreshRTI(){
   if(!rti){clearTimeout(rtiRetry);rtiRetry=setTimeout(()=>void refreshRTI(),10000);}}
 }
 function renderRaw(){if(!telemetry?.raw)return;return Promise.all(telemetry.raw.channels.map((_,ch)=>attempt(`raw-${ch}`,()=>draw(`raw-${ch}`,rawChart(telemetry.raw,ch)))));}
-async function refreshTelemetry(){
- try{
-  const data=await json('./monitor-data.json');telemetry=data;
+async function renderTelemetry(data,checking=false){
+  telemetry=data;
   const age=Date.now()/1000-data.generated_unix_s,rawAge=Date.now()/1000-data.freshness.Raw;
-  message('freshness',`Source telemetry ${utc(data.generated_unix_s)} · raw voltage ${Number.isFinite(rawAge)?Math.max(0,rawAge).toFixed(0)+' s old':'unavailable'}${age>1800?' · telemetry delayed':''}`);
+  message('freshness',`Source telemetry ${utc(data.generated_unix_s)} · raw voltage ${Number.isFinite(rawAge)?Math.max(0,rawAge).toFixed(0)+' s old':'unavailable'}${age>1800?' · telemetry delayed':''}${checking?' · checking for updates…':''}`);
   $('freshness').classList.toggle('stale',age>1800||!data.freshness.Raw||rawAge>600);
   const fits=fitCharts(data);
   for(const [id,select] of [['counts','counts'],['speed','speed'],['radiant','radiant']])await attempt(id,()=>draw(id,fits[select]));
@@ -69,6 +72,14 @@ async function refreshTelemetry(){
   if(data.raw){message('rawStatus',`${utc(data.raw.start_unix_s)} · ${data.raw.units}`);await renderRaw();}
   else message('rawStatus',`Raw trace unavailable: ${data.errors?.raw||'no sample yet'}`);
   await attempt('processing',()=>draw('processing',latencyChart(data)));
+  if(!document.body.dataset.primaryReadyMs)document.body.dataset.primaryReadyMs=String(Math.round(performance.now()));
+}
+async function refreshTelemetry(){
+ const incoming=json('./monitor-data.json').then(data=>({data})).catch(error=>({error}));
+ try{
+  if(!telemetry){const cached=snapshot('telemetry');if(cached)await renderTelemetry(cached,true);}
+  const {data,error}=await incoming;if(error)throw error;
+  saveSnapshot('telemetry',data);await renderTelemetry(data);
  }catch(error){message('freshness',`Telemetry refresh delayed: ${error.message}. Last successful data are retained.`);$('freshness').classList.add('stale');}
 }
 async function refreshOperations(){
