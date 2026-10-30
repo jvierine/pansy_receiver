@@ -631,6 +631,9 @@ function __wbg_get_imports() {
         __wbg_drawArrays_08872e02fb57b847: function(arg0, arg1, arg2, arg3) {
             arg0.drawArrays(arg1 >>> 0, arg2, arg3);
         },
+        __wbg_ellipse_59ddb84ea8ee8ce1: function() { return handleError(function (arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+            arg0.ellipse(arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+        }, arguments); },
         __wbg_enableVertexAttribArray_d52693866bc8b8dd: function(arg0, arg1) {
             arg0.enableVertexAttribArray(arg1 >>> 0);
         },

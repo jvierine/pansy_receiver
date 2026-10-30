@@ -1,10 +1,10 @@
 # Browser plotting runtime
 
-Generated from `jvierine/rustplotlib` commit `19b1f32` on branch
+Generated from `jvierine/rustplotlib` commit `6e0d03e` on branch
 `codex/monitor-map-latency`, including the native Mollweide/HEALPix density,
 categorical bar and rectilinear field features.
 The interaction wrapper includes initialization retry from commit `51c0e7b`.
-Runtime release `ca8e45af62e5fd59` is the SHA-256 prefix of the concatenated
+Runtime release `bd9a933aa64c942c` is the SHA-256 prefix of the concatenated
 generated JavaScript and WASM. Only content-addressed releases use immutable
 HTTP caching; HTML, wrappers and telemetry are revalidated.
 
