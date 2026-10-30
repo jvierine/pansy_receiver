@@ -5,6 +5,14 @@ repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 web_dir="${1:-/var/www/pansy-live}"
 rvd_dir="${2:-/var/www/rvd-live}"
 test -d "$web_dir" && test -d "$rvd_dir/lib"
+mkdir -p "$web_dir/assets"
+for file in "$repo_dir"/web/assets/*; do
+  name="$(basename "$file")"
+  if ! cmp -s "$file" "$web_dir/assets/$name"; then
+    install -m 0644 "$file" "$web_dir/assets/$name.partial"
+    mv "$web_dir/assets/$name.partial" "$web_dir/assets/$name"
+  fi
+done
 if [ -f "$web_dir/index.html" ]; then
   cp -p "$web_dir/index.html" "$web_dir/index.html.pre-rustplotlib-$(date -u +%Y%m%dT%H%M%SZ)"
 fi
