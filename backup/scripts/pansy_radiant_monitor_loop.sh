@@ -13,5 +13,6 @@ cd "$REPO_DIR"
 PYTHON="${PANSY_MONITOR_PYTHON:-/usr/bin/python3}"
 exec "$PYTHON" "$REPO_DIR/publish_radiant_monitor.py" \
   --loop \
+  --skip-animations \
   --interval-s "$INTERVAL_SECONDS" \
   --rsync-bwlimit "$RSYNC_BWLIMIT"
