@@ -9,7 +9,7 @@ function snapshot(name){try{return JSON.parse(sessionStorage.getItem('pansy-moni
 function saveSnapshot(name,data){try{sessionStorage.setItem('pansy-monitor-v2:'+name,JSON.stringify(data));}catch{/* Storage availability must never block the monitor. */}}
 async function json(url){const response=await fetch(url,{cache:'no-cache'});if(!response.ok)throw Error(`HTTP ${response.status}`);return response.json();}
 async function draw(id,spec){
- const height=id.startsWith('raw-')?170:id.startsWith('meteor')?220:['rti','processing'].includes(id)?255:id==='speed'?275:300;
+ const height=id.startsWith('raw-')?170:id==='meteorGround'?280:id.startsWith('meteor')?220:['rti','processing'].includes(id)?255:id==='speed'?275:300;
  if(!plots.has(id)){
   if(!pending.has(id))pending.set(id,InteractiveSeriesPlot.mount($(id),spec,{height,compact:true}).then(p=>{plots.set(id,p);return p;}).finally(()=>pending.delete(id)));
   await pending.get(id);

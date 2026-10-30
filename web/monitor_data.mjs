@@ -66,7 +66,14 @@ export function meteorCharts(m){
   const spec=chart(traces,'Time since first echo (s)',['East (km)','North (km)','Up (km)'][i]);
   if(Number.isFinite(err)){spec.bounds[1]-=2*err;spec.bounds[3]+=2*err;}out[['east','north','up'][i]]=spec;
  });
- out.ground=chart([{color:colors[0],line:false,radius:2,points:series.map((t,i)=>[m.east_km[i],m.north_km[i]])}], 'East (km)','North (km)');
+ // Ten-degree beam cones intersect the event's actual mean-altitude plane.
+ const height=m.up_km.reduce((a,b)=>a+b,0)/m.up_km.length,extent=height*Math.tan(20*Math.PI/180)*1.04;
+ const footprints=[[0,0],[0,10],[90,10],[180,10],[270,10]].map(([az,za])=>{
+  const a=az*Math.PI/180,z=za*Math.PI/180,b=10*Math.PI/180;
+  const d=[Math.sin(z)*Math.sin(a),Math.sin(z)*Math.cos(a),Math.cos(z)],e=[Math.cos(a),-Math.sin(a),0],q=[Math.cos(z)*Math.sin(a),Math.cos(z)*Math.cos(a),-Math.sin(z)];
+  return {color:'#8b969f',line:true,radius:0,line_width:.6,fill:'#00000013',points:Array.from({length:97},(_,i)=>{const p=i*2*Math.PI/96,u=d.map((v,j)=>Math.cos(b)*v+Math.sin(b)*(Math.cos(p)*e[j]+Math.sin(p)*q[j]));return [height*u[0]/u[2],height*u[1]/u[2]];})};
+ });
+ out.ground={...chart([...footprints,{color:colors[0],line:false,radius:2.5,points:series.map((t,i)=>[m.east_km[i],m.north_km[i]])}], 'East (km)','North (km)',{bounds:[-extent,-extent,extent,extent]}),equal_aspect:true};
  out.signal=chart([{color:colors[0],line:false,radius:2,points:series.map((t,i)=>[t,m.snr_db[i]])}], 'Time since first echo (s)','SNR (dB)');
  if(m.doppler_km_s)out.doppler=chart([{color:'#148d28',line:false,radius:3,points:series.map((t,i)=>[t,m.doppler_km_s[i]])}], 'Time since first echo (s)','Measured Doppler (km/s)');
  else if(m.match_function)out.doppler=chart([{color:'#148d28',line:false,radius:3,points:series.map((t,i)=>[t,m.match_function[i]])}], 'Time since first echo (s)','Match function');
