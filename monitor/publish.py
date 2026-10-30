@@ -143,10 +143,13 @@ def packet(metadata, raw, now=None, reader_factory=None):
             try:
                 with h5py.File(event,'r') as h:
                     if int(h['key'][()])==latest:
+                        nr,nt=h['power_snr'].shape
+                        rs=max(1,(nr+127)//128);ts=max(1,(nt+255)//256)
                         output['meteor']['range_time']=dict(
-                            seconds=finite(h['time_unix_s'][()]-latest/1e6,7),
-                            range_km=finite(h['range_km'][()]),
-                            snr_db=finite(10*np.log10(np.maximum(h['power_snr'][()],np.finfo(float).tiny)),2))
+                            seconds=finite(h['time_unix_s'][::ts]-latest/1e6,7),
+                            range_km=finite(h['range_km'][::rs]),
+                            display_time_stride=ts,display_range_stride=rs,
+                            snr_db=finite(10*np.log10(np.maximum(h['power_snr'][::rs,::ts],np.finfo(float).tiny)),2))
                         output['meteor']['doppler_km_s']=finite(h['doppler_mps'][()]/1000)
             except OSError as exc:output['errors']['meteor_diagnostics']=str(exc)
     previous_bucket = None
