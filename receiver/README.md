@@ -1,5 +1,34 @@
 # PANSY receiver user services
 
+## Rustplotlib monitor
+
+The public monitor uses a 24-hour window and the existing RVD Rustplotlib/WASM
+components and metadata feeds. It does not load historical GIFs or Matplotlib
+plot images. Native axis decorations use the existing cached RVD frame service;
+all plot data rendering stays in the browser.
+
+`pansy-status-plot.service` now runs `python3 -u -m monitor.publish`, exporting
+read-only source telemetry and `ops_status.json` at the existing 1 KiB/s transfer
+cap. It does not restart/control acquisition or process complex spectra. The
+legacy `status_plot.py` remains available for historical/manual use, but is not
+the live publisher. Update only this unit, never run the full receiver installer
+to deploy the monitor.
+
+Seven zenith-only receiver calibrations are computed on the analysis host by
+the existing `pansy-rvd-sky-noise.service`, independently of the all-beam RVD
+fits. Displayed system temperature is measured dense zenith noise power divided
+by fitted gain; it includes sky plus receiver temperature. The separately
+reported `Trec` is a model-fit offset, not measured `Tsys`. Absolute Kelvin
+calibration remains provisional because of guard-bin colored-noise response.
+The displayed data cover 24 hours; fitting retains its existing 72-hour window
+to sample sky modulation. No heavy sky convolution runs on Syowa or the web host.
+
+Web deployment: commit/push, pull into the web-host checkout, then run
+`bash scripts/install_receiver_monitor_web.sh`. It installs scripts before HTML
+and retains a dated HTML backup. The archive animation publisher explicitly
+uses `--skip-animations` and does not transfer old GIFs in that mode; existing
+historical files are not deleted.
+
 This directory contains the user-space systemd services for running the PANSY
 receiver and processing chain on `syowa-meteor`.
 
