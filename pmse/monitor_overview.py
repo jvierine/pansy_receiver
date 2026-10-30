@@ -4,6 +4,15 @@ import json
 from pathlib import Path
 from .publish_rvd import atomic_json
 
+def noise_display(model):
+    """Project an existing model packet to its displayed day/beam/channels."""
+    origin=model['noise_model_origin_unix_s'];stop=model['noise_model_observation_stop_unix_s']
+    data=model['noise_model_data'];use=[i for i,t in enumerate(data['times_h']) if origin+t*3600>=stop-86400]
+    return dict(schema='pansy_monitor_noise_v1',noise_model_origin_unix_s=origin,
+        noise_model_observation_stop_unix_s=stop,noise_zenith_model_status=model.get('noise_zenith_model_status'),
+        noise_model_data=dict(times_h=[data['times_h'][i] for i in use],
+            noise_power=[[data['noise_power'][i][0]] for i in use]))
+
 def overview(packet):
     first=packet['axis_start_us'];stop=packet['axis_stop_us']
     edges=[];cells=[];column=0
@@ -27,6 +36,8 @@ def overview(packet):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('manifest',type=Path);parser.add_argument('output',type=Path)
+    parser.add_argument('--noise-input',type=Path);parser.add_argument('--noise-output',type=Path)
     args=parser.parse_args();atomic_json(args.output,overview(json.loads(args.manifest.read_text())))
+    if args.noise_input and args.noise_output:atomic_json(args.noise_output,noise_display(json.loads(args.noise_input.read_text())))
 
 if __name__=='__main__':main()
