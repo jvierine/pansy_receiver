@@ -3,6 +3,7 @@
 Generated from `jvierine/rustplotlib` commit `4a1d509` on branch
 `codex/monitor-map-latency`, including the native Mollweide/HEALPix density,
 categorical bar and rectilinear field features.
+The interaction wrapper includes initialization retry from commit `51c0e7b`.
 
 Build locally with the rustup-managed Rust toolchain:
 
