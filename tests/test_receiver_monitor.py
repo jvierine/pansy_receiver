@@ -11,6 +11,32 @@ from monitor.publish import atomic_json, finite, metadata_rows, packet
 
 
 class ReceiverMonitorTests(unittest.TestCase):
+    def test_saved_event_field_is_bounded_and_upstream_trace_matches_exact_times(self):
+        from monitor.event import save_event
+        now=1793386800.;key=int((now-10)*1e6)
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);metadata=root/'metadata'
+            fit=metadata/'simple_meteor_fit'/'2026-10-30T19-00-00';fit.mkdir(parents=True)
+            times=np.array([key,key+1000],dtype=np.int64)
+            with h5py.File(fit/'fit.h5','w') as h:
+                g=h.create_group(str(key))
+                for name,value in dict(v0=[1.,2.,3.],r0=[0.,0.,90.],eclon=20.,eclat=-30.,
+                    txidx=times,ew=[0.,1.],ns=[0.,1.],up=[90.,89.],snr=[10.,20.],std=[.1,.2,.3],mfs=[21.,18.]).items():g[name]=value
+            cut=metadata/'cut'/'2026-10-30T19-00-00';cut.mkdir(parents=True)
+            with h5py.File(cut/'cut.h5','w') as h:
+                g=h.create_group(str(key))
+                for name,value in dict(c_tx_idx=times,c_range_km=[90.,89.],c_snr=[10.,20.],c_doppler=[-1000.,-2000.]).items():g[name]=value
+            event=root/'.local/state/pansy-monitor/latest-event.h5'
+            save_event(key,np.arange(600)/1000+key/1e6,np.arange(513)/10+50,np.ones((513,600)),[-1000.,-2000.],event)
+            before=event.read_bytes()
+            with patch('monitor.publish.Path.home',return_value=root):
+                def missing(_):raise OSError('No raw fixture')
+                data=packet(metadata,root,now,reader_factory=missing)
+            m=data['meteor'];field=m['range_time']
+            self.assertLessEqual(len(field['seconds']),256);self.assertLessEqual(len(field['range_km']),128)
+            self.assertEqual(m['doppler_km_s'],[-1.,-2.]);self.assertEqual(m['detection_trace']['doppler_km_s'],[-1.,-2.])
+            self.assertEqual(before,event.read_bytes(),'Publishing must not change the scientific event arrays')
+
     def test_packet_is_read_only_24h_and_preserves_complex_raw_components(self):
         now=1793386800.
         with tempfile.TemporaryDirectory() as temporary:
