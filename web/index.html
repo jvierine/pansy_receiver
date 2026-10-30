@@ -1,41 +1,32 @@
 <!doctype html>
-<html lang="en">
-<head>
+<html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PANSY Receiver Monitor</title>
-<link rel="icon" href="favicon.svg"><link rel="stylesheet" href="monitor.css?v=1">
-<script type="module" src="monitor.js?v=1"></script>
-</head>
-<body>
+<link rel="icon" href="favicon.svg"><link rel="stylesheet" href="monitor.css?v=restore-2">
+<link rel="modulepreload" href="monitor.js?v=restore-2">
+<script type="module" src="monitor.js?v=restore-2"></script>
+</head><body>
 <header><div><h1>PANSY Receiver Monitor</h1><p>Syowa, Antarctica · <span id="utc">UTC</span></p></div>
- <nav><a href="/rvd/">PMSE Explorer ↗</a><a href="#operations">Receiver operations</a><button id="refresh" type="button">Refresh</button></nav>
- <div class="logos"><img src="pansy-title.svg" alt="PANSY"><img src="uit-logo.png" alt="UiT"><img src="iap-logo.svg" alt="IAP"><img src="u-tokyo-logo.png" alt="University of Tokyo"></div>
-</header>
+<nav><a href="/rvd/">PMSE Explorer ↗</a><a href="#operations">Operations</a><button id="refresh" type="button">Refresh</button></nav>
+<div class="logos"><img src="pansy-title.svg" alt="PANSY"><img src="uit-logo.png" alt="UiT"><img src="iap-logo.svg" alt="IAP"><img src="u-tokyo-logo.png" alt="University of Tokyo"></div></header>
 <main>
-<p id="freshness" class="notice" role="status">Loading source-data freshness…</p>
-<section class="card"><div class="heading"><h2>PMSE range–time intensity</h2>
- <label>UTC day <select id="day" aria-label="PMSE UTC day"></select></label></div>
- <p id="pmseStatus" class="caption">Loading compressed-spectra summaries…</p><div id="rti" class="plot"></div>
- <p class="caption">Peak retained excess SNR (dB), independently for each beam. Threshold-selected echoes, not a dense power measurement. Missing data use the zero-level color but remain missing. Click the colorbar to adjust its limits.</p>
-</section>
-<section class="card"><h2>System noise temperature · zenith</h2>
- <p id="noiseStatus" class="caption" role="status">Loading receiver temperatures…</p>
- <div id="noiseTemperature" class="plot"></div>
- <p class="caption">All seven receiving channels (RX 0–6); the transmitter reference is excluded. Dense, detection-independent zenith noise power divided by each channel’s zenith-only fitted gain gives measured T<sub>sys</sub> = P/G. The fit is P = G(T<sub>sky</sub> + T<sub>rec</sub>), using GSM2008 and the one-way module pattern. Absolute temperatures are provisional: colored-noise response and interference can bias the calibration.</p>
- <div id="noiseFits" class="table-wrap"></div>
-</section>
-<div class="grid">
- <section class="card"><h2>Latest 24 hours · fitted meteor counts</h2><div id="counts" class="plot"></div></section>
- <section class="card"><h2>Latest 24 hours · meteor speeds</h2><div id="speed" class="plot"></div></section>
- <section class="card"><h2>Latest 24 hours · fitted radiants</h2><div id="radiant" class="plot"></div><p class="caption">Solar-centered geocentric ecliptic coordinates from the real-time straight-line fits; not the uncertainty-filtered orbit catalogue.</p></section>
- <section class="card"><h2>Latest fitted meteor · measured trajectory</h2><p id="meteorStatus" class="caption"></p><div id="meteor" class="plot"></div></section>
-</div>
-<section class="card"><div class="heading"><h2>Latest complex receiver voltage</h2><label>Channel <select id="rawChannel" aria-label="Raw voltage channel"></select></label></div>
- <p id="rawStatus" class="caption"></p><div id="rawVoltage" class="plot"></div>
-</section>
-<section class="card"><h2>Transmit-pulse phase calibration · latest 24 hours</h2><div id="phase" class="plot"></div><p class="caption">Relative receive-channel phase, sampled at most once per ten minutes for display. Phase is wrapped to ±180°; no lines are drawn across wraps.</p></section>
-<section class="card" id="operations"><h2>Receiver operations</h2><p id="operationsStatus" class="caption"></p><div id="serviceStatus" class="table-wrap"></div><div id="diskStatus" class="table-wrap"></div><div id="processing" class="plot"></div></section>
-<section class="card"><h2>Metadata backup and mirror</h2><div id="backupStatus" class="caption">Loading backup status…</div></section>
-<footer><h2>About the meteor extension</h2><p>PANSY is the Program of the Antarctic Syowa MST/IS Radar. The meteor extension was developed with the PANSY team, IAP Kühlungsborn and UiT The Arctic University of Norway. Co-investigators: Juha Vierinen, Jorge L. Chau, Nico Pfeffer, Devin Huyghebaert and Daniel Kastinen. <a href="https://pansy.eps.s.u-tokyo.ac.jp/en/index.html">Official PANSY project ↗</a></p><p>All plots are interactive Rustplotlib (Rust/WebAssembly; WebGL for the PMSE field). No historical animations or Matplotlib plot images are loaded. Scroll to zoom, drag a zoom box, Shift-drag to pan, double-click to reset. Refreshes retain the last successfully received data if the link is delayed.</p></footer>
-</main>
-</body></html>
+<p id="freshness" class="notice full" role="status">Loading source-data freshness…</p>
+<p class="help full">All plots: scroll to zoom · drag to zoom · Shift-drag to pan · double-click to reset.</p>
+<section class="card"><div class="heading"><h2>PMSE · zenith</h2><label>UTC day <select id="day" aria-label="PMSE UTC day"></select></label></div>
+<p id="pmseStatus" class="caption">Loading mode summaries…</p><div id="rti" class="plot"></div><p class="caption">Peak retained SNR · 50–120 km. Missing or unretained cells use the zero-level color. <a href="/rvd/">All five beams and radar imaging ↗</a></p></section>
+<section class="card"><h2>Processing latency</h2><div id="processing" class="plot"></div><p class="caption">Latest sample age: green &lt;10 min (raw &lt;30 s), red above. Event-driven stages can age during quiet periods; service health is reported separately below.</p></section>
+<section class="card"><h2>Latest 24 hours · fitted radiants</h2><div id="radiant" class="plot"></div><p class="caption">Mollweide equal-area map · HEALPix NSIDE 32 · apex (270°) at center.</p></section>
+<section class="card"><h2>Latest 24 hours · fitted meteor counts</h2><div id="counts" class="plot"></div></section>
+<section class="card full"><div class="heading"><h2>Latest fitted meteor · event diagnostics</h2><span id="meteorStatus" class="caption"></span></div>
+<div id="meteor" class="event-grid">
+<div id="meteorEast" class="plot"></div><div id="meteorNorth" class="plot"></div><div id="meteorUp" class="plot"></div>
+<div id="meteorGround" class="plot"></div><div id="meteorSignal" class="plot"></div><div id="meteorDoppler" class="plot"></div></div>
+<p id="meteorDetail" class="caption"></p></section>
+<section class="card"><h2>Raw voltages · all eight channels</h2><p id="rawStatus" class="caption"></p><div id="rawVoltage" class="raw-grid"></div><p class="caption">I: blue · Q: red · raw ADC units, with no channel equalization. RX 0–6 plus transmitter reference (7).</p></section>
+<div class="stack"><section class="card"><h2>Transmit-pulse relative phase · 24 hours</h2><div id="phase" class="plot"></div><p class="caption">No lines across phase wraps; eight channels, bright colors.</p></section>
+<section class="card"><h2>Latest 24 hours · meteor speeds</h2><div id="speed" class="plot"></div></section></div>
+<details class="card full" id="noiseSection"><summary>System noise temperature · zenith</summary><p id="noiseStatus" class="caption">Open to load receiver temperatures.</p><div id="noiseTemperature" class="plot"></div><p class="caption">All seven RX channels. Measured Tsys = P/G, using zenith-only fitted gain from P = G(Tsky + Trec), GSM2008 and the one-way module pattern. Absolute temperatures remain provisional.</p><div id="noiseFits" class="table-wrap"></div></details>
+<details class="card full" id="operations"><summary>Receiver operations · <span id="healthSummary">loading service status…</span></summary><p id="operationsStatus" class="caption"></p><div id="serviceStatus" class="service-grid"></div><div id="diskStatus" class="table-wrap"></div></details>
+<details class="card full"><summary>Metadata backup and mirror</summary><div id="backupStatus" class="caption">Loading backup status…</div></details>
+<footer class="full"><p>PANSY meteor extension · PANSY team, IAP Kühlungsborn and UiT The Arctic University of Norway. Co-investigators: Juha Vierinen, Jorge L. Chau, Nico Pfeffer, Devin Huyghebaert and Daniel Kastinen. <a href="https://pansy.eps.s.u-tokyo.ac.jp/en/index.html">Official PANSY project ↗</a></p></footer>
+</main></body></html>
