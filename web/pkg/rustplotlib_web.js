@@ -365,6 +365,15 @@ export class SeriesView {
         }
     }
     /**
+     * @returns {Float64Array}
+     */
+    color_limits() {
+        const ret = wasm.seriesview_color_limits(this.__wbg_ptr);
+        var v1 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
+        return v1;
+    }
+    /**
      * @param {HTMLCanvasElement} canvas
      */
     constructor(canvas) {

@@ -12,7 +12,7 @@ for file in monitor.js monitor_data.mjs monitor.css; do
   install -m 0644 "$repo_dir/web/$file" "$web_dir/$file.partial"
   mv "$web_dir/$file.partial" "$web_dir/$file"
 done
-runtime_release=1301344d0a86620e
+runtime_release=ca8e45af62e5fd59
 mkdir -p "$web_dir/lib" "$web_dir/pkg/releases/$runtime_release"
 if ! cmp -s "$repo_dir/web/lib/interactive_series.js" "$web_dir/lib/interactive_series.js"; then
   install -m 0644 "$repo_dir/web/lib/interactive_series.js" "$web_dir/lib/interactive_series.js.partial"

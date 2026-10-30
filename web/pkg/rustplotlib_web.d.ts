@@ -86,6 +86,7 @@ export class SeriesView {
      * CSS dimensions and device pixel ratio are separate, preserving font size.
      */
     begin(width: number, height: number, dpr: number, x0: number, x1: number, y0: number, y1: number, left: string, right: string): void;
+    color_limits(): Float64Array;
     constructor(canvas: HTMLCanvasElement);
     /**
      * Render arrays, axes, automatic numeric/UTC ticks and a wrapping legend
@@ -159,6 +160,7 @@ export interface InitOutput {
     readonly plotviewport_zoom: (a: number, b: number, c: number, d: number) => void;
     readonly plotviewport_zoom_box: (a: number, b: number, c: number, d: number, e: number) => number;
     readonly seriesview_begin: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => [number, number];
+    readonly seriesview_color_limits: (a: number) => [number, number];
     readonly seriesview_new: (a: any) => [number, number, number];
     readonly seriesview_render_plot: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
     readonly seriesview_series: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
