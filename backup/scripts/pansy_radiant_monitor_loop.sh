@@ -12,5 +12,6 @@ cd "$REPO_DIR"
 
 exec /usr/bin/python3 "$REPO_DIR/publish_radiant_monitor.py" \
   --loop \
+  --skip-animations \
   --interval-s "$INTERVAL_SECONDS" \
   --rsync-bwlimit "$RSYNC_BWLIMIT"
