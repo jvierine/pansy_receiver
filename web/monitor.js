@@ -96,6 +96,6 @@ function clock(){message('utc',utc(Date.now()/1000));}clock();setInterval(clock,
 let refreshing=false;
 async function refresh(){if(refreshing)return;refreshing=true;$('refresh').disabled=true;
  try{await Promise.allSettled([refreshRTI(),...($('noiseSection').open?[refreshNoise()]:[]),refreshTelemetry(),refreshOperations()]);}
- finally{refreshing=false;$('refresh').disabled=false;}}
+ finally{refreshing=false;$('refresh').disabled=false;if(!document.body.dataset.initialReadyMs)document.body.dataset.initialReadyMs=String(Math.round(performance.now()));}}
 $('refresh').onclick=()=>void refresh();
 void refresh();setInterval(()=>void refresh(),300_000);

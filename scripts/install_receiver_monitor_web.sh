@@ -20,3 +20,9 @@ done
 install -m 0644 "$repo_dir/web/index.html" "$web_dir/index.html.partial"
 mv "$web_dir/index.html.partial" "$web_dir/index.html"
 echo "Installed static Rustplotlib monitor; previous HTML retained as a timestamped backup."
+if command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
+  sudo install -m 0644 "$repo_dir/web/pansy-monitor-compression.conf" /etc/apache2/conf-available/pansy-monitor-compression.conf
+  sudo a2enconf pansy-monitor-compression
+  sudo apache2ctl configtest
+  sudo systemctl reload apache2
+fi
