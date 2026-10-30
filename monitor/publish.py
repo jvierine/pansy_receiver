@@ -125,6 +125,19 @@ def packet(metadata, raw, now=None, reader_factory=None):
             if 'meteor' in output:
                 output['meteor'].update(r0_km=finite(row['r0']),v0_km_s=finite(row['v0']),
                                          residual_std_km=finite(row['std']),match_function=finite(row['mfs']/21))
+        # Associate an existing upstream detection trace by exact TX indices.
+        # This reads saved scalars only, never cut waveforms or matched filters.
+        for key,row in metadata_rows(metadata/'cut',latest/1e6-10,latest/1e6+1,
+                                     ('c_tx_idx','c_range_km','c_snr','c_doppler')):
+            if 'meteor' not in output:break
+            times=np.asarray(row['c_tx_idx']).ravel()
+            fit_times=np.rint(np.asarray(output['meteor']['seconds'])*1e6).astype(np.int64)+latest
+            if not np.intersect1d(times,fit_times).size:continue
+            output['meteor']['detection_trace']=dict(seconds=finite((times-latest)/1e6,7),
+                range_km=finite(np.asarray(row['c_range_km']).ravel()),
+                snr_db=finite(10*np.log10(np.maximum(np.asarray(row['c_snr']).ravel(),np.finfo(float).tiny))),
+                doppler_km_s=finite(np.asarray(row['c_doppler']).ravel()/1000))
+            break
         event=Path.home()/'.local/state/pansy-monitor/latest-event.h5'
         if event.exists() and 'meteor' in output:
             try:
