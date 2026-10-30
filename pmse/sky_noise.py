@@ -82,17 +82,22 @@ def update(root,cache,output,hours=72):
     if not rows:raise ValueError('No complete noise records')
     rows.sort(key=lambda r:r['times_s'][0]);times=np.asarray([r['times_s'][0] for r in rows]);noise=np.stack([r['noise_power'] for r in rows])
     sky=interpolate_cache(cache,times)
-    out=Path(output);fit_time=0;fits=None
+    out=Path(output);fit_time=0;fits=None;zenith_fits=None
     if out.exists():
         with h5py.File(out,'r') as h:
             fit_time=float(h.attrs.get('fit_unix_s',0))
-            if time.time()-fit_time<3600:fits=json.loads(h.attrs['fits_json'])
+            if time.time()-fit_time<3600:
+                fits=json.loads(h.attrs['fits_json'])
+                if 'zenith_fits_json' in h.attrs:zenith_fits=json.loads(h.attrs['zenith_fits_json'])
     if fits is None:
         fits=[fit_module(sky,noise[:,:,ch],times) for ch in range(7)];fit_time=time.time()
+    if zenith_fits is None:
+        zenith_fits=[fit_module(sky[:,0],noise[:,0,ch],times) for ch in range(7)]
     out.parent.mkdir(parents=True,exist_ok=True);tmp=out.with_suffix('.h5.partial')
     with h5py.File(tmp,'w') as h:
         h['times_s']=times;h['noise_power']=noise;h['sky_temperature_k']=sky
         h.attrs.update(model_cache=str(cache),generator='pmse/sky_noise.py',fits_json=json.dumps(fits),
+            zenith_fits_json=json.dumps(zenith_fits),
             model='PyGDSM GSM2008; paper one-way receive pattern',
             fit_definition='P=G*(T_sky+T_receiver); relative-power objective; T_receiver>=273 K',
             caution='Guard-bin colored-noise response and interference may bias absolute receiver temperature',

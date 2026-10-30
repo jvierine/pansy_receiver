@@ -24,6 +24,7 @@ def fit_specification(path):
         sky=h['sky_temperature_k'][()]
         noise=h['noise_power'][()]
         fits=json.loads(h.attrs['fits_json'])
+        zenith_fits=json.loads(h.attrs['zenith_fits_json']) if 'zenith_fits_json' in h.attrs else None
         generated=float(h.attrs['generated_unix_s'])
         fitted=float(h.attrs['fit_unix_s'])
     if not len(times) or sky.shape!=(len(times),5) or noise.shape!=(len(times),5,7) or len(fits)!=7:
@@ -35,6 +36,7 @@ def fit_specification(path):
                                 for t in (times[0],(times[0]+times[-1])/2,times[-1])],
               sky_temperature_k=sky.tolist(),noise_power=noise.tolist())
     return dict(noise_model_data=data),dict(schema='pansy_sky_noise_v2',noise_model_status=fits,
+        noise_zenith_model_status=zenith_fits,
         noise_model_origin_unix_s=float(times[0]),
         noise_model_updated_unix_s=generated,noise_model_fit_unix_s=fitted,
         noise_model_observation_stop_unix_s=float(times[-1]))
