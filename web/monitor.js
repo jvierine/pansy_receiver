@@ -3,6 +3,7 @@ import {InteractiveFieldPlot} from '/rvd/lib/interactive_plot.js?v=monitor-missi
 import {chart,colors,zenithTemperature,fitCharts,phaseChart,rawChart,meteorChart,rtiData} from './monitor_data.mjs?v=1';
 const $=id=>document.getElementById(id),plots=new Map(),pending=new Map();
 let telemetry,rti,chosenDay='',manifest,followLive=true;
+let rtiRetry;
 const utc=t=>new Date(t*1000).toISOString().replace('T',' ').slice(0,19)+' UTC';
 function message(id,text){$(id).textContent=text;}
 async function json(url){const response=await fetch(url,{cache:'no-cache'});if(!response.ok)throw Error(`HTTP ${response.status}`);return response.json();}
@@ -48,8 +49,10 @@ async function refreshRTI(){
   const fields=rtiData(data);
   rti.panels.forEach((panel,b)=>{const f=fields[b];panel.set_rectilinear_data(f.x,f.y,f.z);});
   $('rti').dataset.renderer='rustplotlib-wasm-webgl';
+  clearTimeout(rtiRetry);
   message('pmseStatus',`${chosenDay} · ${data.frame_packets.length} completed modes · source spectra through ${utc(data.latest_mode_us/1e6)}`);
- }catch(error){message('pmseStatus',`PMSE refresh delayed: ${error.message}. Last successful plot is retained.`);}
+ }catch(error){message('pmseStatus',`PMSE refresh delayed: ${error.message}. Last successful plot is retained.`);
+  if(!rti){clearTimeout(rtiRetry);rtiRetry=setTimeout(()=>void refreshRTI(),10000);}}
 }
 function renderRaw(){if(!telemetry?.raw)return;return attempt('rawVoltage',()=>draw('rawVoltage',rawChart(telemetry.raw,+$('rawChannel').value)));}
 async function refreshTelemetry(){
