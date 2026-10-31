@@ -68,7 +68,7 @@ async function refreshRTI(){
 }
 function renderRaw(){if(!telemetry?.raw)return;return Promise.all(telemetry.raw.channels.map((_,ch)=>attempt(`raw-${ch}`,()=>draw(`raw-${ch}`,rawChart(telemetry.raw,ch)))));}
 async function renderTelemetry(data,checking=false){
-  telemetry=data;checkingTelemetry=checking;freshness();
+  telemetry=data;checkingTelemetry=checking;freshness();renderHealth();
   const fits=fitCharts(data);
   for(const [id,select] of [['counts','counts'],['speed','speed'],['radiant','radiant']])await attempt(id,()=>draw(id,fits[select]));
   await attempt('phase',()=>draw('phase',phaseChart(data)));
