@@ -1,22 +1,145 @@
-// web/lib/interactive_series.js?v=restore-2
-import init, { SeriesView, PlotViewport } from "../pkg/releases/bd9a933aa64c942c/rustplotlib_web.js";
+// web/lib/interactive_series.js?v=mobile-1
+import init, { SeriesView, PlotViewport } from "../pkg/releases/7caedeeb810f57e4/rustplotlib_web.js";
+var PlotControlGroup = class {
+  element = document.createElement("div");
+  members = /* @__PURE__ */ new Set();
+  buttons = /* @__PURE__ */ new Map();
+  mode = "scroll";
+  constructor() {
+    this.element.className = "rustplotlib-controls";
+    this.element.setAttribute("role", "toolbar");
+    this.element.setAttribute("aria-label", "Plot navigation");
+    this.element.style.cssText = "display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin:5px 0;font:12px system-ui";
+    const button = (text, action) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = text;
+      b.onclick = action;
+      this.element.append(b);
+      return b;
+    };
+    for (const [mode, label] of [["scroll", "Scroll"], ["zoom", "Zoom"], ["pan", "Pan"]]) this.buttons.set(mode, button(label, () => this.setMode(mode)));
+    button("+", () => this.zoom(0.7)).setAttribute("aria-label", "Zoom in");
+    button("\u2212", () => this.zoom(1 / 0.7)).setAttribute("aria-label", "Zoom out");
+    button("Reset view", () => this.reset());
+    const help = document.createElement("span");
+    help.textContent = "Scroll page normally \xB7 select Zoom/Pan to drag";
+    help.style.cssText = "color:var(--muted,#526b7d);font-size:11px";
+    this.element.append(help);
+    this.setMode("scroll");
+  }
+  add(member) {
+    this.members.add(member);
+    member.modeChanged(this.mode);
+    return () => this.members.delete(member);
+  }
+  setMode(mode) {
+    this.mode = mode;
+    for (const [key, b] of this.buttons) b.setAttribute("aria-pressed", String(key === mode));
+    this.members.forEach((m) => m.modeChanged(mode));
+  }
+  reset() {
+    this.setMode("scroll");
+    this.members.forEach((m) => {
+      m.viewport.reset();
+      m.changed();
+    });
+  }
+  zoom(factor) {
+    this.members.forEach((m) => {
+      m.viewport.zoom(0.5, 0.5, factor);
+      m.changed();
+    });
+  }
+};
+function bindPlotNavigation(options) {
+  const { canvas, viewport, controls, point, changed, box } = options, abort = new AbortController(), signal = abort.signal;
+  let drag;
+  const cancel = () => {
+    if (drag && canvas.hasPointerCapture(drag.id)) canvas.releasePointerCapture(drag.id);
+    drag = void 0;
+    box?.();
+  };
+  const remove = controls.add({ viewport, changed, modeChanged(mode) {
+    cancel();
+    canvas.style.touchAction = mode === "scroll" ? "pan-y pinch-zoom" : "none";
+    canvas.style.cursor = mode === "pan" ? "grab" : mode === "zoom" ? "crosshair" : "auto";
+  } });
+  canvas.addEventListener("wheel", (e) => {
+    if (controls.mode === "scroll") return;
+    e.preventDefault();
+    const [x, y] = point(e);
+    viewport.zoom(x, y, Math.exp(Math.max(-1, Math.min(1, e.deltaY * 2e-3))));
+    changed();
+  }, { passive: false, signal });
+  canvas.addEventListener("dblclick", (e) => {
+    e.preventDefault();
+    controls.reset();
+  }, { signal });
+  canvas.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" || e.key === "Home") {
+      e.preventDefault();
+      controls.reset();
+    }
+  }, { signal });
+  canvas.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || controls.mode === "scroll") return;
+    e.preventDefault();
+    const [x, y] = point(e);
+    drag = { id: e.pointerId, x, y, lastX: x, lastY: y, pan: controls.mode === "pan" || e.shiftKey };
+    canvas.setPointerCapture(e.pointerId);
+  }, { signal });
+  canvas.addEventListener("pointermove", (e) => {
+    const d = drag;
+    if (!d || d.id !== e.pointerId) return;
+    const [x, y] = point(e);
+    if (d.pan) {
+      viewport.pan(d.lastX - x, d.lastY - y);
+      d.lastX = x;
+      d.lastY = y;
+      changed();
+    } else box?.([d.x, d.y, x, y]);
+  }, { signal });
+  canvas.addEventListener("pointerup", (e) => {
+    const d = drag;
+    if (!d || d.id !== e.pointerId) return;
+    const [x, y] = point(e);
+    cancel();
+    if (!d.pan) {
+      if (Math.abs(x - d.x) + Math.abs(y - d.y) > 0.015) {
+        viewport.zoom_box(d.x, d.y, x, y);
+        changed();
+      } else options.select?.(x, y);
+    }
+  }, { signal });
+  canvas.addEventListener("pointercancel", cancel, { signal });
+  canvas.addEventListener("lostpointercapture", cancel, { signal });
+  return () => {
+    cancel();
+    remove();
+    abort.abort();
+  };
+}
 var ready;
+var fontReady;
+function loadPlotFont() {
+  return fontReady ??= new FontFace("RustplotlibPagella", `url("${new URL("../fonts/texgyrepagella-regular.otf", import.meta.url)}")`).load().then((font) => {
+    document.fonts.add(font);
+  }).catch((error) => {
+    fontReady = void 0;
+    throw error;
+  });
+}
 var InteractiveSeriesPlot = class _InteractiveSeriesPlot {
-  constructor(root, spec, height, compact = false) {
+  constructor(root, spec, height, controls) {
     this.root = root;
     this.spec = spec;
     this.height = height;
     this.specJSON = JSON.stringify(spec);
-    const toolbar = document.createElement("div"), reset = document.createElement("button"), help = document.createElement("span");
-    toolbar.style.cssText = "display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 6px 10px";
-    reset.textContent = "Reset view";
-    reset.onclick = () => this.reset();
-    help.textContent = "Scroll to zoom \xB7 drag to zoom \xB7 Shift-drag to pan \xB7 double-click to reset";
-    help.style.cssText = "font-size:.75rem;color:var(--muted,#526b7d)";
-    toolbar.append(reset, help);
+    const group = controls || new PlotControlGroup();
     const stage = document.createElement("div");
     stage.style.cssText = "position:relative;background:white;";
-    this.canvas.style.cssText = "display:block;width:100%;touch-action:none";
+    this.canvas.style.cssText = "display:block;width:100%";
     this.canvas.tabIndex = 0;
     this.box.style.cssText = "position:absolute;display:none;pointer-events:none;border:1px dashed #12669a;background:#12669a22";
     this.colorButton.type = "button";
@@ -25,7 +148,7 @@ var InteractiveSeriesPlot = class _InteractiveSeriesPlot {
     this.colorButton.style.cssText = "position:absolute;z-index:2;border:0;background:transparent;padding:0;cursor:pointer";
     this.colorButton.onclick = () => this.editColors(stage);
     stage.append(this.canvas, this.box, this.colorButton);
-    root.replaceChildren(...compact ? [stage] : [toolbar, stage]);
+    root.replaceChildren(...controls ? [stage] : [group.element, stage]);
     this.view = new SeriesView(this.canvas);
     this.observer = new ResizeObserver(() => this.schedule());
     this.observer.observe(root);
@@ -33,50 +156,14 @@ var InteractiveSeriesPlot = class _InteractiveSeriesPlot {
       const r = this.canvas.getBoundingClientRect();
       return [Math.max(0, Math.min(1, (e.clientX - r.left - this.rect[0]) / this.rect[2])), Math.max(0, Math.min(1, 1 - (e.clientY - r.top - this.rect[1]) / this.rect[3]))];
     };
-    this.canvas.addEventListener("wheel", (e) => {
-      e.preventDefault();
-      const [x, y] = point(e);
-      this.viewport.zoom(x, y, Math.exp(Math.max(-1, Math.min(1, e.deltaY * 2e-3))));
-      this.draw();
-    }, { passive: false });
-    this.canvas.ondblclick = () => this.reset();
-    this.canvas.onkeydown = (e) => {
-      if (e.key === "Escape" || e.key === "Home") {
-        e.preventDefault();
-        this.reset();
+    this.unbind = bindPlotNavigation({ canvas: this.canvas, viewport: this.viewport, controls: group, point, changed: () => this.draw(), box: (b) => {
+      if (!b) {
+        this.box.style.display = "none";
+        return;
       }
-    };
-    this.canvas.onpointerdown = (e) => {
-      if (e.button !== 0) return;
-      e.preventDefault();
-      const [x, y] = point(e);
-      this.drag = { x, y, lastX: x, lastY: y, pan: e.shiftKey };
-      this.canvas.setPointerCapture(e.pointerId);
-    };
-    this.canvas.onpointermove = (e) => {
-      const d = this.drag;
-      if (!d) return;
-      const [x, y] = point(e);
-      if (d.pan) {
-        this.viewport.pan(d.lastX - x, d.lastY - y);
-        d.lastX = x;
-        d.lastY = y;
-        this.draw();
-      } else Object.assign(this.box.style, { display: "block", left: this.rect[0] + Math.min(x, d.x) * this.rect[2] + "px", top: this.rect[1] + (1 - Math.max(y, d.y)) * this.rect[3] + "px", width: Math.abs(x - d.x) * this.rect[2] + "px", height: Math.abs(y - d.y) * this.rect[3] + "px" });
-    };
-    this.canvas.onpointerup = (e) => {
-      const d = this.drag;
-      if (!d) return;
-      this.drag = void 0;
-      this.box.style.display = "none";
-      const [x, y] = point(e);
-      if (!d.pan && Math.abs(x - d.x) + Math.abs(y - d.y) > 0.015) this.viewport.zoom_box(d.x, d.y, x, y);
-      this.draw();
-    };
-    this.canvas.onpointercancel = () => {
-      this.drag = void 0;
-      this.box.style.display = "none";
-    };
+      const [x0, y0, x, y] = b;
+      Object.assign(this.box.style, { display: "block", left: this.rect[0] + Math.min(x, x0) * this.rect[2] + "px", top: this.rect[1] + (1 - Math.max(y, y0)) * this.rect[3] + "px", width: Math.abs(x - x0) * this.rect[2] + "px", height: Math.abs(y - y0) * this.rect[3] + "px" });
+    } });
     this.draw();
   }
   viewport = new PlotViewport();
@@ -85,7 +172,7 @@ var InteractiveSeriesPlot = class _InteractiveSeriesPlot {
   observer;
   rect = [0, 0, 1, 1];
   box = document.createElement("div");
-  drag;
+  unbind;
   pending = 0;
   specJSON;
   colorButton = document.createElement("button");
@@ -96,8 +183,12 @@ var InteractiveSeriesPlot = class _InteractiveSeriesPlot {
       ready = void 0;
       throw error;
     });
-    await ready;
-    return new _InteractiveSeriesPlot(root, spec, options.height || 300, options.compact);
+    await Promise.all([ready, loadPlotFont()]);
+    return new _InteractiveSeriesPlot(root, spec, options.height || 300, options.controls);
+  }
+  setHeight(height) {
+    this.height = height;
+    this.schedule();
   }
   setSpec(spec) {
     if (this.colorOverride) {
@@ -164,7 +255,7 @@ var InteractiveSeriesPlot = class _InteractiveSeriesPlot {
   }
   draw() {
     const style = getComputedStyle(this.root);
-    const width = Math.max(280, Math.min(1200, this.root.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)));
+    const width = Math.max(this.spec.compact_axes ? 150 : 260, Math.min(1600, this.root.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)));
     this.canvas.style.width = width + "px";
     this.canvas.style.height = this.height + "px";
     this.rect = Array.from(this.view.render_plot(this.specJSON, width, this.height, Math.min(devicePixelRatio || 1, 2), this.viewport.bounds()));
@@ -177,6 +268,7 @@ var InteractiveSeriesPlot = class _InteractiveSeriesPlot {
     this.root.dataset.sampleCount = String(this.spec.series.reduce((n, s) => n + s.points.length, 0));
   }
   dispose() {
+    this.unbind();
     this.editor?.remove();
     this.observer.disconnect();
     cancelAnimationFrame(this.pending);
@@ -185,6 +277,30 @@ var InteractiveSeriesPlot = class _InteractiveSeriesPlot {
     this.root.replaceChildren();
   }
 };
+
+// web/health.mjs
+function monitorHealth(ops, packet, now = Date.now() / 1e3) {
+  const unknown = (label, detail) => ({ label, state: "unknown", detail });
+  const opsTime = Date.parse(ops?.generated_utc) / 1e3, opsFresh = Number.isFinite(opsTime) && now - opsTime >= -60 && now - opsTime < 1800;
+  let disk = unknown("Disks", "Awaiting a current disk report"), receiver = unknown("Receiver", "Awaiting a current service report"), phase = unknown("Phases", "Awaiting a current watchdog check");
+  if (opsFresh) {
+    const disks = ops.disks || [], critical = disks.filter((d) => d.critical || d.used_percent >= 95), warning = disks.filter((d) => d.warning || d.used_percent >= 80);
+    const worst = [...disks].filter((d) => Number.isFinite(d.used_percent)).sort((a, b) => b.used_percent - a.used_percent)[0];
+    disk = { label: "Disks", state: critical.length ? "bad" : disks.some((d) => d.error) || !disks.length ? "unknown" : warning.length ? "warn" : "ok", detail: worst ? `${worst.path.replace("/media/", "")}: ${worst.used_percent.toFixed(1)}% \xB7 ${(worst.free_bytes / 2 ** 30).toFixed(0)} GiB free` : "Disk measurements unavailable" };
+    const services = ops.services || [], failed = services.filter((s) => s.active_state !== "active");
+    receiver = { label: "Receiver", state: failed.length ? "bad" : services.length ? "ok" : "unknown", detail: failed.length ? failed.map((s) => s.name.replace("pansy-", "").replace(".service", "") + ": " + s.active_state).join(", ") : "Acquisition and processing services active" };
+    const p = ops.phase_health;
+    if (p && Number.isFinite(p.checked_unix_s) && now - p.checked_unix_s >= -60 && now - p.checked_unix_s < 900 && typeof p.ok === "boolean") phase = { label: "Phases", state: p.ok ? "ok" : "bad", detail: p.reason };
+    else if (p) phase = unknown("Phases", p.ok == null ? p.reason : "Last watchdog phase result is over 15 minutes old");
+  }
+  const source = packet?.generated_unix_s, raw = packet?.freshness?.Raw;
+  if (Number.isFinite(source) && now - source < 1800 && now - source >= -60 && Number.isFinite(raw) && source - raw > 600) receiver = { label: "Receiver", state: "bad", detail: `Raw recording stalled: ${Math.round((source - raw) / 60)} min behind at source` };
+  else if (receiver.state === "ok" && (!Number.isFinite(source) || now - source >= 1800 || !Number.isFinite(raw))) receiver = unknown("Receiver", "Services active; current raw-recording health unconfirmed");
+  const ages = Object.values(packet?.freshness || {}).filter(Number.isFinite).map((t) => Math.max(0, source - t));
+  const processing = Number.isFinite(source) && now - source < 1800 && ages.length ? { label: "Processing", state: Math.max(...ages) >= 43200 ? "bad" : "ok", detail: `Largest source lag: ${(Math.max(...ages) / 3600).toFixed(1)} h \xB7 red at 12 h` } : unknown("Processing", "Awaiting current source-stage ages");
+  const items = [disk, receiver, phase, processing];
+  return { items, state: items.some((s) => s.state === "bad") ? "bad" : items.some((s) => s.state === "unknown") ? "unknown" : items.some((s) => s.state === "warn") ? "warn" : "ok" };
+}
 
 // web/monitor_data.mjs?v=restore-2
 var colors = ["#0057d9", "#e52521", "#00872f", "#9b19be", "#ef8a00", "#009eaa", "#a44d00", "#202020"];
@@ -288,9 +404,8 @@ function phaseChart(packet) {
 }
 function rawChart(raw, ch) {
   const channel = raw.channels[ch];
-  return chart(
+  return { ...chart(
     ["real", "imag"].map((component, i) => ({
-      name: component === "real" ? "I" : "Q",
       color: colors[i],
       line: true,
       radius: 0,
@@ -298,7 +413,7 @@ function rawChart(raw, ch) {
     })),
     "Time (\xB5s)",
     ch === 7 ? "TX reference \xB7 ADC" : `RX ${ch} \xB7 ADC`
-  );
+  ), compact_axes: true, hide_x_labels: ch < 6, panel_label: ch === 7 ? "TX ref \xB7 ADC" : `RX ${ch} \xB7 ADC` };
 }
 function latencyChart(packet, now = packet.generated_unix_s) {
   const names = ["Raw", "TX", "Matched filter", "Detections", "Cuts", "Modes", "Fits"];
@@ -306,7 +421,7 @@ function latencyChart(packet, now = packet.generated_unix_s) {
   const series = names.flatMap((name, i) => {
     const t = packet.freshness?.[name];
     if (!Number.isFinite(t)) return [];
-    const age = Math.max(0, now - t) / 60, healthy = age < (name === "Raw" ? 0.5 : 10);
+    const age = Math.max(0, now - t) / 60, healthy = age < 12 * 60;
     return [{ color: healthy ? "#138a38" : "#d32626", line: false, points: [[i, age]] }];
   });
   const max = Math.max(1, ...series.map((s) => s.points[0][1] * 1.15));
@@ -401,10 +516,13 @@ var $ = (id) => document.getElementById(id);
 var plots = /* @__PURE__ */ new Map();
 var pending = /* @__PURE__ */ new Map();
 var telemetry;
+var operations;
 var rti;
 var chosenDay = "";
 var manifest;
 var followLive = true;
+var cardControls = /* @__PURE__ */ new Map();
+var plotHeight = (id) => id.startsWith("raw-") ? Number(id.slice(4)) < 6 ? 105 : 132 : id === "meteorGround" ? 280 : id.startsWith("meteor") ? 220 : ["rti", "processing"].includes(id) ? 255 : id === "speed" ? 275 : 300;
 var rtiRetry;
 var checkingTelemetry = false;
 var telemetryError = "";
@@ -442,9 +560,9 @@ async function json(url) {
   }
 }
 async function draw(id, spec) {
-  const height = id.startsWith("raw-") ? 170 : id === "meteorGround" ? 280 : id.startsWith("meteor") ? 220 : ["rti", "processing"].includes(id) ? 255 : id === "speed" ? 275 : 300;
+  const height = plotHeight(id), controls = cardControls.get($(id).closest(".card"));
   if (!plots.has(id)) {
-    if (!pending.has(id)) pending.set(id, InteractiveSeriesPlot.mount($(id), spec, { height, compact: true }).then((p) => {
+    if (!pending.has(id)) pending.set(id, InteractiveSeriesPlot.mount($(id), spec, { height, controls }).then((p) => {
       plots.set(id, p);
       return p;
     }).finally(() => pending.delete(id)));
@@ -557,6 +675,7 @@ async function renderTelemetry(data, checking = false) {
   telemetry = data;
   checkingTelemetry = checking;
   freshness();
+  renderHealth();
   const fits = fitCharts(data);
   for (const [id, select] of [["counts", "counts"], ["speed", "speed"], ["radiant", "radiant"]]) await attempt(id, () => draw(id, fits[select]));
   await attempt("phase", () => draw("phase", phaseChart(data)));
@@ -605,6 +724,8 @@ async function refreshTelemetry() {
 async function refreshOperations() {
   try {
     const ops = await json("./ops_status.json");
+    operations = ops;
+    renderHealth();
     message("operationsStatus", `Source service report ${ops.generated_utc}`);
     const services = ops.services.map((s) => {
       const node = document.createElement("span");
@@ -616,7 +737,7 @@ async function refreshOperations() {
     const inactive = ops.services.filter((s) => s.active_state !== "active").length;
     message("healthSummary", inactive ? `${inactive} services not active` : "all services active");
     $("healthSummary").className = inactive ? "bad" : "ok";
-    table($("diskStatus"), ["Disk", "Used", "Free (GiB)"], ops.disks.map((d) => [d.path, d.used_percent?.toFixed(1) + "%", d.free_bytes == null ? "Unavailable" : (d.free_bytes / 2 ** 30).toFixed(1)]));
+    table($("diskStatus"), ["Disk", "Used", "Free (GiB)", "Health"], ops.disks.map((d) => [d.path, d.used_percent?.toFixed(1) + "%", d.free_bytes == null ? "Unavailable" : (d.free_bytes / 2 ** 30).toFixed(1), d.error ? "Unknown" : d.critical ? "CRITICAL \u226595%" : d.warning ? "Warning \u226580%" : "OK"]));
   } catch (error) {
     message("operationsStatus", `Operations refresh delayed: ${error.message}`);
   }
@@ -639,9 +760,80 @@ for (let ch = 0; ch < 8; ch++) {
   root.className = "plot";
   $("rawVoltage").append(root);
 }
-$("noiseSection").ontoggle = () => {
-  if ($("noiseSection").open) void refreshNoise();
-};
+var lastHealth = "";
+function renderHealth() {
+  const health = monitorHealth(operations, telemetry);
+  const key = JSON.stringify(health);
+  if (key === lastHealth) return;
+  lastHealth = key;
+  $("systemHealth").dataset.state = health.state;
+  message("overallHealth", { ok: "SYSTEM OK", bad: "ACTION REQUIRED", warn: "CHECK DISK HEADROOM", unknown: "HEALTH NOT FULLY CONFIRMED" }[health.state]);
+  $("healthItems").replaceChildren(...health.items.map((item) => {
+    const node = document.createElement("div");
+    node.className = "health-item";
+    node.dataset.state = item.state;
+    const label = document.createElement("strong"), detail = document.createElement("span");
+    label.textContent = `${item.label}: ${item.state === "bad" ? "FAULT" : item.state === "warn" ? "WARNING" : item.state === "unknown" ? "UNKNOWN" : "OK"}`;
+    detail.textContent = item.detail;
+    node.append(label, detail);
+    return node;
+  }));
+}
+var maximized;
+function restoreCard() {
+  if (!maximized) return;
+  const { card, button, scroll, title } = maximized;
+  card.classList.remove("maximized");
+  button.textContent = "Maximize";
+  button.setAttribute("aria-label", `Maximize ${title}`);
+  button.setAttribute("aria-expanded", "false");
+  document.body.classList.remove("has-maximized");
+  for (const [id, p] of plots) if (card.contains($(id))) p.setHeight(plotHeight(id));
+  maximized = void 0;
+  window.scrollTo(0, scroll);
+  button.focus({ preventScroll: true });
+}
+for (const card of document.querySelectorAll("section.card")) {
+  const top = document.createElement("div");
+  top.className = "card-top";
+  const heading = card.querySelector(":scope > .heading,:scope > h2"), title = card.querySelector("h2")?.textContent || "panel";
+  if (heading) top.append(heading);
+  const actions = document.createElement("div");
+  actions.className = "card-actions";
+  if (card.querySelector(".plot,.raw-grid")) {
+    const controls = new PlotControlGroup();
+    cardControls.set(card, controls);
+    actions.append(controls.element);
+  }
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "maximize";
+  button.textContent = "Maximize";
+  button.setAttribute("aria-expanded", "false");
+  button.setAttribute("aria-label", `Maximize ${title}`);
+  button.onclick = () => {
+    if (maximized?.card === card) {
+      restoreCard();
+      return;
+    }
+    restoreCard();
+    maximized = { card, button, scroll: window.scrollY, title };
+    card.classList.add("maximized");
+    document.body.classList.add("has-maximized");
+    button.textContent = "Restore";
+    button.setAttribute("aria-label", `Restore ${title}`);
+    button.setAttribute("aria-expanded", "true");
+    for (const [id, p] of plots) if (card.contains($(id))) p.setHeight(id.startsWith("raw-") ? Math.max(plotHeight(id), Math.floor((innerHeight - 200) / 4)) : Math.max(plotHeight(id), Math.min(650, innerHeight - 220)));
+    card.scrollTop = 0;
+    button.focus({ preventScroll: true });
+  };
+  actions.append(button);
+  top.append(actions);
+  card.prepend(top);
+}
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") restoreCard();
+});
 $("day").onchange = () => {
   chosenDay = $("day").value;
   followLive = chosenDay === $("day").options[$("day").options.length - 1]?.value;
@@ -650,6 +842,7 @@ $("day").onchange = () => {
 function clock() {
   message("utc", utc(Date.now() / 1e3));
   freshness();
+  renderHealth();
 }
 clock();
 setInterval(clock, 1e3);
@@ -659,7 +852,7 @@ async function refresh() {
   refreshing = true;
   $("refresh").disabled = true;
   try {
-    await Promise.allSettled([refreshRTI(), ...$("noiseSection").open ? [refreshNoise()] : [], refreshTelemetry(), refreshOperations()]);
+    await Promise.allSettled([refreshRTI(), refreshNoise(), refreshTelemetry(), refreshOperations()]);
   } finally {
     refreshing = false;
     $("refresh").disabled = false;
