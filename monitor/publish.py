@@ -14,6 +14,7 @@ import time
 
 import h5py
 import numpy as np
+from monitor.health import phase_health
 
 SERVICES = ["pansy-uhd-rx", "pansy-uhd-watchdog", "pansy-delete-old-rf",
             "pansy-find-mode-starts", "pansy-status-plot", "pansy-mesomode-boundary",
@@ -96,7 +97,8 @@ def operations():
                               free_bytes=usage.free, used_percent=used, warning=used >= 80, critical=used >= 95))
         except OSError as exc:
             disks.append(dict(path=path, error=str(exc), warning=True))
-    return dict(generated_utc=datetime.now(timezone.utc).isoformat(), services=services, disks=disks)
+    return dict(generated_utc=datetime.now(timezone.utc).isoformat(), services=services, disks=disks,
+                phase_health=phase_health(Path(__file__).resolve().parents[1] / 'logs/pansy_uhd_watchdog.log'))
 
 
 def packet(metadata, raw, now=None, reader_factory=None):
