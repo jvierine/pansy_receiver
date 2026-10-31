@@ -2,21 +2,22 @@
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PANSY Receiver Monitor</title>
-<link rel="icon" href="favicon.svg"><link rel="stylesheet" href="assets/monitor.b73f8a06bfd08e8d.css">
-<link rel="modulepreload" href="assets/monitor.0ef2423f8331a548.js">
-<link rel="modulepreload" href="pkg/releases/bd9a933aa64c942c/rustplotlib_web.js">
-<link rel="preload" href="pkg/releases/bd9a933aa64c942c/rustplotlib_web_bg.wasm" as="fetch" type="application/wasm" crossorigin>
-<script type="module" src="assets/monitor.0ef2423f8331a548.js"></script>
+<link rel="icon" href="favicon.svg"><link rel="stylesheet" href="assets/monitor.651ac696772d597b.css">
+<link rel="modulepreload" href="assets/monitor.af571745cc57a0d3.js">
+<link rel="modulepreload" href="pkg/releases/7caedeeb810f57e4/rustplotlib_web.js">
+<link rel="preload" href="pkg/releases/7caedeeb810f57e4/rustplotlib_web_bg.wasm" as="fetch" type="application/wasm" crossorigin>
+<script type="module" src="assets/monitor.af571745cc57a0d3.js"></script>
 </head><body>
 <header><div><h1>PANSY Receiver Monitor</h1><p>Syowa, Antarctica · <span id="utc">UTC</span></p></div>
 <nav><a href="/rvd/">PMSE Explorer ↗</a><a href="#operations">Operations</a><button id="refresh" type="button">Refresh</button></nav>
 <div class="logos"><img src="pansy-title.svg" alt="PANSY"><img src="uit-logo.png" alt="UiT"><img src="iap-logo.svg" alt="IAP"><img src="u-tokyo-logo.png" alt="University of Tokyo"></div></header>
 <main>
+<section id="systemHealth" class="full health" aria-label="System health" role="status"><strong id="overallHealth">Checking system health…</strong><div id="healthItems" class="health-items"></div></section>
 <p id="freshness" class="notice full" role="status">Loading source-data freshness…</p>
-<p class="help full">All plots: scroll to zoom · drag to zoom · Shift-drag to pan · double-click to reset.</p>
+<p class="help full">Scroll the page normally. Select Zoom or Pan to interact with plots; Reset view restores the full range. Every panel can be maximized and restored.</p>
 <section class="card"><div class="heading"><h2>PMSE · zenith</h2><label>UTC day <select id="day" aria-label="PMSE UTC day"></select></label></div>
 <p id="pmseStatus" class="caption">Loading mode summaries…</p><div id="rti" class="plot"></div><p class="caption">Peak retained SNR · 50–120 km. Missing or unretained cells use the zero-level color. <a href="/rvd/">All five beams and radar imaging ↗</a></p></section>
-<section class="card"><h2>Processing latency</h2><div id="processing" class="plot"></div><p class="caption">Stage lag at source report time: green &lt;10 min (raw &lt;30 s), red above. Delivery age is shown above. Event-driven stages can age during quiet periods; service health is reported separately below.</p></section>
+<section class="card"><h2>Processing latency</h2><div id="processing" class="plot"></div><p class="caption">Stage lag at source report time: green below 12 hours, red at 12 hours or more. Event-driven stages can age during quiet periods. Receiver faults, disk pressure and stale reports are checked separately in the health summary.</p></section>
 <section class="card"><h2>Latest 24 hours · fitted radiants</h2><div id="radiant" class="plot"></div><p class="caption">Hammer equal-area map · logarithmic count density · apex (270°) at center.</p></section>
 <section class="card"><h2>Latest 24 hours · fitted meteor counts</h2><div id="counts" class="plot"></div></section>
 <section class="card full"><div class="heading"><h2>Latest fitted meteor · event diagnostics</h2><span id="meteorStatus" class="caption"></span></div>
@@ -27,8 +28,8 @@
 <section class="card"><h2>Raw voltages · all eight channels</h2><p id="rawStatus" class="caption"></p><div id="rawVoltage" class="raw-grid"></div><p class="caption">I: blue · Q: red · raw ADC units, with no channel equalization. RX 0–6 plus transmitter reference (7).</p></section>
 <div class="stack"><section class="card"><h2>Transmit-pulse relative phase · 24 hours</h2><div id="phase" class="plot"></div><p class="caption">No lines across phase wraps; eight channels, bright colors.</p></section>
 <section class="card"><h2>Latest 24 hours · meteor speeds</h2><div id="speed" class="plot"></div></section></div>
-<details class="card full" id="noiseSection"><summary>System noise temperature · zenith</summary><p id="noiseStatus" class="caption">Open to load receiver temperatures.</p><div id="noiseTemperature" class="plot"></div><p class="caption">All seven RX channels. Measured Tsys = P/G, using zenith-only fitted gain from P = G(Tsky + Trec), GSM2008 and the one-way module pattern. Absolute temperatures remain provisional.</p><div id="noiseFits" class="table-wrap"></div></details>
-<details class="card full" id="operations"><summary>Receiver operations · <span id="healthSummary">loading service status…</span></summary><p id="operationsStatus" class="caption"></p><div id="serviceStatus" class="service-grid"></div><div id="diskStatus" class="table-wrap"></div></details>
-<details class="card full"><summary>Metadata backup and mirror</summary><div id="backupStatus" class="caption">Loading backup status…</div></details>
+<section class="card full" id="noiseSection"><h2>System noise temperature · zenith</h2><p id="noiseStatus" class="caption">Loading receiver temperatures…</p><div id="noiseTemperature" class="plot"></div><p class="caption">All seven RX channels. Measured Tsys = P/G, using zenith-only fitted gain from P = G(Tsky + Trec), GSM2008 and the one-way module pattern. Absolute temperatures remain provisional.</p><div id="noiseFits" class="table-wrap"></div></section>
+<section class="card full" id="operations"><h2>Receiver operations · <span id="healthSummary">loading service status…</span></h2><p id="operationsStatus" class="caption"></p><div id="serviceStatus" class="service-grid"></div><div id="diskStatus" class="table-wrap"></div></section>
+<section class="card full"><h2>Metadata backup and mirror</h2><div id="backupStatus" class="caption">Loading backup status…</div></section>
 <footer class="full"><p>PANSY meteor extension · PANSY team, IAP Kühlungsborn and UiT The Arctic University of Norway. Co-investigators: Juha Vierinen, Jorge L. Chau, Nico Pfeffer, Devin Huyghebaert and Daniel Kastinen. <a href="https://pansy.eps.s.u-tokyo.ac.jp/en/index.html">Official PANSY project ↗</a></p></footer>
 </main></body></html>

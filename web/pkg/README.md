@@ -1,10 +1,11 @@
 # Browser plotting runtime
 
-Generated from `jvierine/rustplotlib` commit `6e0d03e` on branch
-`codex/monitor-map-latency`, including the native Mollweide/HEALPix density,
-categorical bar and rectilinear field features.
-The interaction wrapper includes initialization retry from commit `51c0e7b`.
-Runtime release `bd9a933aa64c942c` is the SHA-256 prefix of the concatenated
+Generated from `jvierine/rustplotlib` commit `198a030` on branch
+`codex/monitor-mobile-controls`, including compact native axes, shared
+scroll-safe navigation, explicit Pagella font loading, Hammer/HEALPix density,
+categorical bars and rectilinear fields. Plot toolbars remain visible; grouped
+controls share mode/reset actions without imposing gestures on the page.
+Runtime release `7caedeeb810f57e4` is the SHA-256 prefix of the concatenated
 generated JavaScript and WASM. Only content-addressed releases use immutable
 HTTP caching; HTML, wrappers and telemetry are revalidated.
 

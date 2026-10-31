@@ -7,9 +7,12 @@ task_cargo="${PANSY_CARGO_BIN:-$HOME/.cargo/bin/cargo}"
 task_bindgen="${PANSY_BINDGEN_BIN:-$HOME/.cargo/bin/wasm-bindgen}"
 task_esbuild="${PANSY_ESBUILD_BIN:-$task_plot_source/node_modules/.bin/esbuild}"
 test -x "$task_esbuild"
+mkdir -p "$task_repo/web/fonts"
+cp "$task_plot_source/web/fonts/texgyrepagella-regular.otf" "$task_repo/web/fonts/texgyrepagella-regular.otf"
+cp "$task_plot_source/web/fonts/LICENSE-TeX-Gyre.txt" "$task_repo/web/fonts/LICENSE-TeX-Gyre.txt"
 (cd "$task_plot_source" && "$task_cargo" build -p rustplotlib-web --release --target wasm32-unknown-unknown)
 "$task_bindgen" --target web --out-dir "$task_repo/web/pkg" "$task_plot_source/target/wasm32-unknown-unknown/release/rustplotlib_web.wasm"
-"$task_esbuild" "$task_plot_source/web/src/interactive_series.ts" --format=esm --outfile="$task_repo/web/lib/interactive_series.js"
+"$task_esbuild" "$task_plot_source/web/src/interactive_series.ts" --bundle --external:../pkg/rustplotlib_web.js --format=esm --outfile="$task_repo/web/lib/interactive_series.js"
 node --input-type=module - "$task_repo" "$task_plot_source" <<'JS'
 import fs from 'node:fs';
 import path from 'node:path';

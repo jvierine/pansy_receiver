@@ -44,15 +44,15 @@ export function phaseChart(packet){
 }
 export function rawChart(raw,ch){
  const channel=raw.channels[ch];
- return chart(['real','imag'].map((component,i)=>({name:component==='real'?'I':'Q',color:colors[i],line:true,radius:0,
+ return {...chart(['real','imag'].map((component,i)=>({color:colors[i],line:true,radius:0,
   points:channel[component].map((v,n)=>[n*raw.sample_step_us,v])})),
-  'Time (µs)',ch===7?'TX reference · ADC':`RX ${ch} · ADC`);
+  'Time (µs)',ch===7?'TX reference · ADC':`RX ${ch} · ADC`),compact_axes:true,hide_x_labels:ch<6,panel_label:ch===7?'TX ref · ADC':`RX ${ch} · ADC`};
 }
 export function latencyChart(packet,now=packet.generated_unix_s){
  const names=['Raw','TX','Matched filter','Detections','Cuts','Modes','Fits'];
  const labels=['Raw','TX','MF','Events','Cuts','Modes','Fits'];
  const series=names.flatMap((name,i)=>{const t=packet.freshness?.[name];if(!Number.isFinite(t))return [];
-  const age=Math.max(0,now-t)/60,healthy=age<(name==='Raw'?0.5:10);
+  const age=Math.max(0,now-t)/60,healthy=age<12*60;
   return [{color:healthy?'#138a38':'#d32626',line:false,points:[[i,age]]}];});
  const max=Math.max(1,...series.map(s=>s.points[0][1]*1.15));
  return {...chart(series,'Processing stage','Latest sample age (min)',{bounds:[-0.6,0,6.6,max]}),bars:true,categories:labels};

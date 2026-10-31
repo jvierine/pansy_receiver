@@ -6,6 +6,14 @@ web_dir="${1:-/var/www/pansy-live}"
 rvd_dir="${2:-/var/www/rvd-live}"
 test -d "$web_dir" && test -d "$rvd_dir/lib"
 mkdir -p "$web_dir/assets"
+mkdir -p "$web_dir/fonts"
+for file in "$repo_dir"/web/fonts/*; do
+  name="$(basename "$file")"
+  if ! cmp -s "$file" "$web_dir/fonts/$name"; then
+    install -m 0644 "$file" "$web_dir/fonts/$name.partial"
+    mv "$web_dir/fonts/$name.partial" "$web_dir/fonts/$name"
+  fi
+done
 for file in "$repo_dir"/web/assets/*; do
   name="$(basename "$file")"
   if ! cmp -s "$file" "$web_dir/assets/$name"; then
@@ -16,11 +24,11 @@ done
 if [ -f "$web_dir/index.html" ]; then
   cp -p "$web_dir/index.html" "$web_dir/index.html.pre-rustplotlib-$(date -u +%Y%m%dT%H%M%SZ)"
 fi
-for file in monitor.js monitor_data.mjs monitor.css; do
+for file in monitor.js monitor_data.mjs health.mjs monitor.css; do
   install -m 0644 "$repo_dir/web/$file" "$web_dir/$file.partial"
   mv "$web_dir/$file.partial" "$web_dir/$file"
 done
-runtime_release=bd9a933aa64c942c
+runtime_release=7caedeeb810f57e4
 mkdir -p "$web_dir/lib" "$web_dir/pkg/releases/$runtime_release"
 if ! cmp -s "$repo_dir/web/lib/interactive_series.js" "$web_dir/lib/interactive_series.js"; then
   install -m 0644 "$repo_dir/web/lib/interactive_series.js" "$web_dir/lib/interactive_series.js.partial"
