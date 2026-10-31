@@ -15,6 +15,12 @@ try{
   assert.equal(await page.locator('section.card').count(),await page.locator('.maximize').count());
   assert.ok(await page.evaluate(()=>document.fonts.check('11px RustplotlibPagella')),'Explicit scientific font loaded');
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'No horizontal overflow');
+  const logos=page.locator('.logos img');assert.equal(await logos.count(),4);
+  for(const logo of await logos.all()){
+   assert.ok(await logo.isVisible(),`${await logo.getAttribute('alt')} logo visible`);
+   assert.ok(await logo.evaluate(img=>img.complete&&img.naturalWidth>0),'Logo asset loaded');
+   const rect=await logo.boundingBox();assert.ok(rect.width>0&&rect.x>=0&&rect.x+rect.width<=(mobile?390:1280),'Logo fits viewport');
+  }
   await page.screenshot({path:`${artifacts}/${mobile?'mobile':'desktop'}-top.png`});
   const raw=page.locator('section.card').filter({has:page.locator('#rawVoltage')});
   await raw.scrollIntoViewIfNeeded();

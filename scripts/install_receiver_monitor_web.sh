@@ -24,7 +24,7 @@ done
 if [ -f "$web_dir/index.html" ]; then
   cp -p "$web_dir/index.html" "$web_dir/index.html.pre-rustplotlib-$(date -u +%Y%m%dT%H%M%SZ)"
 fi
-for file in monitor.js monitor_data.mjs health.mjs monitor.css; do
+for file in monitor.js monitor_data.mjs health.mjs monitor.css pansy-title.svg uit-logo.png iap-logo.svg u-tokyo-logo.png; do
   install -m 0644 "$repo_dir/web/$file" "$web_dir/$file.partial"
   mv "$web_dir/$file.partial" "$web_dir/$file"
 done
