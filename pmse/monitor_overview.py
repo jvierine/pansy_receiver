@@ -11,7 +11,8 @@ def noise_display(model):
     return dict(schema='pansy_monitor_noise_v1',noise_model_origin_unix_s=origin,
         noise_model_observation_stop_unix_s=stop,noise_zenith_model_status=model.get('noise_zenith_model_status'),
         noise_model_data=dict(times_h=[data['times_h'][i] for i in use],
-            noise_power=[[data['noise_power'][i][0]] for i in use]))
+            noise_power=[[data['noise_power'][i][0]] for i in use],
+            sky_temperature_k=[[data['sky_temperature_k'][i][0]] for i in use]))
 
 def overview(packet):
     first=packet['axis_start_us'];stop=packet['axis_stop_us']

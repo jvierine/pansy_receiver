@@ -37,7 +37,7 @@ async function refreshNoise(){
  try{
   message('noiseStatus','Loading receiver temperatures…');
   let model;
-  try{model=await json('/rvd/data/monitor-noise.json');}
+  try{model=await json('/rvd/data/monitor-noise.json');if(!model.noise_model_data?.sky_temperature_k)model=await json('/rvd/data/sky-noise/status.json');}
   catch(error){if(error.status!==404)throw error;model=await json('/rvd/data/sky-noise/status.json');}
   await draw('noiseTemperature',zenithTemperature(model));
   const fits=model.noise_zenith_model_status;

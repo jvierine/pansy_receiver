@@ -16,9 +16,16 @@ export function zenithTemperature(model){
  fits.forEach((fit,ch)=>{
   const gain=fit.power_per_kelvin;
   if(!(gain>0)||!Number.isFinite(gain)||!Number.isFinite(fit.receiver_temp_k))return;
-  series.push({name:`RX ${ch}`,color:colors[ch],line:true,radius:1,
+  series.push({color:colors[ch],line:false,radius:1.5,
     points:d.times_h.flatMap((t,i)=>{if(model.noise_model_origin_unix_s+t*3600<model.noise_model_observation_stop_unix_s-86400)return [];
      const p=d.noise_power[i]?.[0]?.[ch];return [[t,p>0&&Number.isFinite(p)?p/gain:null]];})});
+ });
+ // Compare like quantities: the measured P/G includes the fitted receiver offset.
+ fits.forEach((fit,ch)=>{
+  if(!(fit.power_per_kelvin>0)||!Number.isFinite(fit.power_per_kelvin)||!Number.isFinite(fit.receiver_temp_k))return;
+  series.push({name:`RX ${ch}`,color:colors[ch],line:true,radius:0,line_width:2.4,
+   points:d.times_h.flatMap((t,i)=>{if(model.noise_model_origin_unix_s+t*3600<model.noise_model_observation_stop_unix_s-86400)return [];
+    const sky=d.sky_temperature_k?.[i]?.[0];return [[t,Number.isFinite(sky)&&sky>=0?sky+fit.receiver_temp_k:null]];})});
  });
  return chart(series,'Time (UTC)','Zenith system noise temperature (K)',{origin:model.noise_model_origin_unix_s});
 }
