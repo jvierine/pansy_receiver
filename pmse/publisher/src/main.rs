@@ -645,7 +645,10 @@ impl Publisher {
                 .map(|old| old["revision"] == packet["revision"])
                 .unwrap_or(false);
             if unchanged {
-                self.state.pending_days.remove(day);
+                if latest.as_ref() == Some(day) && base["revision"] != packet["revision"] {
+                    base = packet;
+                    wrote_latest = true;
+                }
                 continue;
             }
             // Publish the downloadable HDF5 before exposing its new JSON revision.
@@ -663,7 +666,6 @@ impl Publisher {
                 }
             }
             atomic_json(&target, &packet)?;
-            self.state.pending_days.remove(day);
             if latest.as_ref() == Some(day) {
                 base = packet;
                 wrote_latest = true;
@@ -675,6 +677,9 @@ impl Publisher {
             if let Ok(value) = overview(&base) {
                 atomic_json(&self.cfg.output.join("monitor-overview.json"), &value)?;
             }
+        }
+        for day in &dirty {
+            self.state.pending_days.remove(day);
         }
         if serde_json::to_vec(&self.state)? != old_state {
             atomic_json(&self.cfg.state, &self.state)?;
