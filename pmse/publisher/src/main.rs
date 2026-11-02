@@ -53,7 +53,9 @@ struct Hint {
     packets: Vec<Value>,
 }
 fn read_hint(path: &Path) -> Result<Hint> {
-    Ok(serde_json::from_reader(GzDecoder::new(File::open(path)?))?)
+    let mut data = Vec::new();
+    GzDecoder::new(File::open(path)?).read_to_end(&mut data)?;
+    Ok(serde_json::from_slice(&data)?)
 }
 fn read_json(path: &Path) -> Result<Value> {
     Ok(serde_json::from_slice(&fs::read(path)?)?)
