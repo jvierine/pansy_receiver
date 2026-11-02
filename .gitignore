@@ -41,3 +41,5 @@ pmse/plotting/target/
 # Local UiT download-memo build and visual QA; the public PDF is tracked.
 /output/pdf/pansy-sparse-spectra-guide.pdf
 /tmp/pdfs/uit-download-guide/
+# Native publisher build artifacts.
+/pmse/publisher/target/
