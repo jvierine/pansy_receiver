@@ -677,6 +677,8 @@ impl Publisher {
                 let staging = self.cfg.output.join(format!(".sidecar-{day}.json"));
                 atomic_json(&staging, &packet)?;
                 let status = Command::new(python)
+                    .env("OPENBLAS_NUM_THREADS", "1")
+                    .env("OMP_NUM_THREADS", "1")
                     .arg(script)
                     .arg(&staging)
                     .arg(self.cfg.output.join(format!("gui-data-{day}.h5")))
