@@ -10,16 +10,35 @@ LOG_FILE="$STATE_DIR/rsync.log"
 STATUS_FILE="$STATE_DIR/rsync_status.tsv"
 ACTIVE_DIR="$STATE_DIR/rsync_active"
 LOCK_DIR="$STATE_DIR/rsync_locks"
-tmp_dir=""
+STATUS_DIR="$STATE_DIR/rsync_status"
 pids=()
+
+read -r -a channels <<< "$METADATA_CHANNELS"
+total_budget="${RSYNC_TOTAL_BWLIMIT_KB:-${RSYNC_BWLIMIT_KB:-50}}"
+if ! [[ "$total_budget" =~ ^[1-9][0-9]*$ ]] ||
+   [ "${#channels[@]}" -eq 0 ] || [ "$total_budget" -lt "${#channels[@]}" ]; then
+  echo "Transfer budget must be at least the number of metadata channels (KiB/s)" >&2
+  exit 1
+fi
+
+channel_weight() {
+  case "$1" in
+    cut) echo 10 ;;
+    tx) echo 4 ;;
+    *) echo 1 ;;
+  esac
+}
+
+total_weight=0
+for channel in "${channels[@]}"; do
+  total_weight=$((total_weight + $(channel_weight "$channel")))
+done
 
 channel_bwlimit_kb() {
   local channel="$1"
-  if [ "$channel" = "cut" ]; then
-    echo "${RSYNC_BWLIMIT_CUT_KB:-50}"
-  else
-    echo "${RSYNC_BWLIMIT_DEFAULT_KB:-10}"
-  fi
+  local weight
+  weight="$(channel_weight "$channel")"
+  echo "$((1 + (total_budget - ${#channels[@]}) * weight / total_weight))"
 }
 
 rsync_ssh_cmd() {
@@ -40,14 +59,22 @@ cleanup() {
     wait "${pids[@]}" 2>/dev/null || true
   fi
   clear_active
-  if [ -n "$tmp_dir" ]; then
-    rm -rf "$tmp_dir"
-  fi
+}
+
+write_channel_status() {
+  local channel="$1" started="$2" finished="$3" rc="$4"
+  local temporary="$STATUS_DIR/.$channel.$BASHPID.tmp"
+  printf "%s\t%s\t%s\t%s\n" "$channel" "$started" "$finished" "$rc" >"$temporary"
+  mv "$temporary" "$STATUS_DIR/$channel.tsv"
+  (
+    flock -x 9
+    cat "$STATUS_DIR"/*.tsv >"$STATUS_FILE.tmp"
+    mv "$STATUS_FILE.tmp" "$STATUS_FILE"
+  ) 9>"$STATE_DIR/rsync_status.lock"
 }
 
 sync_channel() {
   local channel="$1"
-  local channel_status_file="$2"
   local channel_started
   local finished
   local active_file
@@ -55,7 +82,6 @@ sync_channel() {
   local lock_file
   local rc
   local remote_source
-  local -a recent_phase_filters=()
 
   mkdir -p "$LOCAL_METADATA_ROOT/$channel"
   mkdir -p "$LOCK_DIR"
@@ -67,29 +93,20 @@ sync_channel() {
   exec {lock_fd}>"$lock_file"
   if ! flock -n "$lock_fd"; then
     echo "[$channel_started] skipping $channel because another rsync is already active" | tee -a "$LOG_FILE"
-    printf "%s\t%s\t%s\t%s\n" "$channel" "$channel_started" "$channel_started" "locked" >"$channel_status_file"
+    exec {lock_fd}>&-
     return 0
   fi
 
   printf "%s\t%s\t%s\n" "$channel" "$channel_started" "$BASHPID" >"$active_file"
   echo "[$channel_started] syncing $channel with --bwlimit=$bwlimit_kb" | tee -a "$LOG_FILE"
 
-  remote_source="radar@127.0.0.1:${REMOTE_METADATA_ROOT}/${channel}/20*"
-  if [ "$channel" = "phase" ]; then
-    remote_source="radar@127.0.0.1:${REMOTE_METADATA_ROOT}/${channel}/"
-    for hour_offset in $(seq 0 $((${PHASE_SYNC_LOOKBACK_HOURS:-72} - 1))); do
-      hour_dir="$(date -u -d "-$hour_offset hour" +%Y-%m-%dT%H-00-00)"
-      recent_phase_filters+=(--include="/$hour_dir/***")
-    done
-    recent_phase_filters+=(--exclude="*")
-  fi
+  remote_source="radar@127.0.0.1:${REMOTE_METADATA_ROOT}/${channel}/"
 
   set +e
   rsync -avz \
     --bwlimit="$bwlimit_kb" \
     --partial \
     --timeout=120 \
-    "${recent_phase_filters[@]}" \
     -e "$(rsync_ssh_cmd)" \
     "$remote_source" \
     "$LOCAL_METADATA_ROOT/$channel/" >>"$LOG_FILE" 2>&1
@@ -99,7 +116,8 @@ sync_channel() {
   finished="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   rm -f "$active_file"
   flock -u "$lock_fd"
-  printf "%s\t%s\t%s\t%s\n" "$channel" "$channel_started" "$finished" "$rc" >"$channel_status_file"
+  exec {lock_fd}>&-
+  write_channel_status "$channel" "$channel_started" "$finished" "$rc"
 
   if [ "$rc" -ne 0 ]; then
     echo "[$finished] rsync for $channel exited with status $rc" | tee -a "$LOG_FILE"
@@ -108,27 +126,24 @@ sync_channel() {
   return 0
 }
 
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 0' INT TERM
 
-while true; do
-  tmp_status="$(mktemp)"
-  tmp_dir="$(mktemp -d)"
-  clear_active
-  pids=()
+mkdir -p "$STATUS_DIR"
+clear_active
+echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] total transfer budget $total_budget KiB/s; independent channel retries" | tee -a "$LOG_FILE"
 
-  for channel in $METADATA_CHANNELS; do
-    sync_channel "$channel" "$tmp_dir/$channel.tsv" &
-    pids+=("$!")
-  done
-
-  for pid in "${pids[@]}"; do
-    wait "$pid" || true
-  done
-
-  cat "$tmp_dir"/*.tsv >"$tmp_status"
-
-  mv "$tmp_status" "$STATUS_FILE"
-  rm -rf "$tmp_dir"
-  tmp_dir=""
-  sleep "$RSYNC_SLEEP_SECONDS"
+for channel in "${channels[@]}"; do
+  (
+    trap 'exit 0' INT TERM
+    while true; do
+      sync_channel "$channel"
+      sleep "$RSYNC_SLEEP_SECONDS"
+    done
+  ) &
+  pids+=("$!")
 done
+
+# If a worker unexpectedly dies, let systemd restart the complete worker set.
+wait -n "${pids[@]}"
+exit 1

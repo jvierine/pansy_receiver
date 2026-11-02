@@ -29,6 +29,14 @@ The installer copies the default configuration to:
 
 Edit that file if paths or ports need to change.
 
+Transfers share the configured `RSYNC_BWLIMIT_KB` budget (50 KiB/s by
+default); `RSYNC_TOTAL_BWLIMIT_KB` overrides it. Cutouts and TX timing receive
+larger shares than the smaller channels. Each channel retries independently
+every `RSYNC_SLEEP_SECONDS`, so a cutout backlog cannot prevent a failed phase
+or detection transfer from retrying. Per-channel results update
+`backup_state/rsync_status.tsv` immediately. All phase history is synchronized,
+including gaps older than 72 hours. Transfers include channel properties files.
+
 ## Services
 
 ```bash
