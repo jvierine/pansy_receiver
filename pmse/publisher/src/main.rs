@@ -260,6 +260,14 @@ impl Publisher {
     }
     fn discover(&mut self) -> Result<BTreeSet<String>> {
         let mut dirty = BTreeSet::new();
+        let recent = self
+            .state
+            .directories
+            .keys()
+            .rev()
+            .take(2)
+            .cloned()
+            .collect::<BTreeSet<_>>();
         for dir in fs::read_dir(&self.cfg.source)? {
             let dir = dir?;
             let name = dir.file_name().to_string_lossy().into_owned();
@@ -271,7 +279,7 @@ impl Publisher {
                 continue;
             }
             let now = stamp(&dir.path())?;
-            if self.state.directories.get(&name) == Some(&now) {
+            if self.state.directories.get(&name) == Some(&now) && !recent.contains(&name) {
                 continue;
             }
             let mut complete = true;
@@ -472,7 +480,7 @@ impl Publisher {
         }
         Ok(used)
     }
-    fn build_day(&self, day: &str, base: &Value) -> Result<Value> {
+    fn build_day(&mut self, day: &str, base: &Value) -> Result<Value> {
         let (start, end) = day_bounds(day)?;
         let mut result = Value::Object(
             base.as_object()
@@ -503,13 +511,32 @@ impl Publisher {
                 .contains_key(&format!("{hour}/pmse@{}.h5", key / 600_000_000 * 600))
         });
         let previous = day_of(start - 1);
-        for (name, entry) in &self.state.files {
+        let snapshots = self
+            .state
+            .files
+            .iter()
+            .map(|(name, entry)| (name.clone(), entry.clone()))
+            .collect::<Vec<_>>();
+        for (name, entry) in snapshots {
             if !name.starts_with(day) && !name.starts_with(&format!("{previous}T23")) {
                 continue;
             }
-            let hint = read_hint(&self.cfg.source.join(format!("{name}.json.gz")))?;
+            let path = self.cfg.source.join(format!("{name}.json.gz"));
+            let hint = read_hint(&path)?;
+            let mut ready = entry.ready;
             if hint.native_sha256 != entry.native_sha256 {
-                return Err("source hint changed during publication; retrying".into());
+                // An atomic newer source packet is valid display metadata. Its
+                // native spectra must be reverified before being marked ready.
+                let cached = self.state.files.get_mut(&name).unwrap();
+                cached.native_sha256 = hint.native_sha256.clone();
+                cached.native_bytes = hint.native_bytes;
+                cached.hint = stamp(&path)?;
+                cached.ready = false;
+                cached.checked = None;
+                self.state
+                    .directories
+                    .remove(name.split('/').next().unwrap());
+                ready = false;
             }
             for mut p in hint.packets {
                 if p["stop_us"].as_i64().unwrap_or(0) <= start
@@ -517,7 +544,7 @@ impl Publisher {
                 {
                     continue;
                 }
-                p["spectra_ready"] = json!(entry.ready);
+                p["spectra_ready"] = json!(ready);
                 packets.insert(p["key"].to_string(), p);
             }
         }
@@ -972,5 +999,24 @@ mod tests {
         p.cycle().unwrap();
         assert_eq!(stamp(&path).unwrap(), before);
         assert!(p.state.pending_days.is_empty());
+    }
+
+    #[test]
+    fn source_replacement_during_day_assembly_publishes_pending_metadata() {
+        let f = Fixture::new();
+        let day = "2026-11-02";
+        let key = day_bounds(day).unwrap().0;
+        let name = f.hint(b"good", &[packet(key, "v1")]);
+        f.native(&name, b"good");
+        let mut p = Publisher::new(f.config());
+        p.cycle().unwrap();
+        p.cycle().unwrap();
+        assert!(p.state.files[&name].ready);
+        f.hint(b"next", &[packet(key, "v2")]);
+        let base = read_json(&f.0.join("output/manifest.json")).unwrap();
+        let result = p.build_day(day, &base).unwrap();
+        assert_eq!(result["frame_packets"][0]["source_revision"], "v2");
+        assert_eq!(result["spectra_transfer_pending"], 1);
+        assert!(!p.state.files[&name].ready);
     }
 }
