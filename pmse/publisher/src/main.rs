@@ -43,6 +43,8 @@ struct State {
     directories: BTreeMap<String, Stamp>,
     files: BTreeMap<String, Entry>,
     auxiliary: BTreeMap<String, Stamp>,
+    #[serde(default)]
+    pending_days: BTreeSet<String>,
 }
 #[derive(Deserialize)]
 struct Hint {
@@ -546,8 +548,10 @@ impl Publisher {
     fn cycle(&mut self) -> Result<()> {
         let began = Instant::now();
         let old_state = serde_json::to_vec(&self.state)?;
-        let mut dirty = self.discover()?;
+        let mut dirty = self.state.pending_days.clone();
+        dirty.extend(self.discover()?);
         let verified_bytes = self.verify(&mut dirty)?;
+        self.state.pending_days = dirty.clone();
         let mut auxiliary_pending = false;
         for (name, path) in [
             (
@@ -641,6 +645,7 @@ impl Publisher {
                 .map(|old| old["revision"] == packet["revision"])
                 .unwrap_or(false);
             if unchanged {
+                self.state.pending_days.remove(day);
                 continue;
             }
             // Publish the downloadable HDF5 before exposing its new JSON revision.
@@ -658,6 +663,7 @@ impl Publisher {
                 }
             }
             atomic_json(&target, &packet)?;
+            self.state.pending_days.remove(day);
             if latest.as_ref() == Some(day) {
                 base = packet;
                 wrote_latest = true;
@@ -906,5 +912,21 @@ mod tests {
             again["height"].as_f64().unwrap().to_bits(),
             expected.to_bits()
         );
+    }
+
+    #[test]
+    fn failed_sidecar_is_retried_without_another_source_change() {
+        let f = Fixture::new();
+        let key = day_bounds("2026-11-02").unwrap().0;
+        f.hint(b"good", &[packet(key, "v1")]);
+        let mut cfg = f.config();
+        cfg.sidecar = Some(("/usr/bin/false".into(), "unused".into()));
+        let mut p = Publisher::new(cfg);
+        assert!(p.cycle().is_err());
+        assert!(p.state.pending_days.contains("2026-11-02"));
+        p.cfg.sidecar = None;
+        p.cycle().unwrap();
+        assert_eq!(f.day("2026-11-02")["frame_count"], 1);
+        assert!(p.state.pending_days.is_empty());
     }
 }
