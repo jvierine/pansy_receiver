@@ -892,4 +892,19 @@ mod tests {
         assert_eq!(o["x"].as_array().unwrap().len(), 4);
         assert_eq!(o["y"], json!([79.5, 80.5, 81.5, 82.5]));
     }
+
+    #[test]
+    fn json_preserves_existing_float_values_exactly() {
+        let expected = 50.664925401999994_f64;
+        let parsed: Value = serde_json::from_str("{\"height\":50.664925401999994}").unwrap();
+        assert_eq!(
+            parsed["height"].as_f64().unwrap().to_bits(),
+            expected.to_bits()
+        );
+        let again: Value = serde_json::from_slice(&serde_json::to_vec(&parsed).unwrap()).unwrap();
+        assert_eq!(
+            again["height"].as_f64().unwrap().to_bits(),
+            expected.to_bits()
+        );
+    }
 }
