@@ -241,7 +241,7 @@ struct Publisher {
     cfg: Config,
     state: State,
     verification: Option<Verification>,
-    seed: BTreeMap<String, BTreeMap<String, String>>,
+    seed: BTreeMap<String, BTreeMap<String, (String, bool)>>,
     retry_cursor: usize,
 }
 impl Publisher {
@@ -299,8 +299,15 @@ impl Publisher {
                     complete = false;
                     continue;
                 }
-                dirty.extend(affected_days(&hint.packets));
                 let previous = self.state.files.get(&key).cloned();
+                let seeded = if previous.is_none() {
+                    self.seed_ready(&hint.packets)
+                } else {
+                    None
+                };
+                if previous.is_some() || seeded.is_none() {
+                    dirty.extend(affected_days(&hint.packets));
+                }
                 let unchanged = previous
                     .as_ref()
                     .map(|e| e.native_sha256 == hint.native_sha256)
@@ -308,7 +315,7 @@ impl Publisher {
                 let ready = if unchanged {
                     previous.as_ref().unwrap().ready
                 } else {
-                    self.seed_ready(&hint.packets)
+                    seeded.unwrap_or(false)
                 };
                 let checked = if unchanged {
                     previous.as_ref().unwrap().checked.clone()
@@ -332,11 +339,11 @@ impl Publisher {
         }
         Ok(dirty)
     }
-    fn seed_ready(&mut self, packets: &[Value]) -> bool {
+    fn seed_ready(&mut self, packets: &[Value]) -> Option<bool> {
         // Preserve readiness that the preceding publisher already verified. A changed
         // source_revision never inherits readiness from an older published record.
         if packets.is_empty() {
-            return false;
+            return None;
         }
         for day in affected_days(packets) {
             if self.seed.contains_key(&day) {
@@ -346,25 +353,30 @@ impl Publisher {
             if let Ok(v) = read_json(&self.cfg.output.join("days").join(format!("{day}.json"))) {
                 if let Some(a) = v["frame_packets"].as_array() {
                     for p in a {
-                        if p["spectra_ready"].as_bool().unwrap_or(true) {
-                            published.insert(
-                                p["key"].to_string(),
+                        published.insert(
+                            p["key"].to_string(),
+                            (
                                 p["source_revision"].as_str().unwrap_or("").to_string(),
-                            );
-                        }
+                                p["spectra_ready"].as_bool().unwrap_or(true),
+                            ),
+                        );
                     }
                 }
             }
             self.seed.insert(day, published);
         }
-        packets.iter().all(|p| {
-            self.seed.values().any(|published| {
-                published
-                    .get(&p["key"].to_string())
-                    .map(|old| Some(old.as_str()) == p["source_revision"].as_str())
-                    .unwrap_or(false)
-            })
-        })
+        let mut ready = true;
+        for p in packets {
+            let (revision, was_ready) = self
+                .seed
+                .values()
+                .find_map(|published| published.get(&p["key"].to_string()))?;
+            if Some(revision.as_str()) != p["source_revision"].as_str() {
+                return None;
+            }
+            ready &= was_ready;
+        }
+        Some(ready)
     }
     fn verify(&mut self, dirty: &mut BTreeSet<String>) -> Result<u64> {
         let mut used = 0;
@@ -462,13 +474,20 @@ impl Publisher {
     }
     fn build_day(&self, day: &str, base: &Value) -> Result<Value> {
         let (start, end) = day_bounds(day)?;
-        let mut result = base.clone();
-        let old = read_json(&self.cfg.output.join("days").join(format!("{day}.json")))
+        let mut result = Value::Object(
+            base.as_object()
+                .ok_or("invalid manifest")?
+                .iter()
+                .filter(|(key, _)| key.as_str() != "frame_packets" && key.as_str() != "frames")
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
+        );
+        let mut old = read_json(&self.cfg.output.join("days").join(format!("{day}.json")))
             .unwrap_or(Value::Null);
         let mut packets = BTreeMap::new();
-        if let Some(a) = old["frame_packets"].as_array() {
+        if let Some(Value::Array(a)) = old.as_object_mut().and_then(|v| v.remove("frame_packets")) {
             for p in a {
-                packets.insert(p["key"].to_string(), p.clone());
+                packets.insert(p["key"].to_string(), p);
             }
         }
         packets.retain(|_, p| {
@@ -934,6 +953,22 @@ mod tests {
         p.cfg.sidecar = None;
         p.cycle().unwrap();
         assert_eq!(f.day("2026-11-02")["frame_count"], 1);
+        assert!(p.state.pending_days.is_empty());
+    }
+
+    #[test]
+    fn bootstrap_reuses_published_day_even_with_pending_native_delivery() {
+        let f = Fixture::new();
+        let key = day_bounds("2026-11-02").unwrap().0;
+        let mut item = packet(key, "v1");
+        item["spectra_ready"] = json!(false);
+        f.hint(b"good", &[item.clone()]);
+        let path = f.0.join("output/days/2026-11-02.json");
+        atomic_json(&path, &json!({"frame_packets":[item]})).unwrap();
+        let before = stamp(&path).unwrap();
+        let mut p = Publisher::new(f.config());
+        p.cycle().unwrap();
+        assert_eq!(stamp(&path).unwrap(), before);
         assert!(p.state.pending_days.is_empty());
     }
 }
