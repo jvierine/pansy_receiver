@@ -54,7 +54,7 @@ fn read_hint(path: &Path) -> Result<Hint> {
     Ok(serde_json::from_reader(GzDecoder::new(File::open(path)?))?)
 }
 fn read_json(path: &Path) -> Result<Value> {
-    Ok(serde_json::from_reader(File::open(path)?)?)
+    Ok(serde_json::from_slice(&fs::read(path)?)?)
 }
 fn atomic_json(path: &Path, value: &impl Serialize) -> Result<()> {
     fs::create_dir_all(path.parent().unwrap())?;
@@ -244,7 +244,7 @@ impl Publisher {
     fn new(cfg: Config) -> Self {
         let state = File::open(&cfg.state)
             .ok()
-            .and_then(|f| serde_json::from_reader(f).ok())
+            .and_then(|f| serde_json::from_reader(io::BufReader::new(f)).ok())
             .unwrap_or_default();
         Self {
             cfg,
@@ -548,6 +548,39 @@ impl Publisher {
         let old_state = serde_json::to_vec(&self.state)?;
         let mut dirty = self.discover()?;
         let verified_bytes = self.verify(&mut dirty)?;
+        let mut auxiliary_pending = false;
+        for (name, path) in [
+            (
+                "processing-status.json",
+                self.cfg.native.join("processing-status.json"),
+            ),
+            (
+                "sky-noise/status.json",
+                self.cfg.output.join("sky-noise/status.json"),
+            ),
+            (
+                "archive-plot-status.json",
+                self.cfg.output.join("archive-plot-status.json"),
+            ),
+            (
+                "monitor-noise.json",
+                self.cfg.output.join("monitor-noise.json"),
+            ),
+        ] {
+            if let Ok(s) = stamp(&path) {
+                auxiliary_pending |= self.state.auxiliary.get(name) != Some(&s);
+            }
+        }
+        if dirty.is_empty() && !auxiliary_pending {
+            if serde_json::to_vec(&self.state)? != old_state {
+                atomic_json(&self.cfg.state, &self.state)?;
+            }
+            println!(
+                "cycle_ms={} dirty_days=0 native_bytes_read={verified_bytes}",
+                began.elapsed().as_millis()
+            );
+            return Ok(());
+        }
         let mut base = read_json(&self.cfg.output.join("manifest.json"))?;
         let mut days = base["available_days"]
             .as_array()
