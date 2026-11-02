@@ -14,7 +14,7 @@ STATUS_DIR="$STATE_DIR/rsync_status"
 pids=()
 
 read -r -a channels <<< "$METADATA_CHANNELS"
-total_budget="${RSYNC_TOTAL_BWLIMIT_KB:-${RSYNC_BWLIMIT_KB:-0}}"
+total_budget="${RSYNC_TOTAL_BWLIMIT_KB:-${RSYNC_BWLIMIT_KB:-50}}"
 if ! [[ "$total_budget" =~ ^[0-9]+$ ]] ||
    [ "${#channels[@]}" -eq 0 ] ||
    { [ "$total_budget" -ne 0 ] && [ "$total_budget" -lt "${#channels[@]}" ]; }; then
