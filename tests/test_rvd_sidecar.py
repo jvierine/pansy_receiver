@@ -6,7 +6,7 @@ import numpy as np
 from pmse.write_gui_sidecar import write_sidecar
 
 
-def test_updates_only_changed_frames(tmp_path):
+def test_updates_only_changed_frames(tmp_path, monkeypatch):
     source = tmp_path / "day.json"
     target = tmp_path / "day.h5"
     packet = {"revision": "first", "geometry": {"range_km": [80.0, 81.0]},
@@ -19,7 +19,16 @@ def test_updates_only_changed_frames(tmp_path):
     packet["revision"] = "second"
     packet["frame_packets"][1]["snr_db"] = [8.0]
     source.write_text(json.dumps(packet))
-    write_sidecar(source, target)
+    original_getitem = h5py.Group.__getitem__
+
+    def checked_getitem(group, name):
+        if group.name == "/frames" and name == "1":
+            raise AssertionError("unchanged frame metadata must not be reopened")
+        return original_getitem(group, name)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(h5py.Group, "__getitem__", checked_getitem)
+        write_sidecar(source, target)
     with h5py.File(target) as h5:
         assert h5.attrs["revision"] == "second"
         assert h5py.h5o.get_info(h5["frames/1/snr_db"].id).addr == address

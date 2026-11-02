@@ -10,14 +10,45 @@ import h5py
 import numpy as np
 
 
+def packet_digest(item):
+    return hashlib.sha256(json.dumps(
+        item, sort_keys=True, separators=(",", ":"), allow_nan=False,
+    ).encode()).hexdigest()
+
+
+def file_signature(path):
+    stat = path.stat()
+    return [stat.st_ino, stat.st_size, stat.st_mtime_ns]
+
+
 def write_sidecar(packet_path, output):
     packet = json.loads(Path(packet_path).read_text())
     output = Path(output)
     temporary = output.with_suffix(f".h5.{os.getpid()}.partial")
+    index_path = output.with_suffix(".h5.index.json")
+    fingerprints = {}
+    try:
+        cached = json.loads(index_path.read_text())
+        if cached["signature"] == file_signature(output):
+            fingerprints = cached["packets"]
+    except (OSError, ValueError, KeyError):
+        pass
     try:
         if output.exists():
             shutil.copyfile(output, temporary)
         with h5py.File(temporary, "r+" if temporary.exists() else "w") as h5:
+            if not fingerprints and packet.get("selected_day"):
+                # The published JSON is an exact identity index for its HDF5
+                # revision. This avoids reopening hundreds of unchanged groups
+                # when adopting a sidecar produced by the previous writer.
+                previous = output.parent / "days" / f"{packet['selected_day']}.json"
+                try:
+                    old_packet = json.loads(previous.read_text())
+                    if old_packet["revision"] == h5.attrs.get("revision"):
+                        fingerprints = {p["key"]: packet_digest(p)
+                                        for p in old_packet["frame_packets"]}
+                except (OSError, ValueError, KeyError):
+                    pass
             h5.attrs.update(
                 schema="pansy_rvd_plot_v2", revision=packet["revision"],
                 generator="pmse/write_gui_sidecar.py", snr_definition="excess signal/noise",
@@ -34,9 +65,10 @@ def write_sidecar(packet_path, output):
             for key in set(frames) - keep:
                 del frames[key]
             for item in packet["frame_packets"]:
-                digest = hashlib.sha256(json.dumps(
-                    item, sort_keys=True, separators=(",", ":"), allow_nan=False,
-                ).encode()).hexdigest()
+                digest = packet_digest(item)
+                if fingerprints.get(item["key"]) == digest:
+                    continue
+                fingerprints[item["key"]] = digest
                 if item["key"] in frames:
                     old = frames[item["key"]]
                     if old.attrs.get("packet_sha256") == digest:
@@ -63,6 +95,12 @@ def write_sidecar(packet_path, output):
                     else:
                         group[name] = value
         temporary.replace(output)
+        index_temporary = index_path.with_suffix(f".json.{os.getpid()}.partial")
+        index_temporary.write_text(json.dumps({
+            "signature": file_signature(output),
+            "packets": {k: v for k, v in fingerprints.items() if k in keep},
+        }, separators=(",", ":")))
+        index_temporary.replace(index_path)
     finally:
         temporary.unlink(missing_ok=True)
 
