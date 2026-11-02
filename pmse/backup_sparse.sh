@@ -2,7 +2,7 @@
 # Dedicated archive replication. Retain remote deletions; never remove history.
 set -uo pipefail
 destination="${PANSY_SPARSE_BACKUP_ROOT:-/mnt/data/juha/pansy/metadata/pmse_sparse}"
-bandwidth="${PANSY_SPARSE_BACKUP_KIB:-10}"
+bandwidth="${PANSY_SPARSE_BACKUP_KIB:-2}"
 mkdir -p "$destination"
 while true; do
   rsync -rt --no-perms --no-owner --no-group --partial --delay-updates \

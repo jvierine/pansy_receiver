@@ -14,10 +14,11 @@ STATUS_DIR="$STATE_DIR/rsync_status"
 pids=()
 
 read -r -a channels <<< "$METADATA_CHANNELS"
-total_budget="${RSYNC_TOTAL_BWLIMIT_KB:-${RSYNC_BWLIMIT_KB:-50}}"
-if ! [[ "$total_budget" =~ ^[1-9][0-9]*$ ]] ||
-   [ "${#channels[@]}" -eq 0 ] || [ "$total_budget" -lt "${#channels[@]}" ]; then
-  echo "Transfer budget must be at least the number of metadata channels (KiB/s)" >&2
+total_budget="${RSYNC_TOTAL_BWLIMIT_KB:-${RSYNC_BWLIMIT_KB:-0}}"
+if ! [[ "$total_budget" =~ ^[0-9]+$ ]] ||
+   [ "${#channels[@]}" -eq 0 ] ||
+   { [ "$total_budget" -ne 0 ] && [ "$total_budget" -lt "${#channels[@]}" ]; }; then
+  echo "Transfer budget must be 0 (unlimited) or at least the number of metadata channels (KiB/s)" >&2
   exit 1
 fi
 
@@ -37,6 +38,10 @@ done
 channel_bwlimit_kb() {
   local channel="$1"
   local weight
+  if [ "$total_budget" -eq 0 ]; then
+    echo 0
+    return
+  fi
   weight="$(channel_weight "$channel")"
   echo "$((1 + (total_budget - ${#channels[@]}) * weight / total_weight))"
 }
