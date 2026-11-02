@@ -33,3 +33,9 @@ Reload user units and restart `pansy-rvd-web.service`. This replaces the Python
 publisher in that same service, avoiding competing writers. It retains the
 2% CPU ceiling. Build with a separate transient unit so build limits do not
 change the publisher's runtime limits.
+
+On juha.no, `bash pmse/install_rust_publisher.sh` initializes the persistent
+index once in a transient unit capped at 20% CPU, then starts the regular
+publisher with its 2% ceiling. Initialization failure restarts the previous
+publisher. The script uses passwordless sudo for that temporary build-free
+initialization unit and records its CPU time and peak resident memory.
