@@ -640,7 +640,7 @@ impl Publisher {
                 .ok()
                 .map(|old| old["revision"] == packet["revision"])
                 .unwrap_or(false);
-            if unchanged && !auxiliary_changed {
+            if unchanged {
                 continue;
             }
             // Publish the downloadable HDF5 before exposing its new JSON revision.
