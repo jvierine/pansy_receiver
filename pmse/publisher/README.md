@@ -24,3 +24,12 @@ default local cache and source-index locations. `--verify-bytes` defaults to
 The Python helper writes the downloadable HDF5 from the already prepared JSON
 only when a day changes; it never reads native spectra or walks the archive.
 Monitor SNR and noise projections are generated directly in Rust.
+
+For the existing web-host service, substitute this checkout's absolute path
+for `__PANSY_RECEIVER_REPO__` in `pmse/systemd/pansy-rvd-web-rust.conf` and
+install the result as
+`~/.config/systemd/user/pansy-rvd-web.service.d/30-rust-publisher.conf`.
+Reload user units and restart `pansy-rvd-web.service`. This replaces the Python
+publisher in that same service, avoiding competing writers. It retains the
+2% CPU ceiling. Build with a separate transient unit so build limits do not
+change the publisher's runtime limits.
