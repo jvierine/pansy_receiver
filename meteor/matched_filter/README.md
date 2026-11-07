@@ -85,3 +85,23 @@ and checks every exported complex amplitude against NumPy. It retains only
 the compact peak diagnostics, not raw voltages or full spectra. Run as a
 resource-limited one-shot job. Additional peaks may be sidelobes, not meteors;
 calibrated interferometric consistency and false-alarm validation remain open.
+
+## Optional native cut filter
+
+`PANSY_CUT_MF_BACKEND=rust` replaces repeated per-pair FFTs in
+`process_cut_meteor.py` with one FFT per receiver and complex cross-products
+at the global maximum. It preserves the existing cut processor's unconjugated
+TX product, repeat interpolation, range gates, Doppler bins and noise statistic.
+This differs from the search TX convention and is deliberately not silently
+changed as part of a performance migration. Receiver phase calibration and
+interferometric imaging remain unchanged.
+
+`preflight_cut.py --cut-root /media/analysis/metadata/cut` checks the actual
+legacy class against Rust on synthetic complex codes and a recent recorded
+cut, with interpolation factors one and two. It checks full powers, profiles,
+selected bins, median and all complex cross-products including phase. Run it
+before installing the isolated service drop-in with
+`bash receiver/install_cut_rust.sh enable`; `rollback` removes only that drop-in.
+Use a prebuilt `libpansy_meteor_matched_filter_cut.so` so the live search library
+is untouched. Arrange a 45-second automatic rollback before the one-service
+restart, then cancel it only after verifying the worker library and output.
