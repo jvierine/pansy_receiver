@@ -4,6 +4,7 @@ import h5py
 
 from meteor_progress import read_completed_frontier, read_progress, write_progress
 from meteor_progress import inclusive_chunks
+from meteor_progress import tx_scan_frontier
 
 
 def test_chunks_include_tail_once_and_allow_empty_input():
@@ -19,6 +20,13 @@ def test_mpi_chunks_cover_every_sample_once():
     assigned=[chunks[r::6] for r in range(6)]
     assert sum(map(len,assigned)) == len(chunks)
     assert chunks[-1][1] == 4_032_000
+
+
+def test_scanned_empty_interval_advances_mode_closure(tmp_path):
+    progress=tmp_path/"scan.json"
+    assert tx_scan_frontier(100,progress)==100
+    progress.write_text('{"next_sample": 500}')
+    assert tx_scan_frontier(100,progress)==500
 
 
 def test_progress_checkpoint_is_replaced_atomically(tmp_path):
