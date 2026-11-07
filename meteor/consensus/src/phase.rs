@@ -95,6 +95,11 @@ pub fn split_phase(
             let mut good = 0;
             for &k in members[a].iter().step_by((members[a].len() / 64).max(1)) {
                 let t = points[k].sample_idx;
+                if t < points[members[b][0]].sample_idx
+                    || t > points[*members[b].last().unwrap()].sample_idx
+                {
+                    continue;
+                }
                 let pos = members[b].partition_point(|&l| points[l].sample_idx < t);
                 let nearest = [pos.saturating_sub(1), pos.min(members[b].len() - 1)]
                     .into_iter()

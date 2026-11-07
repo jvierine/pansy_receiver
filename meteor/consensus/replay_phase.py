@@ -59,6 +59,9 @@ def main():
         out.attrs["elapsed_s"]=np.float32(time.monotonic()-began)
         out.attrs["phase_coherence_min"]=np.float32(.65)
         out.attrs["max_phase_link_lag_s"]=np.float32(.05)
+        if hasattr(grouper,"last_samples"):
+            out["phase_sample_idx"]=grouper.last_samples.astype(np.int64)
+            out["receiver_amplitudes"]=grouper.last_signatures
     print(f"Legacy tracks={len(captured.records)} points={np.count_nonzero(legacy>=0)}; "
           f"new tracks={len(np.unique(labels[labels>=0]))} points={np.count_nonzero(labels>=0)}",flush=True)
 

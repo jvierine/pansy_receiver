@@ -78,6 +78,8 @@ class PhaseGrouper:
         if any(a.shape != (len(samples),) for a in arrays) or not all(np.all(np.isfinite(a)) for a in arrays):
             raise ValueError("invalid phase-grouping observations")
         signatures = self.signatures(*arrays[:3], beams)
+        self.last_samples = arrays[0]
+        self.last_signatures = signatures
         labels = np.full(len(samples),-1,dtype=np.int32)
         count = self.lib.pansy_consensus_phase(
             *[a.ctypes.data for a in arrays],signatures.ctypes.data,len(samples),
