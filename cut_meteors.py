@@ -45,7 +45,8 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
     drg=c.c/1e6/2/1e3    
     n_ch=len(rx_ch)
 
-    tx_data_dict = dmt.read(i0, i1, "id")
+    tx_data_dict = {k:v for k,v in dmt.read(i0, i1, "id").items()
+                    if int(n.asarray(v).reshape(-1)[0]) == 1}
 
     # how many 20 ipp segments do we have
     n_seq=len(tx_data_dict.keys())
@@ -287,7 +288,7 @@ def cut_block():
             except Exception:
                 raise
             if len(cut_res.keys()) == 0:
-                continue
+                raise RuntimeError("eligible meteor has no mesosphere TX batches for its cut")
             cut_res["c_snr"]=[snr]
             cut_res["c_tx_idx"]=[tx_idx]
             cut_res["c_beam_idx"]=[beam_idx]
