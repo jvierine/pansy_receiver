@@ -14,6 +14,7 @@ import h5py
 import pansy_config as pc
 import traceback
 import warnings
+from meteor_metadata import StrictDigitalMetadataReader
 import fcntl
 
 from meteor_progress import write_progress, read_progress, inclusive_chunks, tx_scan_frontier
@@ -280,7 +281,7 @@ def meteor_search(debug=False):
     if os.path.exists(mf_metadata_dir):
         log0("mf metadata directory exists. searching for last timestamp")
         try:
-            dm_mf = drf.DigitalMetadataReader(mf_metadata_dir)
+            dm_mf = StrictDigitalMetadataReader(mf_metadata_dir)
             db_mf = dm_mf.get_bounds()
             log0("mf bounds %s - %s"%(
                 stuffr.unix2datestr(db_mf[0]/1e6),
@@ -330,7 +331,7 @@ def meteor_search(debug=False):
 
 
     # see if results already exist
-    dm_mf2 = drf.DigitalMetadataReader(mf_metadata_dir)
+    dm_mf2 = StrictDigitalMetadataReader(mf_metadata_dir)
 
     # see if results already exist
  #   dm_mf_isr = drf.DigitalMetadataReader(pc.mf_isr_metadata_dir)
@@ -373,7 +374,7 @@ def meteor_search(debug=False):
         print("metadata directory doesn't exist. exiting")
         exit(0)
 
-    dmr = drf.DigitalMetadataReader(metadata_dir)
+    dmr = StrictDigitalMetadataReader(metadata_dir)
     db = dmr.get_bounds()
     raw_bounds=d.get_bounds("ch000")
     log0("tx bounds %s - %s"%(

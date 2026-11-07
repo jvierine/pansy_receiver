@@ -16,6 +16,7 @@ import h5py
 import pansy_modes as pmm
 import meteor_fit as metfit
 import simple_radiant as sr
+from meteor_metadata import StrictDigitalMetadataReader
 from meteor_progress import read_progress, write_progress, inclusive_chunks
 
 from mpi4py import MPI
@@ -39,7 +40,7 @@ last_idle_log_time = 0.0
 
 def metadata_bounds(path, label):
     try:
-        reader = drf.DigitalMetadataReader(path)
+        reader = StrictDigitalMetadataReader(path)
         return reader, reader.get_bounds()
     except Exception as exc:
         print("couldn't read %s metadata bounds yet: %s"%(label, exc))
@@ -535,7 +536,7 @@ def process_latest():
     os.system("mkdir -p %s"%(omddir))#pc.simple_fit_metadata_dir))
 
     if dm is None:
-        dm = drf.DigitalMetadataReader(mddir)
+        dm = StrictDigitalMetadataReader(mddir)
     dmw = simple_fit_writer(omddir)
 
     n_processed = 0
@@ -567,7 +568,7 @@ def process_latest():
             
 def plot_last():
     #mddir="../pansy_test_data/metadata/cut"
-    dm = drf.DigitalMetadataReader(pc.cut_metadata_dir)
+    dm = StrictDigitalMetadataReader(pc.cut_metadata_dir)
     b = dm.get_bounds()
 
     data=dm.read(b[1]-600000000,b[1])
