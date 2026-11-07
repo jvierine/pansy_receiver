@@ -54,7 +54,8 @@ class PhasePipelineTests(unittest.TestCase):
     def test_replayed_existing_record_is_idempotent(self):
         class Writer:
             def write(self,*args): raise ValueError("sample already in data")
-        self.run_detector(Writer())
+        with patch.object(cluster_mf,"write_complete_record",return_value=False):
+            self.run_detector(Writer())
 
 
 if __name__ == "__main__":

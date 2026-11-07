@@ -13,7 +13,7 @@ import time
 import scipy.fftpack as fp
 import itertools
 import pansy_config as pc
-from meteor_metadata import StrictDigitalMetadataReader
+from meteor_metadata import StrictDigitalMetadataReader, write_complete_record
 
 from meteor_progress import read_completed_frontier, read_progress, write_progress
 from meteor_progress import search_checkpoint
@@ -414,11 +414,9 @@ def find_clusters(txpa,txidxa,rnga,dopa,snra,beam,dmw):
             odata_dict["beam"]=beam[det["idx"]]
             idx0=n.min(txidxa[det["idx"]])
             try:
-                dmw.write([idx0],odata_dict)
+                write_complete_record(dmw,pc.detections_metadata_dir,idx0,odata_dict)
             except Exception as exc:
                 if backend == "rust_phase":
-                    if "already in data" in str(exc):
-                        continue
                     raise
                 import traceback
                 traceback.print_exc()
