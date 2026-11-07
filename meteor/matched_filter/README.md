@@ -1,6 +1,6 @@
 # Rust meteor range-Doppler filter
 
-Offline library; not enabled in the receiver services. Receiver calibration is
+Optional native kernel; not enabled by default in receiver services. Receiver calibration is
 applied by the caller. Uses measured complex TX samples, forward FFTs and an
 incoherent sum of receiver powers. FFT plans and scratch storage are reused.
 
@@ -27,6 +27,8 @@ candidates are not proof of multiple meteors.
 ## Verification
 
 ```sh
+cargo build --release --locked --manifest-path meteor/matched_filter/Cargo.toml
+conda run -n base python meteor/matched_filter/preflight.py
 cargo test --manifest-path meteor/matched_filter/Cargo.toml
 conda run --no-capture-output -n base python meteor/matched_filter/compare_reference.py --cut-root data/metadata/cut
 cargo clippy --manifest-path meteor/matched_filter/Cargo.toml --all-targets -- -D warnings
@@ -50,3 +52,20 @@ suppression settings, calibrated angle candidates connected to consensus,
 and bounded raw-window shadow replay. Only after these checks should a
 prebuilt, reversible service update be considered. No live service is changed
 by building or testing this crate.
+
+## First live integration
+
+`quick_search_meteor.py` selects the ctypes adapter with `PANSY_MF_BACKEND=rust`.
+The default remains `python`. The live adapter deliberately keeps the original
+decimation, single-peak selection, calibration, SNR, metadata and MPI checkpoint
+logic unchanged. Full-band and multi-peak detection are not enabled by this
+switch. Unknown backend names and unavailable libraries fail explicitly.
+
+Deploy through Git, build the shared library while the old service runs, then
+run `preflight.py` with the receiver's Python environment. It tests 20 full-range
+seven-receiver pulses against production pyFFTW, including range profiles,
+Doppler selections and median noise. It opens no metadata and starts no MPI job.
+Only after it passes should the quick-search service receive the environment
+override and be restarted. Keep a rollback to `PANSY_MF_BACKEND=python` ready;
+verify Rust startup messages and advancing MF metadata, not merely active status.
+Never restart acquisition or other processing services for this change.

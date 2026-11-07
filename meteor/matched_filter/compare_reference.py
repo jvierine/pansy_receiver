@@ -7,6 +7,7 @@ import ast
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import time
 from types import SimpleNamespace
@@ -17,6 +18,7 @@ import scipy.constants
 from scipy.fft import fft
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 
 
 def main():
@@ -25,7 +27,7 @@ def main():
     args = parser.parse_args()
     tree = ast.parse((ROOT / "quick_search_meteor.py").read_text())
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "range_doppler_search")
-    scope = {"n": np, "c": scipy.constants, "pc": SimpleNamespace(freq=47e6), "fft": fft}
+    scope = {"n": np, "c": scipy.constants, "pc": SimpleNamespace(freq=47e6), "fft": fft, "os": os, "log0": lambda _: None}
     exec(compile(ast.Module(body=[cls], type_ignores=[]), "quick_search_meteor.py", "exec"), scope)
     rng = np.random.default_rng(3107)
     tx = rng.choice([-1, 1], 132).astype(np.complex64)
@@ -47,12 +49,21 @@ def main():
         with h5py.File(path, "w") as f:
             for name, rx, tx, gates in cases:
                 for dec in (1, 8):
+                    os.environ["PANSY_MF_BACKEND"] = "python"
                     ref = scope["range_doppler_search"](txlen=len(tx), rg=gates, fdec=dec, fftlen=256)
                     power, _, _, median = ref.mf(rx, tx)
                     start = time.perf_counter()
                     for _ in range(20):
                         ref.mf(rx, tx)
                     print(f"{name}_d{dec}: Python warm {(time.perf_counter()-start)*1000/20:.3f} ms/pulse", flush=True)
+                    os.environ["PANSY_MF_BACKEND"] = "rust"
+                    native = scope["range_doppler_search"](txlen=len(tx), rg=gates, fdec=dec, fftlen=256)
+                    actual, profile, velocity, actual_median = native.mf(rx, tx)
+                    assert np.max(np.abs(actual-power)) < 3e-6*np.max(power)
+                    assert abs(actual_median/median-1) < 3e-6
+                    np.testing.assert_allclose(profile, power.max(axis=1), rtol=3e-6)
+                    np.testing.assert_array_equal(velocity, ref.dopv[np.argmax(power, axis=1)])
+                    native.native.close()
                     decoded = rx[:, gates[:, None]+np.arange(len(tx))] * tx.conj()
                     if dec > 1:
                         width = len(tx)//dec

@@ -90,6 +90,15 @@ class range_doppler_search:
         self.dopv=self.fvec*c.c/2.0/self.frad
         self.fdec=fdec
 
+        self.native = None
+        backend = os.environ.get("PANSY_MF_BACKEND", "python")
+        if backend not in ("python", "rust"):
+            raise ValueError("PANSY_MF_BACKEND must be python or rust")
+        if backend == "rust":
+            from meteor_rust_filter import RustMatchedFilter
+            self.native = RustMatchedFilter(rg, txlen, fdec, int(fftlen))
+            log0("meteor matched-filter backend: Rust (legacy-equivalent settings)")
+
 
         for ri in range(self.n_rg):
             self.idx_mat[ri,:]=self.idx+rg[ri]
@@ -109,6 +118,9 @@ class range_doppler_search:
         z = echo
         z_tx = transmit code
         """
+        if self.native is not None and not debug:
+            MF, noise_floor = self.native.process(z, z_tx)
+            return MF, n.max(MF, axis=1), self.dopv[n.argmax(MF, axis=1)], noise_floor
         if False:
             plt.subplot(121)
             plt.plot(z.real)

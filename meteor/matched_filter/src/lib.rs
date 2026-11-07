@@ -3,6 +3,8 @@ use anyhow::{ensure, Result};
 use rustfft::{num_complex::Complex32, Fft, FftPlanner};
 use std::sync::Arc;
 
+mod ffi;
+
 pub struct Filter {
     gates: Vec<usize>,
     txlen: usize,
@@ -43,7 +45,7 @@ impl Filter {
             txlen / decimation > 0 && nfft >= txlen / decimation,
             "FFT too short"
         );
-        ensure!(nfft.is_multiple_of(2), "use an even FFT length");
+        ensure!(nfft & 1 == 0, "use an even FFT length");
         let fft = FftPlanner::new().plan_fft_forward(nfft);
         let scratch = vec![Complex32::default(); fft.get_inplace_scratch_len()];
         Ok(Self {
