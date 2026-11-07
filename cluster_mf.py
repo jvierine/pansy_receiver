@@ -7,6 +7,7 @@ import scipy.signal.windows as sw
 import scipy.constants as c
 import digital_rf as drf
 import os
+import fcntl
 import stuffr
 import time
 import scipy.fftpack as fp
@@ -306,11 +307,10 @@ def read_mf_output(dm_mf,i0,i1,snr_threshold=7,tx_pwr_threshold=1e9):
     snra=n.array([],dtype=n.float32)
     beam=n.array([],dtype=n.int32)         
     # read 20 pulse sequences   
-    try:
+    # Completed samples can share an HDF5 file with newer MPI writes.
+    with open("/tmp/pansy_mf_metadata.lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_SH)
         data_dict = dm_mf.read(i0, i1, ("tx_pwr","max_range","tx_idxs","max_dopvel","max_snr","beam_pos_idx"))
-    except:
-        import traceback
-        traceback.print_exc()
     
 
     if len(data_dict.keys()) == 0:
