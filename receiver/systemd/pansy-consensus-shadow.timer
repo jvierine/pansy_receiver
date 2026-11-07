@@ -1,0 +1,10 @@
+[Unit]
+Description=Sample one minute of Rust consensus each hour
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+Persistent=false
+
+[Install]
+WantedBy=timers.target
