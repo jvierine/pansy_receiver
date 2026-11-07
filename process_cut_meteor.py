@@ -33,7 +33,7 @@ SIMPLE_FIT_WRITER_ARGS = {
     "file_name": "fit",
 }
 PROCESS_CUT_BLOCK_SECONDS = float(os.environ.get("PANSY_PROCESS_CUT_BLOCK_SECONDS", "30"))
-PROCESS_CUT_SLEEP_SECONDS = float(os.environ.get("PANSY_PROCESS_CUT_SLEEP_SECONDS", "15"))
+PROCESS_CUT_SLEEP_SECONDS = float(os.environ.get("PANSY_PROCESS_CUT_SLEEP_SECONDS", "5"))
 PROCESS_CUT_IDLE_LOG_SECONDS = float(os.environ.get("PANSY_PROCESS_CUT_IDLE_LOG_SECONDS", "300"))
 last_idle_log_time = 0.0
 
@@ -565,7 +565,6 @@ def process_latest():
                     n_processed += 1
             except:
                 n_errors += 1
-                import traceback
                 traceback.print_exc()
     n_processed_total = comm.allreduce(n_processed, op=MPI.SUM)
     n_errors_total = comm.allreduce(n_errors, op=MPI.SUM)
