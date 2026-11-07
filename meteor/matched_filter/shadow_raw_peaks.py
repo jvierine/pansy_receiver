@@ -1,8 +1,11 @@
 """Explicit 20-pulse raw replay with independent complex-FFT verification."""
 import argparse
+import ast
+import os
 from pathlib import Path
 import sys
 import time
+from types import SimpleNamespace
 
 import digital_rf
 import h5py
@@ -19,11 +22,13 @@ def main():
     parser.add_argument("mf")
     parser.add_argument("sample", type=int, help="Exact existing MF batch key")
     parser.add_argument("output", type=Path)
+    parser.add_argument("--verify-legacy", action="store_true",
+                        help="Compare every power cell and saved MF measurements to Python")
     args = parser.parse_args()
     if args.output.exists():
         parser.error("output exists")
     records = digital_rf.DigitalMetadataReader(args.mf).read(args.sample, args.sample,
-                                                          ["tx_idxs", "tx_pwr"])
+                                                          ["tx_idxs", "tx_pwr", "max_range", "max_dopvel", "max_snr"])
     record = records[args.sample]
     indices = np.asarray(record["tx_idxs"], dtype=np.int64)
     if not np.array_equal(indices, args.sample + np.arange(20)*1600):
@@ -40,6 +45,26 @@ def main():
     gates = np.arange(int(np.floor(60/(299792458/2e9))),
                       int(np.floor(170/(299792458/2e9)))+1, 2)
     filt = RustMatchedFilter(gates, 132, 8, 256)
+    legacy = None
+    if args.verify_legacy:
+        import scipy.constants
+        import pyfftw
+        tree = ast.parse((ROOT/"quick_search_meteor.py").read_text())
+        cls = next(node for node in tree.body if isinstance(node, ast.ClassDef)
+                   and node.name == "range_doppler_search")
+        scope = dict(n=np, c=scipy.constants, pc=SimpleNamespace(freq=47e6),
+                     fft=pyfftw.interfaces.scipy_fftpack.fft, os=os, log0=print)
+        exec(compile(ast.Module(body=[cls], type_ignores=[]), "quick_search_meteor.py", "exec"), scope)
+        old_backend = os.environ.get("PANSY_MF_BACKEND")
+        try:
+            os.environ["PANSY_MF_BACKEND"] = "python"
+            legacy = scope["range_doppler_search"](rg=gates)
+        finally:
+            if old_backend is None:
+                os.environ.pop("PANSY_MF_BACKEND", None)
+            else:
+                os.environ["PANSY_MF_BACKEND"] = old_backend
+    profiles, floors, dopplers = [], [], []
     partial = args.output.with_suffix(".partial")
     started = time.monotonic()
     count = 0
@@ -58,6 +83,17 @@ def main():
                 if np.sum(abs(code)**2) <= 1e9:
                     raise ValueError("raw TX gate failed")
                 peaks = filt.peaks(voltage, code, threshold=7)
+                if legacy is not None:
+                    expected_power, profile, doppler, expected_floor = legacy.mf(voltage, code)
+                    native_power, native_floor = filt.process(voltage, code)
+                    if np.max(abs(native_power-expected_power)) > 3e-6*np.max(expected_power):
+                        raise ValueError("legacy power mismatch")
+                    np.testing.assert_allclose(native_floor, expected_floor, rtol=3e-6)
+                    np.testing.assert_array_equal(np.argmax(native_power, axis=1),
+                                                  np.argmax(expected_power, axis=1))
+                    profiles.append(profile)
+                    floors.append(expected_floor)
+                    dopplers.append(doppler)
                 for k, (gate, bin_) in enumerate(zip(peaks["range_sample"], peaks["doppler_bin"])):
                     gate, bin_ = int(gate), int(bin_)
                     product = (voltage[:, gate:gate+132]*code.conj())[:, :128].reshape(7, 16, 8).sum(axis=2)
@@ -74,6 +110,17 @@ def main():
                 group["median_power"] = np.float32(peaks["median_power"])
                 count += len(peaks["range_sample"])
             data.attrs["complex_reference_passed"] = np.int8(1)
+            if legacy is not None:
+                profiles = np.asarray(profiles)
+                noise = np.median(floors)
+                snr = (profiles-noise)/noise
+                snr[snr <= 0] = .0001
+                selected = np.argmax(snr, axis=1)
+                rows = np.arange(20)
+                np.testing.assert_allclose(legacy.rangev[selected], record["max_range"], rtol=1e-6)
+                np.testing.assert_allclose(np.asarray(dopplers)[rows, selected], record["max_dopvel"], rtol=1e-6, atol=.01)
+                np.testing.assert_allclose(snr[rows, selected], record["max_snr"], rtol=1e-5, atol=1e-5)
+                data.attrs["legacy_and_saved_measurements_passed"] = np.int8(1)
             data.attrs["elapsed_s"] = np.float32(time.monotonic()-started)
         partial.replace(args.output)
     finally:
