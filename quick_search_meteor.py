@@ -494,8 +494,11 @@ def meteor_search(debug=False):
                         
                         #                    else:
                         #                       print("unknown mode %d"%(data_dict[key]))
-            except Exception:
+            except Exception as exc:
                 summary["processing_errors"] += 1
+                if summary["processing_errors"] <= 3:
+                    print("rank %d failed TX batch %d: %s: %s" %
+                          (rank,keyi,type(exc).__name__,exc),flush=True)
 #                    import traceback
  #                   traceback.print_exc()
 

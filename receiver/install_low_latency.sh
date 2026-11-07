@@ -9,6 +9,9 @@ service="pansy-$1.service"
 directory="$HOME/.config/systemd/user/$service.d"
 mkdir -p "$directory"
 printf '[Service]\nTimeoutStopSec=10s\n' > "$directory/80-bounded-stop.conf"
+if [ "$1" = quick-search-meteor ]; then
+  printf 'Environment=OPENBLAS_NUM_THREADS=1\nEnvironment=OMP_NUM_THREADS=1\n' >> "$directory/80-bounded-stop.conf"
+fi
 systemctl --user daemon-reload
 systemctl --user restart "$service"
 systemctl --user is-active "$service"
