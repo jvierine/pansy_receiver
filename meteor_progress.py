@@ -6,6 +6,13 @@ import os
 import h5py
 
 
+def inclusive_chunks(start, end, width):
+    """Disjoint bounded intervals for DigitalMetadata's inclusive reads."""
+    if width <= 0:
+        raise ValueError("chunk width must be positive")
+    return [(i, min(i + width - 1, end)) for i in range(int(start), int(end) + 1, int(width))]
+
+
 def write_progress(path, latest):
     """Atomically replace an HDF5 progress checkpoint."""
     temporary_path = "%s.%d.tmp" % (path, os.getpid())

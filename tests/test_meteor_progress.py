@@ -3,6 +3,22 @@ import glob
 import h5py
 
 from meteor_progress import read_completed_frontier, read_progress, write_progress
+from meteor_progress import inclusive_chunks
+
+
+def test_chunks_include_tail_once_and_allow_empty_input():
+    assert inclusive_chunks(5, 5, 60) == [(5, 5)]
+    assert inclusive_chunks(5, 4, 60) == []
+    chunks=inclusive_chunks(5, 130, 60)
+    assert chunks == [(5,64),(65,124),(125,130)]
+    assert [v for a,b in chunks for v in range(a,b+1)] == list(range(5,131))
+
+
+def test_mpi_chunks_cover_every_sample_once():
+    chunks=inclusive_chunks(1_000_000,4_032_000,1_000_000)
+    assigned=[chunks[r::6] for r in range(6)]
+    assert sum(map(len,assigned)) == len(chunks)
+    assert chunks[-1][1] == 4_032_000
 
 
 def test_progress_checkpoint_is_replaced_atomically(tmp_path):

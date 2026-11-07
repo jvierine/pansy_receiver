@@ -9,6 +9,7 @@ import pansy_config as pc
 import cluster_mf as cmf
 import traceback
 import warnings
+from meteor_progress import read_progress, write_progress, inclusive_chunks
 
 warnings.filterwarnings(
     "ignore",
@@ -16,7 +17,6 @@ warnings.filterwarnings(
     category=FutureWarning,
 )
 
-os.system("mkdir -p %s"%(pc.cut_metadata_dir))
 
 def metadata_bounds(path, label):
     try:
@@ -146,6 +146,8 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
 
 def cut_block():
 
+    os.makedirs(pc.cut_metadata_dir,exist_ok=True)
+
     # meteor detections
     dm, bm = metadata_bounds(pc.detections_metadata_dir, "detections")
     if bm[1] == -1:
@@ -185,23 +187,30 @@ def cut_block():
         print("found no cut end. using start of detections")
         start_idx=bm[0]
 
-    n_block=int(n.floor((bm[1]-start_idx)/(dt*sr)))
-    if n_block <= 0:
+    checkpoint=os.path.expanduser("~/.local/state/pansy_receiver/cut_complete_v1.h5")
+    grouping_checkpoint=os.path.expanduser("~/.local/state/pansy_receiver/cluster_phase_v1.h5")
+    if os.path.exists(checkpoint):
+        start_idx=read_progress(checkpoint)
+    end_idx=read_progress(grouping_checkpoint) if os.path.exists(grouping_checkpoint) else bm[1]+1
+    end_idx=min(end_idx,start_idx+300*sr)
+    windows=inclusive_chunks(start_idx,end_idx-1,dt*sr)
+    if not windows:
         print("cut_meteors waiting: start %s is not before detection end %s"%(
             stuffr.unix2datestr(start_idx/1e6),
             stuffr.unix2datestr(bm[1]/1e6)))
         return
-    print("cut_meteors processing %d minute windows from %s to %s; raw ch000 %s - %s"%(
-        n_block,
+    print("cut_meteors processing %d windows from %s to %s; raw ch000 %s - %s"%(
+        len(windows),
         stuffr.unix2datestr(start_idx/1e6),
-        stuffr.unix2datestr((start_idx+n_block*dt*sr)/1e6),
+        stuffr.unix2datestr(end_idx/1e6),
         stuffr.unix2datestr(raw_bounds[0]/1e6),
         stuffr.unix2datestr(raw_bounds[1]/1e6)))
 
     # go through all blocks of data
-    for i in range(n_block):
-        i0=start_idx+i*dt*sr
-        i1=start_idx+i*dt*sr + dt*sr
+    os.makedirs(os.path.dirname(checkpoint),exist_ok=True)
+    if not os.path.exists(checkpoint):
+        write_progress(checkpoint,start_idx)
+    for i0,i1 in windows:
         
         # find all detections in interval
         data_dict = dm.read(i0, i1, ("tx_idx","xhat","range","doppler","snr","beam"))
@@ -256,7 +265,9 @@ def cut_block():
             # pad by X samples
             cut_i0=n.min(tx_idx)-61*1600
             cut_i1=n.max(tx_idx)+61*1600
-            if cut_i0 < raw_bounds[0] or cut_i1+20*1600 > raw_bounds[1]:
+            if cut_i1+20*1600 > raw_bounds[1]:
+                raise RuntimeError("cut padding is not yet available in raw ringbuffer")
+            if cut_i0 < raw_bounds[0]:
                 print("%s skipping cut outside raw ringbuffer %s - %s"%(
                     stuffr.unix2datestr(k/1e6),
                     stuffr.unix2datestr(cut_i0/1e6),
@@ -273,8 +284,7 @@ def cut_block():
                                         plot=False
                                         )
             except Exception:
-                traceback.print_exc()
-                continue
+                raise
             if len(cut_res.keys()) == 0:
                 continue
             cut_res["c_snr"]=[snr]
@@ -289,7 +299,7 @@ def cut_block():
                 if "already in data" in str(exc):
                     print("%s cut already exists; skipping"%(stuffr.unix2datestr(okey/1e6)))
                 else:
-                    traceback.print_exc()
+                    raise
 
     #    return({"tx_idx":txidx, # these are the indices of the transmit pulses
     #            "beam_id":beam_ids,  # these are the beam directions
@@ -341,11 +351,15 @@ def cut_block():
                     plt.xlabel("Time (s)")                
                     plt.tight_layout()
                     plt.show()
-        
-while True:
-    try:
-        cut_block()
-    except:
-        import traceback
-        traceback.print_exc()
-    time.sleep(300)
+        write_progress(checkpoint,i1+1)
+    return len(windows)
+
+if __name__ == "__main__":
+    while True:
+        try:
+            progressed=cut_block()
+        except Exception:
+            traceback.print_exc()
+            progressed=False
+        if not progressed:
+            time.sleep(float(os.environ.get("PANSY_CUT_POLL_SECONDS", "5")))

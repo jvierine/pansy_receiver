@@ -14,8 +14,9 @@ import h5py
 import pansy_config as pc
 import traceback
 import warnings
+import fcntl
 
-from meteor_progress import write_progress
+from meteor_progress import write_progress, read_progress, inclusive_chunks
 
 warnings.filterwarnings(
     "ignore",
@@ -217,14 +218,14 @@ def process_m_mode(key,d,rds,dmw,dm_mf2,chs=["ch000","ch001","ch002","ch003","ch
     odata_dict["noise_floor"]=[noise_floors]
     odata_dict["tx_idxs"]=[tx_idxs]
 
-    # Publish incremental progress atomically while this rank is working.
-    write_rank_progress(key)
     # check if we have done this already?
-    mf2out=dm_mf2.read(key-100,key+100,["beam_pos_idx"])
-    if len(mf2out.keys())==0:
-        dmw.write([key],odata_dict)
-    else:
-        print("%d %s looks like this is already processed."%(rank,stuffr.unix2datestr(key/1e6)))
+    # Workers now share short pieces of a mode block and therefore HDF5 files.
+    with open("/tmp/pansy_mf_metadata.lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        mf2out=dm_mf2.read(key-100,key+100,["beam_pos_idx"])
+        if len(mf2out.keys())==0:
+            dmw.write([key],odata_dict)
+    write_rank_progress(key)
 
 
 def process_isr_mode(key,d,rds,dmw,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"]):
@@ -343,6 +344,9 @@ def meteor_search(debug=False):
     if db_mf[1] != -1:
         # start where we left off, instead of the start
         i0=db_mf[1]+10
+    if rank == 0 and os.path.exists("/tmp/meteor_mf_complete.h5"):
+        i0=max(b[0], read_progress("/tmp/meteor_mf_complete.h5")+1)
+    i0=comm.bcast(i0, root=0)
     
     log0("raw ch007 starts at %s"%(stuffr.unix2datestr(i0/1e6)))
 
@@ -399,12 +403,12 @@ def meteor_search(debug=False):
     # Start where the previous matched-filter metadata ends. On a fresh disk
     # mf metadata can be unreadable; in that case start at the first mesomode
     # block that is still inside the raw-voltage ringbuffer.
-    if db_mf[1] != -1:
-        start_idx=db_mf[1]+10
-    else:
-        start_idx=max(mm_bounds[0], raw_bounds[0], db[0])
-    # Stay 6 minutes behind tx metadata to avoid underfull files.
-    end_idx=min(mm_bounds[1], db[1]-6*d_analysis, raw_bounds[1]-20*1600)
+    start_idx=max(i0, raw_bounds[0], db[0])
+    # Only consume closed mode blocks and complete raw batches. Bound each MPI
+    # cycle so one long block cannot hold the downstream completion frontier.
+    end_idx=min(mm_bounds[1], db[1]-2_000_000, raw_bounds[1]-20*1600,
+                start_idx+60_000_000-1)
+    start_idx,end_idx=comm.bcast((start_idx,end_idx),root=0)
 
     if end_idx < start_idx:
         log0("meteor search waiting: start %s is after end %s"%(
@@ -416,7 +420,6 @@ def meteor_search(debug=False):
     N=20*1600
     beam_pos_idx=n.arange(20,dtype=n.int8)%5
 
-    rds_isr=range_doppler_search(txlen=540)
 
     work_blocks=[]
     for block_key, block in sorted(mesomode_blocks.items()):
@@ -424,8 +427,9 @@ def meteor_search(debug=False):
         block_end=int(block["end"])
         i0=max(block_start, start_idx, raw_bounds[0])
         i1=min(block_end, end_idx, raw_bounds[1]-20*1600)
-        if i1 > i0:
-            work_blocks.append((block_key, i0, i1))
+        if i1 >= i0:
+            work_blocks.extend((block_key, lo, hi) for lo,hi in inclusive_chunks(i0,i1,1_000_000))
+    work_blocks=comm.bcast(work_blocks,root=0)
 
     log0("meteor search work queue %s to %s: %d mesomode blocks"%(
         stuffr.unix2datestr(start_idx/1e6),
@@ -452,7 +456,12 @@ def meteor_search(debug=False):
             summary["first_i0"] = i0
         summary["last_i1"] = i1
 
-        data_dict = dmr.read(i0, i1, "id")
+        try:
+            data_dict = dmr.read(i0, i1, "id")
+        except Exception:
+            summary["processing_errors"] += 1
+            traceback.print_exc()
+            continue
 
 #            mf2out=dm_mf_isr.read(i0,i1,["tx_pwr"])
  #           if len(mf2out.keys())>0:
@@ -468,7 +477,9 @@ def meteor_search(debug=False):
             try:
                 if data_dict[key] != 1:
                     continue
-                mf2out=dm_mf2.read(keyi-100,keyi+100,["beam_pos_idx"])
+                with open("/tmp/pansy_mf_metadata.lock", "a") as lock:
+                    fcntl.flock(lock, fcntl.LOCK_SH)
+                    mf2out=dm_mf2.read(keyi-100,keyi+100,["beam_pos_idx"])
                 if len(mf2out.keys())>0:
                     summary["already_processed"] += 1
                     continue
@@ -506,6 +517,7 @@ def meteor_search(debug=False):
     if summary["processing_errors"] == 0:
         write_rank_progress(end_idx)
 
+    errors=comm.allreduce(summary["processing_errors"],op=MPI.SUM)
     all_summaries = comm.gather(summary, root=0)
     if rank == 0:
         totals = {
@@ -552,15 +564,13 @@ def meteor_search(debug=False):
                 )
             )
 
-            
+    return errors == 0
 
-    
-    
-    
 if __name__ == "__main__":
     while True:
-        meteor_search()
+        progressed=meteor_search()
         log0("wait for all quick-search ranks to finish")
         comm.Barrier()
-        time.sleep(60)
+        if not progressed:
+            time.sleep(float(os.environ.get("PANSY_SEARCH_POLL_SECONDS", "5")))
     

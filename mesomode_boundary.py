@@ -74,8 +74,8 @@ def find_blocks():
         file_name,
     )
 
-    block=10*60*1000000
-    processing_lag=2*block
+    # Blocks still require an observed closing gap; no need to age them 20 min.
+    processing_lag=int(float(os.environ.get("PANSY_MESOMODE_LAG_SECONDS", "2"))*1e6)
     process_end=db[1]-processing_lag
     print("tx bounds %s - %s; processing through %s"%(
         stuffr.unix2datestr(db[0]/1e6),
@@ -110,4 +110,4 @@ def find_blocks():
 if __name__ == "__main__":
     while True:
         find_blocks()
-        time.sleep(300)
+        time.sleep(float(os.environ.get("PANSY_MESOMODE_POLL_SECONDS", "5")))
