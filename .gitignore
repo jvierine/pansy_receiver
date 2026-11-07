@@ -43,3 +43,5 @@ pmse/plotting/target/
 /tmp/pdfs/uit-download-guide/
 # Native publisher build artifacts.
 /pmse/publisher/target/
+/meteor/consensus/target/
+/meteor/matched_filter/target/
