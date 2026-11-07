@@ -2,6 +2,7 @@
 
 import glob
 import os
+import json
 
 import h5py
 
@@ -11,6 +12,20 @@ def inclusive_chunks(start, end, width):
     if width <= 0:
         raise ValueError("chunk width must be positive")
     return [(i, min(i + width - 1, end)) for i in range(int(start), int(end) + 1, int(width))]
+
+
+def tx_scan_frontier(latest_detection, path=None):
+    """Use completed scanner input, including intervals with no TX detections."""
+    if path is None:
+        path=os.environ.get("PANSY_FIND_MODE_PROGRESS_PATH",
+            os.path.expanduser("~/.local/state/pansy-receiver/find_mode_starts.json"))
+    if not os.path.exists(path):
+        return int(latest_detection)
+    with open(path) as stream:
+        frontier=json.load(stream)["next_sample"]
+    if not isinstance(frontier,int) or frontier < 0:
+        raise ValueError("invalid TX scanner frontier")
+    return frontier
 
 
 def write_progress(path, latest):

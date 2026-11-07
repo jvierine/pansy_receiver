@@ -9,6 +9,7 @@ import time
 import pansy_config as pc
 import os
 import traceback
+from meteor_progress import tx_scan_frontier
 
 
 MESOMODE_MAX_GAP_SAMPLES = int(
@@ -76,7 +77,7 @@ def find_blocks():
 
     # Blocks still require an observed closing gap; no need to age them 20 min.
     processing_lag=int(float(os.environ.get("PANSY_MESOMODE_LAG_SECONDS", "2"))*1e6)
-    process_end=db[1]-processing_lag
+    process_end=tx_scan_frontier(db[1])-processing_lag
     print("tx bounds %s - %s; processing through %s"%(
         stuffr.unix2datestr(db[0]/1e6),
         stuffr.unix2datestr(db[1]/1e6),

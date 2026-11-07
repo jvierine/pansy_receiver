@@ -16,7 +16,7 @@ import traceback
 import warnings
 import fcntl
 
-from meteor_progress import write_progress, read_progress, inclusive_chunks
+from meteor_progress import write_progress, read_progress, inclusive_chunks, tx_scan_frontier
 
 warnings.filterwarnings(
     "ignore",
@@ -406,7 +406,7 @@ def meteor_search(debug=False):
     start_idx=max(i0, raw_bounds[0], db[0])
     # Only consume closed mode blocks and complete raw batches. Bound each MPI
     # cycle so one long block cannot hold the downstream completion frontier.
-    end_idx=min(mm_bounds[1], db[1]-2_000_000, raw_bounds[1]-20*1600,
+    end_idx=min(mm_bounds[1], tx_scan_frontier(db[1])-2_000_000, raw_bounds[1]-20*1600,
                 start_idx+60_000_000-1)
     start_idx,end_idx=comm.bcast((start_idx,end_idx),root=0)
 
