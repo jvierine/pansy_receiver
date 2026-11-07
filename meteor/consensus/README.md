@@ -176,3 +176,38 @@ The systemd drop-in persists across restarts. To revert only grouping, run
 The separate hourly shadow timer is not the live grouping service. Inspect
 `logs/pansy_cluster_mf.log` and the atomic checkpoint
 `~/.local/state/pansy_receiver/cluster_phase_v1.h5` for forward progress.
+
+### Low-latency chain
+
+Meteor search consumes completed TX scanner windows directly, selecting mode
+ID 1. It no longer waits for a closed mesomode block or a six-minute file-age
+margin. The separate mesomode/xc path retains whole closed blocks; its former
+20-minute delay is replaced by a two-second margin behind the scan checkpoint.
+Six MPI search workers share disjoint one-second chunks, with a maximum
+60-second input span per commit. HDF5 MF reads/writes use a shared/exclusive
+lock because adjacent chunks can occupy the same file. Completed cycles run
+again immediately; idle/error polling is five seconds.
+
+Search, grouping, cut extraction and fitting checkpoint completed INPUT, not
+the last successfully detected meteor. This matters for ST-mode intervals,
+rejected events and windows without detections. Cuts include the final partial
+minute. Fitting no longer skips one second after its last output. Failed
+reads/writes hold back progress; existing output keys are safe to replay.
+
+Persistent HDF5 checkpoints are under `~/.local/state/pansy_receiver/`:
+`mf_complete_v1.h5`, `cluster_phase_v1.h5`, `cut_complete_v1.h5`, and
+`fit_complete_v1.h5`. `latest` is the exclusive next input sample for the last
+three, while search stores its inclusive completed sample. The TX scanner's
+existing completion record is under `~/.local/state/pansy-receiver/`.
+Search also mirrors its frontier to `/tmp/meteor_mf_complete.h5` for older
+operational readers. Persistent state takes priority after reboot.
+
+`bash receiver/install_low_latency.sh STAGE` restarts one named processing
+service with a ten-second stop limit; it cannot restart acquisition. Search
+uses one BLAS/OpenMP thread per MPI worker. Rust performs the matched filtering
+and interferometric consensus; Python still handles orchestration and metadata.
+Replay of missing output can resume from a deliberately rewound checkpoint,
+but stop the affected consumer first and verify the requested interval remains
+inside the raw ringbuffer. Scientific reprocessing with changed algorithms
+should use separate output metadata, not mix replacement detections into the
+live channel. Ringbuffer recovery is not a substitute for checking write errors.

@@ -3,6 +3,28 @@ import unittest
 from unittest.mock import patch
 import numpy as np
 import cluster_mf
+from types import SimpleNamespace
+from meteor_progress import read_progress, write_progress
+
+
+def test_grouping_advances_through_completed_quiet_interval(tmp_path,monkeypatch):
+    monkeypatch.setenv("HOME",str(tmp_path))
+    monkeypatch.setenv("PANSY_GROUPING_BACKEND","rust_phase")
+    state=tmp_path/".local/state/pansy_receiver"
+    state.mkdir(parents=True)
+    checkpoint=state/"cluster_phase_v1.h5"
+    write_progress(checkpoint,90_000_000)
+    det=tmp_path/"detections"
+    det.mkdir()
+    with patch.object(cluster_mf.pc,"detections_metadata_dir",str(det)), \
+         patch.object(cluster_mf,"metadata_bounds",return_value=(object(),(10_000_000,20_000_000))), \
+         patch.object(cluster_mf,"read_completed_frontier",return_value=100_000_000), \
+         patch.object(cluster_mf.drf,"DigitalMetadataWriter",return_value=object()), \
+         patch.object(cluster_mf.drf,"DigitalRFReader",return_value=SimpleNamespace(get_bounds=lambda ch:(0,200_000_000))), \
+         patch.object(cluster_mf,"read_mf_output",return_value=tuple(np.array([]) for _ in range(6))), \
+         patch.object(cluster_mf,"find_clusters"):
+        cluster_mf.analyze_until_now()
+    assert read_progress(checkpoint)==100_000_000
 
 
 class PhasePipelineTests(unittest.TestCase):
