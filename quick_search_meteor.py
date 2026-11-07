@@ -382,31 +382,13 @@ def meteor_search(debug=False):
         stuffr.unix2datestr(raw_bounds[0]/1e6),
         stuffr.unix2datestr(raw_bounds[1]/1e6)))
 
-    try:
-        dmm = drf.DigitalMetadataReader(pc.mesomode_metadata_dir)
-        mm_bounds=dmm.get_bounds()
-        mesomode_blocks=pending_mesomode_blocks(
-            dmm, mm_bounds, max(i0, raw_bounds[0], db[0]))
-        log0("mesomode bounds %s - %s (%d blocks)"%(
-            stuffr.unix2datestr(mm_bounds[0]/1e6),
-            stuffr.unix2datestr(mm_bounds[1]/1e6),
-            len(mesomode_blocks)))
-    except Exception:
-        traceback.print_exc()
-        log0("no readable mesomode metadata yet; waiting")
-        return
-
-    d_analysis=file_cadence_seconds*1000000
-
-#    b_mf_isr=dm_mf_isr.get_bounds()
-
-    # Start where the previous matched-filter metadata ends. On a fresh disk
-    # mf metadata can be unreadable; in that case start at the first mesomode
-    # block that is still inside the raw-voltage ringbuffer.
+    # TX metadata already identifies each complete M-mode batch. A completed
+    # scanner window is sufficient; waiting for the whole mode to end adds
+    # latency and unnecessarily couples meteor search to mesospheric analysis.
     start_idx=max(i0, raw_bounds[0], db[0])
-    # Only consume closed mode blocks and complete raw batches. Bound each MPI
+    # Only consume committed TX windows and complete raw batches. Bound each MPI
     # cycle so one long block cannot hold the downstream completion frontier.
-    end_idx=min(mm_bounds[1], tx_scan_frontier(db[1])-2_000_000, raw_bounds[1]-20*1600,
+    end_idx=min(tx_scan_frontier(db[1])-2_000_000, raw_bounds[1]-20*1600,
                 start_idx+60_000_000-1)
     start_idx,end_idx=comm.bcast((start_idx,end_idx),root=0)
 
@@ -421,17 +403,10 @@ def meteor_search(debug=False):
     beam_pos_idx=n.arange(20,dtype=n.int8)%5
 
 
-    work_blocks=[]
-    for block_key, block in sorted(mesomode_blocks.items()):
-        block_start=int(block["start"])
-        block_end=int(block["end"])
-        i0=max(block_start, start_idx, raw_bounds[0])
-        i1=min(block_end, end_idx, raw_bounds[1]-20*1600)
-        if i1 >= i0:
-            work_blocks.extend((block_key, lo, hi) for lo,hi in inclusive_chunks(i0,i1,1_000_000))
+    work_blocks=[(lo,lo,hi) for lo,hi in inclusive_chunks(start_idx,end_idx,1_000_000)]
     work_blocks=comm.bcast(work_blocks,root=0)
 
-    log0("meteor search work queue %s to %s: %d mesomode blocks"%(
+    log0("meteor search work queue %s to %s: %d TX scan chunks"%(
         stuffr.unix2datestr(start_idx/1e6),
         stuffr.unix2datestr(end_idx/1e6),
         len(work_blocks)))
