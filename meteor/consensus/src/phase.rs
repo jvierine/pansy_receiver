@@ -138,7 +138,164 @@ pub fn split_phase(
         }
     }
     tracks.sort_by_key(|t| t.epoch_sample);
+    // Reconcile gaps without treating a rapidly changing phase as a constant
+    // direction. Fits below use circular phasors, never unwrapped measurements.
+    let mut changed = true;
+    while changed {
+        changed = false;
+        'pairs: for a in 0..tracks.len() {
+            for b in a + 1..tracks.len() {
+                let end = points[*tracks[a].members.last().unwrap()].sample_idx;
+                let start = tracks[b].epoch_sample;
+                if start <= end || (start - end) as f64 / config.sample_rate_hz > config.max_gap_s {
+                    continue;
+                }
+                let mut ids = tracks[a].members.clone();
+                ids.extend(&tracks[b].members);
+                let epoch = points[ids[0]].sample_idx;
+                let original_count = ids.len();
+                let Some(mut model) = crate::fit(points, &ids, epoch, config) else {
+                    continue;
+                };
+                let mut stable = false;
+                for _ in 0..8 {
+                    let before = ids.len();
+                    ids.retain(|&i| {
+                        let (r, v) = crate::residual(&points[i], epoch, model, config);
+                        r.abs() <= 1. && v.abs() <= 1.
+                    });
+                    let left = ids.iter().filter(|i| tracks[a].members.contains(i)).count();
+                    let right = ids.len() - left;
+                    if (ids.len() as f64) < 0.9 * original_count as f64
+                        || (left as f64) < 0.8 * tracks[a].members.len() as f64
+                        || (right as f64) < 0.8 * tracks[b].members.len() as f64
+                    {
+                        break;
+                    }
+                    if before == ids.len() {
+                        stable = true;
+                        break;
+                    }
+                    let Some(refit) = crate::fit(points, &ids, epoch, config) else {
+                        break;
+                    };
+                    model = refit;
+                }
+                if !stable {
+                    if std::env::var_os("PANSY_PHASE_TRACE").is_some() {
+                        eprintln!("phase merge {a} {b}: radial residual rejected");
+                    }
+                    continue;
+                }
+                if !phase_bridge(
+                    points,
+                    &unit,
+                    &tracks[a].members,
+                    &tracks[b].members,
+                    config,
+                ) {
+                    continue;
+                }
+                let new_epoch = points[ids[0]].sample_idx;
+                let shift = (new_epoch - epoch) as f64 / config.sample_rate_hz;
+                tracks[a] = Track {
+                    members: ids,
+                    epoch_sample: new_epoch,
+                    range_at_epoch_km: model.0 + model.1 * shift + 0.5 * model.2 * shift * shift,
+                    radial_velocity_km_s: model.1 + model.2 * shift,
+                    radial_acceleration_km_s2: model.2,
+                };
+                tracks.remove(b);
+                changed = true;
+                break 'pairs;
+            }
+        }
+    }
     Ok(tracks)
+}
+
+fn phase_bridge(
+    points: &[Point],
+    unit: &[[f64; 14]],
+    a: &[usize],
+    b: &[usize],
+    c: &Config,
+) -> bool {
+    let end = points[*a.last().unwrap()].sample_idx;
+    let start = points[b[0]].sample_idx;
+    let left: Vec<_> = a
+        .iter()
+        .copied()
+        .filter(|&i| (end - points[i].sample_idx) as f64 / c.sample_rate_hz <= 0.12)
+        .collect();
+    let right: Vec<_> = b
+        .iter()
+        .copied()
+        .filter(|&i| (points[i].sample_idx - start) as f64 / c.sample_rate_hz <= 0.12)
+        .collect();
+    if left.len() < 6 || right.len() < 6 {
+        if std::env::var_os("PANSY_PHASE_TRACE").is_some() {
+            eprintln!("phase bridge too short {} {}", left.len(), right.len());
+        }
+        return false;
+    }
+    let midpoint = end + (start - end) / 2;
+    // Fit one wrapped phase rate per baseline, extrapolating both ends only
+    // to the middle of the missing interval. Common pulse phase cancels.
+    let fit_phase = |ids: &[usize], ch1: usize, ch2: usize| {
+        let epoch = points[ids[ids.len() / 2]].sample_idx;
+        let values: Vec<_> = ids
+            .iter()
+            .map(|&i| {
+                let re = unit[i][2 * ch1] * unit[i][2 * ch2]
+                    + unit[i][2 * ch1 + 1] * unit[i][2 * ch2 + 1];
+                let im = unit[i][2 * ch1 + 1] * unit[i][2 * ch2]
+                    - unit[i][2 * ch1] * unit[i][2 * ch2 + 1];
+                (
+                    (points[i].sample_idx as i128 - epoch as i128) as f64 / c.sample_rate_hz,
+                    re,
+                    im,
+                )
+            })
+            .collect();
+        let mut best = (0., 0., 0.);
+        for w in -150..=150 {
+            let rate = w as f64 * 2.;
+            let (mut re, mut im) = (0., 0.);
+            for &(t, x, y) in &values {
+                let (s, cos) = (rate * t).sin_cos();
+                re += x * cos + y * s;
+                im += y * cos - x * s;
+            }
+            let score = (re * re + im * im) / (ids.len() * ids.len()) as f64;
+            if score > best.0 {
+                best = (
+                    score,
+                    im.atan2(re)
+                        + rate * (midpoint as i128 - epoch as i128) as f64 / c.sample_rate_hz,
+                    rate,
+                );
+            }
+        }
+        best
+    };
+    let (mut total, mut agree) = (0., 0.);
+    for ch1 in 0..7 {
+        for ch2 in ch1 + 1..7 {
+            let x = fit_phase(&left, ch1, ch2);
+            let y = fit_phase(&right, ch1, ch2);
+            let weight = x.0 * y.0;
+            total += weight;
+            agree += weight * (1. + (x.1 - y.1).cos()) / 2.;
+        }
+    }
+    if std::env::var_os("PANSY_PHASE_TRACE").is_some() {
+        eprintln!(
+            "phase bridge weight={total:.3} agreement={:.3}",
+            agree / total
+        );
+    }
+    total >= 7. && agree / total >= 0.85
 }
 
 /// # Safety

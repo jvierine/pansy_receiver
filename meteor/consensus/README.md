@@ -1,7 +1,7 @@
-# Offline meteor consensus prototype
+# Meteor consensus and interferometric grouping
 
-This is an isolated first step, not connected to the realtime services or their
-metadata writers. No deployment or service restart is required to test it.
+The standalone diagnostic does not change production metadata. An optional
+realtime grouping backend is described below; offline tests need no restart.
 
 Uses a pinned Git revision of `rdigital_rf` with its numeric Digital Metadata
 reader. Native HDF5 is required; `--features static-hdf5` builds HDF5 into the
@@ -128,6 +128,16 @@ echoes during five-beam cycling). Strong links are merged first; overlapping
 components need majority phase consistency to prevent a single outlier from
 bridging them. Tests cover indistinguishable radial tracks, common pulse
 phase, a bridging outlier and 32-ms measurement gaps.
+
+Sequential fragments can be joined across gaps up to 150 ms only when their
+joint range/Doppler fit and independently extrapolated receiver phases agree.
+Each of the 21 baselines is fitted directly as wrapped phasors over the adjacent
+0.12-second endpoints, searching rates from -300 to 300 rad/s in 2 rad/s steps.
+Endpoint fits must have total coherence weight >=7 and weighted phase agreement
+>=0.85 at the gap midpoint. Robust radial trimming retains at least 90% of the
+combined points and 80% of each fragment. Tests include missing-cycle bridges
+and a different direction that must not be joined. This is grouping consistency,
+not pulse-to-pulse Doppler refinement or a sky-position solution.
 
 The first production integration retains the existing SNR>7, |radial speed|>
 3 km/s and PMSE-range screening. It does NOT yet claim recovery of weak edges
