@@ -44,6 +44,7 @@ def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--seconds",type=int,default=600)
     parser.add_argument("--output",required=True)
+    parser.add_argument("--end-sample",type=int,help="inclusive historical audit end")
     args=parser.parse_args()
     if not 1<=args.seconds<=3600: parser.error("audit at most one hour per invocation")
     state=Path.home()/".local/state/pansy_receiver"
@@ -52,6 +53,9 @@ def main():
     checkpoints["group"]=read_progress(state/"cluster_phase_v1.h5")
     checkpoints["search"]=read_progress(search_checkpoint())+1
     end=min(checkpoints.values())-1
+    if args.end_sample is not None:
+        if args.end_sample>end: parser.error("audit end is not completed by every stage")
+        end=args.end_sample
     start=end-args.seconds*1_000_000+1
     tx=Reader(pc.tx_metadata_dir); mf=Reader(pc.mf_metadata_dir)
     det=Reader(pc.detections_metadata_dir); cut=Reader(pc.cut_metadata_dir)
@@ -59,7 +63,7 @@ def main():
     raw=digital_rf.DigitalRFReader(pc.raw_voltage_dir)
     raw_bounds=[raw.get_bounds(f"ch{i:03d}") for i in range(8)]
     missing_mf=[]; bad_mf=[]; missing_cut=[]; bad_cut=[]; raw_gaps=[]
-    counts=dict(tx_batches=0,mf_batches=0,detections=0,cuts=0,fits=0,cut_payloads_checked=0)
+    counts=dict(tx_batches=0,mf_batches=0,detections=0,cuts=0,fits=0,cut_payloads_checked=0,low_snr_cuts=0)
     fields=["beam_pos_idx","tx_idxs","tx_pwr","max_snr","max_range","max_dopvel","noise_floor","tx_std"]
     for a,b in inclusive_chunks(start,end,60_000_000):
         expected={int(k) for k,v in read(tx,a,b,"id").items() if int(np.asarray(v).ravel()[0])==1}
@@ -70,7 +74,11 @@ def main():
             if any(np.asarray(row[f]).size!=20 for f in fields): bad_mf.append(key)
             elif not np.array_equal(row["tx_idxs"],int(key)+np.arange(20)*1600): bad_mf.append(key)
         events=read(det,a,b,["tx_idx","beam"])
-        cuts=read(cut,a,b,"c_tx_idx")
+        cuts=read(cut,a,b,["c_tx_idx","c_snr"])
+        for key,row in cuts.items():
+            snr=np.asarray(row["c_snr"])
+            if not snr.size: bad_cut.append(key)
+            elif np.max(snr)<20: counts["low_snr_cuts"]+=1
         counts["detections"]+=len(events); counts["cuts"]+=len(cuts)
         counts["fits"]+=len(read(fit,a,b,"txidx"))
         for key,row in events.items():
