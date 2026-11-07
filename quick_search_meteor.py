@@ -64,6 +64,14 @@ def meteor_search_range_gates(
     return n.arange(start_gate, stop_gate, int(gate_step), dtype=n.int64)
 
 
+def pending_mesomode_blocks(reader, bounds, first_needed):
+    # Mesomode records are keyed by block END, so no preceding record is needed.
+    lower = max(int(bounds[0]), int(first_needed))
+    if lower > int(bounds[1]):
+        return {}
+    return reader.read(lower, int(bounds[1]), ["start", "end"])
+
+
 class range_doppler_search:
     def __init__(self,
                  txlen=132,
@@ -373,7 +381,8 @@ def meteor_search(debug=False):
     try:
         dmm = drf.DigitalMetadataReader(pc.mesomode_metadata_dir)
         mm_bounds=dmm.get_bounds()
-        mesomode_blocks=dmm.read(mm_bounds[0], mm_bounds[1])
+        mesomode_blocks=pending_mesomode_blocks(
+            dmm, mm_bounds, max(i0, raw_bounds[0], db[0]))
         log0("mesomode bounds %s - %s (%d blocks)"%(
             stuffr.unix2datestr(mm_bounds[0]/1e6),
             stuffr.unix2datestr(mm_bounds[1]/1e6),
