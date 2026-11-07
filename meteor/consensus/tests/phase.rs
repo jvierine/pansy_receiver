@@ -83,3 +83,21 @@ fn one_intermediate_phase_outlier_cannot_join_simultaneous_tracks() {
         assert!(ids.iter().all(|&i| i % 2 == ids[0] % 2));
     }
 }
+
+#[test]
+fn rapid_continuous_phase_motion_does_not_fragment_a_track() {
+    let mut p = Vec::new();
+    let mut s = Vec::new();
+    for i in 0..70 {
+        p.push(Point {
+            sample_idx: 1_746_000_000_000_000 + i * 8000,
+            range_km: 100. - 20. * i as f64 * 0.008,
+            radial_velocity_km_s: -20.,
+            snr_linear: 20.,
+        });
+        s.push(signature(0.06 * i as f64, 0.7 * i as f64));
+    }
+    let tracks = split_phase(&p, &s, 0.65, 0.05, &Config::default()).unwrap();
+    assert_eq!(tracks.len(), 1);
+    assert_eq!(tracks[0].members.len(), p.len());
+}
