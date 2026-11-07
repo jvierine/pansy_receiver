@@ -86,3 +86,26 @@ fragments, NOT a meteor catalogue or detection-recall estimate. No angular
 disambiguation or head/trail decision is made by this prototype.
 
 Integration test: `conda run -n base python meteor/consensus/tests/check_cli.py`.
+
+## Hourly diagnostic deployment
+
+After installing the native binary, run `bash receiver/install_consensus_shadow.sh`.
+This installs ONLY the separate shadow timer, never restarts acquisition or any
+production processor. It samples the latest complete minute once per hour and
+skips stale (>1 hour), future or insufficient metadata. Each job is limited to
+20% of one CPU, 256 MiB and five minutes, with production paths read-only in
+the service. No historical catch-up or network transfer is performed.
+
+Only `hourly_*.h5` in `/media/analysis/shadow/meteor_consensus` are rotated:
+at most 48 files or 64 MiB, whichever is reached first. Manually requested
+`replay_*.h5` files are preserved. Failed/interrupted partial files are cleaned
+at the next invocation. Exclusive locking prevents concurrent manual jobs.
+Stored model residuals and per-track pulse uniqueness are checked before
+publication, and summary counts/runtime are HDF5 attributes. These checks
+do NOT establish meteor purity or completeness; visual/labelled validation
+and interferometric consistency remain prerequisites for live grouping.
+
+Inspect `journalctl --user -u pansy-consensus-shadow.service` and stop sampling
+with `systemctl --user disable --now pansy-consensus-shadow.timer` (stop the
+service too to cancel an in-progress sample). Python test:
+`conda run -n base python -m unittest discover -s meteor/consensus/tests -p 'test_*.py'`.

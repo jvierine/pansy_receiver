@@ -1,0 +1,20 @@
+[Unit]
+Description=PANSY bounded Rust consensus diagnostic sample (no production writes)
+
+[Service]
+Type=oneshot
+Environment=PANSY_RECEIVER_REPO=__PANSY_RECEIVER_REPO__
+WorkingDirectory=__PANSY_RECEIVER_REPO__
+ExecStart=__PANSY_RECEIVER_REPO__/receiver/scripts/pansy_processing_service.sh python3 meteor/consensus/shadow_latest.py /media/analysis/metadata/mf /media/analysis/shadow/meteor_consensus
+CPUQuota=20%
+Nice=10
+MemoryMax=256M
+TimeoutStartSec=300
+KillMode=control-group
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/media/analysis/shadow/meteor_consensus __PANSY_RECEIVER_REPO__/logs
+PrivateTmp=true
+Environment=OPENBLAS_NUM_THREADS=1
+Environment=OMP_NUM_THREADS=1
+Environment=PYTHONDONTWRITEBYTECODE=1
