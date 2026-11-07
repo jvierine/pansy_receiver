@@ -380,8 +380,8 @@ def process_cut(data,
                         print("%d %s simple_fit already exists; skipping"%(
                             rank, stuffr.unix2datestr(txidxs[0]/1e6)))
                     else:
-                        import traceback
-                        traceback.print_exc()
+                        # Storage failures must hold back the input checkpoint.
+                        raise
                     return False
             if do_cnn_image:
                 return(RTI[:,n.min(delays):(n.max(delays)+rds.n_rg)].T,DTI[:,n.min(delays):(n.max(delays)+rds.n_rg)].T)

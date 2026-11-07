@@ -5,6 +5,14 @@ import process_cut_meteor as fit
 from meteor_progress import read_progress, write_progress
 
 
+def test_fit_writer_propagates_storage_failure(tmp_path):
+    class Writer:
+        def write(self,*args): raise OSError("disk full")
+    with patch.object(fit,"SIMPLE_FIT_WRITE_LOCK",str(tmp_path/"lock")):
+        with pytest.raises(OSError,match="disk full"):
+            fit.write_simple_fit_metadata(Writer(),1,{})
+
+
 @pytest.mark.parametrize("failure", [None, "read", "fit"])
 def test_rejected_fit_advances_but_io_failures_do_not(tmp_path, monkeypatch, failure):
     monkeypatch.setenv("HOME",str(tmp_path))
