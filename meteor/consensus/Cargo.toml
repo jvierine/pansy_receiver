@@ -1,0 +1,15 @@
+[package]
+name = "pansy-meteor-consensus"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+static-hdf5 = ["hdf5/static", "hdf5/zlib"]
+
+[dependencies]
+anyhow = "1"
+hdf5 = { package = "hdf5-metno", version = "0.12" }
+nalgebra = { version = "0.33", default-features = false, features = ["std"] }
+rdigital_rf = { git = "https://github.com/jvierine/rdigital_rf", rev = "a85f9c809ad39b4beb6e069ab573b699d65613ed" }
+
