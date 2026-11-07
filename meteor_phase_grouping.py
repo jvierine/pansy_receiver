@@ -81,7 +81,7 @@ class PhaseGrouper:
         labels = np.full(len(samples),-1,dtype=np.int32)
         count = self.lib.pansy_consensus_phase(
             *[a.ctypes.data for a in arrays],signatures.ctypes.data,len(samples),
-            .65,.017,labels.ctypes.data)
+            .65,.05,labels.ctypes.data)
         if count < 0:
             raise RuntimeError(f"native interferometric consensus failed ({count})")
         print(f"Rust interferometric RANSAC: points={len(samples)} tracks={count} "
