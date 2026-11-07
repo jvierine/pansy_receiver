@@ -1,5 +1,6 @@
 """Bounded, read-only comparison of legacy and phase-aware RANSAC grouping."""
 import argparse
+import os
 from pathlib import Path
 import sys
 import time
@@ -32,21 +33,28 @@ def main():
         def __init__(self): self.records=[]
         def write(self,keys,data): self.records.append(data)
     captured = Capture()
+    os.environ["PANSY_GROUPING_BACKEND"]="python"
     cluster_mf.find_clusters(txp,t,r,v,s,b,captured)
     legacy = np.full(len(t),-1,dtype=np.int32)
     for i,record in enumerate(captured.records):
         legacy[np.isin(t,record["tx_idx"])] = i
     grouper = PhaseGrouper(args.raw)
+    cluster_mf._phase_grouper = grouper
+    os.environ["PANSY_GROUPING_BACKEND"]="rust_phase"
     began = time.monotonic()
     try:
-        labels, signatures = grouper.group(t,r,v,s,b)
+        native = Capture()
+        cluster_mf.find_clusters(txp,t,r,v,s,b,native)
+        labels = np.full(len(t),-1,dtype=np.int32)
+        for i,record in enumerate(native.records):
+            labels[np.isin(t,record["tx_idx"])] = i
     finally:
         grouper.close()
     with h5py.File(args.output,"x") as out:
         for key,value in dict(sample_idx=t.astype(np.int64),range_km=r.astype(np.float32),
                               doppler_m_s=v.astype(np.float32),snr_db=(10*np.log10(s)).astype(np.float32),
                               beam_id=(b%5).astype(np.int8),legacy_track_id=legacy,
-                              track_id=labels,receiver_amplitudes=signatures).items():
+                              track_id=labels).items():
             out[key]=value
         out.attrs["elapsed_s"]=np.float32(time.monotonic()-began)
         out.attrs["phase_coherence_min"]=np.float32(.65)

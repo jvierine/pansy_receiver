@@ -15,6 +15,21 @@ import pansy_config as pc
 
 from meteor_progress import read_completed_frontier
 
+_phase_grouper = None
+
+def phase_clusters(txidxa,rnga,dopa,snra,beam):
+    global _phase_grouper
+    if _phase_grouper is None:
+        from meteor_phase_grouping import PhaseGrouper
+        _phase_grouper = PhaseGrouper()
+    labels,_ = _phase_grouper.group(txidxa,rnga,dopa,snra,beam)
+    result=[]
+    for label in n.unique(labels[labels>=0]):
+        idx=n.flatnonzero(labels==label)
+        _,_,xhat,_=fit_obs(txidxa[idx],rnga[idx],dopa[idx])
+        result.append({"idx":idx,"xhat":xhat})
+    return result
+
 def metadata_bounds(path, label):
     try:
         reader = drf.DigitalMetadataReader(path)
@@ -365,7 +380,10 @@ def find_clusters(txpa,txidxa,rnga,dopa,snra,beam,dmw):
         
     n_m=len(txpa)
 
-    if n_m > max_tx_idx:
+    backend=os.environ.get("PANSY_GROUPING_BACKEND","python")
+    if backend not in ("python","rust_phase"):
+        raise ValueError("PANSY_GROUPING_BACKEND must be python or rust_phase")
+    if n_m > max_tx_idx and backend == "python":
         #print("too many detections. limiting to %d highest doppler shift detections "%(max_tx_idx))
         dop_idx=n.argsort(n.abs(dopa))[::-1]
         txpa=txpa[dop_idx[0:max_tx_idx]]
@@ -377,7 +395,10 @@ def find_clusters(txpa,txidxa,rnga,dopa,snra,beam,dmw):
         n_m=max_tx_idx
 
     if len(txidxa) > 5:
-        meteor_detections=cluster(txidxa,rnga,dopa,snra)
+        if backend == "rust_phase":
+            meteor_detections=phase_clusters(txidxa,rnga,dopa,snra,beam)
+        else:
+            meteor_detections=cluster(txidxa,rnga,dopa,snra)
         for det in meteor_detections:
             xhat=det["xhat"]
             print("%s meteor %d detections v=%1.1f km/s r=%1.1f km"%(stuffr.unix2datestr(n.min(txidxa[det["idx"]])/1e6),len(det["idx"]),xhat[1],xhat[0]))
@@ -497,6 +518,7 @@ def analyze_until_now():
         find_clusters(txpa,txidxa,rnga,dopa,snra,beam,dmw)
         
 if __name__ == "__main__":
+    print("meteor grouping backend: %s"%os.environ.get("PANSY_GROUPING_BACKEND","python"),flush=True)
     while True:
         try:
             analyze_until_now()
