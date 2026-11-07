@@ -547,4 +547,4 @@ if __name__ == "__main__":
         except:
             import traceback
             traceback.print_exc()
-        time.sleep(300)
+        time.sleep(float(os.environ.get("PANSY_GROUPING_POLL_SECONDS", "5")))

@@ -16,6 +16,7 @@ import h5py
 import pansy_modes as pmm
 import meteor_fit as metfit
 import simple_radiant as sr
+from meteor_progress import read_progress, write_progress, inclusive_chunks
 
 from mpi4py import MPI
 
@@ -505,12 +506,26 @@ def process_latest():
         dmf, fitb = None, [-1, -1]
     fitb = comm.bcast(fitb, root=0)
     if fitb[1] != -1:
-        start_idx=fitb[1]+1000000
+        start_idx=fitb[1]+1
     else:
         if rank == 0:
             print("no fit boundary found")
     
-    n_block=int(n.ceil((b[1]-start_idx)/dt))
+    checkpoint=os.path.expanduser("~/.local/state/pansy_receiver/fit_complete_v1.h5")
+    cut_checkpoint=os.path.expanduser("~/.local/state/pansy_receiver/cut_complete_v1.h5")
+    if rank == 0:
+        if os.path.exists(checkpoint):
+            start_idx=read_progress(checkpoint)
+        end_idx=read_progress(cut_checkpoint) if os.path.exists(cut_checkpoint) else b[1]+1
+        end_idx=min(end_idx,start_idx+300_000_000)
+        os.makedirs(os.path.dirname(checkpoint),exist_ok=True)
+        if not os.path.exists(checkpoint):
+            write_progress(checkpoint,start_idx)
+    else:
+        end_idx=None
+    start_idx,end_idx=comm.bcast((start_idx,end_idx),root=0)
+    windows=inclusive_chunks(start_idx,end_idx-1,dt)
+    n_block=len(windows)
     if n_block <= 0:
         if should_log_idle():
             print("process_cut_meteor waiting: start %s is not before cut end %s"%(
@@ -520,7 +535,7 @@ def process_latest():
     if rank == 0:
         print("process_cut_meteor range: start=%s end=%s block=%1.1fs"%(
             stuffr.unix2datestr(start_idx/1e6),
-            stuffr.unix2datestr(b[1]/1e6),
+            stuffr.unix2datestr(end_idx/1e6),
             PROCESS_CUT_BLOCK_SECONDS))
 
     omddir=pc.simple_fit_metadata_dir
@@ -533,8 +548,14 @@ def process_latest():
     dmw = simple_fit_writer(omddir)
 
     n_processed = 0
+    n_errors = 0
     for bi in range(rank,n_block,size):
-        data=dm.read(start_idx+bi*dt,start_idx+bi*dt+dt)
+        try:
+            data=dm.read(*windows[bi])
+        except Exception:
+            n_errors += 1
+            traceback.print_exc()
+            continue
         kl=list(data.keys())
         for ki in range(len(kl)):
             k=kl[ki]
@@ -543,12 +564,16 @@ def process_latest():
                 if process_cut(data[k],dmw,plot=False,write_dm=True):
                     n_processed += 1
             except:
+                n_errors += 1
                 import traceback
                 traceback.print_exc()
     n_processed_total = comm.allreduce(n_processed, op=MPI.SUM)
+    n_errors_total = comm.allreduce(n_errors, op=MPI.SUM)
+    if rank == 0 and n_errors_total == 0:
+        write_progress(checkpoint,end_idx)
     if rank == 0:
         print("process_cut_meteor processed %d cuts"%(n_processed_total))
-    return n_processed_total
+    return n_block if n_errors_total == 0 else 0
             
 def plot_last():
     #mddir="../pansy_test_data/metadata/cut"
