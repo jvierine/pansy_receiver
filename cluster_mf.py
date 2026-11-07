@@ -13,6 +13,7 @@ import time
 import scipy.fftpack as fp
 import itertools
 import pansy_config as pc
+from meteor_metadata import StrictDigitalMetadataReader
 
 from meteor_progress import read_completed_frontier, read_progress, write_progress
 from meteor_progress import search_checkpoint
@@ -34,7 +35,7 @@ def phase_clusters(txidxa,rnga,dopa,snra,beam):
 
 def metadata_bounds(path, label):
     try:
-        reader = drf.DigitalMetadataReader(path)
+        reader = StrictDigitalMetadataReader(path)
         return reader, reader.get_bounds()
     except Exception as exc:
         print("couldn't read %s metadata bounds yet: %s"%(label, exc))

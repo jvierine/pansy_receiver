@@ -9,6 +9,7 @@ import time
 import pansy_config as pc
 import os
 import traceback
+from meteor_metadata import StrictDigitalMetadataReader
 from meteor_progress import tx_scan_frontier
 
 
@@ -48,12 +49,12 @@ def find_blocks():
     find contiguous blocks of mesosphere mode
     """
 
-    dmr = drf.DigitalMetadataReader(pc.tx_metadata_dir)
+    dmr = StrictDigitalMetadataReader(pc.tx_metadata_dir)
     db = dmr.get_bounds()
     start_idx=db[0]
     # if we already have something. continue from end
     try:
-        dmm = drf.DigitalMetadataReader(pc.mesomode_metadata_dir)
+        dmm = StrictDigitalMetadataReader(pc.mesomode_metadata_dir)
         mmb=dmm.get_bounds()
         start_idx=mmb[1]+1
     except Exception:

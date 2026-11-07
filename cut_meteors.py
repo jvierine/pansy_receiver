@@ -9,6 +9,7 @@ import pansy_config as pc
 import cluster_mf as cmf
 import traceback
 import warnings
+from meteor_metadata import StrictDigitalMetadataReader
 from meteor_progress import read_progress, write_progress, inclusive_chunks
 
 warnings.filterwarnings(
@@ -20,7 +21,7 @@ warnings.filterwarnings(
 
 def metadata_bounds(path, label):
     try:
-        reader = drf.DigitalMetadataReader(path)
+        reader = StrictDigitalMetadataReader(path)
         return reader, reader.get_bounds()
     except Exception as exc:
         print("couldn't read %s metadata bounds yet: %s"%(label, exc))
@@ -33,7 +34,7 @@ def cut_raw_voltage(i0,i1,rmodel,n_pad=100000,beams=[0],rx_ch=["ch000","ch001","
                     pad=64):
 
     # transmit pulse metadata
-    dmt = drf.DigitalMetadataReader(pc.tx_metadata_dir)
+    dmt = StrictDigitalMetadataReader(pc.tx_metadata_dir)
     bt = dmt.get_bounds()
 
     # raw voltage
