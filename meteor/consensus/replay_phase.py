@@ -26,7 +26,7 @@ def main():
     if not 0 < args.end-args.start <= 10_000_000 or args.output.exists():
         parser.error("require a new output and a window <=10 seconds")
     reader = digital_rf.DigitalMetadataReader(args.metadata)
-    txp,t,r,v,s,b = cluster_mf.read_mf_output(reader,args.start,args.end)
+    txp,t,r,v,s,b = cluster_mf.read_mf_output(reader,args.start-32000,args.end)
     keep = (t >= args.start) & (t < args.end)
     txp,t,r,v,s,b = [x[keep] for x in (txp,t,r,v,s,b)]
     class Capture:
@@ -58,7 +58,7 @@ def main():
             out[key]=value
         out.attrs["elapsed_s"]=np.float32(time.monotonic()-began)
         out.attrs["phase_coherence_min"]=np.float32(.65)
-        out.attrs["max_phase_link_lag_s"]=np.float32(.017)
+        out.attrs["max_phase_link_lag_s"]=np.float32(.05)
     print(f"Legacy tracks={len(captured.records)} points={np.count_nonzero(legacy>=0)}; "
           f"new tracks={len(np.unique(labels[labels>=0]))} points={np.count_nonzero(labels>=0)}",flush=True)
 

@@ -35,7 +35,7 @@ fn motion_common_phase_and_missing_echoes_are_supported() {
     let mut p = vec![];
     let mut s = vec![];
     for i in 0..50 {
-        if i % 9 == 0 {
+        if i % 9 < 3 {
             continue;
         }
         p.push(Point {
@@ -46,7 +46,7 @@ fn motion_common_phase_and_missing_echoes_are_supported() {
         });
         s.push(signature(0.1 + 0.01 * i as f64, i as f64 * 2.9));
     }
-    let tracks = split_phase(&p, &s, 0.65, 0.017, &Config::default()).unwrap();
+    let tracks = split_phase(&p, &s, 0.65, 0.05, &Config::default()).unwrap();
     assert_eq!(tracks.len(), 1);
     assert_eq!(tracks[0].members.len(), p.len());
     s[0][0] = f32::NAN;

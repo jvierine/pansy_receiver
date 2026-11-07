@@ -109,3 +109,43 @@ Inspect `journalctl --user -u pansy-consensus-shadow.service` and stop sampling
 with `systemctl --user disable --now pansy-consensus-shadow.timer` (stop the
 service too to cancel an in-progress sample). Python test:
 `conda run -n base python -m unittest discover -s meteor/consensus/tests -p 'test_*.py'`.
+
+## Interferometric grouping backend
+
+`PANSY_GROUPING_BACKEND=rust_phase` replaces the grouping inside `cluster_mf.py`.
+For each existing MF peak, it reads the corresponding 20-pulse raw batch,
+recomputes only that range gate using the native filter, verifies the Doppler
+bin against MF metadata, and retains seven complex receiver amplitudes. The
+per-beam phase corrections use the same sign as `image_points1`. Common TX/
+meteor phase cancels in the normalized inter-receiver signature comparison.
+No phase unwrapping, sky-position choice, or interferometer alias selection is
+done here. Array aliases with identical responses remain indistinguishable.
+
+Native grouping forms local phase-compatible components, then uses RANSAC
+with quadratic range and corresponding Doppler. Links require squared
+phase-signature coherence >=0.65 and separation <=50 ms (including missing
+echoes during five-beam cycling). Strong links are merged first; overlapping
+components need majority phase consistency to prevent a single outlier from
+bridging them. Tests cover indistinguishable radial tracks, common pulse
+phase, a bridging outlier and 32-ms measurement gaps.
+
+The first production integration retains the existing SNR>7, |radial speed|>
+3 km/s and PMSE-range screening. It does NOT yet claim recovery of weak edges
+or low-radial-speed meteors. It removes the legacy 300-point truncation, but
+fails explicitly above 16384 points. Multi-peak production detection is also
+not enabled; it still groups the single peak already stored per pulse.
+
+Detection fields and event keys are unchanged. An independent atomic HDF5
+checkpoint advances only after a complete ten-second window; failed writes
+do not advance it, and duplicate records on replay are tolerated. Batch tails
+are included and clipped to half-open windows. As in the existing detector,
+tracks crossing ten-second boundaries are not reconciled yet. Calibration/
+raw-data failures stop progress rather than silently falling back to phase-free
+grouping. No raw voltages or extra phase arrays are written to live metadata.
+
+Build the shared library (`--features static-hdf5` for the receiver), run
+`tests/check_phase_ffi.py`, then `replay_phase.py MF RAW START END OUTPUT.h5`
+for explicit <=10-second windows. `plot_phase_replay.py` renders comparisons.
+Only after real-data checks, `bash receiver/install_grouping_rust.sh enable`
+installs a drop-in and restarts the clustering service alone; `rollback` removes
+it. The native cut-filter library is required for its amplitude-return ABI.

@@ -13,7 +13,7 @@ import scipy.fftpack as fp
 import itertools
 import pansy_config as pc
 
-from meteor_progress import read_completed_frontier
+from meteor_progress import read_completed_frontier, read_progress, write_progress
 
 _phase_grouper = None
 
@@ -413,7 +413,11 @@ def find_clusters(txpa,txidxa,rnga,dopa,snra,beam,dmw):
             idx0=n.min(txidxa[det["idx"]])
             try:
                 dmw.write([idx0],odata_dict)
-            except:
+            except Exception as exc:
+                if backend == "rust_phase":
+                    if "already in data" in str(exc):
+                        continue
+                    raise
                 import traceback
                 traceback.print_exc()
 
@@ -494,6 +498,18 @@ def analyze_until_now():
         # start where detections end, if we have already analyzed
         start_idx=dt*int(n.ceil(b_det[1]/dt))
 
+    phase_checkpoint = None
+    if os.environ.get("PANSY_GROUPING_BACKEND","python") == "rust_phase":
+        phase_checkpoint=os.path.expanduser("~/.local/state/pansy_receiver/cluster_phase_v1.h5")
+        os.makedirs(os.path.dirname(phase_checkpoint),exist_ok=True)
+        if os.path.exists(phase_checkpoint):
+            start_idx=read_progress(phase_checkpoint)
+            if start_idx < (db_mf[0]//dt)*dt or start_idx > (db_mf[1]//dt+1)*dt or start_idx % dt:
+                raise ValueError("invalid interferometric grouping checkpoint")
+        else:
+            # Save before writing any detections, so partial-window crashes replay.
+            write_progress(phase_checkpoint,start_idx)
+
     # only go up to the point where the slowest thread is at (analysis_end)
     if analysis_end == -1:
         # don't know how long to analyze!
@@ -514,8 +530,14 @@ def analyze_until_now():
         i0=start_idx+i*dt
         i1=start_idx+i*dt+dt
 
-        txpa,txidxa,rnga,dopa,snra,beam=read_mf_output(dm_mf,i0,i1)
+        read_start=i0-32000 if phase_checkpoint is not None else i0
+        txpa,txidxa,rnga,dopa,snra,beam=read_mf_output(dm_mf,read_start,i1)
+        if phase_checkpoint is not None:
+            keep=(txidxa>=i0)&(txidxa<i1)
+            txpa,txidxa,rnga,dopa,snra,beam=[x[keep] for x in (txpa,txidxa,rnga,dopa,snra,beam)]
         find_clusters(txpa,txidxa,rnga,dopa,snra,beam,dmw)
+        if phase_checkpoint is not None:
+            write_progress(phase_checkpoint,i1)
         
 if __name__ == "__main__":
     print("meteor grouping backend: %s"%os.environ.get("PANSY_GROUPING_BACKEND","python"),flush=True)
