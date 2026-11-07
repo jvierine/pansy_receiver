@@ -6,7 +6,7 @@ import cut_meteors as cut
 from meteor_progress import read_progress, write_progress
 
 
-@pytest.mark.parametrize("fail", [False, True])
+@pytest.mark.parametrize("fail", [False, True, "empty"])
 def test_short_final_window_and_failed_write_checkpoint(tmp_path, monkeypatch, fail):
     monkeypatch.setenv("HOME",str(tmp_path))
     state=tmp_path/".local/state/pansy_receiver"
@@ -32,8 +32,10 @@ def test_short_final_window_and_failed_write_checkpoint(tmp_path, monkeypatch, f
          patch.object(cut.drf,"DigitalRFReader",return_value=SimpleNamespace(get_bounds=lambda ch:(0,10_000_000))), \
          patch.object(cut.drf,"DigitalMetadataWriter",return_value=Writer()), \
          patch.object(cut.cmf,"fit_obs",return_value=(0,0,np.zeros(3),0,lambda t:100,lambda t:-20)), \
-         patch.object(cut,"cut_raw_voltage",return_value={"tx_idx":[samples]}):
-        if fail:
+         patch.object(cut,"cut_raw_voltage",return_value={} if fail=="empty" else {"tx_idx":[samples]}):
+        if fail=="empty":
+            with pytest.raises(RuntimeError,match="no mesosphere TX batches"): cut.cut_block()
+        elif fail:
             with pytest.raises(OSError,match="disk failure"): cut.cut_block()
         else:
             assert cut.cut_block()==1

@@ -1,8 +1,15 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 import pytest
+import numpy as np
 import process_cut_meteor as fit
 from meteor_progress import read_progress, write_progress
+
+
+def test_malformed_voltage_is_not_a_scientific_rejection():
+    data={key:np.array([]) for key in ("zrx_echoes_re","zrx_echoes_im","ztx_pulses_re","ztx_pulses_im")}
+    with pytest.raises(ValueError,match="malformed cut"):
+        fit.process_cut(data,None)
 
 
 def test_fit_writer_propagates_storage_failure(tmp_path):

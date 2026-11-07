@@ -272,8 +272,7 @@ def process_cut(data,
     z_rx=n.array(data["zrx_echoes_re"],dtype=n.complex64)+n.array(data["zrx_echoes_im"],dtype=n.complex64)*1j
     z_tx=n.array(data["ztx_pulses_re"],dtype=n.complex64)+n.array(data["ztx_pulses_im"],dtype=n.complex64)*1j
     if len(z_rx.shape) != 3 or len(z_tx.shape) != 2 or z_rx.shape[0] == 0:
-        print("%d skipping malformed cut metadata"%(rank))
-        return False
+        raise ValueError("malformed cut metadata; refusing to advance fit checkpoint")
     # calibrated amplitudes
     for i in range(z_rx.shape[1]):
         z_rx[:,i,:]=z_rx[:,i,:]*amp_scale[i]
