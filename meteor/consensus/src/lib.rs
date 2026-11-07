@@ -1,6 +1,7 @@
 //! Offline prototype: joint range/Doppler consensus, never a production writer.
 use anyhow::{ensure, Result};
 use std::collections::BTreeMap;
+pub mod phase;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Point {
