@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[lib]
+crate-type = ["rlib", "cdylib"]
+
 [features]
 static-hdf5 = ["hdf5/static", "hdf5/zlib"]
 
