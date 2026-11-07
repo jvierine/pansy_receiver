@@ -16,7 +16,7 @@ import h5py
 import pansy_modes as pmm
 import meteor_fit as metfit
 import simple_radiant as sr
-from meteor_metadata import StrictDigitalMetadataReader
+from meteor_metadata import StrictDigitalMetadataReader, write_complete_record
 from meteor_progress import read_progress, write_progress, inclusive_chunks
 
 from mpi4py import MPI
@@ -68,7 +68,7 @@ def write_simple_fit_metadata(dmw, sample_idx, payload):
     with open(SIMPLE_FIT_WRITE_LOCK, "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
-            dmw.write(sample_idx, payload)
+            return write_complete_record(dmw,pc.simple_fit_metadata_dir,sample_idx,payload)
         except ValueError as exc:
             # MPI ranks can construct writers before the first fields dataset
             # exists. Reopen under the lock if another rank created it first.
@@ -76,7 +76,7 @@ def write_simple_fit_metadata(dmw, sample_idx, payload):
                 raise
             print("%d simple_fit metadata schema race; reopening writer"%(rank))
             fresh_dmw = simple_fit_writer(pc.simple_fit_metadata_dir)
-            fresh_dmw.write(sample_idx, payload)
+            return write_complete_record(fresh_dmw,pc.simple_fit_metadata_dir,sample_idx,payload)
         finally:
             fcntl.flock(lock, fcntl.LOCK_UN)
 
@@ -373,15 +373,7 @@ def process_cut(data,
                                RTI[:,lo:hi].T,peak_dops)
                 except Exception as exc:
                     print("Current meteor telemetry unavailable:",exc)
-                try:
-                    write_simple_fit_metadata(dmw, txidxs[0], dout)
-                except Exception as exc:
-                    if "already in data" in str(exc):
-                        print("%d %s simple_fit already exists; skipping"%(
-                            rank, stuffr.unix2datestr(txidxs[0]/1e6)))
-                    else:
-                        # Storage failures must hold back the input checkpoint.
-                        raise
+                if not write_simple_fit_metadata(dmw, txidxs[0], dout):
                     return False
             if do_cnn_image:
                 return(RTI[:,n.min(delays):(n.max(delays)+rds.n_rg)].T,DTI[:,n.min(delays):(n.max(delays)+rds.n_rg)].T)

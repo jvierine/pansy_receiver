@@ -9,7 +9,7 @@ import pansy_config as pc
 import cluster_mf as cmf
 import traceback
 import warnings
-from meteor_metadata import StrictDigitalMetadataReader
+from meteor_metadata import StrictDigitalMetadataReader, write_complete_record
 from meteor_progress import read_progress, write_progress, inclusive_chunks
 
 warnings.filterwarnings(
@@ -295,13 +295,8 @@ def cut_block():
             cut_res["c_doppler"]=[doppler_ms]
             cut_res["c_range_km"]=[range_km]
             okey=n.min(tx_idx)
-            try:
-                dmw.write([okey],cut_res)
-            except Exception as exc:
-                if "already in data" in str(exc):
-                    print("%s cut already exists; skipping"%(stuffr.unix2datestr(okey/1e6)))
-                else:
-                    raise
+            if not write_complete_record(dmw,pc.cut_metadata_dir,okey,cut_res):
+                print("%s cut already exists; skipping"%(stuffr.unix2datestr(okey/1e6)))
 
     #    return({"tx_idx":txidx, # these are the indices of the transmit pulses
     #            "beam_id":beam_ids,  # these are the beam directions

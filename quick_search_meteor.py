@@ -14,7 +14,7 @@ import h5py
 import pansy_config as pc
 import traceback
 import warnings
-from meteor_metadata import StrictDigitalMetadataReader
+from meteor_metadata import StrictDigitalMetadataReader, matched_filter_record_exists
 import fcntl
 
 from meteor_progress import write_progress, read_progress, inclusive_chunks, tx_scan_frontier
@@ -224,8 +224,7 @@ def process_m_mode(key,d,rds,dmw,dm_mf2,chs=["ch000","ch001","ch002","ch003","ch
     # Workers now share short pieces of a mode block and therefore HDF5 files.
     with open("/tmp/pansy_mf_metadata.lock", "a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        mf2out=dm_mf2.read(key-100,key+100,["beam_pos_idx"])
-        if len(mf2out.keys())==0:
+        if not matched_filter_record_exists(dm_mf2,int(key)):
             dmw.write([key],odata_dict)
     write_rank_progress(key)
 
@@ -455,9 +454,9 @@ def meteor_search(debug=False):
                 if data_dict[key] != 1:
                     continue
                 with open("/tmp/pansy_mf_metadata.lock", "a") as lock:
-                    fcntl.flock(lock, fcntl.LOCK_SH)
-                    mf2out=dm_mf2.read(keyi-100,keyi+100,["beam_pos_idx"])
-                if len(mf2out.keys())>0:
+                    fcntl.flock(lock, fcntl.LOCK_EX)
+                    exists=matched_filter_record_exists(dm_mf2,keyi)
+                if exists:
                     summary["already_processed"] += 1
                     continue
                 process_m_mode(keyi,d,rds,dmw,dm_mf2,chs=["ch000","ch001","ch002","ch003","ch004","ch005","ch006"])
