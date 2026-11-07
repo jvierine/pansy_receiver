@@ -27,7 +27,7 @@ class RustMatchedFilter:
         if not self.handle:
             raise ValueError("Rust matched-filter initialization failed")
 
-    def process(self, rx, tx):
+    def process(self, rx, tx, return_amplitudes=False):
         rx = np.ascontiguousarray(rx, dtype=np.complex64)
         tx = np.ascontiguousarray(tx, dtype=np.complex64)
         if rx.ndim != 2 or tx.shape != (self.txlen,):
@@ -37,9 +37,19 @@ class RustMatchedFilter:
         with self.lock:
             if not self.handle:
                 raise RuntimeError("Filter is closed")
-            status = self.lib.pansy_mf_process(self.handle, rx.ctypes.data, *rx.shape, tx.ctypes.data, len(tx), power.ctypes.data, power.size, ct.byref(median))
+            args = (self.handle, rx.ctypes.data, *rx.shape, tx.ctypes.data, len(tx), power.ctypes.data, power.size, ct.byref(median))
+            if return_amplitudes:
+                amplitudes = np.empty(rx.shape[0], dtype=np.complex64)
+                function = self.lib.pansy_mf_process_peak
+                function.argtypes = self.lib.pansy_mf_process.argtypes + [ct.c_void_p]
+                function.restype = ct.c_int
+                status = function(*args, amplitudes.ctypes.data)
+            else:
+                status = self.lib.pansy_mf_process(*args)
         if status:
             raise RuntimeError(f"Rust matched-filter rejected pulse: status {status}")
+        if return_amplitudes:
+            return power, median.value, amplitudes
         return power, median.value
 
     def close(self):

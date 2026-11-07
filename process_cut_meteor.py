@@ -172,6 +172,13 @@ class range_doppler_search:
         # interferometry
         self.ch_pairs=list(itertools.combinations(n.arange(n_channels),2))
         self.n_pairs=len(self.ch_pairs)
+        backend = os.environ.get("PANSY_CUT_MF_BACKEND", "python")
+        if backend not in ("python", "rust"):
+            raise ValueError("PANSY_CUT_MF_BACKEND must be python or rust")
+        self.native = None
+        if backend == "rust":
+            from meteor_rust_filter import RustMatchedFilter
+            self.native = RustMatchedFilter(self.rg, self.txlen, self.fdec, self.fftlen)
         
         
     def decim(self,Z):
@@ -190,6 +197,17 @@ class range_doppler_search:
         # interpolate echo
         for chi in range(self.n_channels):
             self.z_rx[chi,:]=n.repeat(echo[chi,:],self.interp)
+        if self.native is not None:
+            # Preserve this processor's existing unconjugated TX product.
+            # The native kernel conjugates its input, so pass conjugated TX.
+            MF, noise_floor, amplitudes = self.native.process(
+                self.z_rx, txi.conj(), return_amplitudes=True)
+            pprof = n.max(MF, axis=1)
+            dop_idx = n.argmax(MF, axis=1)
+            rgmax = n.argmax(pprof)
+            xc = n.asarray([amplitudes[a]*n.conj(amplitudes[b])
+                            for a,b in self.ch_pairs], dtype=n.complex64)
+            return MF, pprof, self.dopv[dop_idx], noise_floor, xc, rgmax
         # conjugate transmit pulse sample
         z_tx=n.conj(txi)
 
@@ -550,6 +568,8 @@ def plot_last():
 
 if __name__ == "__main__":
     #plot_last()
+    print("cut matched-filter backend: %s rank %d" %
+          (os.environ.get("PANSY_CUT_MF_BACKEND", "python"), rank), flush=True)
     while True:
         n_processed = process_latest()
         comm.Barrier()

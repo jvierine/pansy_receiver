@@ -75,6 +75,63 @@ pub unsafe extern "C" fn pansy_mf_process(
 }
 
 /// # Safety
+/// Same buffer contract as pansy_mf_process, plus channels writable Complex32
+/// entries in amplitudes. Returns amplitudes at the first global power maximum.
+#[no_mangle]
+pub unsafe extern "C" fn pansy_mf_process_peak(
+    handle: *mut Filter,
+    rx: *const Complex32,
+    channels: usize,
+    ipp: usize,
+    tx: *const Complex32,
+    txlen: usize,
+    power: *mut f32,
+    power_len: usize,
+    median: *mut f32,
+    amplitudes: *mut Complex32,
+) -> i32 {
+    if handle.is_null()
+        || rx.is_null()
+        || tx.is_null()
+        || power.is_null()
+        || median.is_null()
+        || amplitudes.is_null()
+    {
+        return -1;
+    }
+    let Some(nrx) = channels.checked_mul(ipp) else {
+        return -1;
+    };
+    catch_unwind(AssertUnwindSafe(|| {
+        let f = &mut *handle;
+        if txlen != f.txlen || f.gates.len().checked_mul(f.buffer.len()) != Some(power_len) {
+            return -1;
+        }
+        let Ok(out) = f.process(
+            slice::from_raw_parts(rx, nrx),
+            channels,
+            ipp,
+            slice::from_raw_parts(tx, txlen),
+        ) else {
+            return -2;
+        };
+        let mut peak = 0;
+        for i in 1..out.power.len() {
+            if out.power[i] > out.power[peak] {
+                peak = i;
+            }
+        }
+        ptr::copy_nonoverlapping(out.power.as_ptr(), power, power_len);
+        *median = out.median_power;
+        for ch in 0..channels {
+            *amplitudes.add(ch) = out.spectra[ch * power_len + peak];
+        }
+        0
+    }))
+    .unwrap_or(-3)
+}
+
+/// # Safety
 /// handle must be null or an unfreed pointer from pansy_mf_new, not in use.
 #[no_mangle]
 pub unsafe extern "C" fn pansy_mf_free(handle: *mut Filter) {
