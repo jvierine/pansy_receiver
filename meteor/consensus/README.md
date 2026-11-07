@@ -159,3 +159,20 @@ for explicit <=10-second windows. `plot_phase_replay.py` renders comparisons.
 Only after real-data checks, `bash receiver/install_grouping_rust.sh enable`
 installs a drop-in and restarts the clustering service alone; `rollback` removes
 it. The native cut-filter library is required for its amplitude-return ABI.
+
+### Station deployment, 2026-11-07
+
+Enabled on Syowa at 16:17 UTC from deployment commit `519c110` (main `26fb5f5`).
+The running clustering process loaded both native libraries and wrote a new
+detection at sample 1794066354365992, then checkpointed through 15:46 UTC.
+Acquisition was not restarted. Real-window comparisons, phase ABI checks,
+metadata-write tests, and the stored two-track regression passed before enable.
+Five additional inspected windows retained seven groups and all previously
+eligible cut beams, with 300 selected points versus 311 in the old grouping.
+This small validation sample does not establish catalogue completeness.
+
+The systemd drop-in persists across restarts. To revert only grouping, run
+`bash receiver/install_grouping_rust.sh rollback` from the station checkout.
+The separate hourly shadow timer is not the live grouping service. Inspect
+`logs/pansy_cluster_mf.log` and the atomic checkpoint
+`~/.local/state/pansy_receiver/cluster_phase_v1.h5` for forward progress.
