@@ -45,7 +45,9 @@ def compare(tx, rx):
                 assert np.max(abs(a[4]-b[4])) <= 6e-6*np.max(abs(a[4]))
                 # Relative phase directly, without phase unwrapping.
                 strong = abs(a[4]) > .01*np.max(abs(a[4]))
-                assert np.max(abs(np.angle(a[4][strong]*b[4][strong].conj()))) < 1e-4
+                phase_a = a[4][strong]/abs(a[4][strong])
+                phase_b = b[4][strong]/abs(b[4][strong])
+                assert np.max(abs(np.angle(phase_a*phase_b.conj()))) < 1e-4
                 count += 1
         finally:
             filters[1].native.close()
