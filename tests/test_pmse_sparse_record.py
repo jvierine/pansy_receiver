@@ -4,6 +4,8 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 import sys
+from unittest.mock import patch
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -11,6 +13,18 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from pmse.sparse_record import (Config, C, axes, decode_pulses, coherent_spectrum,
                                 sparsify, write_record, read_complete, contiguous_looks,mode_is_closed,pulse_indices,
                                 recover_cycle_grid,valid_transmit_cycles,coherent_window)
+
+
+def test_closed_modes_has_no_tail_when_mode_reaches_last_tx():
+    from pmse.sparse_record import closed_modes
+    class Reader:
+        def get_bounds(self): return (0,100)
+        def read(self,start,end,*args):
+            assert start<=end
+            return {}
+    with patch("digital_rf.DigitalMetadataReader",return_value=Reader()), \
+         patch("digital_rf.DigitalRFReader",return_value=SimpleNamespace(get_bounds=lambda ch:(0,200))):
+        assert closed_modes("mode","tx","raw")==[]
 
 
 class SparseRecordTests(unittest.TestCase):

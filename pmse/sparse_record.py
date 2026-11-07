@@ -543,7 +543,7 @@ def closed_modes(mode_root,tx_root,raw_root,lookback_hours=3):
     oldest=max(raw.get_bounds(f'ch{i:03d}')[0] for i in range(8))
     closed_modes.raw_oldest=max(oldest,getattr(closed_modes,'raw_oldest',0))
     beginning=oldest if lookback_hours<=0 else max(oldest,mb[1]-int(lookback_hours*3600e6))
-    modes=mode.read(beginning,mb[1])
+    modes=mode.read(beginning,mb[1]) if beginning<=mb[1] else {}
     unique={}
     for value in modes.values():
         start,last=int(value['start']),int(value['end'])
@@ -561,7 +561,7 @@ def closed_modes(mode_root,tx_root,raw_root,lookback_hours=3):
     # modes directly in its TX-metadata tail for the realtime archive. A 0.5 s
     # split matches the current boundary producer and tolerates missed markers.
     tail_begin=max(oldest,mb[1]+1) if lookback_hours<=0 else max(oldest,mb[1]+1,tb[1]-int(lookback_hours*3600e6))
-    tail=tx.read(tail_begin,tb[1],'id')
+    tail=tx.read(tail_begin,tb[1],'id') if tail_begin<=tb[1] else {}
     tail_keys=np.array([int(k) for k,v in tail.items() if int(v)==1],dtype=np.int64)
     if len(tail_keys):
         for group in np.split(tail_keys,np.flatnonzero(np.diff(tail_keys)>500_000)+1):
