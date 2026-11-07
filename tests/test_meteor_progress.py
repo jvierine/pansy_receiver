@@ -5,6 +5,7 @@ import h5py
 from meteor_progress import read_completed_frontier, read_progress, write_progress
 from meteor_progress import inclusive_chunks
 from meteor_progress import tx_scan_frontier
+from meteor_progress import search_checkpoint
 
 
 def test_chunks_include_tail_once_and_allow_empty_input():
@@ -27,6 +28,15 @@ def test_scanned_empty_interval_advances_mode_closure(tmp_path):
     assert tx_scan_frontier(100,progress)==100
     progress.write_text('{"next_sample": 500}')
     assert tx_scan_frontier(100,progress)==500
+
+
+def test_search_prefers_reboot_persistent_checkpoint(tmp_path,monkeypatch):
+    monkeypatch.setenv("HOME",str(tmp_path))
+    assert search_checkpoint()=="/tmp/meteor_mf_complete.h5"
+    durable=tmp_path/".local/state/pansy_receiver/mf_complete_v1.h5"
+    durable.parent.mkdir(parents=True)
+    write_progress(durable,123)
+    assert search_checkpoint()==str(durable)
 
 
 def test_progress_checkpoint_is_replaced_atomically(tmp_path):

@@ -7,6 +7,19 @@ import json
 import h5py
 
 
+def search_checkpoint():
+    durable=os.path.expanduser("~/.local/state/pansy_receiver/mf_complete_v1.h5")
+    return durable if os.path.exists(durable) else "/tmp/meteor_mf_complete.h5"
+
+
+def commit_search_progress(latest):
+    durable=os.path.expanduser("~/.local/state/pansy_receiver/mf_complete_v1.h5")
+    os.makedirs(os.path.dirname(durable),exist_ok=True)
+    write_progress(durable,latest)
+    # Compatibility for existing operational readers; durable state is primary.
+    write_progress("/tmp/meteor_mf_complete.h5",latest)
+
+
 def inclusive_chunks(start, end, width):
     """Disjoint bounded intervals for DigitalMetadata's inclusive reads."""
     if width <= 0:

@@ -17,6 +17,7 @@ import warnings
 import fcntl
 
 from meteor_progress import write_progress, read_progress, inclusive_chunks, tx_scan_frontier
+from meteor_progress import search_checkpoint, commit_search_progress
 
 warnings.filterwarnings(
     "ignore",
@@ -344,8 +345,8 @@ def meteor_search(debug=False):
     if db_mf[1] != -1:
         # start where we left off, instead of the start
         i0=db_mf[1]+10
-    if rank == 0 and os.path.exists("/tmp/meteor_mf_complete.h5"):
-        i0=max(b[0], read_progress("/tmp/meteor_mf_complete.h5")+1)
+    if rank == 0 and os.path.exists(search_checkpoint()):
+        i0=max(b[0], read_progress(search_checkpoint())+1)
     i0=comm.bcast(i0, root=0)
     
     log0("raw ch007 starts at %s"%(stuffr.unix2datestr(i0/1e6)))
@@ -515,7 +516,7 @@ def meteor_search(debug=False):
             if item["last_i1"] is not None:
                 last_i1 = item["last_i1"] if last_i1 is None else max(last_i1, item["last_i1"])
         if totals["processing_errors"] == 0:
-            write_progress("/tmp/meteor_mf_complete.h5", end_idx)
+            commit_search_progress(end_idx)
             print(
                 "meteor search committed complete frontier %s"
                 % stuffr.unix2datestr(end_idx/1e6)

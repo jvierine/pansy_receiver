@@ -15,6 +15,7 @@ import itertools
 import pansy_config as pc
 
 from meteor_progress import read_completed_frontier, read_progress, write_progress
+from meteor_progress import search_checkpoint
 
 _phase_grouper = None
 
@@ -438,7 +439,7 @@ def analyze_until_now():
         try:
             # Prefer the frontier committed after every MPI rank completes its
             # cycle. Fall back to legacy per-rank checkpoints during upgrades.
-            complete_progress = "/tmp/meteor_mf_complete.h5"
+            complete_progress = search_checkpoint()
             completed_frontier = read_completed_frontier(
                 complete_progress,
                 "/tmp/meteor_mf_[0-9]*.h5",
@@ -478,8 +479,8 @@ def analyze_until_now():
         return
     if analysis_end == -1:
         analysis_end=db_mf[1]
-    else:
-        analysis_end=min(analysis_end, db_mf[1])
+    # A committed search frontier includes quiet intervals with no MF rows.
+    # Capping it to the last detection stalls downstream progress in ST mode.
     print("cluster_mf analysis_end %s; mf bounds %s - %s"%(
         stuffr.unix2datestr(analysis_end/1e6),
         stuffr.unix2datestr(db_mf[0]/1e6),
@@ -504,7 +505,7 @@ def analyze_until_now():
         os.makedirs(os.path.dirname(phase_checkpoint),exist_ok=True)
         if os.path.exists(phase_checkpoint):
             start_idx=read_progress(phase_checkpoint)
-            if start_idx < (db_mf[0]//dt)*dt or start_idx > (db_mf[1]//dt+1)*dt or start_idx % dt:
+            if start_idx < (db_mf[0]//dt)*dt or start_idx > (analysis_end//dt+1)*dt or start_idx % dt:
                 raise ValueError("invalid interferometric grouping checkpoint")
         else:
             # Save before writing any detections, so partial-window crashes replay.
