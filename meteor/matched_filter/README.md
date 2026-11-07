@@ -69,3 +69,19 @@ Only after it passes should the quick-search service receive the environment
 override and be restarted. Keep a rollback to `PANSY_MF_BACKEND=python` ready;
 verify Rust startup messages and advancing MF metadata, not merely active status.
 Never restart acquisition or other processing services for this change.
+
+## Diagnostic peak interface
+
+`RustMatchedFilter.peaks` exposes up to 256 peaks (default eight), each with
+complex64 amplitudes at the identical range/Doppler cell for every receiver.
+It is a separate call; production `process` and its ABI are unchanged.
+Amplitudes are not phase-calibrated directions. Test with
+`preflight_peaks.py`, which independently checks the complex FFT and power
+normalization for two injected targets at both decimation settings.
+
+`shadow_raw_peaks.py RAW MF BATCH_SAMPLE OUTPUT.h5` reads exactly one existing
+20-pulse MF batch, applies the same receiver amplitude calibration and TX gate,
+and checks every exported complex amplitude against NumPy. It retains only
+the compact peak diagnostics, not raw voltages or full spectra. Run as a
+resource-limited one-shot job. Additional peaks may be sidelobes, not meteors;
+calibrated interferometric consistency and false-alarm validation remain open.
