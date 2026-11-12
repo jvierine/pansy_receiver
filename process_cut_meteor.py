@@ -15,8 +15,9 @@ import pansy_interferometry as pint
 import h5py
 import pansy_modes as pmm
 import meteor_fit as metfit
+from meteor_doppler import refine_doppler, doppler_outliers
 import simple_radiant as sr
-from meteor_metadata import StrictDigitalMetadataReader, write_complete_record
+from meteor_metadata import StrictDigitalMetadataReader, write_complete_record, extend_metadata_fields
 from meteor_progress import read_progress, write_progress, inclusive_chunks
 
 from mpi4py import MPI
@@ -26,6 +27,7 @@ size = comm.Get_size()
 rank = comm.Get_rank()
 
 SIMPLE_FIT_WRITE_LOCK = "/tmp/pansy_simple_fit_metadata.lock"
+LEGACY_SIMPLE_FIT_FIELDS=('r0','v0','std','ew','ns','up','snr','mfs','txidx','eclat','eclon')
 SIMPLE_FIT_WRITER_ARGS = {
     "subdirectory_cadence_seconds": 3600,
     "file_cadence_seconds": 60,
@@ -68,7 +70,10 @@ def write_simple_fit_metadata(dmw, sample_idx, payload):
     with open(SIMPLE_FIT_WRITE_LOCK, "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
-            return write_complete_record(dmw,pc.simple_fit_metadata_dir,sample_idx,payload)
+            if payload.get('simple_fit_version',0)>=2:
+                extend_metadata_fields(pc.simple_fit_metadata_dir,payload)
+            return write_complete_record(dmw,pc.simple_fit_metadata_dir,sample_idx,payload,
+                legacy_complete_fields=LEGACY_SIMPLE_FIT_FIELDS,version_field='simple_fit_version')
         except ValueError as exc:
             # MPI ranks can construct writers before the first fields dataset
             # exists. Reopen under the lock if another rank created it first.
@@ -76,7 +81,8 @@ def write_simple_fit_metadata(dmw, sample_idx, payload):
                 raise
             print("%d simple_fit metadata schema race; reopening writer"%(rank))
             fresh_dmw = simple_fit_writer(pc.simple_fit_metadata_dir)
-            return write_complete_record(fresh_dmw,pc.simple_fit_metadata_dir,sample_idx,payload)
+            return write_complete_record(fresh_dmw,pc.simple_fit_metadata_dir,sample_idx,payload,
+                legacy_complete_fields=LEGACY_SIMPLE_FIT_FIELDS,version_field='simple_fit_version')
         finally:
             fcntl.flock(lock, fcntl.LOCK_UN)
 
@@ -297,6 +303,7 @@ def process_cut(data,
         xct=n.zeros([n_ipp,rds.n_pairs],dtype=n.complex64)
 
         peak_rg=[]
+        peak_gate=[]
         peak_dop=[]
         drg=c.c/1e6/2/1e3
         snr=[]
@@ -305,6 +312,7 @@ def process_cut(data,
             
             MF,pprof,peak_dopv,noise_floor,xc,rgmax=rds.mf(z_tx[ti,:],z_rx[ti,:,:])
             max_rg=n.argmax(pprof)
+            peak_gate.append(int(n.rint(max_rg/interp)))
             peak_rg.append((delays[ti]+max_rg/interp)*drg)
             peak_dop.append(peak_dopv[max_rg])
             RTI[ti,ridx+delays[ti]]=(pprof-noise_floor)/noise_floor
@@ -344,9 +352,27 @@ def process_cut(data,
             peak_dops=n.concatenate((peak_dops,peak_dop[gidx]))
             beam_idss=n.concatenate((beam_idss,beam_id[gidx]))
 
-            r0,v0,model,eres,nres,ures=metfit.simple_fit_meteor(txidxs/1e6,ews,nss,ups)
+            try:
+                trajectory=metfit.robust_fit_meteor(txidxs/1e6,ews,nss,ups)
+            except ValueError as exc:
+                print('Rejecting inconsistent meteor trajectory:',exc)
+                return False
+            r0,v0=trajectory['r0'],trajectory['v0']
+            model=trajectory['model'].T.ravel()
+            eres,nres,ures=trajectory['std']
+            refined=[refine_doppler(z_tx[ti],z_rx[ti],peak_gate[ti],
+                                   peak_dop[ti],radar_frequency_hz=pc.freq,
+                                   fft_bin_hz=abs(rds.fvec[1]-rds.fvec[0])) for ti in gidx]
+            doppler=n.array([p['velocity_mps'] for p in refined])
+            doppler_sigma=n.array([p['sigma_mps'] for p in refined])
+            try:
+                doppler_keep,doppler_model=doppler_outliers(txidxs/1e6,doppler,
+                    n.where(trajectory['inlier'],doppler_sigma,n.nan))
+            except ValueError:
+                doppler_keep=n.zeros(len(txidxs),dtype=bool)
+                doppler_model=n.full(len(txidxs),n.nan)
 
-            rres=sr.get_radiant(r0*1e3,txidxs[0]/1e6,v0)
+            rres=sr.get_radiant(r0*1e3,trajectory['epoch'],v0)
 
             dout={}
             dout["r0"]=r0
@@ -358,6 +384,33 @@ def process_cut(data,
             dout["snr"]=snrs
             dout["mfs"]=mfss
             dout["txidx"]=txidxs
+            # All pulse-aligned observations are retained, including rejected
+            # points. Consumers must use the corresponding explicit masks.
+            dout['simple_fit_version']=2
+            dout['fit_epoch_unix_s']=trajectory['epoch']
+            dout['fit_inlier']=trajectory['inlier']
+            dout['fit_residual_km']=trajectory['residual']
+            dout['fit_rejected_count']=int(n.count_nonzero(~trajectory['inlier']))
+            dout['fit_outlier_qc_reliable']=bool(n.count_nonzero(trajectory['inlier'])>=6)
+            dout['fit_rejection_method']='joint_3d_theil_sen_mad_4.5sigma_floor25m'
+            dout['doppler_mps']=doppler
+            dout['doppler_coarse_mps']=peak_dops
+            dout['doppler_std_mps']=doppler_sigma
+            dout['doppler_valid']=n.array([p['valid'] for p in refined],dtype=bool)
+            dout['doppler_inlier']=doppler_keep
+            dout['doppler_track_consistent']=bool(n.count_nonzero(doppler_keep)>=6)
+            dout['doppler_rejection_method']='fixed_formal_sigma_floor50mps_quadratic_consensus_4.5sigma_min60percent'
+            dout['doppler_model_mps']=doppler_model
+            dout['doppler_coherence']=n.array([p['coherence'] for p in refined])
+            dout['doppler_reduced_chi2']=n.array([p['reduced_chi2'] for p in refined])
+            dout['doppler_method']='conjugated_tx_single_pulse_profile_likelihood_v1'
+            dout['doppler_std_definition']='conditional_fixed_range_single_tone_residual_inflation_common_tx_noise_floor'
+            dout['doppler_sign']='positive_complex_phase_advance'
+            dout['doppler_fft_length']=rds.fftlen
+            dout['doppler_fft_bin_width_mps']=abs(rds.dopv[1]-rds.dopv[0])
+            dout['doppler_pulse_samples']=z_tx.shape[1]
+            dout['doppler_fit_range_gate_samples']=n.asarray(peak_gate,dtype=n.int64)[gidx]
+            dout['beam_id']=beam_idss.astype(n.int64)
             dout["eclat"]=rres["lat"]
             dout["eclon"]=rres["lon"]
 

@@ -2,11 +2,41 @@
 import h5py
 import digital_rf
 import numpy as np
+import os
+from pathlib import Path
+import shutil
+
+
+def extend_metadata_fields(root, names):
+    """Caller holds writer lock. Atomically extend discovery, preserving rows.
+
+    Existing readers can finish with their old properties inode. A fresh
+    reader discovers the appended fields. A channel with no first record must
+    still let Digital RF create its initial fields dataset normally.
+    """
+    path=Path(root)/'dmd_properties.h5'
+    with h5py.File(path,'r') as source:
+        if 'fields' not in source: return
+        old=source['fields'][()]
+        existing={row['column'].decode() for row in old}
+        if set(names).issubset(existing): return
+        fields=np.recarray((len(existing|set(names)),),dtype=old.dtype)
+        for i,name in enumerate(sorted(existing|set(names))): fields[i]=(name,)
+    temporary=path.with_name('.dmd_properties.fit-schema.%d.partial'%os.getpid())
+    try:
+        shutil.copy2(path,temporary)
+        with h5py.File(temporary,'a') as stream:
+            del stream['fields']
+            stream.create_dataset('fields',data=fields)
+            stream.flush()
+        temporary.replace(path)
+    finally:
+        if temporary.exists(): temporary.unlink()
 
 MF_FIELDS=("beam_pos_idx","tx_idxs","tx_pwr","max_snr","max_range","max_dopvel","noise_floor","tx_std")
 
 
-def write_complete_record(writer,root,key,payload):
+def write_complete_record(writer,root,key,payload,*,legacy_complete_fields=(),version_field=None):
     """Caller serializes producers. Keep complete duplicates; replay partial rows."""
     try:
         writer.write([int(key)],payload)
@@ -20,6 +50,9 @@ def write_complete_record(writer,root,key,payload):
             name=str(int(key))
             if name not in stream: continue
             if required.issubset(stream[name].keys()): return False
+            if (legacy_complete_fields and version_field not in stream[name]
+                    and set(legacy_complete_fields).issubset(stream[name].keys())):
+                return False
             del stream[name]
             stream.flush()
             print(f"Replaying incomplete metadata sample {key} in {root}",flush=True)
