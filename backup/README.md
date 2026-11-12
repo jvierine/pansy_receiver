@@ -29,13 +29,29 @@ The installer copies the default configuration to:
 
 Edit that file if paths or ports need to change.
 
-Transfers share the configured `RSYNC_BWLIMIT_KB` budget (50 KiB/s by
+Transfers share the configured `RSYNC_BWLIMIT_KB` budget (128 KiB/s by
 default); `RSYNC_TOTAL_BWLIMIT_KB` overrides it. Cutouts and TX timing receive
 larger shares than the smaller channels. Each channel retries independently
 every `RSYNC_SLEEP_SECONDS`, so a cutout backlog cannot prevent a failed phase
 or detection transfer from retrying. Per-channel results update
 `backup_state/rsync_status.tsv` immediately. All phase history is synchronized,
 including gaps older than 72 hours. Transfers include channel properties files.
+
+The budget is shared, not applied independently to every channel. With the seven
+default channels, cutouts receive 64 KiB/s, TX receives 26 KiB/s and each other
+channel receives 7 KiB/s (125 KiB/s total after rounding). SSH/protocol overhead
+is additional; this is not a host-wide network shaper and does not cap RVD.
+Recent-first mode refreshes the last 20 minutes before each bounded historical
+catch-up pass. To configure direct pulls with the default cap (configuration is
+backed up; receiver services are never touched):
+
+```bash
+python3 backup/scripts/configure_direct_rsync.py \
+  --config ~/.config/pansy-backup/pansy-backup.env \
+  --unit-dir ~/.config/systemd/user --bwlimit-kb 128
+systemctl --user daemon-reload
+systemctl --user restart pansy-backup-rsync.service
+```
 
 ## Services
 

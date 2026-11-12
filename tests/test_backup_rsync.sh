@@ -83,6 +83,6 @@ if [ "${TEST_BUDGET:-50}" -eq 0 ]; then
 else
   test "$cut_budget" -gt "$tx_budget"
   test "$tx_budget" -gt "$phase_budget"
-  test "$((cut_budget + tx_budget + phase_budget))" -le 50
+  test "$((cut_budget + tx_budget + phase_budget))" -le "${TEST_BUDGET:-50}"
 fi
 echo 'PASS: failed channels retry and publish success while cut remains blocked; shared budget respected'
