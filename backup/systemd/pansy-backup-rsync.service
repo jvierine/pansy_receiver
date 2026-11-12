@@ -1,7 +1,7 @@
 [Unit]
 Description=PANSY metadata rsync backup
-After=pansy-backup-tunnel.service
-Wants=pansy-backup-tunnel.service
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
