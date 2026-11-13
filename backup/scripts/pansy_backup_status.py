@@ -3,10 +3,17 @@ import datetime as dt
 import json
 import os
 import re
+import shutil
 from pathlib import Path
+
+try:
+    import h5py
+except ImportError:
+    h5py = None
 
 
 DATE_PATTERN = re.compile(r"(20\d{2})[-_]?(\d{2})[-_]?(\d{2})")
+FILE_TIME_PATTERN = re.compile(r"@(\d+)\.h5$")
 
 
 def env(name, default):
@@ -27,28 +34,38 @@ def load_env_file(path):
 
 
 def channel_summary(root):
-    newest = None
-    newest_date = None
-    count = 0
-    total_bytes = 0
+    """Bounded freshness check, not an inventory or archive-completeness claim.
+
+    Rsync creates empty hour directories and preserves their modification times.
+    Neither directory names nor mtimes prove that any observations arrived.
+    Inspect actual data in the newest nonempty hour instead. Never report the
+    number or byte size of directories as the number or byte size of data files.
+    """
     if not root.exists():
-        return None, None, 0, 0
-    for path in root.iterdir():
+        return None, None, None, None
+    directories = sorted((p for p in root.iterdir() if DATE_PATTERN.match(p.name) and p.is_dir()), reverse=True)
+    for directory in directories[:48]:
         try:
-            stat = path.stat()
+            candidates = sorted((p for p in directory.iterdir() if FILE_TIME_PATTERN.search(p.name)), reverse=True)
         except OSError:
             continue
-        count += 1
-        total_bytes += stat.st_size
-        if newest is None or stat.st_mtime > newest:
-            newest = stat.st_mtime
-
-        match = DATE_PATTERN.search(path.name)
-        if match is not None:
-            entry_date = "-".join(match.groups())
-            if newest_date is None or entry_date > newest_date:
-                newest_date = entry_date
-    return newest, newest_date, count, total_bytes
+        newest = None
+        for path in candidates[:3]:
+            try:
+                if h5py is None:
+                    timestamp = int(FILE_TIME_PATTERN.search(path.name).group(1))
+                else:
+                    with h5py.File(path, "r") as handle:
+                        keys = [int(key) for key in handle if key.isdigit()]
+                    if not keys:
+                        continue
+                    timestamp = max(keys) / 1e6
+                newest = timestamp if newest is None else max(newest, timestamp)
+            except (OSError, ValueError):
+                continue
+        if newest is not None:
+            return newest, dt.datetime.fromtimestamp(newest, dt.timezone.utc).date().isoformat(), None, None
+    return None, None, None, None
 
 
 def iso_from_ts(ts):
@@ -63,13 +80,19 @@ def read_rsync_status(path):
         return status
     for line in path.read_text(errors="replace").splitlines():
         parts = line.split("\t")
-        if len(parts) != 4:
+        if len(parts) not in (4, 5):
             continue
-        channel, started, finished, rc = parts
+        channel, started, finished, rc = parts[:4]
+        scope = parts[4] if len(parts) == 5 else "unknown"
+        code = int(rc) if rc.isdigit() else rc
         status[channel] = {
             "last_rsync_started": started,
             "last_rsync_finished": finished,
-            "last_rsync_exit_code": int(rc) if rc.isdigit() else rc,
+            # A legacy recent-only success must not imply a complete archive.
+            "last_rsync_exit_code": code if scope == "full_channel" else None,
+            "last_recorded_rsync_exit_code": code,
+            "last_rsync_scope": scope,
+            "archive_verified_at_pass_start": started if code == 0 and scope == "full_channel" else None,
         }
     return status
 
@@ -104,11 +127,18 @@ def read_active_rsync(path, now):
     if path.is_dir():
         active = {}
         for active_file in path.glob("*.tsv"):
-            lines = active_file.read_text(errors="replace").splitlines()
+            try:
+                lines = active_file.read_text(errors="replace").splitlines()
+            except OSError:
+                continue
             if not lines:
                 continue
             channel, record = parse_active_rsync_line(lines[-1], now)
             if channel is not None:
+                try:
+                    os.kill(int(record["active_rsync_pid"]), 0)
+                except (OSError, ValueError, TypeError):
+                    continue
                 active[channel] = record
         return active
 
@@ -199,6 +229,8 @@ def main():
             "age_seconds": None if newest is None else now - newest,
             "entry_count": count,
             "total_bytes": total_bytes,
+            "inventory_scope": "not_counted",
+            "freshness_basis": "metadata_record" if h5py is not None else "file_interval_start",
             "rsync_active": False,
         }
         record.update(rsync_status.get(channel, {}))
@@ -219,8 +251,9 @@ def main():
             "mirror_entry_count": mirror_count,
             "source_total_bytes": total_bytes,
             "mirror_total_bytes": mirror_total_bytes,
-            "entry_count_delta": count - mirror_count,
-            "byte_delta": total_bytes - mirror_total_bytes,
+            "entry_count_delta": None,
+            "byte_delta": None,
+            "inventory_scope": "not_counted",
             "latest_file_date_match": newest_date == mirror_newest_date,
         })
 
@@ -239,8 +272,24 @@ def main():
         "local_mirror_metadata_root": str(mirror_root),
         "channels": channel_status,
         "local_mirror": mirror,
+        "storage": [],
     }
-    (web_dir / "status.json").write_text(json.dumps(status, indent=2))
+    for key, root in (("LOCAL_METADATA_MOUNT", local_root), ("LOCAL_MIRROR_METADATA_MOUNT", mirror_root)):
+        mount = config.get(key)
+        storage = {"path": str(root), "required_mount": mount,
+                   "mount_available": os.path.ismount(mount) if mount else None}
+        try:
+            usage = shutil.disk_usage(root)
+            storage.update(free_bytes=usage.free, total_bytes=usage.total,
+                           used_percent=100 * usage.used / usage.total,
+                           warning=usage.free / usage.total < 0.1,
+                           critical=usage.free < 1024 ** 3 or storage["mount_available"] is False)
+        except OSError as error:
+            storage.update(error=str(error), critical=True)
+        status["storage"].append(storage)
+    temporary = web_dir / f".status.json.{os.getpid()}.tmp"
+    temporary.write_text(json.dumps(status, indent=2))
+    temporary.replace(web_dir / "status.json")
 
 
 if __name__ == "__main__":

@@ -57,6 +57,40 @@ systemctl --user daemon-reload
 systemctl --user restart pansy-backup-rsync.service
 ```
 
+## Transfer safety and interpreting status
+
+- There is one worker set per state directory, enforced with a nonblocking lock;
+  each channel also has its own lock. Detached SSH masters do not inherit them.
+- Neither the source pull nor the local mirror deletes source or destination
+  science files. Both keep interrupted files in hidden `.rsync-partial`
+  directories; the local mirror excludes source partial directories.
+- Set `LOCAL_METADATA_MOUNT` and `LOCAL_MIRROR_METADATA_MOUNT` to the actual
+  storage mountpoints. Missing mounts stop the affected service rather than
+  silently filling the root filesystem. Source and mirror must not overlap.
+- A successful recent-only legacy pass does not verify the historical archive.
+  New status rows explicitly identify a full-channel pass. While such a pass is
+  running, archive completeness is not inferred from a recent live file.
+- Freshness comes from actual HDF5 observation timestamps, not hour-directory
+  mtimes or empty directory names. The check is bounded to the latest 48 hour
+  directories and up to three files per directory. Without h5py, filename
+  interval starts are used and labeled as such. Full archive counts/byte totals
+  are explicitly unknown, not fabricated from directory sizes.
+- Status JSON is replaced atomically and includes mount availability and free
+  space. A successful local mirror only verifies the Revontuli-to-mirror copy,
+  not the completeness of the original Syowa transfer.
+
+To apply guards and point only the three transfer/status services at a checked
+checkout, pass the following options to `configure_direct_rsync.py`:
+
+```bash
+--metadata-mount /mnt/data --mirror-mount /urdr/data --service-repo /path/to/checkout
+```
+
+The configurator backs up the environment file and never restarts services.
+After reviewing its changes, reload systemd and restart just those services.
+RVD sparse-spectra pulls have a separate bandwidth cap; the 128 KiB/s metadata
+budget is not a cap on every network service on either host.
+
 ## Services
 
 ```bash

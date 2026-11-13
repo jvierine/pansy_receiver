@@ -3,8 +3,22 @@ set -euo pipefail
 
 CONFIG="${PANSY_BACKUP_CONFIG:-$HOME/.config/pansy-backup/pansy-backup.env}"
 source "$CONFIG"
+source "$(dirname "${BASH_SOURCE[0]}")/pansy_storage_guard.sh"
+
+for path in "${LOCAL_METADATA_ROOT:-}" "${STATE_DIR:-}"; do
+  if [[ "$path" != /* ]] || [ "$path" = / ]; then
+    echo 'Metadata and state paths must be absolute, non-root directories' >&2
+    exit 1
+  fi
+done
+pansy_require_mount "$LOCAL_METADATA_ROOT" "${LOCAL_METADATA_MOUNT:-}"
 
 mkdir -p "$LOCAL_METADATA_ROOT" "$STATE_DIR"
+exec {instance_fd}>"$STATE_DIR/rsync.instance.lock"
+if ! flock -n "$instance_fd"; then
+  echo 'A metadata pull worker set is already running' >&2
+  exit 1
+fi
 
 LOG_FILE="$STATE_DIR/rsync.log"
 STATUS_FILE="$STATE_DIR/rsync_status.tsv"
@@ -14,6 +28,14 @@ STATUS_DIR="$STATE_DIR/rsync_status"
 pids=()
 
 read -r -a channels <<< "$METADATA_CHANNELS"
+declare -A seen_channels=()
+for channel in "${channels[@]}"; do
+  if ! [[ "$channel" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] || [[ -v seen_channels[$channel] ]]; then
+    echo "Invalid or duplicate metadata channel: $channel" >&2
+    exit 1
+  fi
+  seen_channels[$channel]=1
+done
 total_budget="${RSYNC_TOTAL_BWLIMIT_KB:-${RSYNC_BWLIMIT_KB:-0}}"
 if ! [[ "$total_budget" =~ ^[0-9]+$ ]] ||
    [ "${#channels[@]}" -eq 0 ] ||
@@ -55,8 +77,12 @@ rsync_ssh_cmd() {
 }
 
 clear_active() {
-  rm -rf "$ACTIVE_DIR"
   mkdir -p "$ACTIVE_DIR" "$LOCK_DIR"
+  # Only transient status files are ours; never recursively delete a directory.
+  local status_file
+  for status_file in "$ACTIVE_DIR"/*.tsv; do
+    [ ! -f "$status_file" ] || rm -f -- "$status_file"
+  done
 }
 
 cleanup() {
@@ -73,7 +99,7 @@ cleanup() {
 write_channel_status() {
   local channel="$1" started="$2" finished="$3" rc="$4"
   local temporary="$STATUS_DIR/.$channel.$BASHPID.tmp"
-  printf "%s\t%s\t%s\t%s\n" "$channel" "$started" "$finished" "$rc" >"$temporary"
+  printf "%s\t%s\t%s\t%s\tfull_channel\n" "$channel" "$started" "$finished" "$rc" >"$temporary"
   mv "$temporary" "$STATUS_DIR/$channel.tsv"
   (
     flock -x 9
@@ -92,6 +118,7 @@ sync_channel() {
   local rc
   local remote_source
 
+  pansy_require_mount "$LOCAL_METADATA_ROOT" "${LOCAL_METADATA_MOUNT:-}"
   mkdir -p "$LOCAL_METADATA_ROOT/$channel"
   mkdir -p "$LOCK_DIR"
   channel_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -120,7 +147,7 @@ sync_channel() {
     --timeout=120 \
     -e "$(rsync_ssh_cmd)" \
     "$remote_source" \
-    "$LOCAL_METADATA_ROOT/$channel/" >>"$LOG_FILE" 2>&1
+    "$LOCAL_METADATA_ROOT/$channel/" {instance_fd}>&- {lock_fd}>&- >>"$LOG_FILE" 2>&1
   rc=$?
   set -e
 
