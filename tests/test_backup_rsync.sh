@@ -22,10 +22,7 @@ done
 printf '%s\n' "$budget" >"$FIXTURE/$channel.budget"
 if [ "$channel" = cut ]; then
   touch "$FIXTURE/cut.started"
-  if [ "${TEST_RECENT_MINUTES:-0}" -gt 0 ] && [ "$recent" = 1 ]; then
-    printf 'recent\n' >>"$FIXTURE/cut.recent"
-    exit 0
-  fi
+  printf 'attempt\n' >>"$FIXTURE/cut.attempts"
   sleep 30
 else
   if [ ! -f "$FIXTURE/$channel.failed" ]; then
@@ -65,10 +62,10 @@ if [ "$rc" -ne 124 ] && [ "$rc" -ne 137 ]; then
   exit 1
 fi
 test -f "$fixture/cut.started"
-if [ "$TEST_RECENT_MINUTES" -gt 0 ]; then
-  test -f "$fixture/recent.filters"
-  test "$(wc -l <"$fixture/cut.recent")" -ge 2
-fi
+# The mock cut transfer lasts longer than the obsolete one-second history slice.
+# It must remain one uninterrupted ordinary rsync, even with stale settings.
+test ! -f "$fixture/recent.filters"
+test "$(wc -l <"$fixture/cut.attempts")" -eq 1
 test -f "$fixture/tx.retried"
 test -f "$fixture/phase.retried"
 awk -F '\t' '$1 == "tx" && $4 == 0 {ok=1} END {exit !ok}' "$fixture/state/rsync_status.tsv"

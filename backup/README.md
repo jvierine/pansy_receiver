@@ -41,8 +41,12 @@ The budget is shared, not applied independently to every channel. With the seven
 default channels, cutouts receive 64 KiB/s, TX receives 26 KiB/s and each other
 channel receives 7 KiB/s (125 KiB/s total after rounding). SSH/protocol overhead
 is additional; this is not a host-wide network shaper and does not cap RVD.
-Recent-first mode refreshes the last 20 minutes before each bounded historical
-catch-up pass. To configure direct pulls with the default cap (configuration is
+Each channel runs ordinary `rsync -avz` until completion, without a wall-clock
+cutoff or recent/history scheduling. The 120-second rsync timeout detects a
+stalled connection; it does not interrupt a transfer that is making progress.
+Interrupted files are retained in `.rsync-partial` for reuse on retry. While
+catching up, newer files may wait behind older missing files in that channel.
+To configure direct pulls with the default cap (configuration is
 backed up; receiver services are never touched):
 
 ```bash
