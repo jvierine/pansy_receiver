@@ -280,10 +280,12 @@ def main():
                    "mount_available": os.path.ismount(mount) if mount else None}
         try:
             usage = shutil.disk_usage(root)
+            # Match df: reserved filesystem blocks are not available to this user.
+            used_percent = 100 * usage.used / (usage.used + usage.free)
             storage.update(free_bytes=usage.free, total_bytes=usage.total,
-                           used_percent=100 * usage.used / usage.total,
-                           warning=usage.free / usage.total < 0.1,
-                           critical=usage.free < 1024 ** 3 or storage["mount_available"] is False)
+                           used_percent=used_percent,
+                           warning=used_percent >= 90,
+                           critical=used_percent >= 95 or usage.free < 1024 ** 3 or storage["mount_available"] is False)
         except OSError as error:
             storage.update(error=str(error), critical=True)
         status["storage"].append(storage)

@@ -94,6 +94,20 @@ def test_status_document_exposes_unknown_inventory_and_missing_mount(tmp_path, m
     assert not list((tmp_path / 'web').glob('*.tmp'))
 
 
+def test_disk_usage_matches_df_including_reserved_blocks(tmp_path, monkeypatch):
+    from collections import namedtuple
+    usage = namedtuple('usage', 'total used free')(1000 * 1024**3, 880 * 1024**3, 70 * 1024**3)
+    monkeypatch.setattr(status.shutil, 'disk_usage', lambda _: usage)
+    config = tmp_path / 'status.env'
+    config.write_text(f'LOCAL_METADATA_ROOT={tmp_path}/data\nLOCAL_MIRROR_METADATA_ROOT={tmp_path}/mirror\n'
+                      f'STATE_DIR={tmp_path}/state\nWEB_BUILD_DIR={tmp_path}/web\nMETADATA_CHANNELS=cut\n')
+    monkeypatch.setenv('PANSY_BACKUP_CONFIG', str(config))
+    status.main()
+    storage = json.loads((tmp_path / 'web/status.json').read_text())['storage'][0]
+    assert storage['used_percent'] == pytest.approx(100 * 880 / 950)
+    assert storage['warning'] is True and storage['critical'] is False
+
+
 def test_mount_missing_fails_before_creating_archive_or_starting_rsync(tmp_path):
     env, _ = pull_config(tmp_path, f'LOCAL_METADATA_MOUNT="{tmp_path}/missing-mount"\n')
     result = subprocess.run(["bash", str(PULL)], env=env, capture_output=True, text=True, timeout=3)
