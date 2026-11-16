@@ -97,7 +97,12 @@ def measure_pairs(
     if not result:
         return {
             k: np.array(
-                [], dtype=int if k in ["previous", "current", "branch"] else float
+                [],
+                dtype=(
+                    bool
+                    if k in ["keep", "branch_unique"]
+                    else (int if k in ["previous", "current", "branch"] else float)
+                ),
             )
             for k in [
                 "previous",
@@ -114,6 +119,10 @@ def measure_pairs(
                 "branch_unique",
                 "sigma_mps",
                 "keep",
+                "trajectory_anchor_sigma_mps",
+                "empirical_model_discrepancy_mps",
+                "adjacent_branch_minus_mps",
+                "adjacent_branch_plus_mps",
             ]
         }
     result = np.asarray(result)

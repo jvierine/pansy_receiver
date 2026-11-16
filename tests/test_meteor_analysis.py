@@ -134,6 +134,7 @@ def test_nonoverlapping_pulse_phase_sign_and_alias_branch():
         switching,
     )
     assert len(rejected["velocity_mps"]) == 0
+    assert rejected["keep"].dtype == np.dtype(bool)
 
 
 def test_density_radius_scaling_is_an_exact_model_degeneracy():
