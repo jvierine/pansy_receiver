@@ -32,6 +32,13 @@ Runtime analysis overrides belong in
 
 ## Important programs
 
+### Reusable meteor analysis
+
+[`meteor_analysis`](meteor_analysis/README.md) provides shared site coordinates,
+phase-preserving native Rust DSP, shrinking-radius fits, geocentric conversion,
+Digital Metadata export, and Rustplotlib event/radiant plots. Its Tibet adapter
+is offline and keeps the unconfirmed array orientation and range branch explicit.
+
 This repository contains experimental studies alongside the operational
 pipeline. The following files are the main entry points and shared modules.
 

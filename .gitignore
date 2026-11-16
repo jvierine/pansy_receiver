@@ -45,3 +45,4 @@ pmse/plotting/target/
 /pmse/publisher/target/
 /meteor/consensus/target/
 /meteor/matched_filter/target/
+/meteor/analysis/target/
