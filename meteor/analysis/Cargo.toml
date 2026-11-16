@@ -20,4 +20,3 @@ plotting = ["dep:anyhow", "dep:hdf5", "dep:rustplotlib"]
 name = "meteor-plot"
 path = "src/bin/plot.rs"
 required-features = ["plotting"]
-
