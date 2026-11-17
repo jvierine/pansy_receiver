@@ -35,8 +35,11 @@ are interpreted as Beijing time, explicitly flagged as unconfirmed. The
 search threshold is a detector statistic, not a calibrated SNR. Even-IPP
 range aliases remain unresolved despite the earlier-code comparison.
 
-Validation: the standalone Octave detector reproduced the native synthetic
-event's 200 pulses, range/Doppler bins, and code-alias veto count. Original
-real cut voltages are checked separately. A new five-file blind-search
-regression requires the original raw drive. Windows MATLAB execution has not
-yet been tested on a Windows machine.
+Validation: the standalone Octave detector processed all five original files
+(30,720 IPPs), reproducing all 16 native events and 1,063 detection points.
+Pulse indices, range/Doppler bins, all 3,594 candidates and 1,228 code-alias
+vetoes match. Interpolated Doppler differs by less than 0.01 Hz. All
+12,056,232 saved I/Q components are bit-for-bit identical to the original
+native cuts, and Rust replay checks all 10,630 channel amplitudes. A repeat
+folder scan skips all five completed files. Windows MATLAB execution and
+its native HDF5-writing branch have not been tested on a Windows machine.
