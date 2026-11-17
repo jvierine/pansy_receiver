@@ -13,14 +13,18 @@ parallel workers, live-throughput checks, and opt-in verified raw-file cleanup.
 New outputs are grouped by UTC `YYYY-MM-DD`, then by source-file identifier.
 Each source has a two-panel overview; worker 1 maintains a rolling day overview.
 The five-file example averages about 5.1 MiB retained per 900 MiB input,
-including cuts, metadata and plots. The current development setup has **not**
-demonstrated sustained real-time throughput.
+including cuts, metadata and plots. Exact median selection now gives faster-
+than-acquisition replay throughput with five independent workers; sustained
+Windows site throughput still requires an acceptance test.
 
 The detector searches all five full-array receivers with measured-code
 range-Doppler matched filters. Cuts contain only S0-S2 and L0-L6, a common
 sampled transmitter reference, two earlier references for ambiguity tests,
 original pulse indices, receiver configuration, and transmit pointing.
 No phase calibration is applied to the stored voltages.
+The optional `DetectionMode = 'transmit'` searches only the full-array receiver
+matching transmit steering, with a separate 20 dB threshold; this is a changed
+detector, not an assertion of identical sensitivity. The default remains `all`.
 
 MATLAB writes HDF5 with byte shuffle and deflate level 4. Octave, which lacks
 the same high-level HDF5 writer, writes compressed MAT v7 files. Set `Format`

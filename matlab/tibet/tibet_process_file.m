@@ -13,6 +13,16 @@ assert(info.bytes >= 8192+h.pulses*h.record_bytes, 'Incomplete declared records'
 assert(h.beam_total <= 1 || ~isempty(options.PointingFile), ...
     'Multi-beam mode requires a per-pulse PointingFile; direction must not be guessed');
 pointing = load_pointing(h, options.PointingFile);
+assert(any(strcmp(options.DetectionMode,{'all','transmit'})),'Invalid DetectionMode');
+detection_channel=zeros(h.pulses,1);
+if strcmp(options.DetectionMode,'transmit')
+    for channel=1:5
+        match=pointing.alpha==h.rx_alpha(channel) & pointing.beta==h.rx_beta(channel);
+        assert(~any(detection_channel(match)),'Ambiguous transmit-matched receiver');
+        detection_channel(match)=channel;
+    end
+    assert(all(detection_channel>0),'No full-array receiver matches transmit steering');
+end
 gates = 241:608;
 windows = bsxfun(@plus, (0:31)', gates+1);
 empty = struct('pulse_index', {}, 'delay_samples', {}, 'doppler_bin', {}, ...
@@ -30,15 +40,18 @@ for batch = 0:options.BatchPulses:min(h.pulses,options.MaxPulses)-1
         re = reshape(raw(1,:,:,bi), 15, 640).';
         im = reshape(raw(2,:,:,bi), 15, 640).';
         z = complex(single(re),single(im));
-        noise_power = sort(sq(z(251:640,:)),1);
-        noise = max(noise_power(196,:)/single(log(2)), single(1));
+        noise_power = order_statistic(sq(z(251:640,:)),196);
+        noise = max(noise_power/single(log(2)), single(1));
         tx = z(8:39,3); energy = sum(sq(tx));
         assert(energy > 3*32*noise(3), 'Weak transmit reference at pulse %d', pulse);
         tx = tx/sqrt(energy);
-        rx = bsxfun(@rdivide,z(:,1:5),sqrt(noise(1:5)));
-        segments = reshape(rx(windows(:),:),32,numel(gates),5);
+        channels=1:5;
+        if detection_channel(pulse+1)>0, channels=detection_channel(pulse+1); end
+        rx = bsxfun(@rdivide,z(:,channels),sqrt(noise(channels)));
+        segments = reshape(rx(windows(:),:),32,numel(gates),numel(channels));
         spectrum = fftshift(fft(bsxfun(@times,segments,conj(tx)),128,1),1);
-        power = sum(sq(spectrum),3); reference = median(power(:));
+        power = sum(sq(spectrum),3);
+        reference = mean(order_statistic(power(:),numel(power)/2+(0:1)));
         if mod(pulse,16)==0, overview.peak_power_ratio(:,pulse/16+1)=max(power,[],1)'/reference; end
         indices = find(power/reference-1 >= single(10^(options.ThresholdDB/10)));
         [bin,row] = ind2sub(size(power),indices);
@@ -70,7 +83,8 @@ for batch = 0:options.BatchPulses:min(h.pulses,options.MaxPulses)-1
             phase = -single(2*pi)*single(frequency)*single((0:31)')/single(h.fs);
             phasor = complex(cos(phase),sin(phase));
             amplitude = sum(bsxfun(@times,z(gates(row)+(1:32),:),conj(tx).*phasor),1);
-            [~,beam] = max(sq(amplitude(1:5))./noise(1:5));
+            [~,best_beam] = max(sq(amplitude(channels))./noise(channels));
+            beam=channels(best_beam);
             p = struct('pulse_index',pulse,'delay_samples',gates(row)-7, ...
                 'doppler_bin',bin-1,'doppler_hz',frequency, ...
                 'statistic_db',10*log10(power(bin,row)/reference-1), ...
@@ -134,6 +148,7 @@ for j=1:numel(events)
     item=dir(path); event_bytes=event_bytes+item.bytes;
 end
 result=struct('schema','tibet_matlab_detector_v2','source_path',raw_path, ...
+    'detection_mode',options.DetectionMode,'detection_channel',detection_channel, ...
     'source_bytes',info.bytes,'source_datenum',info.datenum,'header',header, ...
     'candidate_count',candidate_count,'code_alias_veto_count',veto_count, ...
     'event_count',numel(events),'events',{events},'threshold_db',options.ThresholdDB, ...
@@ -159,9 +174,15 @@ fprintf('%s: %d events, %d points, %.1f s\n',raw_path,numel(events), ...
 end
 
 function o=defaults(o)
-names={'BatchPulses','MaxPulses','ThresholdDB','Verbose','Format','PointingFile','MakeOverview'};
-values={16,Inf,12,true,'auto','',true};
+names={'BatchPulses','MaxPulses','ThresholdDB','Verbose','Format','PointingFile','MakeOverview','DetectionMode'};
+values={16,Inf,[],true,'auto','',true,'all'};
 for j=1:numel(names), if ~isfield(o,names{j}), o.(names{j})=values{j}; end, end
+if isempty(o.ThresholdDB)
+    o.ThresholdDB=12;
+    % A single exponential noise power needs a higher peak/median threshold
+    % than the sum of five receivers. This is not a calibrated false-alarm rate.
+    if strcmp(o.DetectionMode,'transmit'), o.ThresholdDB=20; end
+end
 end
 
 function h=parse_header(b,path)
@@ -172,6 +193,8 @@ h=struct('header',b,'path',path,'pulses',word(b,80,'uint32'), ...
     'ipp_us',word(b,76,'uint32'),'frequency',word(b,84,'uint32')*120e6/2^32, ...
     'beam_total',word(b,42,'uint16'),'frame',word(b,44,'uint16'), ...
     'alpha',word(b,256,'uint16'),'beta',word(b,258,'uint16'));
+h.rx_alpha=arrayfun(@(offset) word(b,offset,'uint16'),428:2:436);
+h.rx_beta=arrayfun(@(offset) word(b,offset,'uint16'),468:2:476);
 h.fs=8e6/2^double(b(95)); h.wavelength=299792458/h.frequency;
 assert(h.fs==500000 && h.gates==640 && h.channels==15 && h.ipp_us==1280 && ...
     h.pulses>0 && abs(h.frequency-50e6)<1000 && word(b,730,'uint16')==4 && ...
@@ -205,6 +228,17 @@ end
 
 function p=sq(z)
 p=real(z).^2+imag(z).^2;
+end
+
+function value=order_statistic(x,k)
+% Octave's median fully sorts; selection returns exactly the same values.
+if exist('OCTAVE_VERSION','builtin')
+    value=nth_element(x,k,1);
+elseif isvector(x) && numel(k)==2
+    value=median(x);
+else
+    ordered=sort(x,1); value=ordered(k,:);
+end
 end
 
 function yes=code_alias(weak,strong,tx,fs)

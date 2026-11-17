@@ -60,23 +60,32 @@ at least that quickly, with margin. Monitor file completion delay and the
 number/age of waiting raw files over a sustained site pilot before enabling
 cleanup.
 
-One worker processed the five test files in about 176 seconds without the new
-overview exports. A cold-start six-worker test with plots and verified writes
-took about 108 seconds for the same 39.3 seconds of recorded data on the
-development computer/external-drive setup. **Neither measurement establishes
-sustained real-time performance.** More workers alone may not help when storage
-or CPU is saturated. Use fast local acquisition/staging storage, sufficient
+The initial implementation needed 176 seconds in one worker and 108 seconds
+in six workers for 39.3 seconds of recordings. Profiling found that Octave
+fully sorted large arrays to obtain medians. Exact order-statistic selection
+removed that bottleneck without changing the five-channel detector. The
+optimized five-worker test needed 24.1 seconds, including per-file plots and
+verified cuts, before the final shared overview refresh. All 16 events,
+1,063 points and 12,056,232 saved integer components still match the reference.
+This is faster than acquisition in a replay, not a sustained Windows site
+acceptance test. A longer replay repeated the five recordings four times:
+20 files, 157.3 seconds of recorded IPPs, processed in about one minute by
+five workers, with compressed verified cuts and overview plots. Repeated
+recordings benefit from filesystem caching; this is not a test of simultaneous
+acquisition writes or a Windows MATLAB benchmark. More workers alone may not help when storage or CPU is
+saturated. Use fast local acquisition/staging storage, sufficient
 physical cores, and benchmark the actual Tibet computer with MATLAB. The decoder
 reads about 60 MB/s of declared voltage records at acquisition rate, in addition
 to acquisition writes and output I/O.
 
-To try six independent workers, launch six dedicated MATLAB sessions with the
+To try five independent workers, launch five dedicated MATLAB or Octave sessions with the
 same input and output settings. In each session's Command Window, use a distinct
 index and then run the launcher:
 
 ```matlab
-WorkerCount = 6;
-WorkerIndex = 1;  % 1, 2, 3, 4, 5 or 6; one distinct index per session
+WorkerCount = 5;
+WorkerIndex = 1;  % 1, 2, 3, 4 or 5; one distinct index per session
+DetectionMode = 'all';
 run_tibet_meteors
 ```
 
@@ -86,6 +95,27 @@ directories protect against duplicate processing. One computation thread per
 worker avoids thread oversubscription. Check MATLAB licensing and available RAM
 before starting multiple sessions. No Parallel Computing Toolbox is required.
 Do not run other analysis in a dedicated worker session.
+
+## Optional Transmit-Matched Detection
+
+`DetectionMode = 'transmit'` searches only the full-array receiver whose raw
+steering codes match that pulse's transmit steering. For the present zenith
+files this is MATLAB channel 3 (zero-based channel 2). An absent or ambiguous
+match is an error, not a guess. Cuts still retain all ten interferometer
+channels and the sampled transmit reference. A changing transmit schedule
+still requires the validated per-pulse pointing file described below.
+
+The default five-channel mode remains the reference detector. The one-channel
+mode changes the detection statistic and uses a 20 dB peak/median-minus-one
+threshold instead of 12 dB: the same numerical threshold would admit far more
+single-channel noise peaks. Neither threshold is a calibrated false-alarm
+probability. Compare event completeness and false alarms before adopting the
+one-channel mode; do not assume its output is identical to the reference.
+In the five-file test it recovered all 16 reference events, but did not retain
+exactly the same pulse samples. Change `OutputFolder` when comparing modes;
+the watcher refuses to reuse completed results from a different mode.
+The full five-channel optimized mode already exceeds acquisition rate in the
+five-file replay, so dropping channels is not required for that result.
 
 ## Retain Only Detected Voltages
 

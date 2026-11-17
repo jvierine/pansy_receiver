@@ -3,10 +3,11 @@ function stats=tibet_watch(input_folder,output_folder,config)
 if nargin<3, config=struct(); end
 names={'RunOnce','PollSeconds','StableSeconds','Format','PointingFolder', ...
     'MakeOverview','DeleteRawAfterSuccess','WorkerCount','WorkerIndex', ...
-    'OverviewRefreshSeconds','OverviewMaxFiles','ThreadsPerWorker'};
-values={false,10,20,'auto','',true,false,1,1,60,120,1};
+    'OverviewRefreshSeconds','OverviewMaxFiles','ThreadsPerWorker','DetectionMode'};
+values={false,10,20,'auto','',true,false,1,1,60,120,1,'all'};
 for j=1:numel(names), if ~isfield(config,names{j}),config.(names{j})=values{j};end,end
 assert(config.WorkerCount>=1 && config.WorkerCount==fix(config.WorkerCount),'Invalid WorkerCount');
+assert(any(strcmp(config.DetectionMode,{'all','transmit'})),'Invalid DetectionMode');
 assert(config.WorkerIndex>=1 && config.WorkerIndex<=config.WorkerCount && ...
     config.WorkerIndex==fix(config.WorkerIndex),'Invalid WorkerIndex');
 assert(exist(input_folder,'dir')==7,'Input folder does not exist');
@@ -38,6 +39,12 @@ while true
         done=fullfile(target,'catalogue.mat');
         if exist(done,'file')==2
             record=load(done,'result'); r=record.result;
+            stored_mode='all';
+            if isfield(r,'detection_mode'), stored_mode=r.detection_mode; end
+            if ~strcmp(stored_mode,config.DetectionMode)
+                warning('Detection mode changed: use a new output folder; raw retained');
+                stats.failed=stats.failed+1; continue;
+            end
             if r.complete && r.source_bytes==file.bytes && r.source_datenum==file.datenum
                 stats.skipped_complete=stats.skipped_complete+1;
                 if config.MakeOverview && isfield(r,'overview') && ...
@@ -67,7 +74,8 @@ while true
         claim=[target '.lock']; [ok,message]=mkdir(claim);
         if ~ok || ~isempty(message), continue; end
         release=onCleanup(@()release_claim(claim));
-        options=struct('Format',config.Format,'MakeOverview',config.MakeOverview);
+        options=struct('Format',config.Format,'MakeOverview',config.MakeOverview, ...
+            'DetectionMode',config.DetectionMode);
         if ~isempty(config.PointingFolder)
             options.PointingFile=fullfile(config.PointingFolder,[stem '_pointing.mat']);
         end

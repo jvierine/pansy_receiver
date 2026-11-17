@@ -22,7 +22,7 @@ def write_group(group, values):
             group.create_dataset(key, data=value, **filters)
 
 
-def compare(actual, reference, original_cuts, output):
+def compare(actual, reference, original_cuts, output, time_offset_us=0):
     assert not output.exists(), "Use a new verification output"
     records = []
     file_rows = []
@@ -75,8 +75,11 @@ def compare(actual, reference, original_cuts, output):
                     "strongest_full_array_rx",
                     "tx_time_us",
                 ]:
+                    expected_values = event[key][()]
+                    if key == "tx_time_us":
+                        expected_values = expected_values.astype(np.int64) + time_offset_us
                     np.testing.assert_array_equal(
-                        measured[key], event[key][()], err_msg=f"{stem}/{name}/{key}"
+                        measured[key], expected_values, err_msg=f"{stem}/{name}/{key}"
                     )
                 fd_error = float(
                     np.max(abs(measured["doppler_hz"] - event["doppler_hz"][()]))
@@ -120,7 +123,10 @@ def compare(actual, reference, original_cuts, output):
                         "tx_beta_per_pulse",
                         "tx_beam_id",
                     ]:
-                        np.testing.assert_array_equal(record[key], cut[key][()])
+                        expected_values = cut[key][()]
+                        if key == "ipp_start_time_us":
+                            expected_values = expected_values.astype(np.int64) + time_offset_us
+                        np.testing.assert_array_equal(record[key], expected_values)
                     for key in ["zrx_echoes", "ztx_history"]:
                         a = read_iq(record, key)
                         b = read_iq(cut, key)
@@ -157,6 +163,7 @@ def compare(actual, reference, original_cuts, output):
         with h5py.File(replay / f"{name}.h5", "w") as h:
             write_group(h, record)
     with h5py.File(output / "verification.h5", "w") as h:
+        h.attrs["expected_filename_time_offset_us"] = time_offset_us
         h["file_metrics"] = file_rows
         h["event_metrics"] = [row for _, _, row in records]
         h.attrs["file_columns"] = (
