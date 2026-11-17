@@ -5,14 +5,12 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#082747">
   <title>PANSY PMSE Explorer</title>
-  <link rel="modulepreload" href="viewer.js?v=gpu-lifecycle-1">
-  <link rel="modulepreload" href="imaging.js?v=gpu-lifecycle-1">
-  <link rel="modulepreload" href="lib/interactive_plot.js?v=gpu-lifecycle-1">
-  <link rel="modulepreload" href="pkg/releases/c70022f0996b1a74/rustplotlib_web.js">
-  <link rel="preload" href="pkg/releases/c70022f0996b1a74/rustplotlib_web_bg.wasm" as="fetch" type="application/wasm" crossorigin>
+  <link rel="preload" href="/rvd/pkg/releases/e7774d827ba5b8e0/rustplotlib_web_bg.wasm" as="fetch" type="application/wasm" crossorigin>
   <link rel="icon" type="image/png" href="rogue-wave-logo.png?v=1">
   <link rel="apple-touch-icon" href="rogue-wave-logo.png?v=1">
-  <link rel="stylesheet" href="theme.css?v=aligned-header-3">
+  <link rel="stylesheet" href="assets/viewer.06531298d78cb9fe.css">
+<link rel="modulepreload" href="assets/viewer.0f1d5d019a793ccc.js">
+<link rel="modulepreload" href="/rvd/pkg/releases/e7774d827ba5b8e0/rustplotlib_web.js">
 </head>
 <body>
   <header class="site-header">
@@ -29,6 +27,11 @@
     </div>
   </header>
   <main>
+    <div id="loadProgress" class="load-progress" role="status" aria-live="polite">
+      <span id="loadStage">Loading plotting engine and observations…</span>
+      <progress id="loadBar" aria-label="Observation loading progress"></progress>
+      <span id="loadDetail">Please wait…</span>
+    </div>
     <div class="observation-status"><span class="status-dot" aria-hidden="true"></span><p class="status" id="status" role="status">Loading observations…</p></div>
     <p class="status" id="processingStatus" role="status" hidden></p>
     <div class="view-toolbar">
@@ -117,7 +120,7 @@
       document.getElementById('error').textContent = `Plot startup failed: ${error?.message || error}. Please reload this page. If it persists, include this message when reporting the browser problem.`;
     };
     window.addEventListener('error', event => { if (event.error) showStartupError(event.error); });
-    import('./viewer.js?v=gpu-lifecycle-1').catch(showStartupError);
+    import('./assets/viewer.0f1d5d019a793ccc.js').catch(showStartupError);
   </script>
 </body>
 </html>

@@ -1,4 +1,5 @@
-import init, { FieldView, PlotViewport } from "../pkg/releases/c70022f0996b1a74/rustplotlib_web.js";
+import init, { FieldView, PlotViewport, interactive_field_frame } from "/rvd/pkg/releases/e7774d827ba5b8e0/rustplotlib_web.js";
+import fieldPalette from '../palette.mjs';
 let initialization;
 const clamp = (v) => Math.max(0, Math.min(1, v));
 const svgURL = (svg) => URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
@@ -74,12 +75,14 @@ class InteractiveFieldPlot {
   momentLimits;
   onSelect;
   static async mount(root, options) {
-    initialization ??= init();
+    initialization ??= init().catch(error => { initialization = undefined; throw error; });
     await initialization;
     const plot = new InteractiveFieldPlot(root, options);
-    await plot.requestFrame();
-    plot.observer.observe(root);
-    return plot;
+    try {
+      await plot.requestFrame();
+      plot.observer.observe(root);
+      return plot;
+    } catch (error) { plot.dispose(); throw error; }
   }
   setColorLimits(low, high) {
     if (!Number.isFinite(low) || !Number.isFinite(high) || high <= low) throw Error("Invalid color limits");
@@ -214,6 +217,7 @@ class InteractiveFieldPlot {
     dialog.showModal();
   }
   setSpec(spec) {
+    if (JSON.stringify(spec) === JSON.stringify(this.options.spec)) return;
     this.options.spec = spec;
     this.reset();
   }
@@ -252,15 +256,21 @@ class InteractiveFieldPlot {
     this.abort?.abort();
     this.abort = new AbortController();
     const width = Math.max(360, Math.min(1200, Math.round(this.root.clientWidth)));
-    const endpoint = this.options.frameEndpoint || new URL("./api/frame", location.href).href;
-    const response = await fetch(endpoint, {
+    const parameters = { ...this.options.frameParameters, ...this.momentLimits ? { velocity_limit: this.momentLimits[0], width_limit: this.momentLimits[1] } : {} };
+    let frame;
+    if (this.options.frameEndpoint) {
+    const response = await fetch(this.options.frameEndpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: this.abort.signal,
       body: JSON.stringify({ ...this.options.frameParameters, ...this.momentLimits ? { velocity_limit: this.momentLimits[0], width_limit: this.momentLimits[1] } : {}, hsv: this.momentMode ? 1 : 0, id: this.options.id, width, viewport: Array.from(this.viewport.bounds()), color_limits: this.limits })
     });
     if (!response.ok) throw Error(`Native plot frame failed (${response.status})`);
-    const frame = await response.json();
+    frame = await response.json();
+    } else {
+      const spec = { ...this.options.spec, color_stops:this.options.spec.color_stops || fieldPalette, ...this.momentMode ? {hsv_key:{velocity_limit:parameters.velocity_limit || 30,width_limit:parameters.width_limit || 10}} : {} };
+      frame = JSON.parse(interactive_field_frame(JSON.stringify(spec), JSON.stringify({width,viewport:Array.from(this.viewport.bounds()),color_limits:this.limits})));
+    }
     if (request !== this.revision) return;
     this.frame = frame;
     this.stage.style.width = frame.width + "px";

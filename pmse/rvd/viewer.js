@@ -1,16 +1,31 @@
 // Scientific provenance: rustplotlib interactive API d3837b8; numerical imaging is Rust/WASM.
-import init from './pkg/releases/c70022f0996b1a74/rustplotlib_web.js';
-import {imageSelection,setEchoFilter} from './imaging.js?v=gpu-lifecycle-1';
+import init from '/rvd/pkg/releases/e7774d827ba5b8e0/rustplotlib_web.js';
+import {imageSelection,setEchoFilter} from './imaging.js?v=loading-3';
 import {persistentEchoes} from './echo_filter.mjs?v=1';
 import {renderNoiseDiagnostics,renderArchiveDiagnostics} from './diagnostics.js?v=runtime-c70022f0';
-import {InteractiveFieldPlot} from './lib/interactive_plot.js?v=gpu-lifecycle-1';
+import {InteractiveFieldPlot} from './lib/interactive_plot.js?v=loading-3';
+import {readJSON} from './loading.mjs?v=1';
 const $=id=>document.getElementById(id), names=['Zenith','North','East','South','West'];
 // Start data I/O while WebAssembly initializes.
-let initialResponse=fetch('./data/manifest.json',{cache:'no-cache'}).catch(error=>({error}));
+const fetchData=(url)=>fetch(url,{cache:'no-cache',signal:AbortSignal.timeout(30000)});
+let initialResponse=fetchData('./data/manifest.json').catch(error=>({error}));
 let manifest,frames=[],plots=[],rd,playing=null,selected=0,revision='',rtiPlot,rdPlot,tdPlot;
 let chosenDay='',refreshSequence=0;
 let originalFrames=[];
+let summaryCache=new WeakMap();
+let catalogue;
+let showLoading=true;
+function loading(stage,progress){
+ if(!showLoading)return;
+ $('loadProgress').hidden=false;$('loadStage').textContent=stage;
+ const bar=$('loadBar');
+ if(progress?.total){bar.max=progress.total;bar.value=progress.received;}
+ else bar.removeAttribute('value');
+ $('loadDetail').textContent=progress?.received?`${(progress.received/2**20).toFixed(2)} MiB received (decoded)` : 'Please wait…';
+}
+function loaded(){showLoading=false;$('loadProgress').hidden=true;}
 function applyEchoFilter(){
+ summaryCache=new WeakMap();
  const enabled=$('hideSingleMode').checked;
  const filtered=enabled?persistentEchoes(originalFrames):null;
  frames=filtered?filtered.frames:originalFrames;
@@ -69,13 +84,14 @@ async function mountPlots(){
 }
 function scale(p){const [low,high]=p.owner.getColorLimits();p.view.set_scale(low,high,0,.1,2);}
 function summaries(frame,beam,nr){
+ const cached=summaryCache.get(frame);if(cached?.[beam])return cached[beam];
   const peak=new Float32Array(nr),sum=new Float64Array(nr),vsum=new Float64Array(nr),v2sum=new Float64Array(nr),vel=manifest.geometry.velocity_mps;
   const nyquist=manifest.velocity_limits_mps[1];
   frame.index.forEach(([b,f,r],i)=>{if(b!==beam)return;const w=10**(frame.snr_db[i]/10),angle=Math.PI*vel[f]/nyquist;peak[r]=Math.max(peak[r],frame.snr_db[i]);sum[r]+=w;vsum[r]+=w*Math.cos(angle);v2sum[r]+=w*Math.sin(angle);});
   const moments=new Float32Array(nr*4),variance=new Float64Array(nr);for(let r=0;r<nr;r++){moments[4*r]=peak[r];if(sum[r])moments[4*r+1]=Math.atan2(v2sum[r],vsum[r])*nyquist/Math.PI;}
   frame.index.forEach(([b,f,r],i)=>{if(b!==beam)return;const w=10**(frame.snr_db[i]/10),period=2*nyquist,dv=((vel[f]-moments[4*r+1]+nyquist)%period+period)%period-nyquist;variance[r]+=w*dv*dv;});
   for(let r=0;r<nr;r++)if(sum[r])moments[4*r+2]=Math.sqrt(variance[r]/sum[r]);
-  return {peak,moments};
+  const result={peak,moments},cache=cached||[];cache[beam]=result;summaryCache.set(frame,cache);return result;
 }
 function renderRTI(){
   if(!rtiPlot||!frames.length)return;
@@ -130,12 +146,18 @@ function renderRD(){
   if(hsv)rd.view.set_moment_data(moment,...(rdPlot.getHsvLimits()||[+$('vlim').value,+$('wlim').value]));
   $('frameStatus').textContent=`${utc(frame.start_us)} · ${names[beam]} · ${frame.duration_s.toFixed(2)} s mode, ${frame.coverage_s.toFixed(2)} s valid support · ${frame.looks} looks · ${count} retained cells · 16 ms complementary pairs · ${frame.quality}`;
 }
-async function refresh(){
+async function refresh({useIndex=false}={}){
   const request=++refreshSequence;
-  const response=initialResponse?await initialResponse:await fetch('./data/manifest.json',{cache:'no-cache'});initialResponse=null;
-  if(response.error)throw response.error;
-  if(!response.ok)throw Error(`Data unavailable (${response.status})`);
-  let m=await response.json();
+  const update=(stage,progress)=>{if(request===refreshSequence)loading(stage,progress);};
+  update('Downloading observations…');
+  let m=catalogue;
+  if(!useIndex||!m){
+   const response=initialResponse?await initialResponse:await fetchData('./data/manifest.json');initialResponse=null;
+   if(response.error)throw response.error;
+   m=await readJSON(response,p=>update('Downloading observations…',p));
+   catalogue=m;
+  }
+  if(request!==refreshSequence)return;
   renderProcessingStatus(m);
   const days=m.available_days||[];
   if(!chosenDay||!days.includes(chosenDay))chosenDay=days.at(-1)||m.selected_day;
@@ -152,8 +174,12 @@ async function refresh(){
       'Web copy: seven-day retention; Revontuli archive retained.';}
   renderArchivePlot(m);
   if(m.selected_day!==chosenDay||!m.frame_packets){
-   const daily=await fetch(`./api/day?day=${encodeURIComponent(chosenDay)}`,{cache:'no-cache'});if(!daily.ok)throw Error('Selected UTC day is unavailable');
-   m=await daily.json();
+   update(`Downloading ${chosenDay}…`);
+   // Prepared static packets support gzip/conditional requests without involving
+   // the API worker. Fall back only when publication has not prepared this day.
+   let daily=await fetchData(`./data/days/${encodeURIComponent(chosenDay)}.json`);
+   if(daily.status===404)daily=await fetchData(`./api/day?day=${encodeURIComponent(chosenDay)}`);
+   m=await readJSON(daily,p=>update(`Downloading ${chosenDay}…`,p));
   }
   if(request!==refreshSequence)return;
   const age=(Date.now()-m.latest_mode_us/1000)/60000;
@@ -165,12 +191,19 @@ async function refresh(){
   download.setAttribute('aria-disabled',m.frame_count?'false':'true');
   download.title=`Native complex spectra and metadata for ${chosenDay} UTC (.tar)`;
   $('status').className=age>10?'status warn':'status';$('error').textContent='';
-  if(m.revision===revision)return;manifest=m;
+  if(m.revision===revision){loaded();return;}manifest=m;
+  update('Preparing echo data…');
   originalFrames=m.frame_packets;applyEchoFilter();revision=m.revision;selected=frames.length-1;$('frame').max=String(Math.max(0,selected));$('frame').value=String(Math.max(0,selected));
-  if(!frames.length){$('status').textContent=`${chosenDay} UTC · no complete 16 ms records yet`;return;}
+  if(!frames.length){$('status').textContent=`${chosenDay} UTC · no complete 16 ms records yet`;loaded();return;}
+  update('Drawing Rustplotlib axes…');
+  await new Promise(resolve=>requestAnimationFrame(resolve));
   await mountPlots();
+  if(request!==refreshSequence)return;
+  update('Drawing echoes…');
   $('sidecar').href='./data/'+m.sidecar;renderRTI();renderRD();
-  requestAnimationFrame(()=>{document.body.dataset.plotsReadyMs=String(Math.round(performance.now()));});
+  await rtiPlot.requestFrame();
+  if(request!==refreshSequence)return;
+  requestAnimationFrame(()=>{if(request===refreshSequence){document.body.dataset.plotsReadyMs=String(Math.round(performance.now()));loaded();}});
 }
 function renderArchivePlot(m){
   archiveInventory=m.transfer?.archive;
@@ -200,13 +233,13 @@ async function refreshSkyNoise(){
   if(noiseRequest)return noiseRequest;
   noiseRequest=(async()=>{
     try{
-      const response=await fetch('./data/sky-noise/status.json',{cache:'no-cache'});
+      const response=await fetchData('./data/sky-noise/status.json');
       if(!response.ok)throw Error(`Sky-noise diagnostics unavailable (${response.status})`);
       const value=await response.json();
       if(value.noise_model_status?.length!==7||!value.noise_model_data?.times_h?.length)throw Error('Numeric sky-noise data have not arrived yet');
       skyNoise=value;renderNoise();
     }catch(error){
-      if(skyNoise){skyNoise.noise_plot.status='delayed';renderNoise();}
+      if(skyNoise){skyNoise.noise_plot={...skyNoise.noise_plot,status:'delayed'};renderNoise();}
       else{$('noiseStatus').textContent='Numeric sky-noise data are not available yet; the independent analysis job will retry. Observations remain available.';}
     }
   })();
@@ -222,8 +255,9 @@ function renderNoise(model=skyNoise||manifest){
   if(model.noise_plot?.status==='delayed')$('noiseStatus').textContent+=' Refresh delayed; using cached numeric data.';
   if($('skyNoiseSection').open)void renderNoiseDiagnostics(model,module).catch(error=>{$('noiseStatus').textContent+=' '+String(error);});
 }
-function failure(e){revision='';$('error').textContent=e.message;console.error(e);}
+function failure(e){revision='';loading('Loading failed — retrying…');$('error').textContent=e.message;console.error(e);}
 try{
+ loading('Loading plotting engine…');
  await init();if(new URLSearchParams(location.search).has('embed'))document.body.classList.add('embedded');
  document.body.dataset.display=$('display').value;
  for(const id of ['display','low','high','vlim','wlim'])$(id).onchange=()=>{try{
@@ -236,8 +270,15 @@ try{
  $('noiseModule').onchange=()=>renderNoise();
  $('skyNoiseSection').ontoggle=()=>{if($('skyNoiseSection').open)void refreshSkyNoise();};
  $('archiveSection').ontoggle=()=>{if($('archiveSection').open)void drawArchive();};
- $('day').onchange=()=>{chosenDay=$('day').value;revision='';$('downloadSpectra').setAttribute('aria-disabled','true');$('downloadSpectra').removeAttribute('href');if(playing){clearInterval(playing);playing=null;$('play').textContent='Play';}refresh().catch(failure);};
+ $('day').onchange=()=>{showLoading=true;loading('Loading selected day…');chosenDay=$('day').value;revision='';$('downloadSpectra').setAttribute('aria-disabled','true');$('downloadSpectra').removeAttribute('href');if(playing){clearInterval(playing);playing=null;$('play').textContent='Play';}refresh({useIndex:true}).catch(failure);};
  $('play').onclick=()=>{if(playing){clearInterval(playing);playing=null;$('play').textContent='Play';}else{$('play').textContent='Pause';playing=setInterval(()=>{selected=(selected+1)%frames.length;$('frame').value=selected;renderRD();},500);}};
- window.addEventListener('resize',()=>{if(frames.length){renderRTI();renderRD();}});
- await refresh();setInterval(()=>refresh().catch(failure),60000);
+ let resizeTimer;window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{if(frames.length){renderRTI();renderRD();}},150);});
+ // A failed first request must not prevent all future refreshes. Schedule after
+ // completion so slow requests cannot accumulate overlapping polling work.
+ async function pollObservations(){
+  let delay=60000;
+  try{await refresh();}catch(e){failure(e);delay=5000;}
+  finally{setTimeout(pollObservations,delay);}
+ }
+ await pollObservations();
 }catch(e){failure(e);}

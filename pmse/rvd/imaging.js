@@ -1,4 +1,4 @@
-import {InteractiveFieldPlot} from './lib/interactive_plot.js?v=gpu-lifecycle-1';
+import {InteractiveFieldPlot} from './lib/interactive_plot.js?v=loading-3';
 const $=id=>document.getElementById(id);
 let worker,geometry,plot,plotMount,sequence=0,previousRange,lastMoments,lastPacket,lastKey,echoFilter,busy=false,fetchAbort,timeout;
 export function setEchoFilter(resolver){echoFilter=resolver;if(lastPacket)reconstruct();}
@@ -18,7 +18,7 @@ function methodNote(){
   o.method==='sparse'?'Positive pixel ℓ₁ for compact echoes; optional reweighting and selected-support power refit.':'Legacy 18-mode TSVD comparison: squared inverse magnitude, not sparse source-power reconstruction.';
 }
 function makeWorker(){
- const active=worker=new Worker(new URL('./imaging_worker.js?v=persistence-2',import.meta.url),{type:'module'});
+ const active=worker=new Worker(new URL('/rvd/imaging_worker.js?v=persistence-2',location.href),{type:'module'});
    worker.onmessage=async({data})=>{
     if(data.id!==sequence)return;
     busy=false;clearTimeout(timeout);

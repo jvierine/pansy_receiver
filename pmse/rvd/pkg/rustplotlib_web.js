@@ -365,6 +365,15 @@ export class SeriesView {
         }
     }
     /**
+     * @returns {Float64Array}
+     */
+    color_limits() {
+        const ret = wasm.seriesview_color_limits(this.__wbg_ptr);
+        var v1 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
+        return v1;
+    }
+    /**
      * @param {HTMLCanvasElement} canvas
      */
     constructor(canvas) {
@@ -538,6 +547,34 @@ export class VolumeView {
     }
 }
 if (Symbol.dispose) VolumeView.prototype[Symbol.dispose] = VolumeView.prototype.free;
+
+/**
+ * @param {string} spec_json
+ * @param {string} request_json
+ * @returns {string}
+ */
+export function interactive_field_frame(spec_json, request_json) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        const ptr0 = passStringToWasm0(spec_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(request_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.interactive_field_frame(ptr0, len0, ptr1, len1);
+        var ptr3 = ret[0];
+        var len3 = ret[1];
+        if (ret[3]) {
+            ptr3 = 0; len3 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred4_0 = ptr3;
+        deferred4_1 = len3;
+        return getStringFromWasm0(ptr3, len3);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+    }
+}
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
@@ -585,6 +622,9 @@ function __wbg_get_imports() {
         __wbg_clip_275e70d2dc182fec: function(arg0) {
             arg0.clip();
         },
+        __wbg_closePath_355eb6da179dd9c2: function(arg0) {
+            arg0.closePath();
+        },
         __wbg_compileShader_c2b53ff3a8851f60: function(arg0, arg1) {
             arg0.compileShader(arg1);
         },
@@ -619,6 +659,9 @@ function __wbg_get_imports() {
         __wbg_drawArrays_08872e02fb57b847: function(arg0, arg1, arg2, arg3) {
             arg0.drawArrays(arg1 >>> 0, arg2, arg3);
         },
+        __wbg_ellipse_59ddb84ea8ee8ce1: function() { return handleError(function (arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+            arg0.ellipse(arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+        }, arguments); },
         __wbg_enableVertexAttribArray_d52693866bc8b8dd: function(arg0, arg1) {
             arg0.enableVertexAttribArray(arg1 >>> 0);
         },
