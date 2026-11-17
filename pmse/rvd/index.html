@@ -9,7 +9,7 @@
   <link rel="icon" type="image/png" href="rogue-wave-logo.png?v=1">
   <link rel="apple-touch-icon" href="rogue-wave-logo.png?v=1">
   <link rel="stylesheet" href="assets/viewer.06531298d78cb9fe.css">
-<link rel="modulepreload" href="assets/viewer.0f1d5d019a793ccc.js">
+<link rel="modulepreload" href="assets/viewer.6d93b70807a76481.js">
 <link rel="modulepreload" href="/rvd/pkg/releases/e7774d827ba5b8e0/rustplotlib_web.js">
 </head>
 <body>
@@ -120,7 +120,7 @@
       document.getElementById('error').textContent = `Plot startup failed: ${error?.message || error}. Please reload this page. If it persists, include this message when reporting the browser problem.`;
     };
     window.addEventListener('error', event => { if (event.error) showStartupError(event.error); });
-    import('./assets/viewer.0f1d5d019a793ccc.js').catch(showStartupError);
+    import('./assets/viewer.6d93b70807a76481.js').catch(showStartupError);
   </script>
 </body>
 </html>

@@ -15,6 +15,20 @@ let originalFrames=[];
 let summaryCache=new WeakMap();
 let catalogue;
 let showLoading=true;
+const snapshotKey='pansy-rvd-day-view-v1';
+function saveView(packet){try{const saved=JSON.stringify(packet);if(saved.length<2500000)sessionStorage.setItem(snapshotKey,saved);}catch{/* Storage must never block current observations. */}}
+async function restoreView(){
+ try{
+  const packet=JSON.parse(sessionStorage.getItem(snapshotKey)||'null');
+  if(!packet?.frame_packets?.length||!packet.geometry||!packet.selected_day)return;
+  chosenDay=packet.selected_day;manifest=packet;originalFrames=packet.frame_packets;applyEchoFilter();
+  const option=document.createElement('option');option.value=chosenDay;option.textContent=chosenDay;$('day').replaceChildren(option);
+  selected=frames.length-1;$('frame').max=String(selected);$('frame').value=String(selected);
+  await mountPlots();renderRTI();renderRD();revision=packet.revision;
+  $('status').textContent=`Saved view · ${chosenDay} UTC · observations through ${utc(packet.latest_mode_us)} · checking for updates…`;
+  document.body.dataset.plotsReadyMs=String(Math.round(performance.now()));loaded();
+ }catch{revision='';try{sessionStorage.removeItem(snapshotKey);}catch{/* A fresh fetch remains available. */}}
+}
 function loading(stage,progress){
  if(!showLoading)return;
  $('loadProgress').hidden=false;$('loadStage').textContent=stage;
@@ -182,6 +196,7 @@ async function refresh({useIndex=false}={}){
    m=await readJSON(daily,p=>update(`Downloading ${chosenDay}…`,p));
   }
   if(request!==refreshSequence)return;
+  saveView(m);
   const age=(Date.now()-m.latest_mode_us/1000)/60000;
   $('status').textContent=m.frame_count?`${m.frame_count} observing modes · latest ${utc(m.latest_mode_us)} · ${Math.max(0,age).toFixed(0)} min behind now`:`${chosenDay} UTC · no observations delivered yet`;
   if(m.spectra_transfer_pending)$('status').textContent+=` · complex spectra transferring for ${m.spectra_transfer_pending} modes`;
@@ -203,7 +218,7 @@ async function refresh({useIndex=false}={}){
   $('sidecar').href='./data/'+m.sidecar;renderRTI();renderRD();
   await rtiPlot.requestFrame();
   if(request!==refreshSequence)return;
-  requestAnimationFrame(()=>{if(request===refreshSequence){document.body.dataset.plotsReadyMs=String(Math.round(performance.now()));loaded();}});
+  requestAnimationFrame(()=>{if(request===refreshSequence){const now=String(Math.round(performance.now()));if(!document.body.dataset.plotsReadyMs)document.body.dataset.plotsReadyMs=now;document.body.dataset.latestRefreshMs=now;loaded();}});
 }
 function renderArchivePlot(m){
   archiveInventory=m.transfer?.archive;
@@ -280,5 +295,6 @@ try{
   try{await refresh();}catch(e){failure(e);delay=5000;}
   finally{setTimeout(pollObservations,delay);}
  }
+ await restoreView();
  await pollObservations();
 }catch(e){failure(e);}
