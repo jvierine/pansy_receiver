@@ -32,6 +32,17 @@ The cutter verifies storage round trips before replaying the matched filters.
 without needing the raw source drive. The shared Python voltage reader accepts
 both schemas. The standalone MATLAB implementation is in `matlab/tibet`.
 
+Publish standard Digital RF metadata without expanding the compact voltages:
+
+```sh
+conda run -n base python -m meteor_analysis.cut_metadata NEW_CUTS --run NEW_RUN --geometry ARRAY_GEOMETRY.h5
+```
+
+The metadata retains interleaved int16 and sparse overflow tables with shuffle
+and deflate. Use `meteor_analysis.voltage.read_iq` to reconstruct voltages from
+either cut files or Digital Metadata records. Legacy split int32 metadata is
+still supported when publishing older cuts.
+
 ## Data contract and metadata evidence
 
 - Header: 8192 bytes, little endian, guarded by `AAAA5555` and `AA5555AA`.
@@ -219,4 +230,3 @@ contain the desired MST echo.
 Thresholds are conservative working choices, not a validated classifier.
 Satellites and RFI are not guaranteed absent. Range aliases remain unresolved;
 low-range features can include residual clutter and code sidelobes.
-
