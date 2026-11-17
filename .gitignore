@@ -46,3 +46,5 @@ pmse/plotting/target/
 /meteor/consensus/target/
 /meteor/matched_filter/target/
 /meteor/analysis/target/
+/meteor/tibet/target/
+/meteor/spectra/target/

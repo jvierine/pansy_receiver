@@ -60,7 +60,10 @@ after that initial point. Upper-open profiles remain open.
 Range and within-pulse Doppler retain their local 2x2 covariance. Angular fitting
 uses the measured ten-channel covariance, shared-reference phase covariance, and
 event-constant phase-offset nuisance parameters. Pulse-phase velocity branches
-are trajectory-assisted, not globally marginalized. Adjacent-pulse pairs are
+are selected jointly across each event using a robust within-pulse Doppler trend
+and continuity, rather than independent rounding against a constant-velocity
+trajectory. Ambiguous alternatives are retained as diagnostics; branches are
+not globally marginalized. Adjacent-pulse pairs are
 nonoverlapping; same-code two-IPP pairs are a separate, correlated diagnostic and
 are not counted as additional independent data. Working scatter inflation is
 estimated once and held fixed across each radius profile.

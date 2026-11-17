@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import numpy as np
+from .voltage import read_iq, load_mat_cut
 from scipy.optimize import minimize
 import h5py
 from .native import matched
@@ -10,24 +11,30 @@ C = 299792458.0
 
 
 def load_tibet_cut(path):
+    if Path(path).suffix.lower() == ".mat":
+        return _load_tibet_group(load_mat_cut(path), path)
     with h5py.File(path) as h:
-        iq = h["zrx_echoes_iq_i32"][()]
-        tx = h["ztx_history_iq_i32"][:, 0]
-        d = {k: v[()] for k, v in h["detections"].items()}
-        return dict(
-            rx=iq[..., 0].astype(float) + 1j * iq[..., 1],
-            tx=tx[..., 0].astype(float) + 1j * tx[..., 1],
-            pulse=h["pulse_index"][()],
-            ipp_time_us=h["ipp_start_time_us"][()],
-            tx_alpha=h["tx_alpha_per_pulse"][()],
-            tx_beta=h["tx_beta_per_pulse"][()],
-            gate0=int(h["range_start_gate"][()]),
-            tx_gate=int(h["tx_start_gate"][()]),
-            fs=float(h["sample_rate_hz"][()]),
-            frequency=float(h["frequency_hz"][()]),
-            detections=d,
-            cut_path=Path(path),
-        )
+        return _load_tibet_group(h, path)
+
+
+def _load_tibet_group(h, path):
+    iq = read_iq(h, "zrx_echoes")
+    tx = read_iq(h, "ztx_history")[:, 0]
+    d = {k: v[()] for k, v in h["detections"].items()}
+    return dict(
+        rx=iq[..., 0].astype(float) + 1j * iq[..., 1],
+        tx=tx[..., 0].astype(float) + 1j * tx[..., 1],
+        pulse=h["pulse_index"][()],
+        ipp_time_us=h["ipp_start_time_us"][()],
+        tx_alpha=h["tx_alpha_per_pulse"][()],
+        tx_beta=h["tx_beta_per_pulse"][()],
+        gate0=int(h["range_start_gate"][()]),
+        tx_gate=int(h["tx_start_gate"][()]),
+        fs=float(h["sample_rate_hz"][()]),
+        frequency=float(h["frequency_hz"][()]),
+        detections=d,
+        cut_path=Path(path),
+    )
 
 
 def noise_covariance(cut):
@@ -119,13 +126,17 @@ def refine(cut):
         amplitudes.append(a)
         success.append(valid)
     output = np.asarray(output)
+    amplitudes = np.array(amplitudes)
+    # Mean single-large-subarray SNR after unit-energy matched filtering.
+    snr = np.mean(abs(amplitudes[:, 3:]) ** 2 / np.diag(cov).real[None, 3:], axis=1) - 1
     return dict(
         epoch_unix=reference_ipp / 1e6 + output[:, 0],
         time_s=output[:, 0] - output[0, 0],
         range_m=output[:, 1],
         radial_velocity_mps=output[:, 2],
         doppler_hz=output[:, 3],
-        amplitude=np.array(amplitudes),
+        amplitude=amplitudes,
+        matched_filter_snr_db=10 * np.log10(np.maximum(snr, 1e-12)),
         range_velocity_covariance=np.array(joint),
         refinement_valid=np.array(success),
         noise_covariance=cov,

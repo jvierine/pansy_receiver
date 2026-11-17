@@ -14,7 +14,7 @@ from .measurements import load_tibet_cut, refine, C
 from .geometry import ArrayModel
 from .trajectory import EventFit, profile_bounds, radial
 from .pulse_phase import measure_pairs
-from .coordinates import radiant, configure_eop
+from .coordinates import radiant, configure_eop, load_eop
 from .plot_data import range_time_power
 
 
@@ -125,6 +125,22 @@ def analyze(name, args, array, atmosphere, phase, calstd):
         / np.linalg.norm(position[:: max(1, len(position) // 10)], axis=1)[:, None]
     )
     result = profile_bounds(combined)
+    keep = fit.keep
+    observed_position = (
+        np.column_stack([uv, np.sqrt(np.maximum(1 - np.sum(uv**2, axis=1), 0))])
+        * m["range_m"][:, None]
+    )
+    position_residual = observed_position - position
+    model_range = np.linalg.norm(position, axis=1)
+    pair_model = (model_range[ppp["current"]] - model_range[ppp["previous"]]) / (
+        m["time_s"][ppp["current"]] - m["time_s"][ppp["previous"]]
+    )
+    rms = lambda values: float(np.sqrt(np.mean(np.asarray(values) ** 2)))
+    phase_rms = (
+        rms((pair_model - ppp["velocity_mps"])[ppp["keep"]])
+        if np.any(ppp["keep"])
+        else np.nan
+    )
     result.update(
         initial_radius_epoch="first retained scattering measurement, not pre-atmospheric radius",
         material_density_kg_m3=3000.0,
@@ -132,10 +148,18 @@ def analyze(name, args, array, atmosphere, phase, calstd):
         speed_first_km_s=np.linalg.norm(velocity[0]) / 1000,
         initial_mass_kg=4 * np.pi / 3 * 3000 * radius**3,
         model_lookup_max_phase_error_rad=geometry_error,
-        range_rms_m=np.std((np.linalg.norm(position, axis=1) - m["range_m"])[fit.keep]),
-        radial_velocity_rms_mps=np.std(
-            (radial(position, velocity) - m["radial_velocity_mps"])[fit.keep]
+        range_rms_m=rms((model_range - m["range_m"])[keep]),
+        horizontal_x_rms_m=rms(position_residual[keep, 0]),
+        horizontal_y_rms_m=rms(position_residual[keep, 1]),
+        horizontal_position_rms_m=rms(
+            np.linalg.norm(position_residual[keep, :2], axis=1)
         ),
+        height_rms_m=rms(position_residual[keep, 2]),
+        radial_velocity_rms_mps=rms(
+            (radial(position, velocity) - m["radial_velocity_mps"])[keep]
+        ),
+        pulse_phase_velocity_rms_mps=phase_rms,
+        rms_definition="unweighted sqrt(mean(residual squared)); single-pulse and accepted nonoverlapping phase pairs reported separately; horizontal residuals use the plotted conditional AoA positions",
         selected_ppp_pairs=int(np.sum(ppp["keep"])),
         calibration_and_orientation_confirmed=False,
         reference_frame="array x/y/up; geographic ENU orientation unconfirmed",
@@ -293,6 +317,11 @@ def main():
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--max-events", type=int, default=100000)
     p.add_argument("--radius-points", type=int, default=25)
+    p.add_argument(
+        "--environment-from",
+        type=Path,
+        help="reuse saved observation-day MSIS/EOP HDF5 inputs",
+    )
     args = p.parse_args()
     if args.output.exists():
         raise FileExistsError(args.output)
@@ -300,12 +329,32 @@ def main():
     with h5py.File(args.cuts / "index.h5") as h:
         names = sorted(h["events"])[: args.max_events]
     sample = load_tibet_cut(args.cuts / "cuts" / f"{names[0]}.h5")
-    configure_eop(
-        float(sample["ipp_time_us"][0]) / 1e6, args.output / "earth_orientation.h5"
-    )
-    atmosphere = build_profile(
-        TIBET_MST, float(sample["ipp_time_us"][0]) / 1e6, args.output / "atmosphere.h5"
-    )
+    if args.environment_from:
+        import shutil
+
+        with h5py.File(args.environment_from / "atmosphere.h5") as h:
+            when = dt.datetime.fromisoformat(h.attrs["utc"]).timestamp()
+            if (
+                abs(when - float(sample["ipp_time_us"][0]) / 1e6) > 3600
+                or h.attrs["latitude_deg"] != TIBET_MST.latitude_deg
+                or h.attrs["longitude_deg"] != TIBET_MST.longitude_deg
+            ):
+                raise ValueError(
+                    "cached atmosphere does not match the observation time/site"
+                )
+            atmosphere = (h["altitude_m"][()], h["density_kg_m3"][()])
+        for name in ["earth_orientation.h5", "atmosphere.h5"]:
+            shutil.copy2(args.environment_from / name, args.output / name)
+        load_eop(args.output / "earth_orientation.h5")
+    else:
+        configure_eop(
+            float(sample["ipp_time_us"][0]) / 1e6, args.output / "earth_orientation.h5"
+        )
+        atmosphere = build_profile(
+            TIBET_MST,
+            float(sample["ipp_time_us"][0]) / 1e6,
+            args.output / "atmosphere.h5",
+        )
     array = ArrayModel(args.geometry, C / sample["frequency"])
     with h5py.File(args.run / "phasecal_boresight_provisional.h5") as h:
         phase = h["phasecal_rad"][()][5:]

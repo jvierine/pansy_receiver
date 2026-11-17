@@ -3,6 +3,9 @@ use std::path::Path;
 
 fn main() -> Result<()> {
     let args = std::env::args().collect::<Vec<_>>();
+    if args.len() == 4 && args[1] == "mst" {
+        return meteor_analysis::plotting::mst_figure(Path::new(&args[2]), Path::new(&args[3]));
+    }
     if args.len() == 4 && args[1] == "radiants" {
         return meteor_analysis::plotting::radiant_figure(Path::new(&args[2]), Path::new(&args[3]));
     }

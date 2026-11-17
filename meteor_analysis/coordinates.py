@@ -24,6 +24,24 @@ iers.conf.auto_download = False
 iers.conf.iers_degraded_accuracy = "warn"
 
 
+def load_eop(path):
+    """Restore a saved observation-day table without network access."""
+    import h5py
+
+    table = QTable()
+    with h5py.File(path) as h:
+        for name, unit in [
+            ("MJD", u.day),
+            ("PM_x", u.arcsec),
+            ("PM_y", u.arcsec),
+            ("UT1_UTC", u.s),
+        ]:
+            table[name] = h[name][()] * unit
+    value = iers.IERS(table)
+    iers.earth_orientation_table.set(value)
+    return value
+
+
 def configure_eop(epoch, path=None):
     """Refresh Earth orientation explicitly, never as an import side effect."""
     payload = urllib.request.urlopen(

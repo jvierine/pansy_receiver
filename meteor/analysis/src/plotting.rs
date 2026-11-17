@@ -52,6 +52,100 @@ fn axes(rect: Rect, x: [f64; 2], y: [f64; 2], xl: &str, yl: &str) -> Panel {
     Panel::new(rect, a)
 }
 
+pub fn mst_figure(path: &Path, output: &Path) -> Result<()> {
+    let h = File::open(path)?;
+    let range = data(&h, "range_km")?;
+    let freq = data(&h, "doppler_hz")?;
+    let nr = range.len();
+    let nf = freq.len();
+    let edges = |x: &[f64]| {
+        let d = x[1] - x[0];
+        (0..=x.len())
+            .map(|i| x[0] + (i as f64 - 0.5) * d)
+            .collect::<Vec<_>>()
+    };
+    std::fs::create_dir_all(output)?;
+    for overview in [true, false] {
+        let rows = if overview { 2 } else { 5 };
+        let mut f =
+            ArticleLayout::new(179.324, 10.95)?.figure(1., if overview { 160. } else { 335. })?;
+        let scale = f.scale(Scale::new(
+            [-3., 20.],
+            Normalization::Linear,
+            ColorMap::sequential(),
+        )?);
+        for row in 0..rows {
+            let rect = Rect::new(27., 12. + row as f64 * 64., 125., 46.);
+            let (key, ch, label) = if overview {
+                if row == 0 {
+                    ("before_db", 2, "Zenith: before rejection")
+                } else {
+                    ("clean_db", 2, "Zenith: masked; coherent mean removed")
+                }
+            } else {
+                (
+                    "clean_db",
+                    row,
+                    [
+                        "South receive",
+                        "North receive",
+                        "Zenith receive",
+                        "East receive",
+                        "West receive",
+                    ][row],
+                )
+            };
+            let raw = data(&h, key)?;
+            let mut values = vec![0.; nr * nf];
+            for r in 0..nr {
+                for j in 0..nf {
+                    values[r * nf + j] = raw[(ch * nr + r) * nf + j];
+                }
+            }
+            let mut p = axes(
+                rect,
+                [-15., 15.],
+                [9., 80.],
+                "Doppler frequency (Hz)",
+                "Range (km)",
+            );
+            p.push(Layer::Pcolormesh(Field::new(
+                edges(&freq),
+                edges(&range),
+                values,
+                scale,
+            )?));
+            if !overview || row == 1 {
+                let mut band = Line::new(
+                    vec![[-0.5, 9.], [0.5, 9.], [0.5, 80.], [-0.5, 80.], [-0.5, 9.]],
+                    "#cccccc",
+                );
+                band.fill = Some("#cccccc".into());
+                band.fill_opacity = 1.;
+                band.width_pt = 0.;
+                p.push(Layer::Line(band));
+            }
+            p.labels
+                .push(Label::new(label, rect.x + rect.width / 2., rect.y - 4.));
+            f.panels.push(p);
+            f.colorbars.push(Colorbar::new(
+                Rect::new(155., rect.y, 2., rect.height),
+                scale,
+                "Power/noise (dB)",
+                vec![0., 10., 20.],
+            ));
+        }
+        let name = if overview {
+            "mst_zenith_comparison"
+        } else {
+            "mst_receive_beams"
+        };
+        f.save_for_article(output.join(format!("{name}.pdf")), &format!("{name}.pdf"))?;
+        f.save(output.join(format!("{name}.png")))?;
+    }
+    Ok(())
+}
+
 pub fn event_figure(path: &Path, output: &Path, atmosphere: &Path) -> Result<()> {
     let h = File::open(path)?;
     let event = path.file_stem().unwrap().to_string_lossy();
@@ -116,7 +210,7 @@ pub fn event_figure(path: &Path, output: &Path, atmosphere: &Path) -> Result<()>
         3.,
     ));
     let rects = [
-        Rect::new(29.5, 13., 48., 48.),
+        Rect::new(21.5, 13., 48., 48.),
         Rect::new(112., 13., 61., 48.),
         Rect::new(23., 84., 61., 48.),
         Rect::new(112., 84., 46., 48.),
@@ -150,9 +244,27 @@ pub fn event_figure(path: &Path, output: &Path, atmosphere: &Path) -> Result<()>
         "#aaaaaa",
         true,
     );
-    scatter(&mut p, &points(&x, &y), [0.35, 0.35, 0.35], 2.)?;
+    let snr = data(&h, "measurement/matched_filter_snr_db")?;
+    let snr_scale = Scale::new([0., 30.], Normalization::Linear, ColorMap::sequential())?;
+    p.scatter_colored(&points(&x, &y), &snr, &snr_scale, 2.8, 1., "#444444")?;
     line(&mut p, points(&px, &py), "#0072b2", false);
+    p.labels.push(Label::new(
+        format!(
+            "RMS $x={:.0}$ m, $y={:.0}$ m",
+            scalar(&h, "result/horizontal_x_rms_m")?,
+            scalar(&h, "result/horizontal_y_rms_m")?
+        ),
+        rects[0].x + rects[0].width / 2.,
+        rects[0].y - 4.,
+    ));
     f.panels.push(p);
+    let snr_scale_id = f.scale(snr_scale);
+    f.colorbars.push(Colorbar::new(
+        Rect::new(73., 13., 2., 48.),
+        snr_scale_id,
+        "SNR (dB)",
+        vec![0., 15., 30.],
+    ));
     let heights = observed_height
         .iter()
         .chain(&height)
@@ -172,6 +284,11 @@ pub fn event_figure(path: &Path, output: &Path, atmosphere: &Path) -> Result<()>
         2.,
     )?;
     line(&mut p, points(&t, &height), "#0072b2", false);
+    p.labels.push(Label::new(
+        format!("RMS {:.0} m", scalar(&h, "result/height_rms_m")?),
+        rects[1].x + rects[1].width / 2.,
+        rects[1].y - 4.,
+    ));
     f.panels.push(p);
     let pair_t = data(&h, "pulse_phase/time_s")?;
     let pair_v = data(&h, "pulse_phase/velocity_mps")?
@@ -245,6 +362,21 @@ pub fn event_figure(path: &Path, output: &Path, atmosphere: &Path) -> Result<()>
         )?;
     }
     line(&mut p, points(&t, &pred_v), "#0072b2", false);
+    let phase_rms = scalar(&h, "result/pulse_phase_velocity_rms_mps")?;
+    let phase_text = if phase_rms.is_finite() {
+        format!("{phase_rms:.0}")
+    } else {
+        "n/a".into()
+    };
+    p.labels.push(Label::new(
+        format!(
+            "RMS single {:.0}; phase {} m/s",
+            scalar(&h, "result/radial_velocity_rms_mps")?,
+            phase_text
+        ),
+        rects[2].x + rects[2].width / 2.,
+        rects[2].y - 4.,
+    ));
     f.panels.push(p);
     let te = data(&h, "plotting/time_edges_s")?;
     let re = data(&h, "plotting/range_edges_km")?;
@@ -273,6 +405,11 @@ pub fn event_figure(path: &Path, output: &Path, atmosphere: &Path) -> Result<()>
         .map(|p| p.iter().map(|v| v * v).sum::<f64>().sqrt() / 1000.)
         .collect::<Vec<_>>();
     line(&mut p, points(&t, &model_r), "#ffffff", false);
+    p.labels.push(Label::new(
+        format!("RMS {:.0} m", scalar(&h, "result/range_rms_m")?),
+        rects[3].x + rects[3].width / 2.,
+        rects[3].y - 4.,
+    ));
     f.panels.push(p);
     f.colorbars.push(Colorbar::new(
         Rect::new(160., 84., 2., 48.),
@@ -300,7 +437,11 @@ pub fn event_figure(path: &Path, output: &Path, atmosphere: &Path) -> Result<()>
         let best = cost.iter().copied().fold(f64::INFINITY, f64::min);
         line(
             &mut p,
-            points(&radius, &cost.iter().map(|v| v - best).collect::<Vec<_>>()),
+            // Keep off-panel profile values bounded before rasterization.
+            points(
+                &radius,
+                &cost.iter().map(|v| (v - best).min(24.)).collect::<Vec<_>>(),
+            ),
             color,
             false,
         );

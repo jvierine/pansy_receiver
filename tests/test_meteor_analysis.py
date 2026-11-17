@@ -146,6 +146,36 @@ def test_density_radius_scaling_is_an_exact_model_degeneracy():
     np.testing.assert_allclose(2 * first[:, 6], scaled[:, 6], rtol=1e-12)
 
 
+def test_event_phase_path_crosses_ambiguities_without_a_velocity_jump():
+    rng = np.random.default_rng(931)
+    n = 120
+    t = np.arange(n) * 0.00128
+    wavelength = 6.0
+    distance = 100000.0 - 47500 * t + 20000 * t**2 / 2 + 300000 * t**3 / 6
+    truth = -47500.0 + 20000 * t + 300000 * t**2 / 2
+    phase = -4 * np.pi * distance / wavelength
+    amplitude = 100 * np.exp(1j * phase)[:, None] * np.ones((n, 10))
+    m = dict(
+        time_s=t,
+        amplitude=amplitude,
+        noise_covariance=np.eye(10),
+        radial_velocity_mps=truth + rng.normal(0, 400, n),
+        range_velocity_covariance=np.broadcast_to(np.diag([10.0, 400.0**2]), (n, 2, 2)),
+    )
+    wrong_cv = np.column_stack([np.zeros(n), np.zeros(n), 100000.0 - 45000 * t])
+    array = lambda uv: np.ones((len(uv), 10), complex)
+    result = measure_pairs(
+        m, array, wrong_cv, np.zeros(10), np.arange(n), wavelength, np.eye(6) * 1e-8
+    )
+    i = result["previous"]
+    j = result["current"]
+    expected = (distance[j] - distance[i]) / (t[j] - t[i])
+    np.testing.assert_allclose(result["velocity_mps"], expected, atol=1e-7)
+    assert np.all(result["keep"])
+    assert np.max(abs(np.diff(result["velocity_mps"]))) < 200
+    assert np.max(abs(np.diff(result["independent_nearest_cv_velocity_mps"]))) > 2000
+
+
 def test_joint_profile_recovers_injected_shrinking_radius():
     from meteor_analysis.trajectory import EventFit
 

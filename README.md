@@ -39,6 +39,15 @@ phase-preserving native Rust DSP, shrinking-radius fits, geocentric conversion,
 Digital Metadata export, and Rustplotlib event/radiant plots. Its Tibet adapter
 is offline and keeps the unconfirmed array orientation and range branch explicit.
 
+### Tibet meteor processing
+
+The [standalone MATLAB/Octave detector](matlab/tibet/README.md) watches a raw-data
+folder and creates lossless ten-channel event cuts, including transmit history
+and pointing metadata. It runs without a Rust or Python installation.
+The [native Tibet chain](meteor/tibet/README.md) lives alongside the PANSY DSP
+on `main` and reuses its matched-filter library. It does not change the PANSY
+receiver, acquisition configuration, or production services.
+
 This repository contains experimental studies alongside the operational
 pipeline. The following files are the main entry points and shared modules.
 

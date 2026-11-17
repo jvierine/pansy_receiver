@@ -37,6 +37,39 @@ def main():
                 assert np.all(np.isfinite(m[key][()])), (path, key)
             covariance = m["range_velocity_covariance"][()]
             assert np.all(np.linalg.eigvalsh(covariance) > 0)
+            position = h["model/position_m"][()]
+            model_range = np.linalg.norm(position, axis=1)
+            keep = h["model/pulse_keep"][()].astype(bool)
+            rms = lambda x: np.sqrt(np.mean(x**2))
+            np.testing.assert_allclose(
+                r["range_rms_m"][()], rms((model_range - m["range_m"][()])[keep])
+            )
+            uv = h["original_conditional_uv"][()]
+            observed_xy = uv * m["range_m"][()][:, None]
+            for j, key in enumerate(["horizontal_x_rms_m", "horizontal_y_rms_m"]):
+                np.testing.assert_allclose(
+                    r[key][()], rms((observed_xy - position[:, :2])[keep, j])
+                )
+            np.testing.assert_allclose(
+                r["radial_velocity_rms_mps"][()],
+                rms(
+                    (h["model/radial_velocity_mps"][()] - m["radial_velocity_mps"][()])[
+                        keep
+                    ]
+                ),
+            )
+            pp = h["pulse_phase"]
+            selected = pp["keep"][()].astype(bool)
+            if np.any(selected):
+                previous, current = pp["previous"][()], pp["current"][()]
+                prediction = (model_range[current] - model_range[previous]) / (
+                    t[current] - t[previous]
+                )
+                np.testing.assert_allclose(
+                    r["pulse_phase_velocity_rms_mps"][()],
+                    rms((prediction - pp["velocity_mps"][()])[selected]),
+                )
+            assert np.all(np.isfinite(m["matched_filter_snr_db"][()]))
             radius = h["model/radius_m"][()]
             assert np.all(radius > 0) and np.all(np.diff(radius) <= 1e-14)
             assert np.isclose(radius[0], r["best_radius_m"][()])
