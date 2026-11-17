@@ -67,6 +67,8 @@ removed that bottleneck without changing the five-channel detector. The
 optimized five-worker test needed 24.1 seconds, including per-file plots and
 verified cuts, before the final shared overview refresh. All 16 events,
 1,063 points and 12,056,232 saved integer components still match the reference.
+A later five-file run of the frame-scan-compatible code took 36.7 seconds,
+including the final shared overview. Host load affects the available margin.
 This is faster than acquisition in a replay, not a sustained Windows site
 acceptance test. A longer replay repeated the five recordings four times:
 20 files, 157.3 seconds of recorded IPPs, processed in about one minute by
