@@ -18,6 +18,9 @@ windows = bsxfun(@plus, (0:31)', gates+1);
 empty = struct('pulse_index', {}, 'delay_samples', {}, 'doppler_bin', {}, ...
     'doppler_hz', {}, 'statistic_db', {}, 'amplitude', {}, 'noise', {}, 'beam', {});
 points = empty; tracks = {}; last = []; candidate_count = 0; veto_count = 0;
+overview=struct('pulse_index',uint64(0:16:min(h.pulses,options.MaxPulses)-1), ...
+    'range_km',(gates-7)*299792458/(2*h.fs*1000), ...
+    'peak_power_ratio',zeros(numel(gates),ceil(min(h.pulses,options.MaxPulses)/16),'single'));
 tic;
 for batch = 0:options.BatchPulses:min(h.pulses,options.MaxPulses)-1
     count = min([options.BatchPulses, h.pulses-batch, options.MaxPulses-batch]);
@@ -36,6 +39,7 @@ for batch = 0:options.BatchPulses:min(h.pulses,options.MaxPulses)-1
         segments = reshape(rx(windows(:),:),32,numel(gates),5);
         spectrum = fftshift(fft(bsxfun(@times,segments,conj(tx)),128,1),1);
         power = sum(sq(spectrum),3); reference = median(power(:));
+        if mod(pulse,16)==0, overview.peak_power_ratio(:,pulse/16+1)=max(power,[],1)'/reference; end
         indices = find(power/reference-1 >= single(10^(options.ThresholdDB/10)));
         [bin,row] = ind2sub(size(power),indices);
         rr = max(1,min(numel(gates),bsxfun(@plus,row(:),[-1 -1 -1 0 0 0 1 1 1])));
@@ -120,16 +124,34 @@ end
 partial=[output_dir '.partial'];
 assert(~exist(partial,'dir'),'Incomplete output exists; inspect it before retrying');
 mkdir(partial);
+event_files=cell(1,numel(events)); event_bytes=0; event_checksums=zeros(1,numel(events),'uint32');
 for j=1:numel(events)
     event=make_cut(fid,h,pointing,events{j},j-1);
-    tibet_save_event(fullfile(partial,sprintf('event_%05d',j-1)),event,options.Format);
+    path=tibet_save_event(fullfile(partial,sprintf('event_%05d',j-1)),event,options.Format);
+    tibet_verify_saved_event(path,event);
+    event_checksums(j)=tibet_file_checksum(path);
+    [~,base,extension]=fileparts(path); event_files{j}=[base extension];
+    item=dir(path); event_bytes=event_bytes+item.bytes;
 end
-result=struct('schema','tibet_matlab_detector_v1','source_path',raw_path, ...
+result=struct('schema','tibet_matlab_detector_v2','source_path',raw_path, ...
     'source_bytes',info.bytes,'source_datenum',info.datenum,'header',header, ...
     'candidate_count',candidate_count,'code_alias_veto_count',veto_count, ...
     'event_count',numel(events),'events',{events},'threshold_db',options.ThresholdDB, ...
     'processed_pulses',min(h.pulses,options.MaxPulses),'processing_seconds',toc, ...
+    'sample_rate_hz',h.fs,'ipp_us',h.ipp_us,'filename_epoch_us',h.epoch_us, ...
+    'overview',overview,'overview_written',false,'event_files',{event_files}, ...
+    'event_bytes',event_bytes,'event_checksums',event_checksums,'cut_storage_verified',true, ...
     'complete',min(h.pulses,options.MaxPulses)==h.pulses);
+if options.MakeOverview
+    try
+        tibet_plot_overview({result},fullfile(partial,'overview'));
+        result.overview_written=true;
+    catch problem
+        result.overview_plot_error=problem.message;
+        warning('Cuts saved; overview failed: %s',problem.message);
+    end
+end
+result.processing_seconds=toc;
 save_mat(fullfile(partial,'catalogue.mat'),'result',result);
 [ok,message]=movefile(partial,output_dir); assert(ok,message);
 fprintf('%s: %d events, %d points, %.1f s\n',raw_path,numel(events), ...
@@ -137,8 +159,8 @@ fprintf('%s: %d events, %d points, %.1f s\n',raw_path,numel(events), ...
 end
 
 function o=defaults(o)
-names={'BatchPulses','MaxPulses','ThresholdDB','Verbose','Format','PointingFile'};
-values={16,Inf,12,true,'auto',''};
+names={'BatchPulses','MaxPulses','ThresholdDB','Verbose','Format','PointingFile','MakeOverview'};
+values={16,Inf,12,true,'auto','',true};
 for j=1:numel(names), if ~isfield(o,names{j}), o.(names{j})=values{j}; end, end
 end
 

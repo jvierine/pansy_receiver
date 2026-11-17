@@ -8,6 +8,14 @@ from this folder. Windows paths are supported. Completed, unchanged files are
 skipped after restarting. Files must be stable before processing. Failed or
 partial outputs are preserved and never marked complete.
 
+See [Instructions for Yufang Tian](OPERATIONS.md) for Windows deployment,
+parallel workers, live-throughput checks, and opt-in verified raw-file cleanup.
+New outputs are grouped by UTC `YYYY-MM-DD`, then by source-file identifier.
+Each source has a two-panel overview; worker 1 maintains a rolling day overview.
+The five-file example averages about 5.1 MiB retained per 900 MiB input,
+including cuts, metadata and plots. The current development setup has **not**
+demonstrated sustained real-time throughput.
+
 The detector searches all five full-array receivers with measured-code
 range-Doppler matched filters. Cuts contain only S0-S2 and L0-L6, a common
 sampled transmitter reference, two earlier references for ambiguity tests,

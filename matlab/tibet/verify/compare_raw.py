@@ -31,6 +31,10 @@ def compare(actual, reference, original_cuts, output):
             source_index = int(source_id)
             stem = Path(bytes(source["source_path"][()]).decode()).stem
             directory = actual / stem
+            if not directory.exists():
+                matches = list(actual.glob("????-??-??/" + stem))
+                assert len(matches) == 1, (stem, "missing or ambiguous UTC-day output")
+                directory = matches[0]
             result = loadmat(directory / "catalogue.mat", simplify_cells=True)["result"]
             assert result["complete"] and result["processed_pulses"] == int(
                 source["processed_pulses"][()]
