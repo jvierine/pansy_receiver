@@ -133,6 +133,7 @@ def count_day(day, paths, workers):
 
 def plot_counts(daily_counts, output_path):
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    export_history(daily_counts, output_path.with_suffix('.json'))
 
     dates = [dt.date.fromisoformat(day) for day in sorted(daily_counts)]
     counts = [daily_counts[day.isoformat()] for day in dates]
@@ -157,11 +158,22 @@ def plot_counts(daily_counts, output_path):
     plt.close(fig)
 
 
+def export_history(daily_counts, output_path):
+    """Small display transport from the existing count cache; no archive rescan."""
+    rows = [[day, int(count)] for day, count in sorted(daily_counts.items())]
+    packet = dict(schema='pansy_detection_history_v1',
+                  generated_utc=dt.datetime.now(dt.timezone.utc).isoformat(),
+                  total_detections=sum(count for _, count in rows), daily_counts=rows)
+    temporary = output_path.with_suffix('.json.partial')
+    temporary.write_text(json.dumps(packet, separators=(',', ':'), allow_nan=False))
+    temporary.replace(output_path)
+
+
 def deploy_plot(output_path, web_host, web_root):
     if not output_path.exists() or not web_host or not web_root:
         return
     subprocess.run(
-        ["rsync", "-az", str(output_path), f"{web_host}:{web_root}/"],
+        ["rsync", "-az", "--bwlimit=10", str(output_path), str(output_path.with_suffix('.json')), f"{web_host}:{web_root}/"],
         check=False,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
