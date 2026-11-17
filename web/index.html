@@ -3,10 +3,10 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PANSY Receiver Monitor</title>
 <link rel="icon" href="favicon.svg"><link rel="stylesheet" href="assets/monitor.8c8a570b9c27eef6.css">
-<link rel="modulepreload" href="assets/monitor.042e01a1f824f62e.js">
+<link rel="modulepreload" href="assets/monitor.b95c66ebfc6f3d6a.js">
 <link rel="modulepreload" href="pkg/releases/7caedeeb810f57e4/rustplotlib_web.js">
 <link rel="preload" href="pkg/releases/7caedeeb810f57e4/rustplotlib_web_bg.wasm" as="fetch" type="application/wasm" crossorigin>
-<script type="module" src="assets/monitor.042e01a1f824f62e.js"></script>
+<script type="module" src="assets/monitor.b95c66ebfc6f3d6a.js"></script>
 </head><body>
 <header><div><h1>PANSY Receiver Monitor</h1><p>Syowa, Antarctica · <span id="utc">UTC</span></p></div>
 <nav><a href="/rvd/">PMSE Explorer ↗</a><a href="#operations">Operations</a><button id="refresh" type="button">Refresh</button></nav>
@@ -20,6 +20,7 @@
 <section class="card"><h2>Processing latency</h2><div id="processing" class="plot"></div><p class="caption">Stage lag at source report time: green below 12 hours, red at 12 hours or more. Event-driven stages can age during quiet periods. Receiver faults, disk pressure and stale reports are checked separately in the health summary.</p></section>
 <section class="card"><h2>Latest 24 hours · fitted radiants</h2><div id="radiant" class="plot"></div><p class="caption">Hammer equal-area map · logarithmic count density · apex (270°) at center.</p></section>
 <section class="card"><h2>Latest 24 hours · fitted meteor counts</h2><div id="counts" class="plot"></div></section>
+<section class="card full"><h2>Full dataset · meteor detections</h2><p id="historyStatus" class="caption">Loading full-dataset count history…</p><div id="detectionHistory" class="plot"></div><p class="caption">Daily meteor head-echo detections across the archived dataset. The latest day may be incomplete; unreported days remain gaps.</p></section>
 <section class="card full"><div class="heading"><h2>Latest fitted meteor · event diagnostics</h2><span id="meteorStatus" class="caption"></span></div>
 <div id="meteor" class="event-grid">
 <div id="meteorEast" class="plot"></div><div id="meteorNorth" class="plot"></div><div id="meteorUp" class="plot"></div>

@@ -1,6 +1,6 @@
 import {InteractiveSeriesPlot,PlotControlGroup} from './lib/interactive_series.js?v=mobile-1';
 import {monitorHealth} from './health.mjs';
-import {zenithTemperature,fitCharts,phaseChart,rawChart,meteorCharts,rtiChart,latencyChart} from './monitor_data.mjs?v=restore-2';
+import {zenithTemperature,fitCharts,phaseChart,rawChart,meteorCharts,rtiChart,latencyChart,detectionHistory} from './monitor_data.mjs?v=restore-2';
 const $=id=>document.getElementById(id),plots=new Map(),pending=new Map();
 let telemetry,operations,rti,chosenDay='',manifest,followLive=true;
 const cardControls=new Map();
@@ -110,6 +110,13 @@ async function refreshOperations(){
   table(mirror,['Mirror metadata channel','Latest UTC day','Transfer exit/state'],rows(backup.local_mirror?.channels));
  }catch(error){message('backupStatus',`Backup report unavailable: ${error.message}`);}
 }
+async function refreshHistory(){
+ try{
+  const packet=await json('./detections_daily.json'),history=detectionHistory(packet);
+  await draw('detectionHistory',history.spec);
+  message('historyStatus',`${history.total.toLocaleString('en-US')} total meteor detections · ${history.first}–${history.last} UTC · ${history.days} reported days · updated ${packet.generated_utc.replace('T',' ').replace(/\.\d+\+00:00$/,' UTC')}`);
+ }catch(error){message('historyStatus',`Historical counts refresh delayed: ${error.message}. Last successful plot is retained.`);}
+}
 for(let ch=0;ch<8;ch++){const root=document.createElement('div');root.id=`raw-${ch}`;root.className='plot';$('rawVoltage').append(root);}
 let lastHealth='';
 function renderHealth(){
@@ -135,7 +142,7 @@ function clock(){message('utc',utc(Date.now()/1000));freshness();renderHealth();
 // Failures in one feed must not prevent the remaining independent panels.
 let refreshing=false;
 async function refresh(){if(refreshing)return;refreshing=true;$('refresh').disabled=true;
- try{await Promise.allSettled([refreshRTI(),refreshNoise(),refreshTelemetry(),refreshOperations()]);}
+ try{await Promise.allSettled([refreshRTI(),refreshNoise(),refreshTelemetry(),refreshOperations(),refreshHistory()]);}
  finally{refreshing=false;$('refresh').disabled=false;if(!document.body.dataset.initialReadyMs)document.body.dataset.initialReadyMs=String(Math.round(performance.now()));}}
 $('refresh').onclick=()=>void refresh();
 void refresh();setInterval(()=>void refresh(),300_000);

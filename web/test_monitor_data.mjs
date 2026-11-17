@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
-import {zenithTemperature,rtiData,fitCharts,phaseChart,rawChart,latencyChart,meteorCharts} from './monitor_data.mjs';
+import {zenithTemperature,rtiData,fitCharts,phaseChart,rawChart,latencyChart,meteorCharts,detectionHistory} from './monitor_data.mjs';
+const history=detectionHistory({total_detections:12,daily_counts:[['2025-01-26',5],['2025-01-27',0],['2025-01-29',7]]});
+assert.equal(history.total,12);assert.equal(history.first,'2025-01-26');assert.equal(history.last,'2025-01-29');
+assert(history.spec.series[0].points.some(p=>p[1]===null),'Unreported dates stay gaps');
+assert(history.spec.series[0].points.some(p=>p[1]===0),'An observed zero remains zero');
+assert.throws(()=>detectionHistory({total_detections:13,daily_counts:[['2025-01-26',12]]}),/total/);
 const model={noise_model_origin_unix_s:0,noise_model_observation_stop_unix_s:172800,
  noise_zenith_model_status:Array.from({length:7},(_,ch)=>({power_per_kelvin:ch+1,receiver_temp_k:300+ch})),
  noise_model_data:{times_h:[0,24,36,48],sky_temperature_k:[[500,9999],[600,9999],[700,9999],[null,9999]],noise_power:Array.from({length:4},()=>Array.from({length:5},(_,b)=>Array.from({length:7},(_,ch)=>b?1e9:1000*(ch+1))))}};

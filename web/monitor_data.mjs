@@ -41,6 +41,24 @@ export function fitCharts(packet){
   sky:{lonlat:fits.filter(r=>Number.isFinite(r[3])&&Number.isFinite(r[4])).map(r=>[r[3],r[4]]),nside:32,central_longitude:270,west_positive:true,paper_style:true}};
  return {counts,speed,radiant};
 }
+export function detectionHistory(packet){
+ const rows=packet.daily_counts;
+ if(!Array.isArray(rows)||!rows.length)throw Error('No historical detection counts available');
+ let previous=-Infinity,total=0;
+ const origin=Date.parse(rows[0][0]+'T00:00:00Z')/1000;
+ const points=[];
+ for(const [day,count] of rows){
+  const epoch=Date.parse(day+'T00:00:00Z')/1000;
+  if(!Number.isFinite(epoch)||epoch<=previous||!Number.isSafeInteger(count)||count<0)throw Error('Invalid historical detection counts');
+  // Do not join unreported days with a line or turn them into measured zeros.
+  if(epoch-previous>86400)points.push([(epoch-origin)/3600,null]);
+  points.push([(epoch-origin)/3600+12,count]);previous=epoch;total+=count;
+ }
+ if(total!==packet.total_detections)throw Error('Historical total does not match daily counts');
+ const spec=chart([{color:'#0f766e',line:true,radius:1.4,points}], 'Date (UTC)','Meteor detections per day',{origin});
+ spec.bounds[1]=0;
+ return {spec,total,first:rows[0][0],last:rows.at(-1)[0],days:rows.length};
+}
 export function phaseChart(packet){
  const rows=packet.phase||[],origin=packet.generated_unix_s-86400;
  const spec=chart(Array.from({length:8},(_,ch)=>({name:ch===7?'TX ref':`RX ${ch}`,color:colors[ch],line:true,radius:2.2,line_width:2.2,
