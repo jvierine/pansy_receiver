@@ -35,8 +35,16 @@ quantization or loss from clipping. In MATLAB the echo dimensions are
 `[I/Q, range sample, receiver, pulse]`.
 
 The input is the validated 500 kHz, 1280 us IPP, 64 us complementary-code mode.
-Other modes are rejected. A nontrivial multi-beam mode requires a MAT file
-containing a `pointing` structure with one value per source pulse: `alpha`,
+Five-direction scanning between raw-file frames is automatic: the documented
+frame header contains transmit alpha/beta codes, beam-cycle length and current
+beam ID. It does not imply direction changes within a frame. Each cut retains
+this information, and tracks are not joined across different directions.
+The common transmit reference is selected from the strongest sampled leakage
+in the first 16 pulses and recorded explicitly; the original files select
+zero-based receiver 2. Other waveform modes are rejected.
+
+Only switching *within* a raw-file frame requires a MAT file containing a
+`pointing` structure with one value per source pulse: `alpha`,
 `beta`, `beam_id`, `zenith_deg`, and `azimuth_deg`. Set `PointingFolder` to its
 folder; each schedule is named `<raw filename stem>_pointing.mat`. Unknown
 directions are not guessed. The included geometry retains all 931 positions;

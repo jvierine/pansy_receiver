@@ -188,8 +188,10 @@ For an externally documented within-file sequence, use
 degrees clockwise from geographic north), and `tx_zenith_angle_deg` (float64).
 Azimuth may be NaN for zenith. Schedule pulse zero is the first source record.
 Nonzero physical pointings are not guessed from an unconfirmed phase-code sign.
-An indicated multi-frame header requires this schedule. Header-only pointings
-are explicitly marked as lacking within-file telemetry; RX metadata remains
+The documented multi-frame cycle uses each frame header's current beam ID and
+TX steering codes automatically; it does not imply within-file switching.
+Only an actual within-file sequence needs the external schedule. Header-only
+pointings are explicitly marked as lacking within-file telemetry; RX metadata remains
 per-file and an undocumented within-file RX change cannot be recovered.
 
 Every saved detection is replayed from the cut at its original delay/Doppler.

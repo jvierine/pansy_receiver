@@ -3,8 +3,8 @@ function stats=tibet_watch(input_folder,output_folder,config)
 if nargin<3, config=struct(); end
 names={'RunOnce','PollSeconds','StableSeconds','Format','PointingFolder', ...
     'MakeOverview','DeleteRawAfterSuccess','WorkerCount','WorkerIndex', ...
-    'OverviewRefreshSeconds','OverviewMaxFiles','ThreadsPerWorker','DetectionMode'};
-values={false,10,20,'auto','',true,false,1,1,60,120,1,'all'};
+    'OverviewRefreshSeconds','OverviewMaxFiles','ThreadsPerWorker','DetectionMode','TxReferenceChannel'};
+values={false,10,20,'auto','',true,false,1,1,60,120,1,'all',[]};
 for j=1:numel(names), if ~isfield(config,names{j}),config.(names{j})=values{j};end,end
 assert(config.WorkerCount>=1 && config.WorkerCount==fix(config.WorkerCount),'Invalid WorkerCount');
 assert(any(strcmp(config.DetectionMode,{'all','transmit'})),'Invalid DetectionMode');
@@ -75,7 +75,7 @@ while true
         if ~ok || ~isempty(message), continue; end
         release=onCleanup(@()release_claim(claim));
         options=struct('Format',config.Format,'MakeOverview',config.MakeOverview, ...
-            'DetectionMode',config.DetectionMode);
+            'DetectionMode',config.DetectionMode,'TxReferenceChannel',config.TxReferenceChannel);
         if ~isempty(config.PointingFolder)
             options.PointingFile=fullfile(config.PointingFolder,[stem '_pointing.mat']);
         end

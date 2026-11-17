@@ -10,19 +10,26 @@ header = fread(fid, 8192, '*uint8');
 h = parse_header(header, raw_path);
 info = dir(raw_path);
 assert(info.bytes >= 8192+h.pulses*h.record_bytes, 'Incomplete declared records');
-assert(h.beam_total <= 1 || ~isempty(options.PointingFile), ...
-    'Multi-beam mode requires a per-pulse PointingFile; direction must not be guessed');
 pointing = load_pointing(h, options.PointingFile);
 assert(any(strcmp(options.DetectionMode,{'all','transmit'})),'Invalid DetectionMode');
 detection_channel=zeros(h.pulses,1);
 if strcmp(options.DetectionMode,'transmit')
     for channel=1:5
-        match=pointing.alpha==h.rx_alpha(channel) & pointing.beta==h.rx_beta(channel);
+        % TX and DBF steering values can differ by one quantization count.
+        da=abs(mod(pointing.alpha-h.rx_alpha(channel)+32768,65536)-32768);
+        db=abs(mod(pointing.beta-h.rx_beta(channel)+32768,65536)-32768);
+        match=da<=1 & db<=1;
         assert(~any(detection_channel(match)),'Ambiguous transmit-matched receiver');
         detection_channel(match)=channel;
     end
     assert(all(detection_channel>0),'No full-array receiver matches transmit steering');
 end
+probe=read_records(fid,h,0,min(16,h.pulses));
+energy=sum(sum(single(probe(:,1:5,8:39,:)).^2,1),3);
+[~,h.tx_channel]=max(sum(reshape(energy,5,[]),2));
+if ~isempty(options.TxReferenceChannel), h.tx_channel=options.TxReferenceChannel; end
+assert(isscalar(h.tx_channel) && h.tx_channel>=1 && h.tx_channel<=5 && ...
+    h.tx_channel==fix(h.tx_channel),'Invalid TxReferenceChannel');
 gates = 241:608;
 windows = bsxfun(@plus, (0:31)', gates+1);
 empty = struct('pulse_index', {}, 'delay_samples', {}, 'doppler_bin', {}, ...
@@ -42,8 +49,8 @@ for batch = 0:options.BatchPulses:min(h.pulses,options.MaxPulses)-1
         z = complex(single(re),single(im));
         noise_power = order_statistic(sq(z(251:640,:)),196);
         noise = max(noise_power/single(log(2)), single(1));
-        tx = z(8:39,3); energy = sum(sq(tx));
-        assert(energy > 3*32*noise(3), 'Weak transmit reference at pulse %d', pulse);
+        tx = z(8:39,h.tx_channel); energy = sum(sq(tx));
+        assert(energy > 3*32*noise(h.tx_channel), 'Weak transmit reference at pulse %d', pulse);
         tx = tx/sqrt(energy);
         channels=1:5;
         if detection_channel(pulse+1)>0, channels=detection_channel(pulse+1); end
@@ -149,6 +156,8 @@ for j=1:numel(events)
 end
 result=struct('schema','tibet_matlab_detector_v2','source_path',raw_path, ...
     'detection_mode',options.DetectionMode,'detection_channel',detection_channel, ...
+    'tx_reference_source_channel',uint16(h.tx_channel-1), ...
+    'pointing_source',pointing.source,'beam_cycle_count',h.beam_total,'frame_beam_id',h.frame, ...
     'source_bytes',info.bytes,'source_datenum',info.datenum,'header',header, ...
     'candidate_count',candidate_count,'code_alias_veto_count',veto_count, ...
     'event_count',numel(events),'events',{events},'threshold_db',options.ThresholdDB, ...
@@ -174,8 +183,8 @@ fprintf('%s: %d events, %d points, %.1f s\n',raw_path,numel(events), ...
 end
 
 function o=defaults(o)
-names={'BatchPulses','MaxPulses','ThresholdDB','Verbose','Format','PointingFile','MakeOverview','DetectionMode'};
-values={16,Inf,[],true,'auto','',true,'all'};
+names={'BatchPulses','MaxPulses','ThresholdDB','Verbose','Format','PointingFile','MakeOverview','DetectionMode','TxReferenceChannel'};
+values={16,Inf,[],true,'auto','',true,'all',[]};
 for j=1:numel(names), if ~isfield(o,names{j}), o.(names{j})=values{j}; end, end
 if isempty(o.ThresholdDB)
     o.ThresholdDB=12;
@@ -195,6 +204,7 @@ h=struct('header',b,'path',path,'pulses',word(b,80,'uint32'), ...
     'alpha',word(b,256,'uint16'),'beta',word(b,258,'uint16'));
 h.rx_alpha=arrayfun(@(offset) word(b,offset,'uint16'),428:2:436);
 h.rx_beta=arrayfun(@(offset) word(b,offset,'uint16'),468:2:476);
+assert(h.beam_total<=1 || h.frame<h.beam_total,'Invalid frame beam index');
 h.fs=8e6/2^double(b(95)); h.wavelength=299792458/h.frequency;
 assert(h.fs==500000 && h.gates==640 && h.channels==15 && h.ipp_us==1280 && ...
     h.pulses>0 && abs(h.frequency-50e6)<1000 && word(b,730,'uint16')==4 && ...
@@ -253,8 +263,10 @@ yes=observed>0 && residual/observed<0.35;
 end
 
 function p=load_pointing(h,file)
+beam_id=0;
+if h.beam_total>1, beam_id=h.frame; end
 p=struct('alpha',repmat(h.alpha,h.pulses,1),'beta',repmat(h.beta,h.pulses,1), ...
-    'beam_id',zeros(h.pulses,1,'int32'),'zenith_deg',NaN(h.pulses,1), ...
+    'beam_id',repmat(int32(beam_id),h.pulses,1),'zenith_deg',NaN(h.pulses,1), ...
     'azimuth_deg',NaN(h.pulses,1));
 if h.alpha==0 && h.beta==0, p.zenith_deg(:)=0; end
 if ~isempty(file)
@@ -267,6 +279,8 @@ if ~isempty(file)
     assert(all(isfinite(p.zenith_deg) & p.zenith_deg>=0 & p.zenith_deg<=90),'Invalid zenith angles');
     assert(all(p.zenith_deg==0 | (isfinite(p.azimuth_deg) & p.azimuth_deg>=0 & p.azimuth_deg<360)),'Invalid azimuth');
 end
+p.source='Frame header: one transmit pointing per raw-file frame';
+if ~isempty(file), p.source='Explicit per-pulse pointing schedule'; end
 end
 
 function event=make_cut(fid,h,pointing,p,id)
@@ -284,7 +298,7 @@ for i=1:n
     pulse=first+i-1;
     for order=0:2
         from=pulse-order; if from<0, continue; end
-        history(:,:,order+1,i)=reshape(prior(:,3,8:39,from-origin+1),2,32);
+        history(:,:,order+1,i)=reshape(prior(:,h.tx_channel,8:39,from-origin+1),2,32);
         valid(order+1,i)=1; tx_alpha(order+1,i)=pointing.alpha(from+1);
         tx_beta(order+1,i)=pointing.beta(from+1); beam(order+1,i)=pointing.beam_id(from+1);
         zenith(order+1,i)=pointing.zenith_deg(from+1); azimuth(order+1,i)=pointing.azimuth_deg(from+1);
@@ -296,7 +310,10 @@ end
 [tx_compact,tx_index,tx_words]=tibet_pack_iq(history);
 event=struct('schema','tibet_matlab_cut_v1','event_id',sprintf('event_%05d',id), ...
     'source_path',h.path,'raw_header',h.header,'source_channel_indices',uint16(5:14), ...
-    'channel_names','S0 S1 S2 L0 L1 L2 L3 L4 L5 L6','tx_reference_source_channel',uint16(2), ...
+    'channel_names','S0 S1 S2 L0 L1 L2 L3 L4 L5 L6', ...
+    'tx_reference_source_channel',uint16(h.tx_channel-1), ...
+    'pointing_source',pointing.source,'beam_cycle_count',uint16(h.beam_total), ...
+    'frame_beam_id',uint16(h.frame), ...
     'sample_rate_hz',uint32(h.fs),'frequency_hz',h.frequency,'ipp_us',uint32(h.ipp_us), ...
     'range_start_gate',uint32(lo),'tx_start_gate',uint32(7),'txlen',uint32(32), ...
     'samples_per_baud',uint32(4),'baud_count',uint32(8),'code_duration_us',64, ...

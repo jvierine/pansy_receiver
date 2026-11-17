@@ -172,12 +172,14 @@ pub fn run(run: &Path, output: &Path, schedule_path: Option<&Path>) -> Result<()
             .transpose()?;
         let (beam_total, current_frame) = pointing_header_fields(&h.raw);
         ensure!(
-            beam_total <= 1 || per_pulse.is_some(),
-            "multi-frame pointing requires an explicit per-pulse schedule"
+            beam_total <= 1 || current_frame < beam_total,
+            "invalid frame pointing index"
         );
         let alphas = schedule_field(&per_pulse, "tx_alpha_code", h.pulses, h.tx_alpha)?;
         let betas = schedule_field(&per_pulse, "tx_beta_code", h.pulses, h.tx_beta)?;
-        let beam_ids = schedule_field(&per_pulse, "tx_beam_id", h.pulses, 0i32)?;
+        // IQ.docx defines BeamTotal as a cycle of frames, not alternating IPPs.
+        let frame_beam_id = if beam_total > 1 { current_frame as i32 } else { 0 };
+        let beam_ids = schedule_field(&per_pulse, "tx_beam_id", h.pulses, frame_beam_id)?;
         let zenith_default = if h.tx_alpha == 0 && h.tx_beta == 0 {
             0.
         } else {

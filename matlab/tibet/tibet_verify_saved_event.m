@@ -8,6 +8,7 @@ fields={'zrx_echoes_iq_i16','zrx_echoes_overflow_index','zrx_echoes_overflow_wor
     'pulse_index','record_counter','ipp_start_time_us','raw_header','source_channel_indices', ...
     'sample_rate_hz','frequency_hz','range_start_gate','tx_start_gate','tx_history_valid', ...
     'tx_history_decoded_baud_sign','tx_alpha_per_pulse','tx_beta_per_pulse','tx_beam_id'};
+fields=[fields {'tx_reference_source_channel','beam_cycle_count','frame_beam_id'}];
 for j=1:numel(fields)
     key=fields{j}; expected=event.(key);
     if is_mat, actual=stored.(key);

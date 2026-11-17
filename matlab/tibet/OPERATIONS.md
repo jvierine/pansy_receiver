@@ -102,8 +102,8 @@ Do not run other analysis in a dedicated worker session.
 steering codes match that pulse's transmit steering. For the present zenith
 files this is MATLAB channel 3 (zero-based channel 2). An absent or ambiguous
 match is an error, not a guess. Cuts still retain all ten interferometer
-channels and the sampled transmit reference. A changing transmit schedule
-still requires the validated per-pulse pointing file described below.
+channels and the sampled transmit reference. Frame-by-frame scanning is read
+from each header; only within-frame switching needs a per-pulse pointing file.
 
 The default five-channel mode remains the reference detector. The one-channel
 mode changes the detection statistic and uses a 20 dB peak/median-minus-one
@@ -163,10 +163,17 @@ this code does not implement a cross-platform durable-storage transaction.
   graphics backend and regenerate the plots, rather than deleting the raw file
   manually. Daily plots can be rebuilt with
   `tibet_refresh_overviews(OutputFolder)`.
-- A five-transmit-beam mode needs an explicit per-pulse pointing schedule if
-  the file does not encode it unambiguously. Set `PointingFolder`; files are
+- A five-direction cycle of raw-file frames works automatically with the same
+  coded pulse and IPP. `BeamTotal` is the number of frames in the cycle;
+  `CurFrameNum` and transmit alpha/beta describe the current frame. No external
+  schedule is needed for ordinary frame-by-frame scanning. Every cut records
+  the frame beam ID, cycle count, steering codes and selected common sampled
+  transmit reference. No geographic azimuth is guessed from unconfirmed axes.
+- Only direction switching *within* one raw-file frame needs an explicit
+  per-pulse schedule. Set `PointingFolder`; files are
   named `<raw stem>_pointing.mat` and contain the `pointing` fields described in
   the README. Unknown pointing and unvalidated waveform modes fail closed.
+  The raw pulse records do not themselves contain a per-pulse direction code.
 
 ## What Octave Does
 
