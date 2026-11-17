@@ -1,7 +1,7 @@
-// ../rustplotlib-monitor-mobile.QBv0hs/web/src/interactive_series.ts
-import init, { SeriesView, PlotViewport } from "../pkg/releases/7caedeeb810f57e4/rustplotlib_web.js";
+// ../rustplotlib-count-dates/web/src/interactive_series.ts
+import init, { SeriesView, PlotViewport } from "../pkg/releases/0331671d4a8ba9a1/rustplotlib_web.js";
 
-// ../rustplotlib-monitor-mobile.QBv0hs/web/src/plot_controls.ts
+// ../rustplotlib-count-dates/web/src/plot_controls.ts
 var PlotControlGroup = class {
   element = document.createElement("div");
   members = /* @__PURE__ */ new Set();
@@ -123,7 +123,7 @@ function bindPlotNavigation(options) {
   };
 }
 
-// ../rustplotlib-monitor-mobile.QBv0hs/web/src/interactive_series.ts
+// ../rustplotlib-count-dates/web/src/interactive_series.ts
 var ready;
 var fontReady;
 function loadPlotFont() {

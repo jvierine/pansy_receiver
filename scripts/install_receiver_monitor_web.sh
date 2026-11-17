@@ -28,7 +28,7 @@ for file in monitor.js monitor_data.mjs health.mjs monitor.css pansy-title.svg u
   install -m 0644 "$repo_dir/web/$file" "$web_dir/$file.partial"
   mv "$web_dir/$file.partial" "$web_dir/$file"
 done
-runtime_release=7caedeeb810f57e4
+runtime_release=0331671d4a8ba9a1
 mkdir -p "$web_dir/lib" "$web_dir/pkg/releases/$runtime_release"
 if ! cmp -s "$repo_dir/web/lib/interactive_series.js" "$web_dir/lib/interactive_series.js"; then
   install -m 0644 "$repo_dir/web/lib/interactive_series.js" "$web_dir/lib/interactive_series.js.partial"

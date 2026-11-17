@@ -1,11 +1,11 @@
 # Browser plotting runtime
 
-Generated from `jvierine/rustplotlib` commit `198a030` on branch
-`codex/monitor-mobile-controls`, including compact native axes, shared
+Generated from `jvierine/rustplotlib` commit `1f308be` on branch
+`codex/monitor-count-dates`, including compact native axes, shared
 scroll-safe navigation, explicit Pagella font loading, Hammer/HEALPix density,
 categorical bars and rectilinear fields. Plot toolbars remain visible; grouped
 controls share mode/reset actions without imposing gestures on the page.
-Runtime release `7caedeeb810f57e4` is the SHA-256 prefix of the concatenated
+Runtime release `0331671d4a8ba9a1` is the SHA-256 prefix of the concatenated
 generated JavaScript and WASM. Only content-addressed releases use immutable
 HTTP caching; HTML, wrappers and telemetry are revalidated.
 
