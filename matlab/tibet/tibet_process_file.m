@@ -174,13 +174,16 @@ h=struct('header',b,'path',path,'pulses',word(b,80,'uint32'), ...
     'alpha',word(b,256,'uint16'),'beta',word(b,258,'uint16'));
 h.fs=8e6/2^double(b(95)); h.wavelength=299792458/h.frequency;
 assert(h.fs==500000 && h.gates==640 && h.channels==15 && h.ipp_us==1280 && ...
+    h.pulses>0 && abs(h.frequency-50e6)<1000 && word(b,730,'uint16')==4 && ...
     word(b,88,'uint16')==3 && word(b,90,'uint32')==80 && word(b,236,'uint32')==0, ...
     'Unvalidated radar mode: do not silently apply this detector');
 assert(isequal(double(typecast(b(549:578),'uint16'))', ...
     [15 15 15 15 15 23 24 25 26 27 28 29 30 31 32]),'Changed channel mapping');
 h.record_bytes=640*15*8+16;
 [~,name]=fileparts(path); assert(numel(name)>=14,'Missing filename date');
-h.epoch_us=uint64(round((datenum(name(1:14),'yyyymmddHHMMSS')-datenum(1970,1,1))*86400-8*3600))*uint64(1000000);
+date=datenum(name(1:14),'yyyymmddHHMMSS');
+assert(strcmp(datestr(date,'yyyymmddHHMMSS'),name(1:14)),'Invalid filename calendar');
+h.epoch_us=uint64(round((date-datenum(1970,1,1))*86400-8*3600))*uint64(1000000);
 end
 
 function value=word(b,offset,type)

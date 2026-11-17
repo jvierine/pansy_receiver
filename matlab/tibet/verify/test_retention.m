@@ -36,5 +36,13 @@ input=fullfile(root,'damaged_input'); mkdir(input); output=fullfile(root,'damage
 raw=fullfile(input,'20261114060000_damaged.raw'); copyfile(fixture,raw);
 fid=fopen(raw,'r+b','ieee-le'); fseek(fid,8192,'bof'); fwrite(fid,uint32(0),'uint32'); fclose(fid);
 s=tibet_watch(input,output,cfg); assert(s.deleted_raw==0 && s.failed==1 && exist(raw,'file')==2);
-fprintf('PASS retention: verified deletion, changed-cut refusal, zero-event cleanup, overview repair, damaged-input retention, UTC dates\n');
+for offset=[80 84]
+    input=fullfile(root,sprintf('bad_header_%d_input',offset)); mkdir(input);
+    output=fullfile(root,sprintf('bad_header_%d_output',offset));
+    raw=fullfile(input,'20261114060000_badheader.raw'); copyfile(fixture,raw);
+    fid=fopen(raw,'r+b','ieee-le'); fseek(fid,offset,'bof'); fwrite(fid,uint32(0),'uint32'); fclose(fid);
+    s=tibet_watch(input,output,cfg);
+    assert(s.deleted_raw==0 && s.failed==1 && exist(raw,'file')==2);
+end
+fprintf('PASS retention: verified deletion, changed-cut refusal, zero-event cleanup, overview repair, damaged input/header retention, UTC dates\n');
 end
