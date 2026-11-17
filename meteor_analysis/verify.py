@@ -111,7 +111,7 @@ def main():
         if record["upper_open"]:
             assert np.isnan(record["initial_radius_m"])
     atlas = pymupdf.open(args.run / "tibet_meteor_event_atlas.pdf")
-    assert len(atlas) == 2 + 2 * len(events)
+    assert len(atlas) in (2 + len(events), 2 + 2 * len(events))
     ink = []
     for page in atlas:
         pix = page.get_pixmap(matrix=pymupdf.Matrix(0.2, 0.2), alpha=False)

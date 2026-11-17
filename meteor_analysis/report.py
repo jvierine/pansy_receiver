@@ -11,6 +11,8 @@ from pypdf import PdfWriter
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("run", type=Path)
+    p.add_argument("--include-channel-diagnostics", action="store_true",
+                   help="Append the detailed receiver phase/amplitude pages")
     a = p.parse_args()
     directory = a.run / "report"
     directory.mkdir(exist_ok=True)
@@ -105,7 +107,8 @@ Space weather and Earth orientation: \href{https://celestrak.org/SpaceData/}{Cel
     for path in sorted((a.run / "events").glob("event_*.h5")):
         name = path.stem
         atlas.append(a.run / "figures" / f"{name}.pdf")
-        atlas.append(a.run / "figures" / f"{name}_channels.pdf")
+        if a.include_channel_diagnostics:
+            atlas.append(a.run / "figures" / f"{name}_channels.pdf")
     atlas.write(a.run / "tibet_meteor_event_atlas.pdf")
     print(a.run / "tibet_meteor_event_atlas.pdf")
 
